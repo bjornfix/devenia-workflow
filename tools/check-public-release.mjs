@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -39,6 +40,39 @@ function gitFiles() {
   }
 }
 
+function verifyGitArchiveExcludes() {
+  let tempDir = "";
+  try {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `${slug}-release-check-`));
+    const zipPath = path.join(tempDir, `${slug}.zip`);
+    const treeId = execFileSync("git", ["write-tree"], { cwd: base, encoding: "utf8" }).trim();
+    execFileSync(
+      "git",
+      ["archive", "--format=zip", `--output=${zipPath}`, `--prefix=${slug}/`, treeId],
+      { cwd: base, stdio: "pipe" },
+    );
+    const listing = execFileSync("unzip", ["-Z1", zipPath], { cwd: base, encoding: "utf8" })
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const forbidden = listing.filter((entry) => (
+      entry.startsWith(`${slug}/tools/`)
+      || entry === `${slug}/.gitattributes`
+      || entry.startsWith(`${slug}/.git`)
+      || entry.startsWith(`${slug}/node_modules/`)
+    ));
+    if (forbidden.length > 0) {
+      issue(".gitattributes", "archive_contains_non_public_paths", "Git archive release package contains development-only paths.", { forbidden });
+    }
+  } catch (error) {
+    issue(".gitattributes", "archive_export_check_failed", error instanceof Error ? error.message : String(error));
+  } finally {
+    if (tempDir) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+}
+
 const headerVersion = matchOne(mainFile, /^\s*\*\s*Version:\s*(.+)$/m, "missing_plugin_version", "Plugin header Version is missing.");
 const constantVersion = matchOne(mainFile, /const\s+VERSION\s*=\s*'([^']+)'/, "missing_version_constant", "VERSION constant is missing.");
 const stableTag = matchOne("readme.txt", /^Stable tag:\s*(.+)$/m, "missing_stable_tag", "readme.txt Stable tag is missing.");
@@ -61,6 +95,8 @@ if (!fs.existsSync(path.join(base, ".gitattributes"))) {
     issue(".gitattributes", "missing_self_export_ignore", "Git archive release packages must not include .gitattributes.");
   }
 }
+
+verifyGitArchiveExcludes();
 
 if (headerVersion && constantVersion && headerVersion !== constantVersion) {
   issue(mainFile, "version_mismatch", "Plugin header Version and VERSION constant differ.", { headerVersion, constantVersion });
