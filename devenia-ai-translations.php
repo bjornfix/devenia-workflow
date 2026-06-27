@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.267
+ * Version: 0.1.268
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.267';
+	const VERSION = '0.1.268';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -6310,123 +6310,123 @@ final class Devenia_AI_Translations {
 	 * @param mixed  $input     Ability input.
 	 * @return array
 	 */
-		private static function run_ability_operation( string $operation, $input = array() ): array {
-			$input = is_array( $input ) ? $input : array();
-			$input = self::normalize_ability_input( $operation, $input );
+	private static function run_ability_operation( string $operation, $input = array() ): array {
+		$input = is_array( $input ) ? $input : array();
+		$input = self::normalize_ability_input( $operation, $input );
 
-			switch ( $operation ) {
-			case 'list_languages':
-				$configuration = self::language_configuration_status();
-				return array(
-					'success'               => true,
-					'languages'              => self::languages(),
-					'configuration'          => $configuration['languages'],
-					'configuration_complete' => $configuration['complete'],
-					'missing_configuration'  => $configuration['missing'],
-				);
-			case 'language_files_status':
-				$status  = self::validate_language_files();
-				$missing = array();
+		switch ( $operation ) {
+		case 'list_languages':
+			$configuration = self::language_configuration_status();
+			return array(
+				'success'               => true,
+				'languages'              => self::languages(),
+				'configuration'          => $configuration['languages'],
+				'configuration_complete' => $configuration['complete'],
+				'missing_configuration'  => $configuration['missing'],
+			);
+		case 'language_files_status':
+			$status  = self::validate_language_files();
+			$missing = array();
 
-				foreach ( $status as $language => $row ) {
-					if ( empty( $row['exists'] ) || empty( $row['valid_json'] ) || empty( $row['has_wordpress_locale'] ) || empty( $row['has_menu'] ) || empty( $row['has_widget_text'] ) || empty( $row['has_not_found_text'] ) || empty( $row['has_not_found_routes'] ) || empty( $row['has_language_profile'] ) || ! empty( $row['language_profile_issues'] ) || ! empty( $row['widget_link_issues'] ) || ! empty( $row['link_issues'] ) ) {
-						$missing[] = $language;
-					}
+			foreach ( $status as $language => $row ) {
+				if ( empty( $row['exists'] ) || empty( $row['valid_json'] ) || empty( $row['has_wordpress_locale'] ) || empty( $row['has_menu'] ) || empty( $row['has_widget_text'] ) || empty( $row['has_not_found_text'] ) || empty( $row['has_not_found_routes'] ) || empty( $row['has_language_profile'] ) || ! empty( $row['language_profile_issues'] ) || ! empty( $row['widget_link_issues'] ) || ! empty( $row['link_issues'] ) ) {
+					$missing[] = $language;
 				}
+			}
 
-				return array(
-					'success'        => empty( $missing ),
-					'language_files' => $status,
-					'missing'        => $missing,
-				);
-			case 'translation_fitness_status':
-				return self::translation_fitness_regression_status( $input );
-			case 'lifecycle_regression_status':
-				return self::translation_lifecycle_regression_status( $input );
-			case 'language_packs_status':
-				return self::wordpress_language_pack_status( ! empty( $input['install_missing'] ) );
-			case 'translation_index_status':
-				return self::translation_index_status( $input );
-			case 'gutenberg_content_safety_scan':
-				return self::gutenberg_content_safety_scan( $input );
-			case 'frontend_performance_status':
-				return self::frontend_performance_status( $input );
-			case 'warm_cache':
-				return self::warm_translation_cache( $input );
-			case 'update_runtime_text':
-				return self::update_runtime_language_text( $input );
-			case 'get_quality_profile':
-				return self::get_runtime_quality_profile( $input );
-			case 'update_quality_profile':
-				return self::update_runtime_quality_profile( $input );
-			case 'record_language_rule_event':
-				return self::record_language_rule_event( $input );
-			case 'list_language_rule_events':
-				return self::list_language_rule_events( $input );
-			case 'learning_inbox':
-				return self::learning_inbox( $input );
-			case 'review_learning_event':
-				return self::review_learning_event( $input );
-			case 'language_policy_status':
-				return self::language_policy_status( $input );
-			case 'agency_copy_brief':
-				return self::agency_copy_brief( $input );
-			case 'record_copy_feedback':
-				return self::record_copy_feedback( $input );
-			case 'get_reviewer_style_profile':
-				return self::get_reviewer_style_profile( $input );
-			case 'record_reviewer_style_edit':
-				return self::record_reviewer_style_edit( $input );
-			case 'update_blog_taxonomy_paths':
-				return self::update_blog_taxonomy_paths( $input );
-			case 'update_source_qa_options':
-				return self::update_source_qa_options( $input );
-			case 'authored_original_intake_queue':
-				return self::authored_original_intake_queue( $input );
-			case 'update_authored_original_intake':
-				return self::update_authored_original_intake( $input );
-			case 'create_source_from_authored_original':
-				return self::create_source_from_authored_original( $input );
-			case 'mark_source_generation_reviewed':
-				return self::mark_source_generation_reviewed( $input );
-			case 'get_source':
-				return self::get_source_payload( (int) ( $input['source_id'] ?? 0 ) );
-			case 'upsert_page':
-				return self::upsert_translation( $input );
-			case 'list_translations':
-				return self::list_translations( $input );
-			case 'mark_reviewed':
-				return self::mark_reviewed( (int) ( $input['translation_id'] ?? 0 ), (string) ( $input['translation_status'] ?? '' ) );
-			case 'qa_translation':
-				return self::qa_translation( $input );
-			case 'mark_linguistic_reviewed':
-				return self::mark_linguistic_reviewed( $input );
-			case 'publish_translation':
-				return self::publish_translation( $input );
-			case 'verify_live_translation':
-				return self::verify_live_translation( $input );
-			case 'workflow_status':
-				return self::workflow_status( (int) ( $input['source_id'] ?? 0 ) );
-			case 'queue':
-				return self::translation_queue( $input );
-			case 'review_queue':
-				return self::review_queue( $input );
-			case 'quality_review_queue':
-				return self::quality_review_queue( $input );
-			case 'quality_verdict':
-				return self::quality_verdict( $input );
-			case 'internal_link_opportunities':
-				return self::internal_link_opportunities( $input );
-			case 'mark_quality_reviewed':
-				return self::mark_quality_reviewed( $input );
-			case 'sync_menu':
-				return self::sync_language_menu( $input );
-			case 'repair_url_hierarchy':
-				return self::repair_url_hierarchy( $input );
-			case 'repair_internal_links':
-				return self::repair_internal_links( $input );
-			case 'repair_featured_images':
-				return self::repair_featured_images( $input );
+			return array(
+				'success'        => empty( $missing ),
+				'language_files' => $status,
+				'missing'        => $missing,
+			);
+		case 'translation_fitness_status':
+			return self::translation_fitness_regression_status( $input );
+		case 'lifecycle_regression_status':
+			return self::translation_lifecycle_regression_status( $input );
+		case 'language_packs_status':
+			return self::wordpress_language_pack_status( ! empty( $input['install_missing'] ) );
+		case 'translation_index_status':
+			return self::translation_index_status( $input );
+		case 'gutenberg_content_safety_scan':
+			return self::gutenberg_content_safety_scan( $input );
+		case 'frontend_performance_status':
+			return self::frontend_performance_status( $input );
+		case 'warm_cache':
+			return self::warm_translation_cache( $input );
+		case 'update_runtime_text':
+			return self::update_runtime_language_text( $input );
+		case 'get_quality_profile':
+			return self::get_runtime_quality_profile( $input );
+		case 'update_quality_profile':
+			return self::update_runtime_quality_profile( $input );
+		case 'record_language_rule_event':
+			return self::record_language_rule_event( $input );
+		case 'list_language_rule_events':
+			return self::list_language_rule_events( $input );
+		case 'learning_inbox':
+			return self::learning_inbox( $input );
+		case 'review_learning_event':
+			return self::review_learning_event( $input );
+		case 'language_policy_status':
+			return self::language_policy_status( $input );
+		case 'agency_copy_brief':
+			return self::agency_copy_brief( $input );
+		case 'record_copy_feedback':
+			return self::record_copy_feedback( $input );
+		case 'get_reviewer_style_profile':
+			return self::get_reviewer_style_profile( $input );
+		case 'record_reviewer_style_edit':
+			return self::record_reviewer_style_edit( $input );
+		case 'update_blog_taxonomy_paths':
+			return self::update_blog_taxonomy_paths( $input );
+		case 'update_source_qa_options':
+			return self::update_source_qa_options( $input );
+		case 'authored_original_intake_queue':
+			return self::authored_original_intake_queue( $input );
+		case 'update_authored_original_intake':
+			return self::update_authored_original_intake( $input );
+		case 'create_source_from_authored_original':
+			return self::create_source_from_authored_original( $input );
+		case 'mark_source_generation_reviewed':
+			return self::mark_source_generation_reviewed( $input );
+		case 'get_source':
+			return self::get_source_payload( (int) ( $input['source_id'] ?? 0 ) );
+		case 'upsert_page':
+			return self::upsert_translation( $input );
+		case 'list_translations':
+			return self::list_translations( $input );
+		case 'mark_reviewed':
+			return self::mark_reviewed( (int) ( $input['translation_id'] ?? 0 ), (string) ( $input['translation_status'] ?? '' ) );
+		case 'qa_translation':
+			return self::qa_translation( $input );
+		case 'mark_linguistic_reviewed':
+			return self::mark_linguistic_reviewed( $input );
+		case 'publish_translation':
+			return self::publish_translation( $input );
+		case 'verify_live_translation':
+			return self::verify_live_translation( $input );
+		case 'workflow_status':
+			return self::workflow_status( (int) ( $input['source_id'] ?? 0 ) );
+		case 'queue':
+			return self::translation_queue( $input );
+		case 'review_queue':
+			return self::review_queue( $input );
+		case 'quality_review_queue':
+			return self::quality_review_queue( $input );
+		case 'quality_verdict':
+			return self::quality_verdict( $input );
+		case 'internal_link_opportunities':
+			return self::internal_link_opportunities( $input );
+		case 'mark_quality_reviewed':
+			return self::mark_quality_reviewed( $input );
+		case 'sync_menu':
+			return self::sync_language_menu( $input );
+		case 'repair_url_hierarchy':
+			return self::repair_url_hierarchy( $input );
+		case 'repair_internal_links':
+			return self::repair_internal_links( $input );
+		case 'repair_featured_images':
+			return self::repair_featured_images( $input );
 		}
 
 		return self::error( 'Unknown translation operation.' );

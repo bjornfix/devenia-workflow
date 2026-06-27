@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.267
+Stable tag: 0.1.268
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -74,6 +74,10 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 == Changelog ==
 
+= 0.1.268 =
+* Registers optional vendor addon hooks only when the matching surface is present.
+* Cleans up the ability operation dispatcher indentation.
+
 = 0.1.267 =
 * Adds an administrator notice when the WordPress Abilities API is unavailable.
 * Cleans up indentation around ability registration helpers.
@@ -124,6 +128,9 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 Older workflow changes are kept in the project repository history.
 
 == Upgrade Notice ==
+
+= 0.1.268 =
+Registers optional vendor addon hooks only when the matching surface is present.
 
 = 0.1.267 =
 Adds an administrator notice when the WordPress Abilities API is unavailable.
