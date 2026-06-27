@@ -57,6 +57,7 @@ function verifyGitArchiveExcludes() {
       .filter(Boolean);
     const forbidden = listing.filter((entry) => (
       entry.startsWith(`${slug}/tools/`)
+      || entry === `${slug}/README.md`
       || entry === `${slug}/.gitattributes`
       || entry.startsWith(`${slug}/.git`)
       || entry.startsWith(`${slug}/node_modules/`)
@@ -93,6 +94,9 @@ if (!fs.existsSync(path.join(base, ".gitattributes"))) {
   }
   if (!/^\.gitattributes\s+export-ignore$/m.test(attributes)) {
     issue(".gitattributes", "missing_self_export_ignore", "Git archive release packages must not include .gitattributes.");
+  }
+  if (!/^README\.md\s+export-ignore$/m.test(attributes)) {
+    issue(".gitattributes", "missing_readme_md_export_ignore", "Git archive release packages must not include GitHub/development README.md when readme.txt is the public WordPress readme.");
   }
 }
 

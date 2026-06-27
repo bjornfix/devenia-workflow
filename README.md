@@ -7,7 +7,7 @@ WordPress workflow plugin for AI-assisted multilingual pages and posts.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.268
+**Stable tag:** 0.1.269
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -113,8 +113,6 @@ Use these surfaces instead:
 
 ## Installation
 
-This plugin is being prepared for public release. Review configuration, permissions, and quality gates before production use.
-
 1. Build or download the release ZIP.
 2. Install it through WordPress or WP-CLI.
 3. Activate `AI Translation Workflow`.
@@ -135,6 +133,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.269
+
+- Excludes GitHub/development README content from release archives.
+- Extends the public release gate so WordPress release ZIPs use `readme.txt` as the public readme surface.
 
 ### 0.1.268
 

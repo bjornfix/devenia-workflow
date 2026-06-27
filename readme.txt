@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.268
+Stable tag: 0.1.269
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -74,6 +74,10 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 == Changelog ==
 
+= 0.1.269 =
+* Excludes GitHub/development README content from release archives.
+* Extends the public release gate so WordPress release ZIPs use readme.txt as the public readme surface.
+
 = 0.1.268 =
 * Registers optional vendor addon hooks only when the matching surface is present.
 * Cleans up the ability operation dispatcher indentation.
@@ -128,6 +132,9 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 Older workflow changes are kept in the project repository history.
 
 == Upgrade Notice ==
+
+= 0.1.269 =
+Keeps development README content out of WordPress release ZIPs.
 
 = 0.1.268 =
 Registers optional vendor addon hooks only when the matching surface is present.
