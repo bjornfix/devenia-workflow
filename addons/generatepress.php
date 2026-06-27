@@ -30,6 +30,7 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 		add_action( 'generate_menu_bar_items', array( 'Devenia_AI_Translations', 'render_mobile_language_menu_bar_item' ), 18 );
 		add_filter( 'generate_logo_href', array( 'Devenia_AI_Translations', 'filter_logo_home_href' ), 20 );
 		add_filter( 'generate_site_title_href', array( 'Devenia_AI_Translations', 'filter_logo_home_href' ), 20 );
+		add_filter( 'ai_translation_workflow_sync_source_presentation_meta', array( __CLASS__, 'sync_source_presentation_meta' ), 10, 3 );
 		add_action( 'wp_enqueue_scripts', array( 'Devenia_AI_Translations', 'enqueue_rtl_layout_styles' ), 22 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_styles' ), 24 );
 
@@ -109,6 +110,51 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 			array(),
 			is_readable( $path ) ? (string) filemtime( $path ) : Devenia_AI_Translations::VERSION
 		);
+	}
+
+	/**
+	 * Mirror GeneratePress presentation meta from source content to translations.
+	 *
+	 * @param array<string,mixed> $result Presentation sync result.
+	 * @param int                 $translation_id Translation post ID.
+	 * @param WP_Post             $source Source post.
+	 * @return array<string,mixed>
+	 */
+	public static function sync_source_presentation_meta( array $result, int $translation_id, WP_Post $source ): array {
+		$result['generatepress_meta'] = array(
+			'updated' => array(),
+			'deleted' => array(),
+		);
+
+		$meta_keys = array(
+			'_generate-disable-headline',
+			'_generate-disable-nav',
+			'_generate-disable-footer',
+			'_generate-disable-footer-widgets',
+			'_generate-sidebar-layout-meta',
+			'_generate-full-width-content',
+			'_generate-transparent-header',
+			'_generate-sticky-navigation-meta',
+		);
+
+		foreach ( $meta_keys as $meta_key ) {
+			$value  = get_post_meta( $source->ID, $meta_key, true );
+			$before = get_post_meta( $translation_id, $meta_key, true );
+			if ( '' === $value ) {
+				delete_post_meta( $translation_id, $meta_key );
+				if ( '' !== $before ) {
+					$result['generatepress_meta']['deleted'][] = $meta_key;
+				}
+				continue;
+			}
+
+			update_post_meta( $translation_id, $meta_key, $value );
+			if ( $before !== $value ) {
+				$result['generatepress_meta']['updated'][] = $meta_key;
+			}
+		}
+
+		return $result;
 	}
 }
 

@@ -7,7 +7,7 @@ WordPress workflow plugin for AI-assisted multilingual pages and posts.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.261
+**Stable tag:** 0.1.262
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -135,6 +135,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.262
+
+- Moves GeneratePress presentation-meta sync behind the optional GeneratePress
+  addon so the core workflow stays theme-neutral.
 
 ### 0.1.261
 

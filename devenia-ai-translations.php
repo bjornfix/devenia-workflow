@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.261
+ * Version: 0.1.262
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.261';
+	const VERSION = '0.1.262';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -17778,10 +17778,6 @@ final class Devenia_AI_Translations {
 				'changed' => false,
 				'skipped' => 'page' !== $source->post_type,
 			),
-			'generatepress_meta' => array(
-				'updated' => array(),
-				'deleted' => array(),
-			),
 		);
 
 		if ( 'page' === $source->post_type ) {
@@ -17799,34 +17795,14 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		$meta_keys = array(
-			'_generate-disable-headline',
-			'_generate-disable-nav',
-			'_generate-disable-footer',
-			'_generate-disable-footer-widgets',
-			'_generate-sidebar-layout-meta',
-			'_generate-full-width-content',
-			'_generate-transparent-header',
-			'_generate-sticky-navigation-meta',
-		);
-
-		foreach ( $meta_keys as $meta_key ) {
-			$value = get_post_meta( $source->ID, $meta_key, true );
-			$before = get_post_meta( $translation_id, $meta_key, true );
-			if ( '' === $value ) {
-				delete_post_meta( $translation_id, $meta_key );
-				if ( '' !== $before ) {
-					$result['generatepress_meta']['deleted'][] = $meta_key;
-				}
-				continue;
-			}
-			update_post_meta( $translation_id, $meta_key, $value );
-			if ( $before !== $value ) {
-				$result['generatepress_meta']['updated'][] = $meta_key;
-			}
-		}
-
-		return $result;
+		/**
+		 * Let optional theme/builder addons mirror presentation metadata.
+		 *
+		 * @param array<string,mixed> $result Presentation sync result.
+		 * @param int                 $translation_id Translation post ID.
+		 * @param WP_Post             $source Source post.
+		 */
+		return apply_filters( 'ai_translation_workflow_sync_source_presentation_meta', $result, $translation_id, $source );
 	}
 
 	/**
