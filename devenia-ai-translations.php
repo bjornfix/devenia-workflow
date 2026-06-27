@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.271
+ * Version: 0.1.272
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.271';
+	const VERSION = '0.1.272';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -150,16 +150,12 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Share translation/WPML/Polylang translation siblings with Elementor write guards.
+	 * Share translation/WPML/Polylang sibling IDs with optional write-guard adapters.
 	 *
-	 * @param array   $sibling_ids Existing sibling IDs.
-	 * @param int     $post_id Source post ID.
-	 * @param WP_Post $post Source post.
-	 * @return array
+	 * @param array<int,int> $sibling_ids Existing sibling IDs.
+	 * @return array<int,int>
 	 */
-	public static function filter_elementor_translation_sibling_post_ids( array $sibling_ids, int $post_id, WP_Post $post ): array {
-		unset( $post );
-
+	public static function translation_sibling_ids_for_write_guards( array $sibling_ids, int $post_id ): array {
 		$ids = array_merge(
 			$sibling_ids,
 			self::translation_sibling_post_ids( $post_id ),
@@ -7857,9 +7853,9 @@ final class Devenia_AI_Translations {
 				'title'             => array( 'type' => 'string' ),
 				'content'           => array( 'type' => 'string' ),
 				'excerpt'           => array( 'type' => 'string' ),
-				'seo'               => array(
-					'type'        => 'object',
-					'description' => 'Optional Rank Math SEO metadata for the translated content. If omitted, the workflow syncs the SEO title from the translated title and the description from the excerpt or visible content.',
+					'seo'               => array(
+						'type'        => 'object',
+						'description' => 'Optional SEO metadata for the translated content. If omitted, the workflow prepares an SEO title from the translated title and a description from the excerpt or visible content. Installed SEO adapters decide how to store the metadata.',
 					'properties'  => array(
 						'title' => array(
 							'type'        => 'string',
@@ -7877,10 +7873,10 @@ final class Devenia_AI_Translations {
 							'type'        => 'string',
 							'description' => 'Localized meta description.',
 						),
-						'focus_keyword' => array(
-							'type'        => 'string',
-							'description' => 'Localized Rank Math focus keyword(s), comma-separated when needed.',
-						),
+							'focus_keyword' => array(
+								'type'        => 'string',
+								'description' => 'Localized focus keyword(s), comma-separated when needed.',
+							),
 						'keyword' => array(
 							'type'        => 'string',
 							'description' => 'Alias for focus_keyword.',
@@ -8037,9 +8033,9 @@ final class Devenia_AI_Translations {
 					'default' => 'reviewed',
 					'enum'    => array( 'draft', 'needs_review', 'reviewed' ),
 				),
-				'seo'               => array(
-					'type'        => 'object',
-					'description' => 'Optional Rank Math metadata for the generated English source.',
+					'seo'               => array(
+						'type'        => 'object',
+						'description' => 'Optional SEO metadata for the generated English source. Installed SEO adapters decide how to store the metadata.',
 					'properties'  => array(
 						'title' => array( 'type' => 'string' ),
 						'seo_title' => array( 'type' => 'string' ),
@@ -8497,7 +8493,7 @@ final class Devenia_AI_Translations {
 		}
 
 		self::copy_authored_original_presentation_to_generated_source( $source_id, $authored );
-		$english_seo = self::sync_rank_math_translation_seo_meta( $source_id, $input, $english_title, $english_excerpt, $english_content );
+		$english_seo = self::sync_translation_seo_meta( $source_id, $input, $english_title, $english_excerpt, $english_content );
 		$authored_hash = self::source_hash( $authored );
 		$source_hash   = self::source_hash( $source );
 		self::store_generated_source_provenance( $source_id, $authored_id, $authored_language, $authored_hash, 'needs_review' );
@@ -9507,7 +9503,7 @@ final class Devenia_AI_Translations {
 				return $term_result;
 			}
 		}
-		$seo_meta = self::sync_rank_math_translation_seo_meta( $translation_id, $input, $title, $excerpt, $content );
+		$seo_meta = self::sync_translation_seo_meta( $translation_id, $input, $title, $excerpt, $content );
 		$lifecycle = self::apply_translation_lifecycle_meta( $translation_id, $source_id, $language, $translation_status, $source );
 		$review_invalidated = '' !== $previous_review_hash
 			? self::invalidate_translation_reviews_if_content_changed( $translation_id, 'upsert_translation', $previous_review_hash )
@@ -9530,9 +9526,9 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Keep Rank Math metadata aligned with translated content updates.
+	 * Prepare SEO metadata and let installed SEO adapters persist it.
 	 */
-	private static function sync_rank_math_translation_seo_meta( int $translation_id, array $input, string $title, string $excerpt, string $content ): array {
+	private static function sync_translation_seo_meta( int $translation_id, array $input, string $title, string $excerpt, string $content ): array {
 		$seo_input = isset( $input['seo'] ) && is_array( $input['seo'] ) ? $input['seo'] : array();
 		$seo_title = self::seo_meta_input_value( $seo_input, array( 'seo_title', 'title' ) );
 		if ( '' === $seo_title ) {
@@ -9545,29 +9541,35 @@ final class Devenia_AI_Translations {
 		}
 
 		$focus_keyword = self::seo_meta_input_value( $seo_input, array( 'focus_keyword', 'keyword' ) );
-		$updated       = array();
-
-		if ( '' !== $seo_title ) {
-			update_post_meta( $translation_id, 'rank_math_title', sanitize_text_field( $seo_title ) );
-			$updated[] = 'rank_math_title';
-		}
-		if ( '' !== $seo_description ) {
-			update_post_meta( $translation_id, 'rank_math_description', sanitize_textarea_field( $seo_description ) );
-			$updated[] = 'rank_math_description';
-		}
-		if ( '' !== $focus_keyword ) {
-			update_post_meta( $translation_id, 'rank_math_focus_keyword', sanitize_text_field( $focus_keyword ) );
-			$updated[] = 'rank_math_focus_keyword';
-		}
-
-		if ( $updated ) {
-			clean_post_cache( $translation_id );
-		}
-
-		return array(
+		$fields        = array(
+			'title'         => $seo_title,
+			'description'   => $seo_description,
+			'focus_keyword' => $focus_keyword,
+		);
+		$result        = array(
 			'success'        => true,
-			'updated'        => $updated,
+			'updated'        => array(),
 			'auto_generated' => empty( $seo_input ),
+			'adapters'       => array(),
+		);
+
+		$result = apply_filters(
+			'ai_translation_workflow_sync_seo_meta',
+			$result,
+			$translation_id,
+			$fields,
+			array(
+				'auto_generated' => empty( $seo_input ),
+				'input'          => $seo_input,
+			)
+		);
+
+		return is_array( $result ) ? $result : array(
+			'success'        => false,
+			'updated'        => array(),
+			'auto_generated' => empty( $seo_input ),
+			'adapters'       => array(),
+			'message'        => 'SEO metadata adapter returned an invalid result.',
 		);
 	}
 
@@ -10478,7 +10480,7 @@ final class Devenia_AI_Translations {
 					'Refresh stored SEO metadata so search, social, and schema titles match the current content.',
 					'medium',
 					false,
-					'rankmath/update-meta'
+						'ai-translations/upsert-translation'
 				);
 			case 'open_copy_feedback':
 				return self::quality_verdict_next_action(
@@ -10625,7 +10627,7 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		$seo_meta_state = self::rank_math_seo_meta_state_for_post( $post );
+			$seo_meta_state = self::seo_meta_state_for_post( $post );
 		if ( 'post_publish' === $stage && empty( $seo_meta_state['passed'] ) ) {
 			$blockers[] = self::quality_verdict_blocker(
 				'seo_meta_not_current',
@@ -10791,46 +10793,27 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Detect custom Rank Math titles that were left behind after a content title change.
+	 * Let installed SEO adapters report whether stored SEO metadata is current.
 	 */
-	private static function rank_math_seo_meta_state_for_post( WP_Post $post ): array {
-		$post_id       = (int) $post->ID;
-		$current_title = self::normalize_review_text( wp_strip_all_tags( get_the_title( $post ) ) );
-		$seo_title     = self::normalize_review_text( (string) get_post_meta( $post_id, 'rank_math_title', true ) );
-		$description   = self::normalize_review_text( (string) get_post_meta( $post_id, 'rank_math_description', true ) );
-		$focus_keyword = self::normalize_review_text( (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true ) );
-		$stale_fields  = array();
-
-		if ( '' !== $seo_title && '' !== $current_title && ! self::rank_math_seo_title_matches_post_title( $seo_title, $current_title ) ) {
-			$stale_fields[] = 'rank_math_title';
-		}
-
-		return array(
-			'passed'       => empty( $stale_fields ),
-			'state'        => empty( $stale_fields ) ? ( '' === $seo_title ? 'default_title_pattern' : 'current' ) : 'stale',
-			'stale_fields' => $stale_fields,
-			'has_custom_title' => '' !== $seo_title,
-			'has_description'  => '' !== $description,
-			'has_focus_keyword'=> '' !== $focus_keyword,
+	private static function seo_meta_state_for_post( WP_Post $post ): array {
+		$state = array(
+			'passed'            => true,
+			'state'             => 'not_checked',
+			'stale_fields'      => array(),
+			'has_custom_title'  => null,
+			'has_description'   => null,
+			'has_focus_keyword' => null,
+			'adapters'          => array(),
 		);
-	}
 
-	/**
-	 * Rank Math titles may be exact titles, contain the title, or use %title%.
-	 */
-	private static function rank_math_seo_title_matches_post_title( string $seo_title, string $post_title ): bool {
-		$seo_title  = self::normalize_review_text( $seo_title );
-		$post_title = self::normalize_review_text( $post_title );
-		if ( '' === $seo_title || '' === $post_title ) {
-			return true;
-		}
-		if ( false !== strpos( $seo_title, '%title%' ) ) {
-			return true;
-		}
-		$seo_lower  = self::lower_review_text( $seo_title );
-		$post_lower = self::lower_review_text( $post_title );
+		$state = apply_filters( 'ai_translation_workflow_seo_meta_state', $state, $post );
 
-		return $seo_lower === $post_lower || false !== strpos( $seo_lower, $post_lower );
+		return is_array( $state ) ? $state : array(
+			'passed'       => true,
+			'state'        => 'adapter_invalid',
+			'stale_fields' => array(),
+			'adapters'     => array(),
+		);
 	}
 
 	/**
@@ -11709,7 +11692,7 @@ final class Devenia_AI_Translations {
 			}
 			$duplicate_slug_changed = ! empty( $duplicate_slug_repair['changed'] );
 			if ( $duplicate_slug_changed && $dry_run ) {
-				$self_redirect_repair = self::repair_translation_rank_math_self_redirects( $translation_id, true );
+					$self_redirect_repair = self::repair_translation_seo_self_redirects( $translation_id, true );
 				$changed[] = array(
 					'translation_id' => $translation_id,
 					'source_id'      => $source_id,
@@ -11725,13 +11708,13 @@ final class Devenia_AI_Translations {
 				);
 				continue;
 			}
-			$self_redirect_repair = self::repair_translation_rank_math_self_redirects( $translation_id, $dry_run );
+				$self_redirect_repair = self::repair_translation_seo_self_redirects( $translation_id, $dry_run );
 			if ( empty( $self_redirect_repair['success'] ) ) {
 				$skipped[] = array(
 					'translation_id' => $translation_id,
 					'source_id'      => $source_id,
 					'language'       => $language,
-					'reason'         => 'rank_math_self_redirect_repair_failed',
+						'reason'         => 'seo_self_redirect_repair_failed',
 					'self_redirect_repair' => $self_redirect_repair,
 				);
 				continue;
@@ -13283,7 +13266,7 @@ final class Devenia_AI_Translations {
 	/**
 	 * Normalize URL/path to a root-relative path with a leading slash.
 	 */
-	private static function normalized_url_path( string $url ): string {
+	public static function normalized_url_path( string $url ): string {
 		$path = wp_parse_url( $url, PHP_URL_PATH );
 		if ( ! is_string( $path ) || '' === $path ) {
 			return '';
@@ -15468,7 +15451,7 @@ final class Devenia_AI_Translations {
 	/**
 	 * Frontend language from the current translated page or URL prefix.
 	 */
-	private static function frontend_language(): string {
+	public static function frontend_language(): string {
 		$surface = self::frontend_surface();
 		return (string) $surface['language'];
 	}
@@ -15665,55 +15648,6 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Give translated blog archives the same OpenGraph type as /blog/.
-	 */
-	public static function filter_translated_posts_page_opengraph_type( string $type ): string {
-		return self::is_translated_posts_page_request() ? 'website' : $type;
-	}
-
-	/**
-	 * Keep translated posts-page archive canonical URLs query-free.
-	 */
-	public static function filter_translated_posts_page_canonical( string $canonical ): string {
-		if ( ! self::is_translated_posts_page_request() ) {
-			return $canonical;
-		}
-
-		$base_url = self::translated_posts_page_base_url();
-
-		return $base_url ?: $canonical;
-	}
-
-	/**
-	 * Keep translated posts-page archive SEO titles on the archive surface.
-	 */
-	public static function filter_translated_posts_page_seo_title( string $title ): string {
-		if ( ! self::is_translated_posts_page_request() ) {
-			return $title;
-		}
-
-		$post_title = trim( wp_strip_all_tags( get_the_title( get_queried_object_id() ) ) );
-		if ( '' === $post_title ) {
-			$post_title = __( 'Blog', 'devenia-ai-translations' );
-		}
-
-		$site_name = trim( wp_strip_all_tags( get_bloginfo( 'name' ) ) );
-
-		return '' === $site_name ? $post_title : sprintf( '%s | %s', $post_title, $site_name );
-	}
-
-	/**
-	 * Keep translated posts-page archive descriptions accurate even when page meta is stale.
-	 */
-	public static function filter_translated_posts_page_seo_description( string $description ): string {
-		if ( ! self::is_translated_posts_page_request() ) {
-			return $description;
-		}
-
-		return self::translated_posts_page_meta_description( self::frontend_language() );
-	}
-
-	/**
 	 * Redirect duplicate translated posts-page page-1 query URLs to the clean archive URL.
 	 */
 	public static function redirect_translated_posts_page_first_page_query(): void {
@@ -15742,46 +15676,6 @@ final class Devenia_AI_Translations {
 
 		wp_safe_redirect( $base_url, 301 );
 		exit;
-	}
-
-	/**
-	 * Remove singular Article schema from translated blog archives.
-	 *
-	 * @param array<string,mixed> $data Rank Math JSON-LD data.
-	 * @param mixed               $jsonld Rank Math JSON-LD context object.
-	 * @return array<string,mixed>
-	 */
-	public static function filter_translated_posts_page_json_ld( array $data, $jsonld ): array {
-		if ( ! self::is_translated_posts_page_request() ) {
-			return $data;
-		}
-
-		foreach ( $data as $key => $entity ) {
-			if ( ! is_array( $entity ) ) {
-				continue;
-			}
-
-			$type = $entity['@type'] ?? '';
-			if ( is_array( $type ) ) {
-				$type = reset( $type );
-			}
-
-			if ( in_array( $type, array( 'Article', 'BlogPosting', 'Person' ), true ) ) {
-				unset( $data[ $key ] );
-				continue;
-			}
-
-			if ( 'WebPage' === $type || 'CollectionPage' === $type ) {
-				$data[ $key ]['@type'] = 'CollectionPage';
-				unset(
-					$data[ $key ]['datePublished'],
-					$data[ $key ]['dateModified'],
-					$data[ $key ]['primaryImageOfPage']
-				);
-			}
-		}
-
-		return $data;
 	}
 
 	/**
@@ -15848,39 +15742,6 @@ final class Devenia_AI_Translations {
 		$classes[] = 'home';
 
 		return array_values( array_unique( $classes ) );
-	}
-
-	/**
-	 * Load optional source posts-page GenerateBlocks CSS for translated blog archives.
-	 */
-	public static function enqueue_translated_posts_page_source_styles(): void {
-		if ( ! self::is_translated_posts_page_request() ) {
-			return;
-		}
-
-		$posts_page_id = absint( get_option( 'page_for_posts' ) );
-		if ( ! $posts_page_id ) {
-			return;
-		}
-
-		$upload_dir = wp_upload_dir();
-		if ( empty( $upload_dir['baseurl'] ) || empty( $upload_dir['basedir'] ) ) {
-			return;
-		}
-
-		$relative = 'generateblocks/style-' . $posts_page_id . '.css';
-		$path     = trailingslashit( (string) $upload_dir['basedir'] ) . $relative;
-		$url      = trailingslashit( (string) $upload_dir['baseurl'] ) . $relative;
-		if ( ! is_readable( $path ) ) {
-			return;
-		}
-
-		wp_enqueue_style(
-			'devenia-ai-translations-posts-page-source',
-			$url,
-			array(),
-			(string) filemtime( $path )
-		);
 	}
 
 	/**
@@ -16363,7 +16224,7 @@ final class Devenia_AI_Translations {
 	private static function quick_copy_edit_mark_html( string $html, array $item ): string {
 		$attributes = self::quick_copy_edit_marker_attributes( $item );
 
-		if ( in_array( (string) ( $item['blockName'] ?? '' ), array( 'core/button', 'generateblocks/button' ), true ) ) {
+		if ( in_array( (string) ( $item['blockName'] ?? '' ), self::quick_copy_edit_button_block_names(), true ) ) {
 			return (string) preg_replace( '/<a\b/i', '<a' . $attributes, $html, 1 );
 		}
 
@@ -16474,8 +16335,8 @@ final class Devenia_AI_Translations {
 	/**
 	 * Mark a dynamically-rendered equivalent of a stored text block.
 	 *
-	 * GenerateBlocks dynamic blocks can render markup that is semantically the
-	 * same as stored block HTML while not being byte-for-byte identical. Keep the
+	 * Dynamic blocks can render markup that is semantically the same as stored
+	 * block HTML while not being byte-for-byte identical. Keep the
 	 * editable surface narrow by requiring a stable generated class and matching
 	 * visible text before adding quick-edit attributes.
 	 *
@@ -16525,7 +16386,7 @@ final class Devenia_AI_Translations {
 	 */
 	private static function quick_copy_edit_mark_rendered_simple_text( string $content, array $item ): string {
 		$block_name = (string) ( $item['blockName'] ?? '' );
-		if ( ! in_array( $block_name, array( 'core/paragraph', 'core/heading', 'core/list-item', 'core/button', 'generateblocks/headline', 'generateblocks/button' ), true ) ) {
+		if ( ! in_array( $block_name, self::quick_copy_edit_supported_block_names(), true ) ) {
 			return $content;
 		}
 
@@ -16575,7 +16436,7 @@ final class Devenia_AI_Translations {
 	 * @return array<int,string>
 	 */
 	private static function quick_copy_edit_rendered_match_tag_names( string $block_name, string $html ): array {
-		if ( in_array( $block_name, array( 'core/button', 'generateblocks/button' ), true ) ) {
+		if ( in_array( $block_name, self::quick_copy_edit_button_block_names(), true ) ) {
 			return array( 'a' );
 		}
 		if ( 'core/list-item' === $block_name ) {
@@ -16614,9 +16475,14 @@ final class Devenia_AI_Translations {
 			return '';
 		}
 
+		$adapter_class = apply_filters( 'ai_translation_workflow_quick_copy_edit_stable_render_class', '', $html, $classes );
+		if ( is_string( $adapter_class ) && '' !== $adapter_class ) {
+			return $adapter_class;
+		}
+
 		foreach ( $classes as $class ) {
 			$class = trim( (string) $class );
-			if ( preg_match( '/^gb-(?:headline|button)-[a-z0-9-]+$/i', $class ) ) {
+			if ( preg_match( '/^wp-block-[a-z0-9-]+$/i', $class ) ) {
 				return $class;
 			}
 		}
@@ -16697,17 +16563,37 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * @return array<int,string>
+	 */
+	private static function quick_copy_edit_supported_block_names(): array {
+		$names = array( 'core/paragraph', 'core/heading', 'core/list-item', 'core/button' );
+		$names = apply_filters( 'ai_translation_workflow_quick_copy_edit_supported_block_names', $names );
+
+		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/paragraph', 'core/heading', 'core/list-item', 'core/button' );
+	}
+
+	/**
+	 * @return array<int,string>
+	 */
+	private static function quick_copy_edit_button_block_names(): array {
+		$names = array( 'core/button' );
+		$names = apply_filters( 'ai_translation_workflow_quick_copy_edit_button_block_names', $names );
+
+		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/button' );
+	}
+
+	/**
 	 * Whether this block can be edited by replacing plain text only.
 	 */
 	private static function quick_copy_edit_block_supported( string $block_name, string $html ): bool {
-		if ( ! in_array( $block_name, array( 'core/paragraph', 'core/heading', 'core/list-item', 'core/button', 'generateblocks/headline', 'generateblocks/button' ), true ) ) {
+		if ( ! in_array( $block_name, self::quick_copy_edit_supported_block_names(), true ) ) {
 			return false;
 		}
 		if ( '' === self::quick_copy_edit_plain_text( $html ) ) {
 			return false;
 		}
 
-		if ( in_array( $block_name, array( 'core/button', 'generateblocks/button' ), true ) ) {
+		if ( in_array( $block_name, self::quick_copy_edit_button_block_names(), true ) ) {
 			return 1 === preg_match( '/<a\b[^>]*>[^<]*<\/a>/is', $html );
 		}
 
@@ -16719,7 +16605,7 @@ final class Devenia_AI_Translations {
 	 */
 	private static function quick_copy_edit_replace_block_text( string $block_name, string $html, string $text ): string {
 		$escaped = esc_html( $text );
-		if ( in_array( $block_name, array( 'core/button', 'generateblocks/button' ), true ) ) {
+		if ( in_array( $block_name, self::quick_copy_edit_button_block_names(), true ) ) {
 			return (string) preg_replace( '/(<a\b[^>]*>)[^<]*(<\/a>)/is', '$1' . $escaped . '$2', $html, 1 );
 		}
 
@@ -16865,10 +16751,8 @@ final class Devenia_AI_Translations {
 	private static function quick_copy_edit_block_label( string $block_name ): string {
 		switch ( $block_name ) {
 			case 'core/heading':
-			case 'generateblocks/headline':
 				return __( 'Heading', 'devenia-ai-translations' );
 			case 'core/button':
-			case 'generateblocks/button':
 				return __( 'Button', 'devenia-ai-translations' );
 			case 'core/list-item':
 				return __( 'List item', 'devenia-ai-translations' );
@@ -16915,7 +16799,7 @@ final class Devenia_AI_Translations {
 	/**
 	 * Return the clean URL for the current translated posts page.
 	 */
-	private static function translated_posts_page_base_url(): string {
+	public static function translated_posts_page_base_url(): string {
 		$post_id = get_queried_object_id();
 		if ( ! $post_id ) {
 			return '';
@@ -16940,7 +16824,7 @@ final class Devenia_AI_Translations {
 	/**
 	 * Localized archive meta descriptions for translated posts pages.
 	 */
-	private static function translated_posts_page_meta_description( string $language ): string {
+	public static function translated_posts_page_meta_description( string $language ): string {
 		$descriptions = array(
 			'ar'    => 'مقالات وأدلة وتحديثات حول المواقع وSEO والتقنية.',
 			'da'    => 'Artikler, guider og opdateringer om websites, SEO og teknik.',
@@ -19049,13 +18933,23 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		foreach ( self::rank_math_self_redirects_for_url( (string) get_permalink( $translation_id ) ) as $redirect ) {
-			$issues[] = self::qa_item(
-				'localized_permalink_self_redirect',
-				'An active Rank Math redirection source matches this translated page canonical URL and redirects back to the same URL.',
-				$redirect
+			$adapter_issues = apply_filters(
+				'ai_translation_workflow_route_integrity_issues',
+				array(),
+				$translation_id,
+				$language,
+				array(
+					'permalink' => (string) get_permalink( $translation_id ),
+					'summary'   => $summary,
+				)
 			);
-		}
+			if ( is_array( $adapter_issues ) ) {
+				foreach ( $adapter_issues as $adapter_issue ) {
+					if ( is_array( $adapter_issue ) ) {
+						$issues[] = $adapter_issue;
+					}
+				}
+			}
 
 		return array(
 			'passed'        => empty( $issues ),
@@ -19161,184 +19055,29 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Remove active Rank Math redirects that would redirect a translated page to itself.
+	 * Let SEO adapters repair self-redirects that would mask translated pages.
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function repair_translation_rank_math_self_redirects( int $translation_id, bool $dry_run ): array {
-		$post = get_post( $translation_id );
-		if ( ! $post || ! self::is_translation_post( $translation_id ) ) {
-			return array(
-				'success' => true,
-				'changed' => false,
-			);
-		}
-
-		$conflicts = self::rank_math_self_redirects_for_url( (string) get_permalink( $translation_id ) );
-		if ( empty( $conflicts ) ) {
-			return array(
-				'success' => true,
-				'changed' => false,
-			);
-		}
-
-		if ( $dry_run ) {
-			return array(
-				'success' => true,
-				'changed' => true,
-				'dry_run' => true,
-				'conflicts' => $conflicts,
-			);
-		}
-
-		global $wpdb;
-		$table = $wpdb->prefix . 'rank_math_redirections';
-		$ids   = array_values( array_unique( array_map( 'absint', wp_list_pluck( $conflicts, 'id' ) ) ) );
-		$ids   = array_values( array_filter( $ids ) );
-		if ( empty( $ids ) || ! self::rank_math_redirections_table_exists( $table ) ) {
-			return array(
-				'success' => false,
-				'changed' => false,
-				'message' => 'Rank Math self-redirect conflicts were detected, but no removable redirection IDs were available.',
-			);
-		}
-
-		$deleted = 0;
-		foreach ( $ids as $id ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-			$result = $wpdb->query(
-				$wpdb->prepare(
-					'DELETE FROM `' . esc_sql( $table ) . '` WHERE id = %d',
-					$id
-				)
-			);
-			if ( false === $result ) {
-				return array(
-					'success' => false,
-					'changed' => false,
-					'message' => 'Failed to delete Rank Math self-redirect conflicts.',
-				);
-			}
-			$deleted += (int) $result;
-		}
-
-		return array(
+	private static function repair_translation_seo_self_redirects( int $translation_id, bool $dry_run ): array {
+		$result = array(
 			'success' => true,
-			'changed' => 0 < (int) $deleted,
-			'deleted_count' => (int) $deleted,
-			'conflicts' => $conflicts,
+			'changed' => false,
+			'adapters' => array(),
 		);
-	}
 
-	/**
-	 * Find active Rank Math redirects whose source and destination normalize to the same URL path.
-	 *
-	 * @return array<int,array<string,mixed>>
-	 */
-	private static function rank_math_self_redirects_for_url( string $url ): array {
-		$target_path = self::normalized_url_path( $url );
-		if ( '' === $target_path ) {
-			return array();
-		}
-
-		global $wpdb;
-		$table = $wpdb->prefix . 'rank_math_redirections';
-		if ( ! self::rank_math_redirections_table_exists( $table ) ) {
-			return array();
-		}
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$rows = $wpdb->get_results(
-			$wpdb->prepare(
-				'SELECT id, sources, url_to, header_code, status FROM `' . esc_sql( $table ) . '` WHERE status = %s',
-				'active'
-			),
-			ARRAY_A
+		$result = apply_filters(
+			'ai_translation_workflow_repair_translation_self_redirects',
+			$result,
+			$translation_id,
+			$dry_run
 		);
-		if ( ! is_array( $rows ) ) {
-			return array();
-		}
 
-		$conflicts = array();
-		foreach ( $rows as $row ) {
-			$destination = isset( $row['url_to'] ) ? (string) $row['url_to'] : '';
-			$destination_path = self::normalized_url_path( $destination );
-			if ( '' === $destination_path || $destination_path !== $target_path ) {
-				continue;
-			}
-
-			foreach ( self::rank_math_redirection_sources( $row['sources'] ?? array() ) as $source ) {
-				$comparison = isset( $source['comparison'] ) ? (string) $source['comparison'] : 'exact';
-				if ( 'exact' !== $comparison ) {
-					continue;
-				}
-				$pattern = isset( $source['pattern'] ) ? (string) $source['pattern'] : '';
-				if ( self::normalized_url_path( $pattern ) !== $target_path ) {
-					continue;
-				}
-
-				$conflicts[] = array(
-					'id' => absint( $row['id'] ?? 0 ),
-					'source' => $pattern,
-					'destination' => $destination,
-					'path' => $target_path,
-					'header_code' => absint( $row['header_code'] ?? 0 ),
-					'status' => (string) ( $row['status'] ?? '' ),
-				);
-			}
-		}
-
-		return $conflicts;
-	}
-
-	/**
-	 * Decode Rank Math's stored redirection source list.
-	 *
-	 * @param mixed $raw Raw DB value.
-	 * @return array<int,array<string,mixed>>
-	 */
-	private static function rank_math_redirection_sources( $raw ): array {
-		if ( is_string( $raw ) ) {
-			$decoded = maybe_unserialize( $raw );
-			if ( is_string( $decoded ) ) {
-				$json = json_decode( $decoded, true );
-				if ( JSON_ERROR_NONE === json_last_error() ) {
-					$decoded = $json;
-				}
-			}
-		} else {
-			$decoded = $raw;
-		}
-
-		if ( ! is_array( $decoded ) ) {
-			return array();
-		}
-
-		$sources = array();
-		foreach ( $decoded as $source ) {
-			if ( is_array( $source ) ) {
-				$sources[] = $source;
-			}
-		}
-
-		return $sources;
-	}
-
-	/**
-	 * Check whether the Rank Math redirections table exists.
-	 */
-	private static function rank_math_redirections_table_exists( string $table ): bool {
-		static $cache = array();
-		if ( isset( $cache[ $table ] ) ) {
-			return $cache[ $table ];
-		}
-
-		global $wpdb;
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table );
-		$cache[ $table ] = $exists;
-
-		return $exists;
+		return is_array( $result ) ? $result : array(
+			'success' => false,
+			'changed' => false,
+			'message' => 'SEO self-redirect adapter returned an invalid result.',
+		);
 	}
 
 	/**
@@ -20454,7 +20193,7 @@ final class Devenia_AI_Translations {
 		$candidates = array();
 		foreach ( self::text_fragments_for_copy_quality( $source_content ) as $fragment ) {
 			$text = (string) $fragment['text'];
-			if ( empty( $fragment['heading'] ) && ! in_array( $fragment['block'], array( 'core/button', 'generateblocks/button' ), true ) && strlen( $text ) > 60 ) {
+			if ( empty( $fragment['heading'] ) && ! in_array( $fragment['block'], self::semantic_button_block_names(), true ) && strlen( $text ) > 60 ) {
 				continue;
 			}
 			if ( ! preg_match_all( '/(?<![\p{L}\p{N}_])[\p{Lu}][\p{L}\p{N}_-]{3,}(?![\p{L}\p{N}_])/u', $text, $matches ) ) {
@@ -20533,7 +20272,7 @@ final class Devenia_AI_Translations {
 			$name  = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
 			$attrs = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
 			$html  = isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '';
-			$is_text_block = in_array( $name, array( 'core/heading', 'core/paragraph', 'core/list', 'core/quote', 'core/button', 'generateblocks/headline', 'generateblocks/button' ), true );
+			$is_text_block = in_array( $name, self::copy_quality_text_block_names(), true );
 
 			if ( $is_text_block && '' !== trim( $html ) ) {
 				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $html ) ) );
@@ -20551,6 +20290,18 @@ final class Devenia_AI_Translations {
 				self::collect_text_fragments_for_copy_quality( $block['innerBlocks'], $fragments );
 			}
 		}
+	}
+
+	/**
+	 * Block names that should be treated as visible text for copy quality checks.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function copy_quality_text_block_names(): array {
+		$names = array( 'core/paragraph', 'core/heading', 'core/list-item', 'core/button' );
+		$names = apply_filters( 'ai_translation_workflow_copy_quality_text_block_names', $names );
+
+		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/paragraph', 'core/heading', 'core/list-item', 'core/button' );
 	}
 
 	/**
@@ -20811,14 +20562,14 @@ final class Devenia_AI_Translations {
 			if ( self::is_heading_block( $name, $attrs ) ) {
 				$summary['heading_levels'][] = self::heading_level_for_block( $name, $attrs );
 				$summary['text_unit_count']++;
-			} elseif ( in_array( $name, array( 'core/paragraph', 'core/list', 'core/quote', 'generateblocks/headline' ), true ) ) {
+			} elseif ( in_array( $name, self::semantic_text_unit_block_names(), true ) ) {
 				$summary['text_unit_count']++;
 			}
-			if ( in_array( $name, array( 'core/button', 'generateblocks/button' ), true ) ) {
+			if ( in_array( $name, self::semantic_button_block_names(), true ) ) {
 				$summary['button_count']++;
 				$summary['text_unit_count']++;
 			}
-			if ( in_array( $name, array( 'core/image', 'generateblocks/image' ), true ) ) {
+			if ( in_array( $name, self::semantic_image_block_names(), true ) ) {
 				$summary['image_count']++;
 			}
 
@@ -20826,6 +20577,42 @@ final class Devenia_AI_Translations {
 				self::collect_semantic_structure( $block['innerBlocks'], $summary );
 			}
 		}
+	}
+
+	/**
+	 * Block names counted as standalone text units in semantic structure checks.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function semantic_text_unit_block_names(): array {
+		$names = array( 'core/paragraph', 'core/list-item' );
+		$names = apply_filters( 'ai_translation_workflow_semantic_text_unit_block_names', $names );
+
+		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/paragraph', 'core/list-item' );
+	}
+
+	/**
+	 * Block names counted as buttons in semantic structure checks.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function semantic_button_block_names(): array {
+		$names = array( 'core/button' );
+		$names = apply_filters( 'ai_translation_workflow_semantic_button_block_names', $names );
+
+		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/button' );
+	}
+
+	/**
+	 * Block names counted as images in semantic structure checks.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function semantic_image_block_names(): array {
+		$names = array( 'core/image' );
+		$names = apply_filters( 'ai_translation_workflow_semantic_image_block_names', $names );
+
+		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/image' );
 	}
 
 	/**
@@ -21536,15 +21323,13 @@ final class Devenia_AI_Translations {
 			'block_count'        => 0,
 			'unique_id_count'    => 0,
 			'duplicate_ids'      => array(),
-			'grid_count'         => 0,
-			'grid_child_count'   => 0,
 			'unknown_blocks'     => array(),
 			'typography_blocks'  => array(),
-				'markup_blocks'      => array(),
-				'long_word_risks'    => array(),
-				'saved_markup'       => array(),
-				'content_length'     => strlen( $content ),
-			);
+			'markup_blocks'      => array(),
+			'long_word_risks'    => array(),
+			'saved_markup'       => array(),
+			'content_length'     => strlen( $content ),
+		);
 
 		if ( false !== strpos( $content, '&amp;amp;' ) ) {
 			$issues[] = self::qa_item( 'double_escaped_html_entity', 'Content contains double-escaped HTML entities such as &amp;amp;.', array( 'entity' => '&amp;amp;' ) );
@@ -21562,10 +21347,8 @@ final class Devenia_AI_Translations {
 		}
 
 		$seen_unique_ids = array();
-		$grid_ids        = array();
-		$grid_refs       = array();
 
-		self::inspect_gutenberg_blocks( $blocks, $seen_unique_ids, $grid_ids, $grid_refs, $summary, $issues, $warnings );
+		self::inspect_gutenberg_blocks( $blocks, $seen_unique_ids, $summary, $issues, $warnings );
 		$saved_markup = self::gutenberg_saved_markup_integrity( $content );
 		$summary['saved_markup'] = $saved_markup['summary'];
 		if ( ! empty( $saved_markup['issues'] ) ) {
@@ -21583,18 +21366,32 @@ final class Devenia_AI_Translations {
 		}
 		if ( $duplicates ) {
 			$summary['duplicate_ids'] = $duplicates;
-			$issues[] = self::qa_item( 'duplicate_generateblocks_unique_id', 'GenerateBlocks uniqueId values must be unique within a page.', array( 'unique_ids' => $duplicates ) );
+			$issues[] = self::qa_item( 'duplicate_block_unique_id', 'Block uniqueId values must be unique within a page.', array( 'unique_ids' => $duplicates ) );
 		}
 
-		foreach ( $grid_refs as $ref ) {
-			if ( ! isset( $grid_ids[ $ref['grid_id'] ] ) ) {
-				$issues[] = self::qa_item( 'dangling_generateblocks_grid_ref', 'A GenerateBlocks grid child references a missing gridId.', $ref );
+		$adapter_guardrails = apply_filters(
+			'ai_translation_workflow_gutenberg_guardrails',
+			array(
+				'issues'   => array(),
+				'warnings' => array(),
+				'summary'  => array(),
+			),
+			$blocks,
+			$content
+		);
+		if ( is_array( $adapter_guardrails ) ) {
+			if ( ! empty( $adapter_guardrails['issues'] ) && is_array( $adapter_guardrails['issues'] ) ) {
+				$issues = array_merge( $issues, $adapter_guardrails['issues'] );
+			}
+			if ( ! empty( $adapter_guardrails['warnings'] ) && is_array( $adapter_guardrails['warnings'] ) ) {
+				$warnings = array_merge( $warnings, $adapter_guardrails['warnings'] );
+			}
+			if ( ! empty( $adapter_guardrails['summary'] ) && is_array( $adapter_guardrails['summary'] ) ) {
+				$summary = array_merge( $summary, $adapter_guardrails['summary'] );
 			}
 		}
 
 		$summary['unique_id_count'] = count( $seen_unique_ids );
-		$summary['grid_count']      = count( $grid_ids );
-		$summary['grid_child_count'] = count( $grid_refs );
 
 		if ( $summary['content_length'] > 50000 ) {
 			$warnings[] = self::qa_item( 'large_editor_payload', 'Translated page content is large and may make the block editor slow to open.', array( 'bytes' => $summary['content_length'] ) );
@@ -21615,13 +21412,11 @@ final class Devenia_AI_Translations {
 	 *
 	 * @param array<int,array<string,mixed>> $blocks Parsed block tree.
 	 * @param array<string,int>              $seen_unique_ids Unique ID counters.
-	 * @param array<string,bool>             $grid_ids Known GenerateBlocks grid IDs.
-	 * @param array<int,array<string,mixed>> $grid_refs GenerateBlocks grid child refs.
 	 * @param array<string,mixed>            $summary QA summary.
 	 * @param array<int,array<string,mixed>> $issues Hard QA failures.
 	 * @param array<int,array<string,mixed>> $warnings Soft QA warnings.
 	 */
-	private static function inspect_gutenberg_blocks( array $blocks, array &$seen_unique_ids, array &$grid_ids, array &$grid_refs, array &$summary, array &$issues, array &$warnings, bool $narrow_context = false ): void {
+	private static function inspect_gutenberg_blocks( array $blocks, array &$seen_unique_ids, array &$summary, array &$issues, array &$warnings, bool $narrow_context = false ): void {
 		$registry = class_exists( 'WP_Block_Type_Registry' ) ? WP_Block_Type_Registry::get_instance() : null;
 
 		foreach ( $blocks as $block ) {
@@ -21644,17 +21439,6 @@ final class Devenia_AI_Translations {
 			if ( isset( $attrs['uniqueId'] ) && is_string( $attrs['uniqueId'] ) && '' !== $attrs['uniqueId'] ) {
 				$unique_id = $attrs['uniqueId'];
 				$seen_unique_ids[ $unique_id ] = isset( $seen_unique_ids[ $unique_id ] ) ? $seen_unique_ids[ $unique_id ] + 1 : 1;
-				if ( 'generateblocks/grid' === $name ) {
-					$grid_ids[ $unique_id ] = true;
-				}
-			}
-
-			if ( ! empty( $attrs['isGrid'] ) && isset( $attrs['gridId'] ) && is_string( $attrs['gridId'] ) ) {
-				$grid_refs[] = array(
-					'block'     => $name,
-					'unique_id' => isset( $attrs['uniqueId'] ) ? (string) $attrs['uniqueId'] : '',
-					'grid_id'   => $attrs['gridId'],
-				);
 			}
 
 			$has_controlled_heading_fit = $is_narrow_context && self::is_heading_block( $name, $attrs ) && self::has_controlled_heading_fit_adjustment( $attrs );
@@ -21672,7 +21456,7 @@ final class Devenia_AI_Translations {
 			}
 
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
-				self::inspect_gutenberg_blocks( $block['innerBlocks'], $seen_unique_ids, $grid_ids, $grid_refs, $summary, $issues, $warnings, $is_narrow_context );
+				self::inspect_gutenberg_blocks( $block['innerBlocks'], $seen_unique_ids, $summary, $issues, $warnings, $is_narrow_context );
 			}
 		}
 	}
@@ -21705,12 +21489,7 @@ final class Devenia_AI_Translations {
 		if ( 'core/heading' === $name ) {
 			return true;
 		}
-		if ( 'generateblocks/headline' !== $name ) {
-			return false;
-		}
-
-		$element = isset( $attrs['element'] ) ? strtolower( (string) $attrs['element'] ) : '';
-		return in_array( $element, array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true );
+		return (bool) apply_filters( 'ai_translation_workflow_is_heading_block', false, $name, $attrs );
 	}
 
 	/**

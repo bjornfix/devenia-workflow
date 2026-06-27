@@ -179,12 +179,24 @@ for (const file of gitFiles()) {
 }
 
 const vendorHookPattern = /\b(?:add_action|add_filter|do_action|apply_filters)\(\s*['"](?:generate_|rank_math\/|mcp_abilities_elementor_)/;
+const rankMathMetaWritePattern = /\b(?:update_post_meta|delete_post_meta)\(\s*\$?[A-Za-z0-9_>()[\]'"\s,-]+,\s*['"]rank_math_/;
+const coreVendorReferencePattern = /\b(?:rank_math|Rank Math|generateblocks|GenerateBlocks|generatepress|GeneratePress|elementor|Elementor|mcp_abilities_elementor_)\b/;
 for (const file of gitFiles().filter((name) => name.endsWith(".php"))) {
   if (file.startsWith("addons/")) {
     continue;
   }
-  if (vendorHookPattern.test(read(file))) {
+  const content = read(file);
+  const contentWithoutAddonRequires = file === mainFile
+    ? content.replace(/require_once\s+__DIR__\s*\.\s*['"]\/addons\/[^'"]+['"]\s*;/g, "")
+    : content;
+  if (vendorHookPattern.test(content)) {
     issue(file, "vendor_hook_outside_addon", "Vendor integration hooks belong in addons/, not in the theme-neutral core.");
+  }
+  if (rankMathMetaWritePattern.test(content)) {
+    issue(file, "rank_math_meta_write_outside_addon", "Rank Math metadata writes belong in the optional Rank Math addon, not in the theme-neutral core.");
+  }
+  if (coreVendorReferencePattern.test(contentWithoutAddonRequires)) {
+    issue(file, "vendor_reference_outside_addon", "Vendor-specific code and identifiers belong in optional addon files, not in the theme-neutral core.");
   }
 }
 

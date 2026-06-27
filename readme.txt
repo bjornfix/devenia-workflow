@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.271
+Stable tag: 0.1.272
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -74,6 +74,10 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 == Changelog ==
 
+= 0.1.272 =
+* Moves vendor-specific Rank Math, Elementor, and GenerateBlocks dependencies behind optional addon seams.
+* Adds a public release gate that keeps vendor-specific hooks, metadata writes, and identifiers out of theme-neutral core.
+
 = 0.1.271 =
 * Removes the obsolete slug-unlock wrapper from public core after site-specific slug-lockdown handling was moved out.
 * Keeps internal write paths routed only through the guardrail suspension modules that still perform work.
@@ -142,6 +146,9 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 Older workflow changes are kept in the project repository history.
 
 == Upgrade Notice ==
+
+= 0.1.272 =
+Keeps vendor-specific dependencies behind optional addons so core stays theme-neutral.
 
 = 0.1.271 =
 Removes an obsolete internal wrapper left after the public-core cleanup.
