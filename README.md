@@ -129,9 +129,10 @@ Before changing the plugin:
 2. do not edit `languages/*.json` for current live page text
 3. run `php -l devenia-ai-translations.php`
 4. run `node tools/check-language-policy.mjs`
-5. run the translation fitness and lifecycle regression abilities after deploy
+5. run `node tools/check-public-release.mjs`
+6. run the translation fitness and lifecycle regression abilities after deploy
    to a validation site
-6. run WordPress Plugin Check before production deployment
+7. run WordPress Plugin Check before production deployment
 
 ## Changelog
 

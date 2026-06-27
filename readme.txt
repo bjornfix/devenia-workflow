@@ -23,6 +23,7 @@ This plugin is being prepared for public release. Review configuration, permissi
 1. Install the release ZIP through the WordPress plugin installer or WP-CLI.
 2. Activate "AI Translation Workflow".
 3. Confirm the language registry, translation index, and language packs with the plugin's MCP status abilities.
+4. Before publishing a public package, run the packaged release checks in `tools/check-public-release.mjs`.
 
 == Frequently Asked Questions ==
 
