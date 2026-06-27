@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.262
+ * Version: 0.1.263
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.262';
+	const VERSION = '0.1.263';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -101,21 +101,13 @@ final class Devenia_AI_Translations {
 	 * Bootstrap hooks.
 	 */
 	public static function init(): void {
-		$elementor_translation_siblings_filter = 'mcp_abilities_elementor_translation_sibling_post_ids';
-
 		add_filter( 'locale', array( __CLASS__, 'filter_locale' ) );
 		add_filter( 'language_attributes', array( __CLASS__, 'filter_language_attributes' ) );
-		add_filter( $elementor_translation_siblings_filter, array( __CLASS__, 'filter_elementor_translation_sibling_post_ids' ), 10, 3 );
 		add_filter( 'query_vars', array( __CLASS__, 'register_translation_query_vars' ) );
 		add_filter( 'post_link', array( __CLASS__, 'filter_translated_post_link' ), 20, 2 );
 		add_filter( 'term_link', array( __CLASS__, 'filter_translated_term_link' ), 20, 3 );
 		add_filter( 'previous_post_link', array( __CLASS__, 'filter_adjacent_post_link_for_translation' ), 20, 5 );
 		add_filter( 'next_post_link', array( __CLASS__, 'filter_adjacent_post_link_for_translation' ), 20, 5 );
-		add_filter( 'rank_math/opengraph/type', array( __CLASS__, 'filter_translated_posts_page_opengraph_type' ), 20 );
-		add_filter( 'rank_math/frontend/canonical', array( __CLASS__, 'filter_translated_posts_page_canonical' ), 20 );
-		add_filter( 'rank_math/frontend/title', array( __CLASS__, 'filter_translated_posts_page_seo_title' ), 20 );
-		add_filter( 'rank_math/frontend/description', array( __CLASS__, 'filter_translated_posts_page_seo_description' ), 20 );
-		add_filter( 'rank_math/json_ld', array( __CLASS__, 'filter_translated_posts_page_json_ld' ), 99, 2 );
 		add_filter( 'template_include', array( __CLASS__, 'use_translated_posts_page_template' ), 20 );
 		add_filter( 'the_content', array( __CLASS__, 'mark_quick_copy_edit_rendered_content' ), 99 );
 		add_filter( 'body_class', array( __CLASS__, 'add_translated_posts_page_body_class' ), 999 );
@@ -22068,6 +22060,8 @@ final class Devenia_AI_Translations {
 
 require_once __DIR__ . '/addons/generatepress.php';
 require_once __DIR__ . '/addons/generateblocks.php';
+require_once __DIR__ . '/addons/rankmath.php';
+require_once __DIR__ . '/addons/elementor.php';
 
 register_activation_hook( __FILE__, array( 'Devenia_AI_Translations', 'activate' ) );
 Devenia_AI_Translations::init();

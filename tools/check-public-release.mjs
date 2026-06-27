@@ -105,13 +105,13 @@ for (const file of gitFiles()) {
   }
 }
 
-const vendorHookPattern = /\b(?:add_action|add_filter|do_action|apply_filters)\(\s*['"]generate_/;
+const vendorHookPattern = /\b(?:add_action|add_filter|do_action|apply_filters)\(\s*['"](?:generate_|rank_math\/|mcp_abilities_elementor_)/;
 for (const file of gitFiles().filter((name) => name.endsWith(".php"))) {
   if (file.startsWith("addons/")) {
     continue;
   }
   if (vendorHookPattern.test(read(file))) {
-    issue(file, "vendor_hook_outside_addon", "GeneratePress hooks belong in addons/, not in the theme-neutral core.");
+    issue(file, "vendor_hook_outside_addon", "Vendor integration hooks belong in addons/, not in the theme-neutral core.");
   }
 }
 

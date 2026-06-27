@@ -7,7 +7,7 @@ WordPress workflow plugin for AI-assisted multilingual pages and posts.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.262
+**Stable tag:** 0.1.263
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -135,6 +135,13 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.263
+
+- Moves Rank Math and Elementor-adjacent hook registration into optional addon
+  files.
+- Extends the public release gate so vendor integration hooks stay out of the
+  theme-neutral core.
 
 ### 0.1.262
 

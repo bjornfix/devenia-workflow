@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.262
+Stable tag: 0.1.263
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -66,6 +66,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 
 == Changelog ==
 
+= 0.1.263 =
+* Moves Rank Math and Elementor-adjacent hook registration into optional addon files.
+* Extends the public release gate so vendor integration hooks stay out of the theme-neutral core.
+
 = 0.1.262 =
 * Moves GeneratePress presentation-meta sync behind the optional GeneratePress addon so the core workflow stays theme-neutral.
 
@@ -97,6 +101,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Older workflow changes are kept in the project repository history.
 
 == Upgrade Notice ==
+
+= 0.1.263 =
+Moves Rank Math and Elementor-adjacent hook registration into optional addon files.
 
 = 0.1.262 =
 Moves GeneratePress presentation-meta sync behind the optional GeneratePress addon.
