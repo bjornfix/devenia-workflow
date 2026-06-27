@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.273
+ * Version: 0.1.274
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.273';
+	const VERSION = '0.1.274';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -17149,6 +17149,10 @@ final class Devenia_AI_Translations {
 			'ar' => 'آخر تحديث:',
 			'it' => 'Ultimo aggiornamento:',
 			'nl' => 'Laatst bijgewerkt:',
+			'pt' => 'Última atualização:',
+			'zh' => '最后更新：',
+			'ja' => '最終更新日：',
+			'vi' => 'Cập nhật lần cuối:',
 		);
 
 		return $labels[ sanitize_key( $language ) ] ?? $labels['en'];
