@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.270
+ * Version: 0.1.271
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.270';
+	const VERSION = '0.1.271';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -562,15 +562,6 @@ final class Devenia_AI_Translations {
 		}
 
 		update_option( self::OPTION_VERSION, self::VERSION, false );
-	}
-
-	/**
-	 * Temporarily allow intentional slug changes during this plugin's own migrations.
-	 *
-	 * @param callable $callback Migration callback.
-	 */
-	private static function with_slug_change_unlock( callable $callback ): void {
-		$callback();
 	}
 
 	/**
@@ -1445,12 +1436,12 @@ final class Devenia_AI_Translations {
 				'translation_post_id'    => $translation_id,
 				'source_id'              => $source_id,
 				'source_post_id'         => $source_id,
-					'language'               => $language,
-					'localized_path'         => trim( (string) ( $row['localized_path'] ?? '' ), '/' ),
-					'source_path'            => trim( (string) ( $row['source_path'] ?? '' ), '/' ),
-					'target_path'            => trim( (string) ( $row['target_path'] ?? '' ), '/' ),
-					'target_url'             => esc_url_raw( (string) ( $row['target_url'] ?? '' ) ),
-					'translation_status'     => self::sanitize_translation_status( (string) ( $row['translation_status'] ?? '' ) ),
+				'language'               => $language,
+				'localized_path'         => trim( (string) ( $row['localized_path'] ?? '' ), '/' ),
+				'source_path'            => trim( (string) ( $row['source_path'] ?? '' ), '/' ),
+				'target_path'            => trim( (string) ( $row['target_path'] ?? '' ), '/' ),
+				'target_url'             => esc_url_raw( (string) ( $row['target_url'] ?? '' ) ),
+				'translation_status'     => self::sanitize_translation_status( (string) ( $row['translation_status'] ?? '' ) ),
 				'status'                 => $status,
 				'post_status'            => $status,
 				'source_hash'            => (string) ( $row['source_hash'] ?? '' ),
@@ -8478,18 +8469,14 @@ final class Devenia_AI_Translations {
 		}
 
 		$result = 0;
-		self::with_slug_change_unlock(
+		self::with_reviewer_style_capture_suspended(
 			static function () use ( &$result, $source_id, $postarr ): void {
-				self::with_reviewer_style_capture_suspended(
-					static function () use ( &$result, $source_id, $postarr ): void {
-						if ( $source_id ) {
-							$postarr['ID'] = $source_id;
-							$result        = wp_update_post( wp_slash( $postarr ), true );
-						} else {
-							$result = wp_insert_post( wp_slash( $postarr ), true );
-						}
-					}
-				);
+				if ( $source_id ) {
+					$postarr['ID'] = $source_id;
+					$result        = wp_update_post( wp_slash( $postarr ), true );
+				} else {
+					$result = wp_insert_post( wp_slash( $postarr ), true );
+				}
 			}
 		);
 		if ( is_wp_error( $result ) ) {
@@ -9460,8 +9447,8 @@ final class Devenia_AI_Translations {
 			'post_type'    => $target_post_type,
 			'post_author'  => (int) $source->post_author,
 			'post_title'   => $title,
-		'post_name'    => $slug,
-		'post_content' => $content,
+			'post_name'    => $slug,
+			'post_content' => $content,
 			'post_excerpt' => $excerpt,
 			'post_status'  => $status,
 		);
@@ -9473,18 +9460,14 @@ final class Devenia_AI_Translations {
 		}
 
 		$result = 0;
-		self::with_slug_change_unlock(
+		self::with_reviewer_style_capture_suspended(
 			static function () use ( &$result, $translation_id, $postarr ): void {
-				self::with_reviewer_style_capture_suspended(
-					static function () use ( &$result, $translation_id, $postarr ): void {
-						if ( $translation_id ) {
-							$postarr['ID'] = $translation_id;
-							$result        = wp_update_post( wp_slash( $postarr ), true );
-						} else {
-							$result = wp_insert_post( wp_slash( $postarr ), true );
-						}
-					}
-				);
+				if ( $translation_id ) {
+					$postarr['ID'] = $translation_id;
+					$result        = wp_update_post( wp_slash( $postarr ), true );
+				} else {
+					$result = wp_insert_post( wp_slash( $postarr ), true );
+				}
 			}
 		);
 
@@ -19134,20 +19117,16 @@ final class Devenia_AI_Translations {
 		}
 
 		$result = 0;
-		self::with_slug_change_unlock(
+		self::with_direct_save_storage_guardrails_suspended(
 			static function () use ( &$result, $translation_id, $target_slug ): void {
-				self::with_direct_save_storage_guardrails_suspended(
-					static function () use ( &$result, $translation_id, $target_slug ): void {
-						$result = wp_update_post(
-							wp_slash(
-								array(
-									'ID'        => $translation_id,
-									'post_name' => $target_slug,
-								)
-							),
-							true
-						);
-					}
+				$result = wp_update_post(
+					wp_slash(
+						array(
+							'ID'        => $translation_id,
+							'post_name' => $target_slug,
+						)
+					),
+					true
 				);
 			}
 		);
