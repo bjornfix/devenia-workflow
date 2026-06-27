@@ -7,174 +7,115 @@
   "menu_name": "Main Menu FR",
   "source": "0",
   "flag": "🇫🇷",
-  "menu_items": {
-    "4": "À propos",
-    "5": "Contact",
-    "7": "Services",
-    "501": "Apprendre",
-    "1837": "Recommandé",
-    "6420": "Nos conditions de paiement",
-    "6424": "Résumé de l’entreprise",
-    "6744": "Blog",
-    "6871": "Monde",
-    "12025": "Accueil",
-    "12746": "Optimisation des images",
-    "13056": "Optimisation vidéo",
-    "13067": "Conception et développement web",
-    "14263": "Services SEO",
-    "14264": "Création de liens",
-    "14614": "Corrections WordPress",
-    "14617": "Gestion technique",
-    "14624": "Services AI",
-    "14646": "Plugins",
-    "18409": "Send"
-  },
+  "menu_items": {},
   "custom_menu_items": {
-    "Company Overview": "Présentation de l’entreprise",
-    "Send": "Send",
-    "Downloads": "Téléchargements",
-    "Privacy Policy": "Politique de confidentialité",
-    "Terms of Service": "Conditions d’utilisation",
-    "World": "Monde"
+    "Homepage": "Accueil",
+    "Website": "Site web",
+    "Services": "Services",
+    "Learn": "Ressources",
+    "Plugins": "Extensions",
+    "Contact": "Contact",
+    "Blog": "Blog"
   },
   "widget_text": {
-    "Navigate": "Navigation",
-    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "Travail web concret pour des sites qui doivent inspirer confiance, être trouvés, maintenus et améliorés.",
-    "Start with the URL": "Commencez par l’URL",
-    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Utilisez le bouton e-mail et indiquez la page, les symptômes et ce qui doit s’améliorer. Nous répondons par écrit avec la première action utile.",
-    "Email us about the website": "Envoyer un e-mail à the site au sujet du site",
-    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Question%20sur%20le%20site&body=Hello%2C%0A%0AURL%3A%0A%0ASympt%C3%B4mes%3A%0A%0ACe%20qui%20doit%20s%27am%C3%A9liorer%3A%0A%0A",
-    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "Une marque exploitée par the site operator, the site operator et the site operator. <a href=\"/\">Coordonnées légales de l’entreprise</a>."
+    "Navigate": "Navigate",
+    "Start with the URL": "Start with the URL",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Use the contact route and include the page, symptoms, and what should improve.",
+    "Email us about the website": "Email us about the website",
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A"
   },
   "not_found_text": {
-    "Page not found.": "Cette page n’existe pas ici.",
-    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "L’adresse est peut-être ancienne, déplacée ou incomplète. Utilisez les chemins ci-dessous, ou envoyez-nous l’URL si cette page devrait encore exister.",
-    "Choose a route": "Trouver le bon chemin",
-    "Broken link? Email ": "Lien cassé ? Écrivez à ",
-    " with the URL.": " avec l’URL.",
-    "Use the visit.": "Rendre la prochaine étape utile.",
-    "Services, Learn, plugins, and contact are below.": "Les chemins les plus rapides mènent aux services, aux ressources, aux extensions ou au contact.",
-    "Where to go": "Commencer ici",
-    "Choose the closest match.": "Choisissez le chemin le plus proche de ce que vous cherchiez à faire.",
+    "Page not found.": "That page is not here.",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "The address may be old, moved, or incomplete. Use the routes below, or send the URL if something should still exist.",
+    "Choose a route": "Find the right place",
     "Services": "Services",
-    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "Pour un site, la visibilité, WordPress, la performance ou des flux de travail IA.",
-    "View services →": "Aller aux services →",
-    "Learn": "Ressources",
-    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "Des explications pratiques avant de décider quoi changer ou acheter.",
-    "View Learn →": "Aller aux ressources →",
-    "Plugins": "Extensions",
-    "Production WordPress plugins and small tools that remove friction.": "Extensions WordPress et outils ciblés créés par the site.",
-    "View plugins →": "Aller aux extensions →",
+    "View services →": "Go to services →",
+    "Learn": "Learn",
+    "View Learn →": "Go to Learn →",
+    "Plugins": "Plugins",
+    "View plugins →": "Go to plugins →",
     "Contact": "Contact",
-    "Send the broken URL and expected destination.": "Si vous attendiez une page précise, envoyez l’URL et ce dont vous aviez besoin.",
-    "Contact us →": "Contacter the site →",
-    "How to start": "Si vous signalez le lien",
-    "Recover the intent, not just the URL.": "Dites-nous ce que vous cherchiez, pas seulement l’adresse qui a échoué.",
-    "01 Send context": "01 Envoyer l’URL",
-    "Send the URL, the issue, and what a useful outcome would look like.": "Indiquez l’adresse, où vous l’avez trouvée et ce qui devait s’ouvrir.",
-    "02 We identify the constraint": "02 Nous vérifions ce qui a échoué",
-    "We separate symptoms from causes before recommending work.": "Nous vérifions si la page a été déplacée, si le lien est faux ou si le contenu doit être restauré.",
-    "03 We suggest the first move": "03 Nous indiquons la suite",
-    "You get a practical next step, not a generic package.": "Vous obtenez l’étape la plus utile : la bonne page, une correction ou une réponse courte.",
-    "04 Then we execute": "04 Nous corrigeons ce qui doit l’être",
-    "If the site is the right fit, we handle the work carefully.": "Si l’erreur vient de nous, nous la corrigeons avec soin.",
-    "Ready to ask?": "Vous cherchez encore quelque chose de précis ?",
-    "Was this broken link important?": "Si cette page devrait exister, dites-nous ce que vous cherchiez.",
-    "Send the URL you tried and what you expected to find.": "Envoyez l’URL essayée et la page ou la réponse attendue.",
-    "Email ": "Écrire à ",
-    "Useful for someone else? Share this:": "Partager the site :",
-    "Share on X (Twitter)": "Partager sur X (Twitter)",
-    "Share on LinkedIn": "Partager sur LinkedIn",
-    "Share on Facebook": "Partager sur Facebook",
-    "Share on Email": "Partager par e-mail"
+    "Contact us →": "Contact us →",
+    "Send the broken URL and expected destination.": "Send the broken URL and expected destination.",
+    "Useful for someone else? Share this:": "Share this:",
+    "Share on X (Twitter)": "Share on X (Twitter)",
+    "Share on LinkedIn": "Share on LinkedIn",
+    "Share on Facebook": "Share on Facebook",
+    "Share on Email": "Share by email"
   },
   "language_profile": {
     "review_language": "French",
-    "tone": "francais clair, concret et professionnel; convaincant par la precision",
+    "tone": "clear, direct, practical, trust-building; natural business language without hype",
     "formality": "vouvoiement professionnel",
     "preserve_terms": [
-      "the site",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
-      "Chrome Web Store",
-      "Send",
       "MCP",
       "AI",
       "SEO",
       "API",
-      "FAQ",
-      "Gmail",
-      "Gravatar",
-      "Cookies",
-      "Chrome",
-      "Limited Use",
-      "User Data Policy"
+      "FAQ"
     ],
     "never_translate_terms": [
-      "the site",
-      "Send",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
       "MCP"
     ],
-    "locale_guidance": "Use French for France with professional vous form. Use French market terminology where normal, and preserve only real brand/product names and established technical names.",
+    "locale_guidance": "Use natural French business wording with clear, practical phrasing.",
     "localized_terms": {
       "Homepage": [
-        "page d’accueil",
-        "accueil"
-      ],
-      "Website": [
-        "site web"
-      ],
-      "Services": [
-        "services"
-      ],
-      "Learn": [
-        "apprendre"
-      ],
-      "Plugins": [
-        "extensions",
-        "plugins"
-      ],
-      "Contact": [
-        "contact"
-      ],
-      "Blog": [
-        "blog"
+        "Accueil"
       ],
       "homepage": [
-        "page d’accueil",
-        "accueil"
+        "Accueil"
+      ],
+      "Website": [
+        "Site web"
       ],
       "website": [
-        "site web"
+        "Site web"
+      ],
+      "Services": [
+        "Services"
       ],
       "services": [
-        "services"
+        "Services"
+      ],
+      "Learn": [
+        "Ressources"
       ],
       "learn": [
-        "apprendre"
+        "Ressources"
+      ],
+      "Plugins": [
+        "Extensions"
       ],
       "plugins": [
-        "extensions",
-        "plugins"
+        "Extensions"
+      ],
+      "Contact": [
+        "Contact"
       ],
       "contact": [
-        "contact"
+        "Contact"
+      ],
+      "Blog": [
+        "Blog"
       ],
       "blog": [
-        "blog"
+        "Blog"
       ]
     }
   },
   "not_found_routes": [
+    "/",
     "/services/",
     "/learn/",
     "/plugins/",
-    "/about/contact-us/"
+    "/contact/"
   ]
 }

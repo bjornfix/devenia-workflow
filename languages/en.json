@@ -7,81 +7,36 @@
   "menu_name": "Main Menu",
   "source": "1",
   "flag": "🇬🇧",
-  "menu_items": {
-    "4": "About",
-    "5": "Contact",
-    "7": "Services",
-    "501": "Learn",
-    "1837": "Recommended",
-    "6420": "Our Billing Terms",
-    "6424": "Business Summary",
-    "6744": "Blog",
-    "6871": "World",
-    "12025": "Home",
-    "12746": "Image Optimization",
-    "13056": "Video Optimization",
-    "13067": "Web Design & Development",
-    "14263": "SEO Services",
-    "14264": "Link Building",
-    "14614": "WordPress Fixes",
-    "14617": "Managed Tech Services",
-    "14624": "AI Services",
-    "14646": "Plugins",
-    "18409": "Send"
-  },
+  "menu_items": {},
   "custom_menu_items": {
-    "Company Overview": "Company Overview",
-    "Send": "Send",
-    "Downloads": "Downloads",
-    "Privacy Policy": "Privacy Policy",
-    "Terms of Service": "Terms of Service",
-    "World": "World"
+    "Homepage": "Homepage",
+    "Website": "Website",
+    "Services": "Services",
+    "Learn": "Learn",
+    "Plugins": "Plugins",
+    "Contact": "Contact",
+    "Blog": "Blog"
   },
   "widget_text": {
     "Navigate": "Navigate",
-    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "Practical internet work for websites that need to be trusted, found, maintained, and improved.",
     "Start with the URL": "Start with the URL",
-    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Use the contact route and include the page, symptoms, and what should improve.",
     "Email us about the website": "Email us about the website",
-    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A",
-    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "One brand operated by the site operator. <a href=\"/\">Registered company details</a>."
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A"
   },
   "not_found_text": {
     "Page not found.": "That page is not here.",
-    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "The address may be old, moved, or incomplete. Use the routes below to get back to the right part of the site, or send us the URL if something should still exist.",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "The address may be old, moved, or incomplete. Use the routes below, or send the URL if something should still exist.",
     "Choose a route": "Find the right place",
-    "Broken link? Email ": "Broken link? Email ",
-    " with the URL.": " with the URL.",
-    "Use the visit.": "Make the next step useful.",
-    "Services, Learn, plugins, and contact are below.": "The fastest routes are services, learning material, plugins, or contact.",
-    "Where to go": "Start here",
-    "Choose the closest match.": "Pick the route closest to what you were trying to do.",
     "Services": "Services",
-    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "For help with a website, search visibility, WordPress, performance, or AI workflow.",
     "View services →": "Go to services →",
     "Learn": "Learn",
-    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "For practical explanations before you decide what to change or buy.",
     "View Learn →": "Go to Learn →",
     "Plugins": "Plugins",
-    "Production WordPress plugins and small tools that remove friction.": "For site-owned WordPress plugins and focused tools.",
     "View plugins →": "Go to plugins →",
     "Contact": "Contact",
-    "Send the broken URL and expected destination.": "If you expected a specific page, send the URL and what you needed.",
     "Contact us →": "Contact us →",
-    "How to start": "If you report the link",
-    "Recover the intent, not just the URL.": "Tell us what you were trying to reach, not only the broken address.",
-    "01 Send context": "01 Send the URL",
-    "Send the URL, the issue, and what a useful outcome would look like.": "Include the address, where you found it, and what you expected to open.",
-    "02 We identify the constraint": "02 We check what failed",
-    "We separate symptoms from causes before recommending work.": "We check whether the page moved, the link is wrong, or the content should be restored.",
-    "03 We suggest the first move": "03 We point you forward",
-    "You get a practical next step, not a generic package.": "You get the most useful next step: the right page, a correction, or a short answer.",
-    "04 Then we execute": "04 We fix what should be fixed",
-    "If the site is the right fit, we handle the work carefully.": "If it is our issue, we correct it carefully.",
-    "Ready to ask?": "Still looking for something specific?",
-    "Was this broken link important?": "If this page should exist, tell us what you were looking for.",
-    "Send the URL you tried and what you expected to find.": "Send the URL you tried and the page or answer you expected.",
-    "Email ": "Email ",
+    "Send the broken URL and expected destination.": "Send the broken URL and expected destination.",
     "Useful for someone else? Share this:": "Share this:",
     "Share on X (Twitter)": "Share on X (Twitter)",
     "Share on LinkedIn": "Share on LinkedIn",
@@ -90,77 +45,66 @@
   },
   "language_profile": {
     "review_language": "English",
-    "tone": "clear, direct, practical, trust-building; plain business English without hype",
+    "tone": "clear, direct, practical, trust-building; natural business language without hype",
     "formality": "professional",
     "preserve_terms": [
-      "the site",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
-      "Chrome Web Store",
-      "Send",
       "MCP",
       "AI",
       "SEO",
       "API",
-      "FAQ",
-      "Gmail",
-      "Gravatar",
-      "Cookies",
-      "Chrome",
-      "Limited Use",
-      "User Data Policy"
+      "FAQ"
     ],
     "never_translate_terms": [
-      "the site",
-      "Send",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
       "MCP"
     ],
-    "locale_guidance": "Use en-GB spelling, idiom, and business wording. Keep British market wording natural; do not drift into US phrasing unless the source is a fixed product name.",
+    "locale_guidance": "Use en-GB spelling, idiom, and clear business wording.",
     "localized_terms": {
       "Homepage": [
+        "Homepage"
+      ],
+      "homepage": [
         "Homepage"
       ],
       "Website": [
         "Website"
       ],
+      "website": [
+        "Website"
+      ],
       "Services": [
+        "Services"
+      ],
+      "services": [
         "Services"
       ],
       "Learn": [
         "Learn"
       ],
+      "learn": [
+        "Learn"
+      ],
       "Plugins": [
+        "Plugins"
+      ],
+      "plugins": [
         "Plugins"
       ],
       "Contact": [
         "Contact"
       ],
-      "Blog": [
-        "Blog"
-      ],
-      "homepage": [
-        "Homepage"
-      ],
-      "website": [
-        "Website"
-      ],
-      "services": [
-        "Services"
-      ],
-      "learn": [
-        "Learn"
-      ],
-      "plugins": [
-        "Plugins"
-      ],
       "contact": [
         "Contact"
+      ],
+      "Blog": [
+        "Blog"
       ],
       "blog": [
         "Blog"
@@ -168,9 +112,10 @@
     }
   },
   "not_found_routes": [
+    "/",
     "/services/",
     "/learn/",
     "/plugins/",
-    "/about/contact-us/"
+    "/contact/"
   ]
 }

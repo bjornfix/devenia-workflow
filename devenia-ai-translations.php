@@ -21353,7 +21353,7 @@ final class Devenia_AI_Translations {
 		$words = array(
 			'about', 'after', 'also', 'because', 'before', 'being', 'built', 'could', 'every', 'first', 'from', 'have', 'here', 'into', 'more', 'most', 'only', 'other', 'same', 'should', 'some', 'than', 'that', 'their', 'there', 'these', 'this', 'through', 'what', 'when', 'where', 'which', 'while', 'with', 'without', 'would', 'your',
 			'dere', 'dette', 'eller', 'etter', 'flere', 'fordi', 'gjennom', 'ikke', 'ingen', 'mellom', 'noen', 'ogsa', 'skal', 'slik', 'som', 'under', 'uten', 'vaere',
-			'wordpress', 'devenia', 'page', 'pages', 'post', 'posts', 'site', 'website', 'content',
+			'wordpress', 'page', 'pages', 'post', 'posts', 'site', 'website', 'content',
 		);
 
 		return array_fill_keys( $words, true );

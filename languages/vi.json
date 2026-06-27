@@ -5,192 +5,123 @@
   "wordpress_locale": "vi",
   "prefix": "vi",
   "menu_name": "Main Menu VI",
-  "menu_region": "Asia",
   "source": "0",
   "flag": "🇻🇳",
-  "blog_path": "vi/blog",
-  "blog_taxonomy_paths": {
-    "category": "danh-muc",
-    "tag": "the"
-  },
-  "menu_items": {
-    "4": "Giới thiệu",
-    "5": "Liên hệ",
-    "7": "Dịch vụ",
-    "501": "Tìm hiểu",
-    "1837": "Đề xuất",
-    "6420": "Điều khoản thanh toán",
-    "6424": "Thông tin công ty",
-    "6744": "Blog",
-    "12025": "Trang chủ",
-    "12746": "Tối ưu hình ảnh",
-    "13056": "Tối ưu video",
-    "13067": "Thiết kế và phát triển website",
-    "14263": "Dịch vụ SEO",
-    "14264": "Xây dựng liên kết",
-    "14614": "Sửa lỗi WordPress",
-    "14617": "Dịch vụ kỹ thuật quản lý",
-    "14624": "Dịch vụ AI",
-    "14646": "Plugin",
-    "18409": "Send"
-  },
+  "menu_items": {},
   "custom_menu_items": {
-    "Company Overview": "Thông tin công ty",
-    "Send": "Send",
-    "Downloads": "Tải xuống",
-    "Privacy Policy": "Chính sách quyền riêng tư",
-    "Terms of Service": "Điều khoản dịch vụ"
+    "Homepage": "Trang chủ",
+    "Website": "Website",
+    "Services": "Dịch vụ",
+    "Learn": "Tìm hiểu",
+    "Plugins": "Plugin",
+    "Contact": "Liên hệ",
+    "Blog": "Blog"
   },
   "widget_text": {
-    "Navigate": "Điều hướng",
-    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "Công việc internet thực tế cho những website cần được tin tưởng, được tìm thấy, được bảo trì và cải thiện liên tục.",
-    "Popular last 30 days": "Phổ biến trong 30 ngày qua",
-    "Start with the URL": "Bắt đầu bằng URL",
-    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Dùng nút email, gửi kèm trang, dấu hiệu vấn đề và điều cần cải thiện. Chúng tôi sẽ trả lời bằng văn bản với bước thực tế đầu tiên.",
-    "Email us about the website": "Gửi website cho the site",
-    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A",
-    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "Một thương hiệu do the site operator, the site operator và the site operator vận hành. <a href=\"/\">Xem thông tin công ty đăng ký</a>.",
-    "Share this:": "Chia sẻ:",
-    "This site uses Akismet to reduce spam.": "Trang này dùng Akismet để giảm bình luận rác.",
-    "Learn how your comment data is processed.": "Tìm hiểu cách dữ liệu bình luận của bạn được xử lý."
+    "Navigate": "Navigate",
+    "Start with the URL": "Start with the URL",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Use the contact route and include the page, symptoms, and what should improve.",
+    "Email us about the website": "Email us about the website",
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A"
   },
   "not_found_text": {
-    "Page not found.": "Không tìm thấy trang này.",
-    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "Địa chỉ này có thể đã cũ, đã được chuyển hoặc chưa đầy đủ. Hãy chọn một lối đi bên dưới, hoặc gửi URL bị lỗi cho chúng tôi.",
-    "Choose a route": "Chọn lối đi phù hợp",
-    "Broken link? Email ": "Liên kết lỗi? Gửi email tới ",
-    " with the URL.": " kèm URL.",
-    "Use the visit.": "Biến lượt truy cập này thành bước tiếp theo hữu ích.",
-    "Services, Learn, plugins, and contact are below.": "Các lối đi nhanh nhất là dịch vụ, nội dung tìm hiểu, plugin hoặc liên hệ.",
-    "Where to go": "Bắt đầu tại đây",
-    "Choose the closest match.": "Chọn mục gần nhất với nội dung bạn đang tìm.",
-    "Services": "Dịch vụ",
-    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "Hỗ trợ về website, khả năng hiển thị trên tìm kiếm, WordPress, hiệu suất hoặc quy trình AI.",
-    "View services →": "Xem dịch vụ →",
-    "Learn": "Tìm hiểu",
-    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "Giải thích thực tế trước khi quyết định cần sửa gì hoặc mua gì.",
-    "View Learn →": "Xem nội dung tìm hiểu →",
-    "Plugins": "Plugin",
-    "Production WordPress plugins and small tools that remove friction.": "Plugin WordPress và công cụ nhỏ do the site xây dựng để giảm ma sát.",
-    "View plugins →": "Xem plugin →",
-    "Contact": "Liên hệ",
-    "Send the broken URL and expected destination.": "Nếu bạn đang tìm một trang cụ thể, hãy gửi URL và nội dung bạn cần.",
-    "Contact us →": "Liên hệ the site →",
-    "How to start": "Khi báo liên kết lỗi",
-    "Recover the intent, not just the URL.": "Hãy nói rõ bạn muốn tìm gì, không chỉ gửi địa chỉ bị lỗi.",
-    "01 Send context": "01 Gửi URL",
-    "Send the URL, the issue, and what a useful outcome would look like.": "Gửi địa chỉ, nơi bạn thấy nó và nội dung bạn mong đợi mở ra.",
-    "02 We identify the constraint": "02 Chúng tôi kiểm tra vấn đề",
-    "We separate symptoms from causes before recommending work.": "Chúng tôi kiểm tra trang đã chuyển, liên kết sai hay nội dung cần được khôi phục.",
-    "03 We suggest the first move": "03 Chúng tôi đề xuất bước tiếp theo",
-    "You get a practical next step, not a generic package.": "Bạn nhận được bước tiếp theo hữu ích nhất: đúng trang, một bản sửa hoặc câu trả lời ngắn.",
-    "04 Then we execute": "04 Chúng tôi sửa phần cần sửa",
-    "If the site is the right fit, we handle the work carefully.": "Nếu vấn đề thuộc phần chúng tôi nên xử lý, chúng tôi sẽ sửa cẩn thận.",
-    "Ready to ask?": "Bạn vẫn đang tìm nội dung cụ thể?",
-    "Was this broken link important?": "Nếu trang này nên tồn tại, hãy cho chúng tôi biết bạn đang tìm gì.",
-    "Send the URL you tried and what you expected to find.": "Gửi URL bạn đã thử và trang hoặc câu trả lời bạn mong đợi.",
-    "Email ": "Email ",
-    "Useful for someone else? Share this:": "Chia sẻ the site:",
-    "Share on X (Twitter)": "Chia sẻ trên X (Twitter)",
-    "Share on LinkedIn": "Chia sẻ trên LinkedIn",
-    "Share on Facebook": "Chia sẻ trên Facebook",
-    "Share on Email": "Chia sẻ qua email"
+    "Page not found.": "That page is not here.",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "The address may be old, moved, or incomplete. Use the routes below, or send the URL if something should still exist.",
+    "Choose a route": "Find the right place",
+    "Services": "Services",
+    "View services →": "Go to services →",
+    "Learn": "Learn",
+    "View Learn →": "Go to Learn →",
+    "Plugins": "Plugins",
+    "View plugins →": "Go to plugins →",
+    "Contact": "Contact",
+    "Contact us →": "Contact us →",
+    "Send the broken URL and expected destination.": "Send the broken URL and expected destination.",
+    "Useful for someone else? Share this:": "Share this:",
+    "Share on X (Twitter)": "Share on X (Twitter)",
+    "Share on LinkedIn": "Share on LinkedIn",
+    "Share on Facebook": "Share on Facebook",
+    "Share on Email": "Share by email"
   },
   "language_profile": {
     "review_language": "Vietnamese",
-    "tone": "tiếng Việt rõ ràng, cụ thể và chuyên nghiệp; thuyết phục bằng độ chính xác và niềm tin, không bằng lời quảng cáo phóng đại",
+    "tone": "clear, direct, practical, trust-building; natural business language without hype",
     "formality": "professional direct address",
     "preserve_terms": [
-      "the site",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
-      "Chrome Web Store",
-      "Send",
       "MCP",
       "AI",
       "SEO",
       "API",
-      "FAQ",
-      "Gmail",
-      "Gravatar",
-      "Cookies",
-      "Chrome",
-      "Limited Use",
-      "User Data Policy"
+      "FAQ"
     ],
     "never_translate_terms": [
-      "the site",
-      "Send",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
       "MCP"
     ],
-    "locale_guidance": "Use natural Vietnamese for Vietnam. Prefer clear business and web terminology, avoid literal English sentence structure, and keep brand/product names in Latin script only when that is the normal written form.",
+    "locale_guidance": "Use natural Vietnamese business wording with full diacritics and clear, practical phrasing.",
     "localized_terms": {
       "Homepage": [
-        "trang chủ"
-      ],
-      "Website": [
-        "website",
-        "trang web"
-      ],
-      "Services": [
-        "dịch vụ"
-      ],
-      "Learn": [
-        "tìm hiểu"
-      ],
-      "Plugins": [
-        "plugin"
-      ],
-      "Contact": [
-        "liên hệ"
-      ],
-      "Blog": [
-        "blog"
-      ],
-      "SEO": [
-        "SEO",
-        "tối ưu hóa công cụ tìm kiếm"
-      ],
-      "AI": [
-        "AI",
-        "trí tuệ nhân tạo"
+        "Trang chủ"
       ],
       "homepage": [
-        "trang chủ"
+        "Trang chủ"
+      ],
+      "Website": [
+        "Website"
       ],
       "website": [
-        "website",
-        "trang web"
+        "Website"
+      ],
+      "Services": [
+        "Dịch vụ"
       ],
       "services": [
-        "dịch vụ"
+        "Dịch vụ"
+      ],
+      "Learn": [
+        "Tìm hiểu"
       ],
       "learn": [
-        "tìm hiểu"
+        "Tìm hiểu"
+      ],
+      "Plugins": [
+        "Plugin"
       ],
       "plugins": [
-        "plugin"
+        "Plugin"
+      ],
+      "Contact": [
+        "Liên hệ"
       ],
       "contact": [
-        "liên hệ"
+        "Liên hệ"
+      ],
+      "Blog": [
+        "Blog"
       ],
       "blog": [
-        "blog"
-      ],
-      "seo": [
-        "SEO",
-        "tối ưu hóa công cụ tìm kiếm"
-      ],
-      "ai": [
-        "AI",
-        "trí tuệ nhân tạo"
+        "Blog"
       ]
     }
+  },
+  "not_found_routes": [
+    "/",
+    "/services/",
+    "/learn/",
+    "/plugins/",
+    "/contact/"
+  ],
+  "menu_region": "Asia",
+  "blog_path": "vi/blog",
+  "blog_taxonomy_paths": {
+    "category": "danh-muc",
+    "tag": "the"
   }
 }

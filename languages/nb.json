@@ -7,176 +7,115 @@
   "menu_name": "Main Menu NB",
   "source": "0",
   "flag": "🇳🇴",
-  "menu_items": {
-    "4": "Om oss",
-    "5": "Kontakt",
-    "7": "Tjenester",
-    "501": "Lær",
-    "1837": "Anbefalt",
-    "6420": "Våre betalingsvilkår",
-    "6424": "Forretningssammendrag",
-    "6744": "Blogg",
-    "6871": "Verden",
-    "12025": "Hjem",
-    "12746": "Bildeoptimalisering",
-    "13056": "Videooptimalisering",
-    "13067": "Webdesign og utvikling",
-    "14263": "SEO-tjenester",
-    "14264": "Lenkebygging",
-    "14614": "WordPress-fiks",
-    "14617": "Driftet teknikk",
-    "14624": "KI-tjenester",
-    "14646": "Innstikk",
-    "18409": "Send"
-  },
+  "menu_items": {},
   "custom_menu_items": {
-    "Company Overview": "Selskapsoversikt",
-    "Send": "Send",
-    "Downloads": "Nedlastinger",
-    "Privacy Policy": "Personvernerklæring",
-    "Terms of Service": "Vilkår for bruk",
-    "World": "Verden"
+    "Homepage": "Forside",
+    "Website": "Nettsted",
+    "Services": "Tjenester",
+    "Learn": "Lær",
+    "Plugins": "Innstikk",
+    "Contact": "Kontakt",
+    "Blog": "Blogg"
   },
   "widget_text": {
-    "Navigate": "Naviger",
-    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "Praktisk nettarbeid for nettsteder som må bli funnet, vekke tillit, vedlikeholdes og forbedres.",
-    "Start with the URL": "Start med URL-en",
-    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Bruk e-postknappen og ta med siden, symptomene og hva som bør bli bedre. Vi svarer skriftlig med første praktiske grep.",
-    "Email us about the website": "Send e-post til the site om nettstedet",
-    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20nettsted&body=Hello%2C%0A%0AURL%3A%0A%0ASymptomer%3A%0A%0AHva%20b%C3%B8r%20bli%20bedre%3A%0A%0A",
-    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "Ett varemerke drevet av the site operator, the site operator og the site operator. <a href=\"/\">Registrerte selskapsopplysninger</a>."
+    "Navigate": "Navigate",
+    "Start with the URL": "Start with the URL",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Use the contact route and include the page, symptoms, and what should improve.",
+    "Email us about the website": "Email us about the website",
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A"
   },
   "not_found_text": {
-    "Page not found.": "Denne siden finnes ikke her.",
-    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "Adressen kan være gammel, flyttet eller ufullstendig. Bruk valgene under for å komme videre, eller send oss URL-en hvis dette fortsatt burde vært en side.",
-    "Choose a route": "Finn riktig vei videre",
-    "Broken link? Email ": "Brutt lenke? Send ",
-    " with the URL.": " URL-en.",
-    "Use the visit.": "Gjør neste steg nyttig.",
-    "Services, Learn, plugins, and contact are below.": "De raskeste veiene videre er tjenester, fagstoff, innstikk eller kontakt.",
-    "Where to go": "Start her",
-    "Choose the closest match.": "Velg det som ligner mest på det du prøvde å gjøre.",
-    "Services": "Tjenester",
-    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "For hjelp med nettsted, synlighet, WordPress, ytelse eller KI-arbeidsflyt.",
-    "View services →": "Gå til tjenester →",
-    "Learn": "Lær",
-    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "For praktiske forklaringer før du bestemmer hva som skal endres eller kjøpes.",
-    "View Learn →": "Gå til Lær →",
-    "Plugins": "Innstikk",
-    "Production WordPress plugins and small tools that remove friction.": "For WordPress-innstikk og målrettede verktøy laget av the site.",
-    "View plugins →": "Gå til innstikk →",
-    "Contact": "Kontakt",
-    "Send the broken URL and expected destination.": "Hvis du forventet en bestemt side, send URL-en og hva du trengte.",
-    "Contact us →": "Kontakt the site →",
-    "How to start": "Hvis du melder fra om lenken",
-    "Recover the intent, not just the URL.": "Fortell hva du prøvde å finne, ikke bare hvilken adresse som feilet.",
-    "01 Send context": "01 Send URL-en",
-    "Send the URL, the issue, and what a useful outcome would look like.": "Ta med adressen, hvor du fant den, og hva du forventet å åpne.",
-    "02 We identify the constraint": "02 Vi sjekker hva som sviktet",
-    "We separate symptoms from causes before recommending work.": "Vi ser om siden er flyttet, lenken er feil, eller innholdet bør legges tilbake.",
-    "03 We suggest the first move": "03 Vi peker deg videre",
-    "You get a practical next step, not a generic package.": "Du får et nyttig neste steg: riktig side, en rettelse eller et kort svar.",
-    "04 Then we execute": "04 Vi retter det som bør rettes",
-    "If the site is the right fit, we handle the work carefully.": "Hvis feilen ligger hos oss, retter vi den grundig.",
-    "Ready to ask?": "Leter du fortsatt etter noe bestemt?",
-    "Was this broken link important?": "Hvis denne siden burde finnes, fortell oss hva du lette etter.",
-    "Send the URL you tried and what you expected to find.": "Send URL-en du prøvde, og siden eller svaret du forventet.",
-    "Email ": "Send e-post til ",
-    "Useful for someone else? Share this:": "Del the site:",
-    "Share on X (Twitter)": "Del på X (Twitter)",
-    "Share on LinkedIn": "Del på LinkedIn",
-    "Share on Facebook": "Del på Facebook",
-    "Share on Email": "Del på e-post"
+    "Page not found.": "That page is not here.",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "The address may be old, moved, or incomplete. Use the routes below, or send the URL if something should still exist.",
+    "Choose a route": "Find the right place",
+    "Services": "Services",
+    "View services →": "Go to services →",
+    "Learn": "Learn",
+    "View Learn →": "Go to Learn →",
+    "Plugins": "Plugins",
+    "View plugins →": "Go to plugins →",
+    "Contact": "Contact",
+    "Contact us →": "Contact us →",
+    "Send the broken URL and expected destination.": "Send the broken URL and expected destination.",
+    "Useful for someone else? Share this:": "Share this:",
+    "Share on X (Twitter)": "Share on X (Twitter)",
+    "Share on LinkedIn": "Share on LinkedIn",
+    "Share on Facebook": "Share on Facebook",
+    "Share on Email": "Share by email"
   },
   "language_profile": {
     "review_language": "Norwegian Bokmal",
-    "tone": "klart, konkret og tillitvekkende norsk; selgende gjennom presisjon, ikke pynt",
+    "tone": "clear, direct, practical, trust-building; natural business language without hype",
     "formality": "profesjonell du-form",
     "preserve_terms": [
-      "the site",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
-      "Chrome Web Store",
-      "Send",
       "MCP",
       "AI",
       "SEO",
       "API",
-      "FAQ",
-      "Gmail",
-      "Gravatar",
-      "Cookies",
-      "Chrome",
-      "Limited Use",
-      "User Data Policy"
+      "FAQ"
     ],
     "never_translate_terms": [
-      "the site",
-      "Send",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
       "MCP"
     ],
-    "locale_guidance": "Use Norwegian Bokmal as used in Norway. Choose Norwegian business and web terminology where that is the normal Norwegian form; preserve only real brand/product names and established technical names.",
+    "locale_guidance": "Bruk naturlig norsk bokmål med tydelig, praktisk B2B-språk.",
     "localized_terms": {
       "Homepage": [
-        "forside",
-        "hjemmeside"
+        "Forside"
+      ],
+      "homepage": [
+        "Forside"
       ],
       "Website": [
-        "nettsted",
-        "nettside"
+        "Nettsted"
+      ],
+      "website": [
+        "Nettsted"
       ],
       "Services": [
-        "tjenester"
+        "Tjenester"
+      ],
+      "services": [
+        "Tjenester"
       ],
       "Learn": [
         "Lær"
       ],
-      "Plugins": [
-        "innstikk",
-        "utvidelser"
-      ],
-      "Contact": [
-        "kontakt"
-      ],
-      "Blog": [
-        "blogg"
-      ],
-      "homepage": [
-        "forside",
-        "hjemmeside"
-      ],
-      "website": [
-        "nettsted",
-        "nettside"
-      ],
-      "services": [
-        "tjenester"
-      ],
       "learn": [
         "Lær"
       ],
+      "Plugins": [
+        "Innstikk"
+      ],
       "plugins": [
-        "innstikk",
-        "utvidelser"
+        "Innstikk"
+      ],
+      "Contact": [
+        "Kontakt"
       ],
       "contact": [
-        "kontakt"
+        "Kontakt"
+      ],
+      "Blog": [
+        "Blogg"
       ],
       "blog": [
-        "blogg"
+        "Blogg"
       ]
     }
   },
   "not_found_routes": [
+    "/",
     "/services/",
     "/learn/",
     "/plugins/",
-    "/about/contact-us/"
+    "/contact/"
   ]
 }

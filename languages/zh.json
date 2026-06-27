@@ -3,199 +3,126 @@
   "native_name": "简体中文",
   "locale": "zh_CN",
   "wordpress_locale": "zh_CN",
-  "script": "zh-Hans",
   "prefix": "zh",
   "menu_name": "Main Menu ZH",
-  "menu_region": "Asia",
   "source": "0",
   "flag": "🇨🇳",
-  "blog_path": "zh/blog",
-  "blog_taxonomy_paths": {
-    "category": "fenlei",
-    "tag": "biaoqian"
-  },
-  "menu_items": {
-    "4": "关于我们",
-    "5": "联系",
-    "7": "服务",
-    "501": "学习",
-    "1837": "推荐",
-    "6420": "付款条款",
-    "6424": "公司概况",
-    "6744": "博客",
-    "12025": "首页",
-    "12746": "图片优化",
-    "13056": "视频优化",
-    "13067": "网站设计与开发",
-    "14263": "SEO 服务",
-    "14264": "链接建设",
-    "14614": "WordPress 修复",
-    "14617": "托管技术服务",
-    "14624": "AI 服务",
-    "14646": "插件",
-    "18409": "Send"
-  },
+  "menu_items": {},
   "custom_menu_items": {
-    "Company Overview": "公司概况",
-    "Send": "Send",
-    "Downloads": "下载",
-    "Privacy Policy": "隐私政策",
-    "Terms of Service": "服务条款"
+    "Homepage": "首页",
+    "Website": "网站",
+    "Services": "服务",
+    "Learn": "学习",
+    "Plugins": "插件",
+    "Contact": "联系",
+    "Blog": "博客"
   },
   "widget_text": {
-    "Navigate": "导航",
-    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "为需要被信任、被找到、被维护并持续改进的网站，提供务实的互联网工作。",
-    "Popular last 30 days": "最近 30 天热门",
-    "Start with the URL": "先发送网址",
-    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "使用邮件按钮，写明页面、现象以及希望改善的地方。我们会用文字回复第一步可执行建议。",
-    "Email us about the website": "把网站问题发给 the site",
-    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A",
-    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "the site 是由 the site operator、the site operator 和 the site operator 运营的同一品牌。<a href=\"/\">查看注册公司信息</a>。",
-    "Share this:": "分享：",
-    "This site uses Akismet to reduce spam.": "本站使用 Akismet 减少垃圾评论。",
-    "Learn how your comment data is processed.": "了解你的评论数据如何被处理。"
+    "Navigate": "Navigate",
+    "Start with the URL": "Start with the URL",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Use the contact route and include the page, symptoms, and what should improve.",
+    "Email us about the website": "Email us about the website",
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A"
   },
   "not_found_text": {
-    "Page not found.": "这个页面不在这里。",
-    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "这个地址可能已过期、已移动或不完整。请选择下面的入口，或把失效网址发给我们。",
-    "Choose a route": "选择正确入口",
-    "Broken link? Email ": "链接失效？请发邮件给 ",
-    " with the URL.": "，并附上网址。",
-    "Use the visit.": "让下一步有用。",
-    "Services, Learn, plugins, and contact are below.": "最快的入口是服务、学习内容、插件或联系页面。",
-    "Where to go": "从这里开始",
-    "Choose the closest match.": "选择最接近你原本要访问的内容。",
-    "Services": "服务",
-    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "网站、搜索可见性、WordPress、性能或 AI 工作流相关帮助。",
-    "View services →": "查看服务 →",
-    "Learn": "学习",
-    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "在决定改什么或买什么之前，先看清楚实际问题。",
-    "View Learn →": "查看学习内容 →",
-    "Plugins": "插件",
-    "Production WordPress plugins and small tools that remove friction.": "the site 制作的 WordPress 插件和小工具。",
-    "View plugins →": "查看插件 →",
-    "Contact": "联系",
-    "Send the broken URL and expected destination.": "如果你原本期待某个具体页面，请发送网址和你需要的内容。",
-    "Contact us →": "联系 the site →",
-    "How to start": "报告链接时",
-    "Recover the intent, not just the URL.": "请说明你想找到什么，而不只是发送失效地址。",
-    "01 Send context": "01 发送网址",
-    "Send the URL, the issue, and what a useful outcome would look like.": "包括地址、你在哪里看到它，以及你原本希望打开什么。",
-    "02 We identify the constraint": "02 我们检查问题",
-    "We separate symptoms from causes before recommending work.": "我们会判断页面是否移动、链接是否错误，或内容是否应恢复。",
-    "03 We suggest the first move": "03 我们指出下一步",
-    "You get a practical next step, not a generic package.": "你会得到最有用的下一步：正确页面、修正或简短答案。",
-    "04 Then we execute": "04 我们修复该修复的部分",
-    "If the site is the right fit, we handle the work carefully.": "如果问题在我们这里，我们会认真修复。",
-    "Ready to ask?": "还在找某个具体内容？",
-    "Was this broken link important?": "如果这个页面应该存在，请告诉我们你在找什么。",
-    "Send the URL you tried and what you expected to find.": "发送你尝试访问的网址，以及你期望找到的页面或答案。",
-    "Email ": "发邮件给 ",
-    "Useful for someone else? Share this:": "分享 the site：",
-    "Share on X (Twitter)": "分享到 X (Twitter)",
-    "Share on LinkedIn": "分享到 LinkedIn",
-    "Share on Facebook": "分享到 Facebook",
-    "Share on Email": "通过邮件分享"
+    "Page not found.": "That page is not here.",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "The address may be old, moved, or incomplete. Use the routes below, or send the URL if something should still exist.",
+    "Choose a route": "Find the right place",
+    "Services": "Services",
+    "View services →": "Go to services →",
+    "Learn": "Learn",
+    "View Learn →": "Go to Learn →",
+    "Plugins": "Plugins",
+    "View plugins →": "Go to plugins →",
+    "Contact": "Contact",
+    "Contact us →": "Contact us →",
+    "Send the broken URL and expected destination.": "Send the broken URL and expected destination.",
+    "Useful for someone else? Share this:": "Share this:",
+    "Share on X (Twitter)": "Share on X (Twitter)",
+    "Share on LinkedIn": "Share on LinkedIn",
+    "Share on Facebook": "Share on Facebook",
+    "Share on Email": "Share by email"
   },
   "language_profile": {
     "review_language": "Simplified Chinese",
-    "tone": "清晰、具体、专业的简体中文；用准确和可信度说服，而不是夸张营销话术",
+    "tone": "clear, direct, practical, trust-building; natural business language without hype",
     "formality": "professional direct address",
     "preserve_terms": [
-      "the site",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
-      "Chrome Web Store",
-      "Send",
       "MCP",
       "AI",
       "SEO",
       "API",
-      "FAQ",
-      "Gmail",
-      "Gravatar",
-      "Cookies",
-      "Chrome",
-      "Limited Use",
-      "User Data Policy"
+      "FAQ"
     ],
     "never_translate_terms": [
-      "the site",
-      "Send",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
       "MCP"
     ],
-    "locale_guidance": "Use Simplified Chinese for mainland/global Chinese readers. Use natural Chinese business and web terminology, avoid literal English sentence structure, and keep brand/product names in Latin script only when that is the normal written form.",
+    "locale_guidance": "Use natural Simplified Chinese business wording with clear, practical phrasing.",
     "localized_terms": {
       "Homepage": [
+        "首页"
+      ],
+      "homepage": [
         "首页"
       ],
       "Website": [
         "网站"
       ],
+      "website": [
+        "网站"
+      ],
       "Services": [
+        "服务"
+      ],
+      "services": [
         "服务"
       ],
       "Learn": [
         "学习"
       ],
+      "learn": [
+        "学习"
+      ],
       "Plugins": [
+        "插件"
+      ],
+      "plugins": [
         "插件"
       ],
       "Contact": [
         "联系"
       ],
-      "Blog": [
-        "博客"
-      ],
-      "SEO": [
-        "搜索引擎优化",
-        "SEO"
-      ],
-      "AI": [
-        "人工智能",
-        "AI"
-      ],
-      "homepage": [
-        "首页"
-      ],
-      "website": [
-        "网站"
-      ],
-      "services": [
-        "服务"
-      ],
-      "learn": [
-        "学习"
-      ],
-      "plugins": [
-        "插件"
-      ],
       "contact": [
         "联系"
       ],
-      "blog": [
+      "Blog": [
         "博客"
       ],
-      "seo": [
-        "搜索引擎优化",
-        "SEO"
-      ],
-      "ai": [
-        "人工智能",
-        "AI"
+      "blog": [
+        "博客"
       ]
     }
   },
   "not_found_routes": [
+    "/",
     "/services/",
     "/learn/",
     "/plugins/",
-    "/about/contact-us/"
-  ]
+    "/contact/"
+  ],
+  "script": "zh-Hans",
+  "menu_region": "Asia",
+  "blog_path": "zh/blog",
+  "blog_taxonomy_paths": {
+    "category": "fenlei",
+    "tag": "biaoqian"
+  }
 }

@@ -7,249 +7,119 @@
   "menu_name": "Main Menu AR",
   "source": "0",
   "flag": "🇪🇬",
-  "direction": "rtl",
-  "transliterate_urls": "1",
-  "menu_items": {
-    "4": "من نحن",
-    "5": "اتصل بنا",
-    "7": "الخدمات",
-    "501": "تعلّم",
-    "1837": "توصيات",
-    "6420": "شروط الفوترة",
-    "6424": "ملخص الأعمال",
-    "6744": "المدونة",
-    "6871": "العالم",
-    "12025": "الرئيسية",
-    "12746": "تحسين الصور",
-    "13056": "تحسين الفيديو",
-    "13067": "تصميم وتطوير المواقع",
-    "14263": "خدمات تحسين محركات البحث",
-    "14264": "بناء الروابط",
-    "14614": "إصلاحات ووردبريس",
-    "14617": "خدمات تقنية مُدارة",
-    "14624": "خدمات الذكاء الاصطناعي",
-    "14646": "الإضافات",
-    "18409": "ديفينيا سند"
-  },
+  "menu_items": {},
   "custom_menu_items": {
-    "Company Overview": "نظرة عامة على الشركة",
-    "Send": "ديفينيا سند",
-    "Downloads": "التنزيلات",
-    "Privacy Policy": "سياسة الخصوصية",
-    "Terms of Service": "شروط الخدمة",
-    "World": "العالم"
+    "Homepage": "الصفحة الرئيسية",
+    "Website": "الموقع",
+    "Services": "الخدمات",
+    "Learn": "تعلّم",
+    "Plugins": "الإضافات",
+    "Contact": "اتصل بنا",
+    "Blog": "المدونة"
   },
   "widget_text": {
-    "Navigate": "التنقل",
-    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "عمل إنترنت عملي للمواقع التي يجب أن تكون موثوقة، قابلة للعثور عليها، مُدارة، وقابلة للتحسين.",
-    "Popular last 30 days": "الأكثر قراءة خلال آخر 30 يومًا",
-    "Start with the URL": "ابدأ بالرابط",
-    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "استخدم زر البريد الإلكتروني وأرسل الصفحة، وما الذي يحدث، وما الذي يجب تحسينه. نرد كتابةً بأول خطوة عملية.",
-    "Email us about the website": "راسل ديفينيا بخصوص الموقع",
-    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A",
-    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "علامة واحدة تديرها شركات ديفينيا المحدودة في المملكة المتحدة وهونغ كونغ وإستونيا. <a href=\"/\">بيانات الشركة المسجلة</a>."
+    "Navigate": "Navigate",
+    "Start with the URL": "Start with the URL",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Use the contact route and include the page, symptoms, and what should improve.",
+    "Email us about the website": "Email us about the website",
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A"
   },
   "not_found_text": {
-    "Page not found.": "هذه الصفحة غير موجودة هنا.",
-    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "قد يكون العنوان قديمًا أو نُقل أو غير مكتمل. استخدم المسارات أدناه للرجوع إلى الجزء الصحيح من ديفينيا، أو أرسل لنا الرابط إذا كان يجب أن تظل الصفحة موجودة.",
-    "Choose a route": "اختر المسار الصحيح",
-    "Broken link? Email ": "رابط لا يعمل؟ راسل ",
-    " with the URL.": " وأرسل الرابط.",
-    "Use the visit.": "اجعل الخطوة التالية مفيدة.",
-    "Services, Learn, plugins, and contact are below.": "أسرع المسارات هي الخدمات، ومواد التعلّم، والإضافات، والتواصل.",
-    "Where to go": "ابدأ من هنا",
-    "Choose the closest match.": "اختر المسار الأقرب لما كنت تحاول الوصول إليه.",
-    "Services": "الخدمات",
-    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "للمساعدة في الموقع، والظهور في البحث، وإصلاحات ووردبريس، والأداء، أو سير عمل الذكاء الاصطناعي.",
-    "View services →": "اذهب إلى الخدمات ←",
-    "Learn": "تعلّم",
-    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "شروحات عملية عن تحسين محركات البحث، وووردبريس، والأسواق، وقرارات الإضافات قبل أن تقرر ما الذي يجب تغييره أو شراؤه.",
-    "View Learn →": "اذهب إلى تعلّم ←",
-    "Plugins": "الإضافات",
-    "Production WordPress plugins and small tools that remove friction.": "إضافات ووردبريس وأدوات مركزة من ديفينيا تقلل الاحتكاك.",
-    "View plugins →": "اذهب إلى الإضافات ←",
-    "Contact": "تواصل",
-    "Send the broken URL and expected destination.": "إذا كنت تتوقع صفحة محددة، أرسل الرابط وما الذي كنت تحتاجه.",
-    "Contact us →": "تواصل مع ديفينيا ←",
-    "How to start": "إذا أبلغتنا عن الرابط",
-    "Recover the intent, not just the URL.": "أخبرنا بما كنت تحاول الوصول إليه، وليس الرابط المعطل فقط.",
-    "01 Send context": "٠١ أرسل الرابط",
-    "Send the URL, the issue, and what a useful outcome would look like.": "أرسل العنوان، وأين وجدته، وما الذي كنت تتوقع فتحه.",
-    "02 We identify the constraint": "٠٢ نتحقق مما تعطل",
-    "We separate symptoms from causes before recommending work.": "نتحقق مما إذا كانت الصفحة نُقلت، أو الرابط خاطئ، أو المحتوى يجب إعادته.",
-    "03 We suggest the first move": "٠٣ نوجهك للخطوة التالية",
-    "You get a practical next step, not a generic package.": "تحصل على الخطوة الأكثر فائدة: الصفحة الصحيحة، أو تصحيح، أو إجابة قصيرة.",
-    "04 Then we execute": "٠٤ نصلح ما يجب إصلاحه",
-    "If the site is the right fit, we handle the work carefully.": "إذا كانت ديفينيا هي الجهة المناسبة، نتعامل مع العمل بعناية.",
-    "Ready to ask?": "هل ما زلت تبحث عن شيء محدد؟",
-    "Was this broken link important?": "إذا كان يجب أن توجد هذه الصفحة، أخبرنا بما كنت تبحث عنه.",
-    "Send the URL you tried and what you expected to find.": "أرسل الرابط الذي جرّبته والصفحة أو الإجابة التي توقعتها.",
-    "Email ": "راسل ",
-    "Useful for someone else? Share this:": "شارك ديفينيا:",
-    "Share on X (Twitter)": "شارك على إكس",
-    "Share on LinkedIn": "شارك على لينكدإن",
-    "Share on Facebook": "شارك على فيسبوك",
-    "Share on Email": "شارك عبر البريد الإلكتروني"
+    "Page not found.": "That page is not here.",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "The address may be old, moved, or incomplete. Use the routes below, or send the URL if something should still exist.",
+    "Choose a route": "Find the right place",
+    "Services": "Services",
+    "View services →": "Go to services →",
+    "Learn": "Learn",
+    "View Learn →": "Go to Learn →",
+    "Plugins": "Plugins",
+    "View plugins →": "Go to plugins →",
+    "Contact": "Contact",
+    "Contact us →": "Contact us →",
+    "Send the broken URL and expected destination.": "Send the broken URL and expected destination.",
+    "Useful for someone else? Share this:": "Share this:",
+    "Share on X (Twitter)": "Share on X (Twitter)",
+    "Share on LinkedIn": "Share on LinkedIn",
+    "Share on Facebook": "Share on Facebook",
+    "Share on Email": "Share by email"
   },
   "language_profile": {
     "review_language": "Arabic (Egypt)",
-    "tone": "Arabic for Egypt; clear, direct, professional, trust-building, and conversion-aware without hype; use Modern Standard Arabic that is natural for Egyptian business readers",
+    "tone": "clear, direct, practical, trust-building; natural business language without hype",
     "formality": "professional direct address",
     "preserve_terms": [
+      "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
-      "Chrome Web Store",
       "MCP",
+      "AI",
+      "SEO",
       "API",
-      "FAQ",
-      "Gravatar",
-      "Cookies",
-      "Limited Use",
-      "User Data Policy"
+      "FAQ"
     ],
     "never_translate_terms": [
+      "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
       "MCP"
     ],
-    "frontend_replacements": {
-      "Send": "ديفينيا سند",
-      "Website owner": "ديفينيا - المملكة المتحدة وإستونيا وهونغ كونغ",
-      "United Kingdom, Estonia &amp; Hong Kong": "المملكة المتحدة وإستونيا وهونغ كونغ",
-      "United Kingdom, Estonia & Hong Kong": "المملكة المتحدة وإستونيا وهونغ كونغ"
-    },
-    "locale_guidance": "Use culturally appropriate Arabic for Egypt. Use Arabic names and terminology where Arabic readers expect them, preserve only real product/brand names that are normally written in Latin, and avoid mechanical literal translation.",
-    "agency_copy": {
-      "enabled": true,
-      "reader": "Egyptian business owner, marketing operator, or site owner who needs to understand the practical website problem before they know the service category.",
-      "buyer_stage": "Early evaluation: the reader is deciding whether the site understands the problem well enough to contact.",
-      "promise": "Make the website clear enough that the right customer understands what the business offers and why contacting the site is useful.",
-      "proof": "Use concrete page, SEO, WordPress, performance, AI workflow, and contact examples rather than abstract agency language.",
-      "action": "The reader should know to send the URL and the problem, and should expect a written practical first step back.",
-      "clarity_standard": "Prefer simple Modern Standard Arabic that sounds natural to Egyptian business readers. Avoid literary abstractions, internal copy-framework labels, and unexplained marketing jargon.",
-      "jargon_terms": [
-        "marketing services",
-        "SEO",
-        "AI workflows",
-        "managed technology",
-        "conversion copy",
-        "technical services"
-      ],
-      "rewrite_principles": [
-        "Start from the visible customer problem before naming the service.",
-        "Use concrete verbs and outcomes before abstract nouns.",
-        "Explain technical or marketing terms through what changes for the website owner.",
-        "Keep CTAs practical: what to send, why it helps, and what the site sends back."
-      ],
-      "review_questions": [
-        "Would a non-specialist Egyptian reader understand what problem the site solves from the first screen?",
-        "Are SEO, AI, managed-tech, or marketing labels explained in customer language before they are used as service labels?",
-        "Does the Arabic sound like local commercial copy rather than literary translation?",
-        "Is the next action concrete enough to make the right reader contact the site?"
-      ]
-    },
+    "locale_guidance": "Use natural Modern Standard Arabic with clear, practical wording. Avoid literal English structure when local phrasing is more natural.",
     "localized_terms": {
-      "the site": [
-        "ديفينيا"
-      ],
       "Homepage": [
         "الصفحة الرئيسية"
       ],
+      "homepage": [
+        "الصفحة الرئيسية"
+      ],
       "Website": [
-        "الموقع",
-        "موقع الويب"
+        "الموقع"
+      ],
+      "website": [
+        "الموقع"
       ],
       "Services": [
+        "الخدمات"
+      ],
+      "services": [
         "الخدمات"
       ],
       "Learn": [
         "تعلّم"
       ],
-      "Plugins": [
-        "الإضافات"
-      ],
-      "Contact": [
-        "تواصل",
-        "اتصل"
-      ],
-      "Blog": [
-        "المدونة"
-      ],
-      "SEO": [
-        "تحسين محركات البحث"
-      ],
-      "AI": [
-        "الذكاء الاصطناعي"
-      ],
-      "WordPress": [
-        "ووردبريس"
-      ],
-      "Gmail": [
-        "جيميل"
-      ],
-      "Chrome": [
-        "كروم"
-      ],
-      "Cloudflare": [
-        "كلاودفلير"
-      ],
-      "Google": [
-        "جوجل"
-      ],
-      "homepage": [
-        "الصفحة الرئيسية"
-      ],
-      "website": [
-        "الموقع",
-        "موقع الويب"
-      ],
-      "services": [
-        "الخدمات"
-      ],
       "learn": [
         "تعلّم"
+      ],
+      "Plugins": [
+        "الإضافات"
       ],
       "plugins": [
         "الإضافات"
       ],
+      "Contact": [
+        "اتصل بنا"
+      ],
       "contact": [
-        "تواصل",
-        "اتصل"
+        "اتصل بنا"
+      ],
+      "Blog": [
+        "المدونة"
       ],
       "blog": [
         "المدونة"
-      ],
-      "seo": [
-        "تحسين محركات البحث"
-      ],
-      "ai": [
-        "الذكاء الاصطناعي"
-      ],
-      "wordpress": [
-        "ووردبريس"
-      ],
-      "gmail": [
-        "جيميل"
-      ],
-      "chrome": [
-        "كروم"
-      ],
-      "cloudflare": [
-        "كلاودفلير"
-      ],
-      "google": [
-        "جوجل"
       ]
     }
   },
   "not_found_routes": [
+    "/",
     "/services/",
     "/learn/",
     "/plugins/",
-    "/about/contact-us/"
+    "/contact/"
   ],
+  "direction": "rtl",
+  "transliterate_urls": "1",
   "blocked_source_paths": [
     "terms"
   ]

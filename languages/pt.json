@@ -5,194 +5,123 @@
   "wordpress_locale": "pt_PT",
   "prefix": "pt",
   "menu_name": "Main Menu PT",
-  "menu_region": "Europe",
   "source": "0",
   "flag": "🇵🇹",
-  "blog_path": "pt/blog",
-  "blog_taxonomy_paths": {
-    "category": "categoria",
-    "tag": "etiqueta"
-  },
-  "menu_items": {
-    "4": "Sobre nós",
-    "5": "Contacto",
-    "7": "Serviços",
-    "501": "Aprender",
-    "1837": "Recomendado",
-    "6420": "Termos de pagamento",
-    "6424": "Resumo da empresa",
-    "6744": "Blog",
-    "12025": "Início",
-    "12746": "Otimização de imagens",
-    "13056": "Otimização de vídeo",
-    "13067": "Web design e desenvolvimento",
-    "14263": "Serviços de SEO",
-    "14264": "Link building",
-    "14614": "Correções WordPress",
-    "14617": "Serviços técnicos geridos",
-    "14624": "Serviços de IA",
-    "14646": "Plugins",
-    "18409": "Send"
-  },
+  "menu_items": {},
   "custom_menu_items": {
-    "Company Overview": "Resumo da empresa",
-    "Send": "Send",
-    "Downloads": "Transferências",
-    "Privacy Policy": "Política de privacidade",
-    "Terms of Service": "Termos de serviço"
+    "Homepage": "Início",
+    "Website": "Site",
+    "Services": "Serviços",
+    "Learn": "Aprender",
+    "Plugins": "Plugins",
+    "Contact": "Contacto",
+    "Blog": "Blog"
   },
   "widget_text": {
-    "Navigate": "Navegação",
-    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "Trabalho prático na internet para sites que precisam de ser encontrados, transmitir confiança, ser mantidos e melhorar continuamente.",
-    "Popular last 30 days": "Popular nos últimos 30 dias",
-    "Start with the URL": "Comece pelo URL",
-    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Use o botão de email e inclua a página, os sintomas e o que deve melhorar. Respondemos por escrito com o primeiro passo prático.",
-    "Email us about the website": "Enviar o site à the site",
-    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A",
-    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "Uma marca operada pela the site operator, the site operator e the site operator. <a href=\"/\">Dados registados da empresa</a>.",
-    "Share this:": "Partilhar:",
-    "This site uses Akismet to reduce spam.": "Este site usa o Akismet para reduzir spam.",
-    "Learn how your comment data is processed.": "Saiba como os seus dados de comentário são processados."
+    "Navigate": "Navigate",
+    "Start with the URL": "Start with the URL",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Use the contact route and include the page, symptoms, and what should improve.",
+    "Email us about the website": "Email us about the website",
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A"
   },
   "not_found_text": {
-    "Page not found.": "Esta página não está aqui.",
-    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "O endereço pode estar antigo, ter sido movido ou estar incompleto. Escolha uma rota abaixo ou envie-nos o URL quebrado por email.",
-    "Choose a route": "Escolha a rota certa",
-    "Broken link? Email ": "Link quebrado? Envie email para ",
-    " with the URL.": " com o URL.",
-    "Use the visit.": "Torne o próximo passo útil.",
-    "Services, Learn, plugins, and contact are below.": "As rotas mais rápidas são serviços, conteúdos de aprendizagem, plugins ou contacto.",
-    "Where to go": "Comece aqui",
-    "Choose the closest match.": "Escolha a opção mais próxima do que procurava.",
-    "Services": "Serviços",
-    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "Ajuda com site, visibilidade na pesquisa, WordPress, desempenho ou fluxos de trabalho de IA.",
-    "View services →": "Ver serviços →",
-    "Learn": "Aprender",
-    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "Explicações práticas antes de decidir o que alterar ou comprar.",
-    "View Learn →": "Ver aprendizagem →",
+    "Page not found.": "That page is not here.",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "The address may be old, moved, or incomplete. Use the routes below, or send the URL if something should still exist.",
+    "Choose a route": "Find the right place",
+    "Services": "Services",
+    "View services →": "Go to services →",
+    "Learn": "Learn",
+    "View Learn →": "Go to Learn →",
     "Plugins": "Plugins",
-    "Production WordPress plugins and small tools that remove friction.": "Plugins WordPress e ferramentas focadas criadas pela the site.",
-    "View plugins →": "Ver plugins →",
-    "Contact": "Contacto",
-    "Send the broken URL and expected destination.": "Se esperava uma página específica, envie o URL e o que precisava.",
-    "Contact us →": "Contactar a the site →",
-    "How to start": "Se reportar o link",
-    "Recover the intent, not just the URL.": "Diga-nos o que tentava encontrar, não apenas o endereço que falhou.",
-    "01 Send context": "01 Envie o URL",
-    "Send the URL, the issue, and what a useful outcome would look like.": "Inclua o endereço, onde o encontrou e o que esperava abrir.",
-    "02 We identify the constraint": "02 Verificamos o que falhou",
-    "We separate symptoms from causes before recommending work.": "Vemos se a página foi movida, se o link está errado ou se o conteúdo deve ser reposto.",
-    "03 We suggest the first move": "03 Indicamos o próximo passo",
-    "You get a practical next step, not a generic package.": "Recebe o próximo passo mais útil: a página certa, uma correção ou uma resposta breve.",
-    "04 Then we execute": "04 Corrigimos o que deve ser corrigido",
-    "If the site is the right fit, we handle the work carefully.": "Se o problema for nosso, corrigimo-lo com cuidado.",
-    "Ready to ask?": "Ainda procura algo específico?",
-    "Was this broken link important?": "Se esta página devia existir, diga-nos o que procurava.",
-    "Send the URL you tried and what you expected to find.": "Envie o URL que tentou e a página ou resposta que esperava encontrar.",
-    "Email ": "Email para ",
-    "Useful for someone else? Share this:": "Partilhar a the site:",
-    "Share on X (Twitter)": "Partilhar no X (Twitter)",
-    "Share on LinkedIn": "Partilhar no LinkedIn",
-    "Share on Facebook": "Partilhar no Facebook",
-    "Share on Email": "Partilhar por email"
+    "View plugins →": "Go to plugins →",
+    "Contact": "Contact",
+    "Contact us →": "Contact us →",
+    "Send the broken URL and expected destination.": "Send the broken URL and expected destination.",
+    "Useful for someone else? Share this:": "Share this:",
+    "Share on X (Twitter)": "Share on X (Twitter)",
+    "Share on LinkedIn": "Share on LinkedIn",
+    "Share on Facebook": "Share on Facebook",
+    "Share on Email": "Share by email"
   },
   "language_profile": {
     "review_language": "Portuguese",
-    "tone": "português claro, concreto e profissional; vende pela precisão e confiança, não por exagero",
+    "tone": "clear, direct, practical, trust-building; natural business language without hype",
     "formality": "forma profissional com tratamento direto",
     "preserve_terms": [
-      "the site",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
-      "Chrome Web Store",
-      "Send",
       "MCP",
       "AI",
       "SEO",
       "API",
-      "FAQ",
-      "Gmail",
-      "Gravatar",
-      "Cookies",
-      "Chrome",
-      "Limited Use",
-      "User Data Policy"
+      "FAQ"
     ],
     "never_translate_terms": [
-      "the site",
-      "Send",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
       "MCP"
     ],
-    "locale_guidance": "Use European Portuguese. Prefer natural Portuguese business and web terminology, avoid literal English sentence structure, and preserve only real brand/product names and established technical names.",
+    "locale_guidance": "Use natural Portuguese business wording with clear, practical phrasing.",
     "localized_terms": {
       "Homepage": [
-        "página inicial"
-      ],
-      "Website": [
-        "site"
-      ],
-      "Services": [
-        "serviços"
-      ],
-      "Learn": [
-        "aprender"
-      ],
-      "Plugins": [
-        "plugins"
-      ],
-      "Contact": [
-        "contacto"
-      ],
-      "Blog": [
-        "blog"
-      ],
-      "SEO": [
-        "SEO",
-        "otimização para motores de pesquisa"
-      ],
-      "AI": [
-        "IA"
+        "Início"
       ],
       "homepage": [
-        "página inicial"
+        "Início"
+      ],
+      "Website": [
+        "Site"
       ],
       "website": [
-        "site"
+        "Site"
+      ],
+      "Services": [
+        "Serviços"
       ],
       "services": [
-        "serviços"
+        "Serviços"
+      ],
+      "Learn": [
+        "Aprender"
       ],
       "learn": [
-        "aprender"
+        "Aprender"
+      ],
+      "Plugins": [
+        "Plugins"
       ],
       "plugins": [
-        "plugins"
+        "Plugins"
+      ],
+      "Contact": [
+        "Contacto"
       ],
       "contact": [
-        "contacto"
+        "Contacto"
+      ],
+      "Blog": [
+        "Blog"
       ],
       "blog": [
-        "blog"
-      ],
-      "seo": [
-        "SEO",
-        "otimização para motores de pesquisa"
-      ],
-      "ai": [
-        "IA"
+        "Blog"
       ]
     }
   },
   "not_found_routes": [
+    "/",
     "/services/",
     "/learn/",
     "/plugins/",
-    "/about/contact-us/"
-  ]
+    "/contact/"
+  ],
+  "menu_region": "Europe",
+  "blog_path": "pt/blog",
+  "blog_taxonomy_paths": {
+    "category": "categoria",
+    "tag": "etiqueta"
+  }
 }

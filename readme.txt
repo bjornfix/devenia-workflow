@@ -91,7 +91,7 @@ Adds a release-time language-policy check so runtime-only script-signal decision
 Adds audited rule-event support for script-signal options, so language-specific QA modes can live in the rule table instead of packaged rule files.
 
 = Earlier versions =
-Older private workflow changes are kept in the project repository history.
+Older workflow changes are kept in the project repository history.
 
 == Changelog ==
 
@@ -136,4 +136,4 @@ Older private workflow changes are kept in the project repository history.
 * Override translated blog archive Rank Math title, description, and canonical output so stale page meta cannot say no posts are present when the archive contains posts.
 
 = Earlier versions =
-Older private workflow changes are kept in the project repository history.
+Older workflow changes are kept in the project repository history.

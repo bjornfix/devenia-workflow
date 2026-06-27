@@ -7,177 +7,120 @@
   "menu_name": "Main Menu NL",
   "source": "0",
   "flag": "🇳🇱",
-  "blog_path": "nl/blog",
-  "blog_taxonomy_paths": {
-    "category": "categorie",
-    "tag": "tag"
-  },
-  "menu_items": {
-    "4": "Over ons",
-    "5": "Contact",
-    "7": "Diensten",
-    "501": "Leren",
-    "1837": "Aanbevolen",
-    "6420": "Onze betalingsvoorwaarden",
-    "6424": "Bedrijfsoverzicht",
-    "6744": "Blog",
-    "12025": "Home",
-    "12746": "Afbeeldingen optimaliseren",
-    "13056": "Video optimaliseren",
-    "13067": "Webdesign en ontwikkeling",
-    "14263": "SEO-diensten",
-    "14264": "Linkbuilding",
-    "14614": "WordPress-reparaties",
-    "14617": "Beheerde techniek",
-    "14624": "AI-diensten",
-    "14646": "Plugins",
-    "18409": "Send"
-  },
+  "menu_items": {},
   "custom_menu_items": {
-    "Company Overview": "Bedrijfsoverzicht",
-    "Send": "Send",
-    "Downloads": "Downloads",
-    "Privacy Policy": "Privacybeleid",
-    "Terms of Service": "Servicevoorwaarden"
+    "Homepage": "Home",
+    "Website": "Website",
+    "Services": "Diensten",
+    "Learn": "Leren",
+    "Plugins": "Plugins",
+    "Contact": "Contact",
+    "Blog": "Blog"
   },
   "widget_text": {
-    "Navigate": "Navigatie",
-    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "Praktisch internetwerk voor websites die vertrouwd, gevonden, onderhouden en verbeterd moeten worden.",
-    "Start with the URL": "Begin met de URL",
-    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Gebruik de e-mailknop en vermeld de pagina, de symptomen en wat beter moet. We antwoorden schriftelijk met de eerste praktische stap.",
-    "Email us about the website": "Mail the site over de website",
-    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Vraag%20over%20de%20website&body=Hello%2C%0A%0AURL%3A%0A%0ASymptomen%3A%0A%0AWat%20moet%20beter%3A%0A%0A",
-    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "Een merk dat wordt beheerd door the site operator, the site operator en the site operator. <a href=\"/\">Geregistreerde bedrijfsgegevens</a>."
+    "Navigate": "Navigate",
+    "Start with the URL": "Start with the URL",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Use the contact route and include the page, symptoms, and what should improve.",
+    "Email us about the website": "Email us about the website",
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A"
   },
   "not_found_text": {
-    "Page not found.": "Deze pagina staat hier niet.",
-    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "Het adres kan verouderd, verplaatst of onvolledig zijn. Kies hieronder een route, of mail ons de URL als deze pagina nog zou moeten bestaan.",
-    "Choose a route": "Vind de juiste route",
-    "Broken link? Email ": "Kapotte link? Mail ",
-    " with the URL.": " met de URL.",
-    "Use the visit.": "Maak de volgende stap nuttig.",
-    "Services, Learn, plugins, and contact are below.": "De snelste routes zijn diensten, uitleg, plugins of contact.",
-    "Where to go": "Begin hier",
-    "Choose the closest match.": "Kies de optie die het dichtst bij uw doel ligt.",
-    "Services": "Diensten",
-    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "Hulp met website, vindbaarheid, WordPress, prestaties of AI-workflows.",
-    "View services →": "Naar diensten →",
-    "Learn": "Uitleg",
-    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "Praktische uitleg voordat u beslist wat u verandert of koopt.",
-    "View Learn →": "Naar uitleg →",
+    "Page not found.": "That page is not here.",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "The address may be old, moved, or incomplete. Use the routes below, or send the URL if something should still exist.",
+    "Choose a route": "Find the right place",
+    "Services": "Services",
+    "View services →": "Go to services →",
+    "Learn": "Learn",
+    "View Learn →": "Go to Learn →",
     "Plugins": "Plugins",
-    "Production WordPress plugins and small tools that remove friction.": "WordPress-plugins en gerichte tools van the site.",
-    "View plugins →": "Naar plugins →",
+    "View plugins →": "Go to plugins →",
     "Contact": "Contact",
-    "Send the broken URL and expected destination.": "Als u een specifieke pagina verwachtte, stuur dan de URL en wat u nodig had.",
-    "Contact us →": "Contact met the site →",
-    "How to start": "Als u de link meldt",
-    "Recover the intent, not just the URL.": "Vertel wat u wilde vinden, niet alleen welk adres mislukte.",
-    "01 Send context": "01 Stuur de URL",
-    "Send the URL, the issue, and what a useful outcome would look like.": "Vermeld het adres, waar u het vond en wat u verwachtte te openen.",
-    "02 We identify the constraint": "02 We controleren wat misging",
-    "We separate symptoms from causes before recommending work.": "We kijken of de pagina is verplaatst, de link fout is of de inhoud moet worden hersteld.",
-    "03 We suggest the first move": "03 We geven de volgende stap",
-    "You get a practical next step, not a generic package.": "U krijgt de nuttigste volgende stap: de juiste pagina, een correctie of een kort antwoord.",
-    "04 Then we execute": "04 We corrigeren wat gecorrigeerd moet worden",
-    "If the site is the right fit, we handle the work carefully.": "Als de fout bij ons ligt, herstellen we die zorgvuldig.",
-    "Ready to ask?": "Zoekt u nog iets specifieks?",
-    "Was this broken link important?": "Als deze pagina zou moeten bestaan, vertel ons wat u zocht.",
-    "Send the URL you tried and what you expected to find.": "Stuur de URL die u probeerde en de pagina of het antwoord dat u verwachtte.",
-    "Email ": "E-mail naar ",
-    "Useful for someone else? Share this:": "Deel the site:",
-    "Share on X (Twitter)": "Delen op X (Twitter)",
-    "Share on LinkedIn": "Delen op LinkedIn",
-    "Share on Facebook": "Delen op Facebook",
-    "Share on Email": "Delen via e-mail"
+    "Contact us →": "Contact us →",
+    "Send the broken URL and expected destination.": "Send the broken URL and expected destination.",
+    "Useful for someone else? Share this:": "Share this:",
+    "Share on X (Twitter)": "Share on X (Twitter)",
+    "Share on LinkedIn": "Share on LinkedIn",
+    "Share on Facebook": "Share on Facebook",
+    "Share on Email": "Share by email"
   },
   "language_profile": {
     "review_language": "Dutch",
-    "tone": "helder, concreet en professioneel Nederlands; overtuigt door precisie, niet door overdrijving",
+    "tone": "clear, direct, practical, trust-building; natural business language without hype",
     "formality": "professionele u-vorm",
     "preserve_terms": [
-      "the site",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
-      "Chrome Web Store",
-      "Send",
       "MCP",
       "AI",
       "SEO",
       "API",
-      "FAQ",
-      "Gmail",
-      "Gravatar",
-      "Cookies",
-      "Chrome",
-      "Limited Use",
-      "User Data Policy"
+      "FAQ"
     ],
     "never_translate_terms": [
-      "the site",
-      "Send",
       "WordPress",
       "GeneratePress",
       "GenerateBlocks",
       "Gutenberg",
       "MCP"
     ],
-    "locale_guidance": "Use Dutch for the Netherlands with professional u-form where appropriate. Use normal Dutch digital and marketing terminology, and preserve only real brand/product names and established technical names.",
+    "locale_guidance": "Use natural Dutch business wording with clear, practical phrasing.",
     "localized_terms": {
       "Homepage": [
-        "homepage",
-        "startpagina"
-      ],
-      "Website": [
-        "website"
-      ],
-      "Services": [
-        "diensten"
-      ],
-      "Learn": [
-        "uitleg",
-        "leren"
-      ],
-      "Plugins": [
-        "plugins"
-      ],
-      "Contact": [
-        "contact"
-      ],
-      "Blog": [
-        "blog"
+        "Home"
       ],
       "homepage": [
-        "homepage",
-        "startpagina"
+        "Home"
+      ],
+      "Website": [
+        "Website"
       ],
       "website": [
-        "website"
+        "Website"
+      ],
+      "Services": [
+        "Diensten"
       ],
       "services": [
-        "diensten"
+        "Diensten"
+      ],
+      "Learn": [
+        "Leren"
       ],
       "learn": [
-        "uitleg",
-        "leren"
+        "Leren"
+      ],
+      "Plugins": [
+        "Plugins"
       ],
       "plugins": [
-        "plugins"
+        "Plugins"
+      ],
+      "Contact": [
+        "Contact"
       ],
       "contact": [
-        "contact"
+        "Contact"
+      ],
+      "Blog": [
+        "Blog"
       ],
       "blog": [
-        "blog"
+        "Blog"
       ]
     }
   },
   "not_found_routes": [
+    "/",
     "/services/",
     "/learn/",
     "/plugins/",
-    "/about/contact-us/"
-  ]
+    "/contact/"
+  ],
+  "blog_path": "nl/blog",
+  "blog_taxonomy_paths": {
+    "category": "categorie",
+    "tag": "tag"
+  }
 }
