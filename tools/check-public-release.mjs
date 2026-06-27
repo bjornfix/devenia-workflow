@@ -50,6 +50,18 @@ if (!fs.existsSync(path.join(base, "uninstall.php"))) {
   issue("uninstall.php", "missing_uninstall", "Public plugins with custom tables/options need an explicit uninstall cleanup file.");
 }
 
+if (!fs.existsSync(path.join(base, ".gitattributes"))) {
+  issue(".gitattributes", "missing_export_rules", "Public release packages need explicit git archive export-ignore rules.");
+} else {
+  const attributes = read(".gitattributes");
+  if (!/^tools\/\s+export-ignore$/m.test(attributes)) {
+    issue(".gitattributes", "missing_tools_export_ignore", "Development tools must be excluded from git archive release packages.");
+  }
+  if (!/^\.gitattributes\s+export-ignore$/m.test(attributes)) {
+    issue(".gitattributes", "missing_self_export_ignore", "Git archive release packages must not include .gitattributes.");
+  }
+}
+
 if (headerVersion && constantVersion && headerVersion !== constantVersion) {
   issue(mainFile, "version_mismatch", "Plugin header Version and VERSION constant differ.", { headerVersion, constantVersion });
 }
@@ -92,7 +104,7 @@ for (const file of gitFiles()) {
   }
 
   const basename = path.basename(file);
-  if (basename.startsWith(".")) {
+  if (basename.startsWith(".") && ".gitattributes" !== basename) {
     issue(file, "hidden_file_tracked", "Hidden files must not be part of the distributable plugin ZIP.");
   }
 
