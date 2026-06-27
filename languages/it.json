@@ -1,0 +1,185 @@
+{
+  "name": "Italian",
+  "native_name": "Italiano",
+  "locale": "it_IT",
+  "wordpress_locale": "it_IT",
+  "prefix": "it",
+  "menu_name": "Main Menu IT",
+  "source": "0",
+  "flag": "🇮🇹",
+  "blog_path": "it/blog",
+  "blog_taxonomy_paths": {
+    "category": "categoria",
+    "tag": "tag"
+  },
+  "menu_items": {
+    "4": "Chi siamo",
+    "5": "Contatti",
+    "7": "Servizi",
+    "501": "Impara",
+    "1837": "Consigliati",
+    "6420": "Condizioni di pagamento",
+    "6424": "Riepilogo aziendale",
+    "6744": "Blog",
+    "12025": "Home",
+    "12746": "Ottimizzazione immagini",
+    "13056": "Ottimizzazione video",
+    "13067": "Design e sviluppo web",
+    "14263": "Servizi SEO",
+    "14264": "Link building",
+    "14614": "Correzioni WordPress",
+    "14617": "Tecnologia gestita",
+    "14624": "Servizi AI",
+    "14646": "Plugin",
+    "18409": "Send"
+  },
+  "custom_menu_items": {
+    "Company Overview": "Riepilogo aziendale",
+    "Send": "Send",
+    "Downloads": "Download",
+    "Privacy Policy": "Informativa sulla privacy",
+    "Terms of Service": "Termini di servizio"
+  },
+  "widget_text": {
+    "Navigate": "Navigazione",
+    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "Lavoro web pratico per siti che devono essere credibili, trovati, mantenuti e migliorati.",
+    "Start with the URL": "Partite dall'URL",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Usate il pulsante email e indicate la pagina, i sintomi e cosa dovrebbe migliorare. Rispondiamo per iscritto con il primo passo pratico.",
+    "Email us about the website": "Scrivere a the site sul sito",
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Domanda%20sul%20sito&body=Hello%2C%0A%0AURL%3A%0A%0ASintomi%3A%0A%0ACosa%20dovrebbe%20migliorare%3A%0A%0A",
+    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "Un unico marchio gestito da the site operator, the site operator e the site operator. <a href=\"/\">Dati societari registrati</a>."
+  },
+  "not_found_text": {
+    "Page not found.": "Questa pagina non si trova qui.",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "L'indirizzo potrebbe essere vecchio, spostato o incompleto. Scegliete un percorso qui sotto, oppure inviateci l'URL se questa pagina dovrebbe esistere ancora.",
+    "Choose a route": "Trovate il percorso giusto",
+    "Broken link? Email ": "Link rotto? Scrivete a ",
+    " with the URL.": " con l'URL.",
+    "Use the visit.": "Rendete utile il prossimo passo.",
+    "Services, Learn, plugins, and contact are below.": "I percorsi più rapidi sono servizi, guide, plugin o contatto.",
+    "Where to go": "Da dove iniziare",
+    "Choose the closest match.": "Scegliete l'opzione più vicina a ciò che stavate cercando.",
+    "Services": "Servizi",
+    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "Aiuto con sito web, visibilita, WordPress, prestazioni o workflow AI.",
+    "View services →": "Vai ai servizi →",
+    "Learn": "Guide",
+    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "Spiegazioni pratiche prima di decidere cosa cambiare o acquistare.",
+    "View Learn →": "Vai alle guide →",
+    "Plugins": "Plugin",
+    "Production WordPress plugins and small tools that remove friction.": "Plugin WordPress e strumenti mirati creati da the site.",
+    "View plugins →": "Vai ai plugin →",
+    "Contact": "Contatto",
+    "Send the broken URL and expected destination.": "Se vi aspettavate una pagina specifica, inviate l'URL e cio che cercavate.",
+    "Contact us →": "Contatta the site →",
+    "How to start": "Se segnalate il link",
+    "Recover the intent, not just the URL.": "Diteci cosa volevate trovare, non solo quale indirizzo non ha funzionato.",
+    "01 Send context": "01 Inviate l'URL",
+    "Send the URL, the issue, and what a useful outcome would look like.": "Includete l'indirizzo, dove lo avete trovato e cosa vi aspettavate di aprire.",
+    "02 We identify the constraint": "02 Verifichiamo cosa non ha funzionato",
+    "We separate symptoms from causes before recommending work.": "Controlliamo se la pagina è stata spostata, se il link è sbagliato o se il contenuto va recuperato.",
+    "03 We suggest the first move": "03 Indichiamo il prossimo passo",
+    "You get a practical next step, not a generic package.": "Ricevete il passo più utile: la pagina corretta, una correzione o una risposta breve.",
+    "04 Then we execute": "04 Correggiamo ciò che va corretto",
+    "If the site is the right fit, we handle the work carefully.": "Se l'errore è nostro, lo correggiamo con cura.",
+    "Ready to ask?": "State ancora cercando qualcosa di preciso?",
+    "Was this broken link important?": "Se questa pagina dovrebbe esistere, diteci cosa stavate cercando.",
+    "Send the URL you tried and what you expected to find.": "Inviate l'URL provato e la pagina o risposta che vi aspettavate.",
+    "Email ": "Email a ",
+    "Useful for someone else? Share this:": "Condividi the site:",
+    "Share on X (Twitter)": "Condividi su X (Twitter)",
+    "Share on LinkedIn": "Condividi su LinkedIn",
+    "Share on Facebook": "Condividi su Facebook",
+    "Share on Email": "Condividi via email"
+  },
+  "language_profile": {
+    "review_language": "Italian",
+    "tone": "italiano chiaro, concreto e professionale; vende con precisione, non con enfasi",
+    "formality": "forma professionale con voi",
+    "preserve_terms": [
+      "the site",
+      "WordPress",
+      "GeneratePress",
+      "GenerateBlocks",
+      "Gutenberg",
+      "Chrome Web Store",
+      "Send",
+      "MCP",
+      "AI",
+      "SEO",
+      "API",
+      "FAQ",
+      "Gmail",
+      "Gravatar",
+      "Cookies",
+      "Chrome",
+      "Limited Use",
+      "User Data Policy"
+    ],
+    "never_translate_terms": [
+      "the site",
+      "Send",
+      "WordPress",
+      "GeneratePress",
+      "GenerateBlocks",
+      "Gutenberg",
+      "MCP"
+    ],
+    "locale_guidance": "Use Italian for Italy. Use natural Italian digital and marketing terminology where normal, and preserve only real brand/product names and established technical names.",
+    "localized_terms": {
+      "Homepage": [
+        "home page",
+        "pagina iniziale"
+      ],
+      "Website": [
+        "sito web"
+      ],
+      "Services": [
+        "servizi"
+      ],
+      "Learn": [
+        "guide",
+        "impara"
+      ],
+      "Plugins": [
+        "plugin"
+      ],
+      "Contact": [
+        "contatto",
+        "contatti"
+      ],
+      "Blog": [
+        "blog"
+      ],
+      "homepage": [
+        "home page",
+        "pagina iniziale"
+      ],
+      "website": [
+        "sito web"
+      ],
+      "services": [
+        "servizi"
+      ],
+      "learn": [
+        "guide",
+        "impara"
+      ],
+      "plugins": [
+        "plugin"
+      ],
+      "contact": [
+        "contatto",
+        "contatti"
+      ],
+      "blog": [
+        "blog"
+      ]
+    }
+  },
+  "not_found_routes": [
+    "/services/",
+    "/learn/",
+    "/plugins/",
+    "/about/contact-us/"
+  ]
+}

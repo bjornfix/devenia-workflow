@@ -1,0 +1,202 @@
+{
+  "name": "Japanese",
+  "native_name": "日本語",
+  "locale": "ja_JP",
+  "wordpress_locale": "ja",
+  "prefix": "ja",
+  "menu_name": "Main Menu JA",
+  "menu_region": "Asia",
+  "source": "0",
+  "flag": "🇯🇵",
+  "blog_path": "ja/blog",
+  "blog_taxonomy_paths": {
+    "category": "category",
+    "tag": "tag"
+  },
+  "menu_items": {
+    "4": "会社情報",
+    "5": "お問い合わせ",
+    "7": "サービス",
+    "501": "学ぶ",
+    "1837": "おすすめ",
+    "6420": "お支払い条件",
+    "6424": "会社概要",
+    "6744": "ブログ",
+    "12025": "ホーム",
+    "12746": "画像最適化",
+    "13056": "動画最適化",
+    "13067": "Webデザインと開発",
+    "14263": "SEOサービス",
+    "14264": "リンク構築",
+    "14614": "WordPress修正",
+    "14617": "運用型技術サービス",
+    "14624": "AIサービス",
+    "14646": "プラグイン",
+    "18409": "Send"
+  },
+  "custom_menu_items": {
+    "Company Overview": "会社概要",
+    "Send": "Send",
+    "Downloads": "ダウンロード",
+    "Privacy Policy": "プライバシーポリシー",
+    "Terms of Service": "利用規約"
+  },
+  "widget_text": {
+    "Navigate": "ナビゲーション",
+    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "信頼され、見つけられ、保守され、改善され続ける必要があるWebサイトのための実務的なインターネット作業。",
+    "Popular last 30 days": "過去30日間の人気記事",
+    "Start with the URL": "まずURLを送ってください",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "メールボタンから、対象ページ、症状、改善したい点を送ってください。最初に取るべき実務的な一手を文章で返信します。",
+    "Email us about the website": "Webサイトについてthe siteに相談する",
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A",
+    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "the siteは、the site operator、the site operator、the site operatorが運営する同一ブランドです。<a href=\"/\">登録会社情報</a>をご覧ください。",
+    "Share this:": "共有：",
+    "This site uses Akismet to reduce spam.": "このサイトはスパムを減らすためにAkismetを使用しています。",
+    "Learn how your comment data is processed.": "コメントデータの処理方法をご確認ください。"
+  },
+  "not_found_text": {
+    "Page not found.": "このページは見つかりません。",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "このアドレスは古い、移動済み、または不完全な可能性があります。下の入口を選ぶか、壊れたURLをメールでお送りください。",
+    "Choose a route": "入口を選ぶ",
+    "Broken link? Email ": "リンク切れですか？",
+    " with the URL.": " にURLを送ってください。",
+    "Use the visit.": "次の一歩を有用に。",
+    "Services, Learn, plugins, and contact are below.": "サービス、学習コンテンツ、プラグイン、お問い合わせが主な入口です。",
+    "Where to go": "ここから始める",
+    "Choose the closest match.": "探していた内容に最も近い入口を選んでください。",
+    "Services": "サービス",
+    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "Webサイト、検索可視性、WordPress、パフォーマンス、AIワークフローの支援。",
+    "View services →": "サービスを見る →",
+    "Learn": "学ぶ",
+    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "何を変更・購入すべきか判断する前に読む実務的な解説。",
+    "View Learn →": "学習コンテンツを見る →",
+    "Plugins": "プラグイン",
+    "Production WordPress plugins and small tools that remove friction.": "the siteが作るWordPressプラグインと小さな実務ツール。",
+    "View plugins →": "プラグインを見る →",
+    "Contact": "お問い合わせ",
+    "Send the broken URL and expected destination.": "特定のページを探していた場合は、そのURLと必要だった内容を送ってください。",
+    "Contact us →": "the siteに問い合わせる →",
+    "How to start": "リンクを報告する場合",
+    "Recover the intent, not just the URL.": "壊れたアドレスだけでなく、何を探していたかも教えてください。",
+    "01 Send context": "01 URLを送る",
+    "Send the URL, the issue, and what a useful outcome would look like.": "アドレス、見つけた場所、開くはずだった内容を含めてください。",
+    "02 We identify the constraint": "02 問題を確認する",
+    "We separate symptoms from causes before recommending work.": "ページが移動したのか、リンクが間違っているのか、内容を戻すべきなのかを確認します。",
+    "03 We suggest the first move": "03 次の一手を示す",
+    "You get a practical next step, not a generic package.": "正しいページ、修正、短い回答など、最も有用な次の一歩を返します。",
+    "04 Then we execute": "04 修正すべきものを直す",
+    "If the site is the right fit, we handle the work carefully.": "こちらで修正すべき問題であれば、慎重に対応します。",
+    "Ready to ask?": "まだ特定の内容を探していますか？",
+    "Was this broken link important?": "このページが存在すべきなら、探していた内容を教えてください。",
+    "Send the URL you tried and what you expected to find.": "試したURLと、期待していたページまたは回答を送ってください。",
+    "Email ": "メール：",
+    "Useful for someone else? Share this:": "the siteを共有：",
+    "Share on X (Twitter)": "X (Twitter)で共有",
+    "Share on LinkedIn": "LinkedInで共有",
+    "Share on Facebook": "Facebookで共有",
+    "Share on Email": "メールで共有"
+  },
+  "language_profile": {
+    "review_language": "Japanese",
+    "tone": "明確で具体的なビジネス日本語。誇張ではなく、精度と信頼性で説得する",
+    "formality": "professional polite form",
+    "preserve_terms": [
+      "the site",
+      "WordPress",
+      "GeneratePress",
+      "GenerateBlocks",
+      "Gutenberg",
+      "Chrome Web Store",
+      "Send",
+      "MCP",
+      "AI",
+      "SEO",
+      "API",
+      "FAQ",
+      "Gmail",
+      "Gravatar",
+      "Cookies",
+      "Chrome",
+      "Limited Use",
+      "User Data Policy"
+    ],
+    "never_translate_terms": [
+      "the site",
+      "Send",
+      "WordPress",
+      "GeneratePress",
+      "GenerateBlocks",
+      "Gutenberg",
+      "MCP"
+    ],
+    "locale_guidance": "Use natural Japanese for Japan. Prefer clear business Japanese and practical web terminology. Avoid literal English word order and inflated agency language; preserve Latin-script product names only when that is the expected written form.",
+    "localized_terms": {
+      "Homepage": [
+        "ホーム",
+        "トップページ"
+      ],
+      "Website": [
+        "Webサイト"
+      ],
+      "Services": [
+        "サービス"
+      ],
+      "Learn": [
+        "学ぶ"
+      ],
+      "Plugins": [
+        "プラグイン"
+      ],
+      "Contact": [
+        "お問い合わせ"
+      ],
+      "Blog": [
+        "ブログ"
+      ],
+      "SEO": [
+        "SEO",
+        "検索エンジン最適化"
+      ],
+      "AI": [
+        "AI",
+        "人工知能"
+      ],
+      "homepage": [
+        "ホーム",
+        "トップページ"
+      ],
+      "website": [
+        "Webサイト"
+      ],
+      "services": [
+        "サービス"
+      ],
+      "learn": [
+        "学ぶ"
+      ],
+      "plugins": [
+        "プラグイン"
+      ],
+      "contact": [
+        "お問い合わせ"
+      ],
+      "blog": [
+        "ブログ"
+      ],
+      "seo": [
+        "SEO",
+        "検索エンジン最適化"
+      ],
+      "ai": [
+        "AI",
+        "人工知能"
+      ]
+    }
+  },
+  "not_found_routes": [
+    "/services/",
+    "/learn/",
+    "/plugins/",
+    "/about/contact-us/"
+  ]
+}

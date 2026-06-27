@@ -1,0 +1,1179 @@
+{
+  "schema_version": 1,
+  "description": "Packaged language-quality QA rules. WordPress runtime options may override these through language_profile patches; PHP must not contain language-specific QA word lists.",
+  "languages": {
+    "ar": {
+      "review_patterns": [
+        "literal English phrasing in Arabic",
+        "Arabic title with non-transliterated URL slug",
+        "unsupported new claims",
+        "generic marketing filler",
+        "mixed Arabic and English outside preserved technical terms",
+        "visible site brand or product names left in Latin script instead of Arabic script",
+        "visible Latin digits used where Arabic-Indic digits should be used"
+      ],
+      "naturalness_patterns": [
+        {
+          "id": "ar-some-did-not-albaad-lam-yafal-dhalik",
+          "source": "Some did not",
+          "target": "البعض لم يفعل ذلك",
+          "message": "Literal English do/did pro-form. Arabic should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "وبعضه لم يرجع أبدا.",
+            "وجزء منه لم يعد."
+          ]
+        },
+        {
+          "id": "ar-some-did-not-wa-baduhu-lam-yafal-dhalik",
+          "source": "Some did not",
+          "target": "وبعضه لم يفعل ذلك",
+          "message": "Literal English do/did pro-form. Arabic should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "وبعضه لم يرجع أبدا.",
+            "وجزء منه لم يعد."
+          ]
+        },
+        {
+          "id": "ar-some-did-not-baduha-lam-yafal-dhalik",
+          "source": "Some did not",
+          "target": "بعضها لم يفعل ذلك",
+          "message": "Literal English do/did pro-form. Arabic should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "وبعضه لم يرجع أبدا.",
+            "وجزء منه لم يعد."
+          ]
+        },
+        {
+          "id": "ar-the-ugly-part-aljuz-alsayyi",
+          "source": "The ugly part?",
+          "target": "الجزء السيئ؟",
+          "message": "Source-shaped framing from English. Arabic should use natural framing such as المشكلة الأسوأ؟ when introducing the real problem.",
+          "suggestions": [
+            "المشكلة الأسوأ؟",
+            "الأصعب من ذلك؟"
+          ]
+        },
+        {
+          "id": "ar-carried-damage-kanat-tahmil-dararan",
+          "source": "carried damage",
+          "target": "كانت تحمل ضررًا",
+          "message": "English-shaped backup damage phrasing. Arabic should say that the backup was damaged by the same failure.",
+          "suggestions": [
+            "تضررت بسبب الفشل نفسه",
+            "كانت متضررة من الفشل نفسه"
+          ]
+        },
+        {
+          "id": "ar-homepage-right-customers-yashur",
+          "source": "right customers want to contact you",
+          "target": "يشعر العملاء المناسبون بأن التواصل معك هو الخطوة الصحيحة",
+          "message": "Literary, abstract homepage promise. Arabic agency copy should make the website problem and contact reason concrete.",
+          "suggestions": [
+            "حتى يعرف العميل المناسب لماذا يتواصل معك.",
+            "حتى يفهم العميل المناسب ما تقدمه ولماذا يراسلك."
+          ]
+        },
+        {
+          "id": "ar-low-risk-first-mukhatara",
+          "source": "Low-risk first",
+          "target": "مخاطرة منخفضة أولاً",
+          "message": "Literal, internal-sounding offer language. Arabic should explain the first practical step instead of translating the label mechanically.",
+          "suggestions": [
+            "ابدأ بخطوة صغيرة وواضحة.",
+            "ابدأ بمراجعة بسيطة قبل أي مشروع كبير."
+          ]
+        },
+        {
+          "id": "ar-offer-proof-next-step-alard",
+          "source": "offer, proof, and next step",
+          "target": "العرض والدليل والخطوة التالية",
+          "message": "Abstract copy-framework wording made visible to customers. Arabic should express the actual customer outcome, not the internal copy formula.",
+          "suggestions": [
+            "ما تقدمه، ولماذا يثق بك العميل، وما الخطوة التالية.",
+            "شرح أوضح للخدمة، ودليل عملي، وخطوة تواصل واضحة."
+          ]
+        }
+      ],
+      "script_signals": {
+        "required_pattern": "\\p{Arabic}",
+        "minimum_letters": 250,
+        "minimum_matches": 20,
+        "minimum_matches_per_1000_letters": 40
+      }
+    },
+    "da": {
+      "review_patterns": [
+        "scriptløs",
+        "den virkelige korte",
+        "ikke fastgjort til efter lancering"
+      ],
+      "naturalness_patterns": [
+        {
+          "id": "da-some-did-not-noget-gjorde-det-ikke",
+          "source": "Some did not",
+          "target": "Noget gjorde det ikke",
+          "message": "Literal English do/did pro-form. Danish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Noget kom aldrig tilbage.",
+            "En del kom aldrig tilbage."
+          ]
+        },
+        {
+          "id": "da-some-did-not-noget-gjorde-det-aldrig",
+          "source": "Some did not",
+          "target": "Noget gjorde det aldrig",
+          "message": "Literal English do/did pro-form. Danish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Noget kom aldrig tilbage.",
+            "En del kom aldrig tilbage."
+          ]
+        },
+        {
+          "id": "da-some-did-not-en-del-gjorde-det-ikke",
+          "source": "Some did not",
+          "target": "En del gjorde det ikke",
+          "message": "Literal English do/did pro-form. Danish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Noget kom aldrig tilbage.",
+            "En del kom aldrig tilbage."
+          ]
+        },
+        {
+          "id": "da-some-did-not-nogle-gjorde-det-ikke",
+          "source": "Some did not",
+          "target": "Nogle gjorde det ikke",
+          "message": "Literal English do/did pro-form. Danish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Noget kom aldrig tilbage.",
+            "En del kom aldrig tilbage."
+          ]
+        },
+        {
+          "id": "da-the-ugly-part-den-grimme-del",
+          "source": "The ugly part?",
+          "target": "Den grimme del?",
+          "message": "Source-shaped framing from English. Danish should use natural framing such as Det værste? when introducing the real problem.",
+          "suggestions": [
+            "Det værste?",
+            "Det virkelig dårlige?"
+          ]
+        },
+        {
+          "id": "da-carried-damage-bar-skader",
+          "source": "carried damage",
+          "target": "bar skader",
+          "message": "English-shaped backup damage phrasing. Danish should say that the backup was damaged by the same failure.",
+          "suggestions": [
+            "var beskadiget af den samme fejl",
+            "blev ramt af den samme fejl"
+          ]
+        },
+        {
+          "id": "da-some-did-not-noget-gjorde-ikke",
+          "source": "Some did not",
+          "target": "Noget gjorde ikke",
+          "message": "Literal English do/did pro-form. Danish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Noget kom aldrig tilbage.",
+            "En del kom aldrig tilbage."
+          ]
+        }
+      ],
+      "script_signals": {
+        "required_characters": [
+          "æ",
+          "ø",
+          "å",
+          "Æ",
+          "Ø",
+          "Å"
+        ],
+        "minimum_letters": 500,
+        "minimum_matches": 2,
+        "minimum_matches_per_1000_letters": 2,
+        "shadow_terms": [
+          "Så",
+          "på",
+          "får",
+          "år",
+          "grå hår",
+          "være",
+          "også",
+          "arbejdsflow",
+          "flersproget",
+          "oversættelse",
+          "oversættelsesflow",
+          "støttede",
+          "kræver",
+          "hjælper",
+          "søgesignaler",
+          "søgeord",
+          "indlæg",
+          "vedligeholdelse",
+          "vedligeholdelsesarbejde",
+          "uafhængig",
+          "vælger",
+          "ødelæg",
+          "sjældent"
+        ]
+      }
+    },
+    "de": {
+      "review_patterns": [
+        "skriptlose",
+        "die eigentliche kurze",
+        "nicht nach dem Start befestigt"
+      ],
+      "naturalness_patterns": [
+        {
+          "id": "de-some-did-not-taten-es-nicht",
+          "source": "Some did not",
+          "target": "Einige taten es nicht",
+          "message": "Literal English do/did pro-form. German should resolve the repeated action or use a natural elliptical construction.",
+          "suggestions": [
+            "Ein Teil kam nie zurück.",
+            "Manches kam nicht zurück."
+          ]
+        },
+        {
+          "id": "de-some-did-not-haben-es-nicht-getan",
+          "source": "Some did not",
+          "target": "Einige haben es nicht getan",
+          "message": "Literal English do/did pro-form. German should resolve the repeated action or use a natural elliptical construction.",
+          "suggestions": [
+            "Ein Teil kam nie zurück.",
+            "Manches kam nicht zurück."
+          ]
+        },
+        {
+          "id": "de-some-did-not-manche-taten-es-nicht",
+          "source": "Some did not",
+          "target": "Manche taten es nicht",
+          "message": "Literal English do/did pro-form. German should resolve the repeated action or use a natural elliptical construction.",
+          "suggestions": [
+            "Ein Teil kam nie zurück.",
+            "Manches kam nicht zurück."
+          ]
+        },
+        {
+          "id": "de-the-ugly-part-unangenehme-teil",
+          "source": "The ugly part?",
+          "target": "Der unangenehme Teil?",
+          "message": "Source-shaped framing from English. German should use natural framing such as Das Schlimme daran? or Das Problematische daran?.",
+          "suggestions": [
+            "Das Schlimme daran?",
+            "Das Problematische daran?"
+          ]
+        },
+        {
+          "id": "de-carried-damage-enthielt-schaeden",
+          "source": "carried damage",
+          "target": "enthielt Schäden",
+          "message": "English-shaped backup damage phrasing. German should say that the backup was damaged by the same failure.",
+          "suggestions": [
+            "war durch denselben Fehler beschädigt",
+            "war vom selben Fehler betroffen"
+          ]
+        }
+      ],
+      "script_signals": {
+        "required_characters": [
+          "ä",
+          "ö",
+          "ü",
+          "ß",
+          "Ä",
+          "Ö",
+          "Ü"
+        ],
+        "minimum_letters": 500,
+        "minimum_matches": 2,
+        "minimum_matches_per_1000_letters": 2,
+        "shadow_terms": [
+          "Übersetzung",
+          "Übersetzer",
+          "übersetzen",
+          "Übersetzungsworkflow",
+          "Übersetzungsschichten",
+          "Prüfung",
+          "Prüfungen",
+          "Menüs",
+          "gestützt",
+          "gestützten",
+          "gestütztes",
+          "größeren",
+          "öffentlichen",
+          "veröffentlichen",
+          "beschädigt",
+          "zurück",
+          "Möglichkeit",
+          "können",
+          "müssen",
+          "Beiträge",
+          "Außerhalb"
+        ]
+      }
+    },
+    "en": {
+      "review_patterns": [
+        "slop",
+        "utilize",
+        "leverage synergy"
+      ],
+      "naturalness_patterns": []
+    },
+    "es": {
+      "review_patterns": [
+        "encabezado sin script",
+        "el verdadero corto",
+        "no fijado despues del lanzamiento"
+      ],
+      "naturalness_patterns": [
+        {
+          "id": "es-some-did-not-algunos-no-lo-hicieron",
+          "source": "Some did not",
+          "target": "Algunos no lo hicieron",
+          "message": "Literal English do/did pro-form. Spanish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Parte no volvió nunca.",
+            "Otra parte nunca se recuperó."
+          ]
+        },
+        {
+          "id": "es-some-did-not-parte-no-lo-hizo",
+          "source": "Some did not",
+          "target": "Parte no lo hizo",
+          "message": "Literal English do/did pro-form. Spanish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Parte no volvió nunca.",
+            "Otra parte nunca se recuperó."
+          ]
+        },
+        {
+          "id": "es-some-did-not-algunas-cosas-no-lo-hicieron",
+          "source": "Some did not",
+          "target": "Algunas cosas no lo hicieron",
+          "message": "Literal English do/did pro-form. Spanish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Parte no volvió nunca.",
+            "Otra parte nunca se recuperó."
+          ]
+        },
+        {
+          "id": "es-the-ugly-part-la-parte-fea",
+          "source": "The ugly part?",
+          "target": "¿La parte fea?",
+          "message": "Source-shaped framing from English. Spanish should use natural framing such as ¿Lo peor? when introducing the real problem.",
+          "suggestions": [
+            "¿Lo peor?",
+            "¿La peor parte?"
+          ]
+        },
+        {
+          "id": "es-carried-damage-llevaba-danos",
+          "source": "carried damage",
+          "target": "llevaba daños",
+          "message": "English-shaped backup damage phrasing. Spanish should say that the backup was damaged by the same failure.",
+          "suggestions": [
+            "estaba dañada por el mismo fallo",
+            "también quedó dañada"
+          ]
+        }
+      ],
+      "script_signals": {
+        "required_characters": [
+          "á",
+          "é",
+          "í",
+          "ó",
+          "ú",
+          "ü",
+          "ñ",
+          "Á",
+          "É",
+          "Í",
+          "Ó",
+          "Ú",
+          "Ü",
+          "Ñ"
+        ],
+        "minimum_letters": 500,
+        "minimum_matches": 2,
+        "minimum_matches_per_1000_letters": 2,
+        "shadow_exclusions": [
+          "donde"
+        ],
+        "shadow_terms": [
+          "Desafíos",
+          "multilingüe",
+          "traducción",
+          "dañó",
+          "dañar",
+          "opción",
+          "lingüístico",
+          "revisión",
+          "años",
+          "También",
+          "señales",
+          "Actualización",
+          "jerarquía",
+          "Sincronización",
+          "menús",
+          "reparación",
+          "técnicas",
+          "índices",
+          "recuperación",
+          "páginas"
+        ]
+      }
+    },
+    "fi": {
+      "review_patterns": [
+        "skriptiton",
+        "todellinen lyhyt",
+        "ei kiinnitetty julkaisun jalkeen"
+      ],
+      "naturalness_patterns": [
+        {
+          "id": "fi-some-did-not-osa-ei-tehnyt-sita",
+          "source": "Some did not",
+          "target": "Osa ei tehnyt sitä",
+          "message": "Literal English do/did pro-form. Finnish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Osa ei koskaan palannut.",
+            "Osa ei koskaan tullut takaisin."
+          ]
+        },
+        {
+          "id": "fi-some-did-not-jotkut-eivat-tehneet-sita",
+          "source": "Some did not",
+          "target": "Jotkut eivät tehneet sitä",
+          "message": "Literal English do/did pro-form. Finnish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Osa ei koskaan palannut.",
+            "Osa ei koskaan tullut takaisin."
+          ]
+        },
+        {
+          "id": "fi-some-did-not-osa-ei-tehnyt-niin",
+          "source": "Some did not",
+          "target": "Osa ei tehnyt niin",
+          "message": "Literal English do/did pro-form. Finnish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Osa ei koskaan palannut.",
+            "Osa ei koskaan tullut takaisin."
+          ]
+        },
+        {
+          "id": "fi-the-ugly-part-ruma-osa",
+          "source": "The ugly part?",
+          "target": "Ruma osa?",
+          "message": "Source-shaped framing from English. Finnish should use natural framing such as Pahinta? when introducing the real problem.",
+          "suggestions": [
+            "Pahinta?",
+            "Ikävintä?"
+          ]
+        },
+        {
+          "id": "fi-carried-damage-kantoi-vahinkoa",
+          "source": "carried damage",
+          "target": "kantoi vahinkoa",
+          "message": "English-shaped backup damage phrasing. Finnish should say that the backup was damaged by the same failure.",
+          "suggestions": [
+            "oli saman vian vaurioittama",
+            "oli vahingoittunut samasta viasta"
+          ]
+        }
+      ],
+      "script_signals": {
+        "required_characters": [
+          "ä",
+          "ö",
+          "Ä",
+          "Ö"
+        ],
+        "minimum_letters": 500,
+        "minimum_matches": 2,
+        "minimum_matches_per_1000_letters": 2,
+        "shadow_terms": [
+          "kääntäminen",
+          "kääntämistä",
+          "käännös",
+          "käännöstyönkulku",
+          "tätä",
+          "yhä",
+          "käyttää",
+          "tekoälyavusteinen",
+          "tekoälyavusteista",
+          "työnkulku",
+          "työnkulkua",
+          "järjestelmä",
+          "ylläpito",
+          "sisältö",
+          "lisäosa",
+          "päivitys",
+          "tärkeää",
+          "vähemmän"
+        ]
+      }
+    },
+    "fr": {
+      "review_patterns": [
+        "titre sans script",
+        "le vrai court",
+        "pas fixe apres le lancement"
+      ],
+      "naturalness_patterns": [
+        {
+          "id": "fr-some-did-not-certains-ne-lont-pas-fait",
+          "source": "Some did not",
+          "target": "Certains ne l'ont pas fait",
+          "message": "Literal English do/did pro-form. French should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Une partie n'est jamais revenue.",
+            "Certains contenus n'ont jamais été récupérés."
+          ]
+        },
+        {
+          "id": "fr-some-did-not-certains-ne-lont-pas-fait-curly",
+          "source": "Some did not",
+          "target": "Certains ne l’ont pas fait",
+          "message": "Literal English do/did pro-form. French should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Une partie n'est jamais revenue.",
+            "Certains contenus n'ont jamais été récupérés."
+          ]
+        },
+        {
+          "id": "fr-some-did-not-une-partie-ne-la-pas-fait",
+          "source": "Some did not",
+          "target": "Une partie ne l'a pas fait",
+          "message": "Literal English do/did pro-form. French should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Une partie n'est jamais revenue.",
+            "Certains contenus n'ont jamais été récupérés."
+          ]
+        },
+        {
+          "id": "fr-some-did-not-une-partie-ne-la-pas-fait-curly",
+          "source": "Some did not",
+          "target": "Une partie ne l’a pas fait",
+          "message": "Literal English do/did pro-form. French should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Une partie n'est jamais revenue.",
+            "Certains contenus n'ont jamais été récupérés."
+          ]
+        },
+        {
+          "id": "fr-the-ugly-part-la-partie-la-plus-laide",
+          "source": "The ugly part?",
+          "target": "La partie la plus laide ?",
+          "message": "Source-shaped framing from English. French should use natural framing such as Le pire ? or Le plus grave ?",
+          "suggestions": [
+            "Le pire ?",
+            "Le plus grave ?"
+          ]
+        },
+        {
+          "id": "fr-the-ugly-part-la-partie-laide",
+          "source": "The ugly part?",
+          "target": "La partie laide ?",
+          "message": "Source-shaped framing from English. French should use natural framing such as Le pire ? or Le plus grave ?",
+          "suggestions": [
+            "Le pire ?",
+            "Le plus grave ?"
+          ]
+        },
+        {
+          "id": "fr-carried-damage-contenait-des-dommages",
+          "source": "carried damage",
+          "target": "contenait des dommages",
+          "message": "English-shaped backup damage phrasing. French should say that the backup was damaged by the same failure.",
+          "suggestions": [
+            "avait été endommagée par la même panne",
+            "était elle aussi endommagée"
+          ]
+        }
+      ],
+      "script_signals": {
+        "required_characters": [
+          "à",
+          "â",
+          "æ",
+          "ç",
+          "é",
+          "è",
+          "ê",
+          "ë",
+          "î",
+          "ï",
+          "ô",
+          "œ",
+          "ù",
+          "û",
+          "ü",
+          "ÿ",
+          "À",
+          "Â",
+          "Æ",
+          "Ç",
+          "É",
+          "È",
+          "Ê",
+          "Ë",
+          "Î",
+          "Ï",
+          "Ô",
+          "Œ",
+          "Ù",
+          "Û",
+          "Ü",
+          "Ÿ"
+        ],
+        "minimum_letters": 500,
+        "minimum_matches": 2,
+        "minimum_matches_per_1000_letters": 2,
+        "shadow_terms": [
+          "Défis",
+          "résume",
+          "endommagé",
+          "préférée",
+          "préféré",
+          "assisté",
+          "contrôle",
+          "contrôles",
+          "éviter",
+          "années",
+          "données",
+          "expérience",
+          "système",
+          "hiérarchie",
+          "métadonnées",
+          "adéquation",
+          "éditoriale",
+          "défaut",
+          "compréhensible",
+          "problèmes",
+          "séparés",
+          "désastre",
+          "opérationnel",
+          "opérationnelle",
+          "sécurité",
+          "récupération",
+          "même",
+          "où"
+        ],
+        "shadow_exclusions": [
+          "ou"
+        ]
+      }
+    },
+    "it": {
+      "review_patterns": [
+        "senza script",
+        "il vero breve",
+        "non fissato dopo il lancio"
+      ],
+      "naturalness_patterns": [
+        {
+          "id": "it-some-did-not-alcuni-non-lo-hanno-fatto",
+          "source": "Some did not",
+          "target": "Alcuni non lo hanno fatto",
+          "message": "Literal English do/did pro-form. Italian should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Una parte non è mai tornata.",
+            "Alcuni contenuti non sono mai stati recuperati."
+          ]
+        },
+        {
+          "id": "it-the-ugly-part-la-parte-brutta",
+          "source": "The ugly part?",
+          "target": "La parte brutta?",
+          "message": "Source-shaped framing from English. Italian should use natural framing such as Il peggio? when introducing the real problem.",
+          "suggestions": [
+            "Il peggio?",
+            "La cosa peggiore?"
+          ]
+        },
+        {
+          "id": "it-carried-damage-portava-danni",
+          "source": "carried damage",
+          "target": "portava danni",
+          "message": "English-shaped backup damage phrasing. Italian should say that the backup was damaged by the same failure.",
+          "suggestions": [
+            "era danneggiato dallo stesso errore",
+            "era stato compromesso dallo stesso problema"
+          ]
+        }
+      ],
+      "script_signals": {
+        "required_characters": [
+          "à",
+          "è",
+          "é",
+          "ì",
+          "ò",
+          "ù",
+          "À",
+          "È",
+          "É",
+          "Ì",
+          "Ò",
+          "Ù"
+        ],
+        "minimum_letters": 500,
+        "minimum_matches": 2,
+        "minimum_matches_per_1000_letters": 2
+      }
+    },
+    "nb": {
+      "review_patterns": [
+        "Den virkelige korte",
+        "ikke festet til etter lansering",
+        "Bygg siden som gjør den neste avgjørelsen åpenbar",
+        "oppsettbar",
+        "scriptløs"
+      ],
+      "naturalness_patterns": [
+        {
+          "id": "nb-the-ugly-part-calque",
+          "source": "The ugly part?",
+          "target": "Det stygge?",
+          "message": "Literal calque from English. Use natural Norwegian framing such as Det verste? when the sentence introduces the real problem.",
+          "suggestions": [
+            "Det verste?",
+            "Det virkelig stygge?"
+          ]
+        },
+        {
+          "id": "nb-carried-damage-calque",
+          "source": "carried damage",
+          "target": "bar skade",
+          "message": "Literal English-shaped phrasing. Norwegian normally says that the backup was damaged or had been damaged.",
+          "suggestions": [
+            "var skadet",
+            "hadde blitt ødelagt"
+          ]
+        },
+        {
+          "id": "nb-some-did-not-calque",
+          "source": "Some did not",
+          "target": "Noe gjorde ikke det",
+          "message": "Literal pronoun structure from English. Norwegian should name or resolve the action naturally.",
+          "suggestions": [
+            "Noe kom aldri tilbake.",
+            "Noe forsvant for godt."
+          ]
+        },
+        {
+          "id": "nb-some-did-it-never-calque",
+          "source": "Some did not",
+          "target": "Noe gjorde det aldri",
+          "message": "Literal do/did pro-form from English. Norwegian should resolve the repeated action instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Noe kom aldri tilbake.",
+            "Noe forsvant for godt."
+          ]
+        },
+        {
+          "id": "nb-some-did-it-not-calque",
+          "source": "Some did not",
+          "target": "Noe gjorde det ikke",
+          "message": "Literal do/did pro-form from English. Norwegian should resolve the repeated action instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Noe kom aldri tilbake.",
+            "Noe forsvant for godt."
+          ]
+        }
+      ],
+      "script_signals": {
+        "required_characters": [
+          "æ",
+          "ø",
+          "å",
+          "Æ",
+          "Ø",
+          "Å"
+        ],
+        "minimum_letters": 500,
+        "minimum_matches": 2,
+        "minimum_matches_per_1000_letters": 2,
+        "shadow_terms": [
+          "flerspråklig",
+          "oversettelse",
+          "språk",
+          "språket",
+          "arbeidsflyt",
+          "innhold",
+          "søkesignaler",
+          "internlenker",
+          "vedlikehold",
+          "gjenoppretting"
+        ]
+      },
+      "source_carryover_homographs": [
+        "Start"
+      ]
+    },
+    "nl": {
+      "review_patterns": [
+        "scriptloos",
+        "de echte korte",
+        "niet vastgezet na lancering"
+      ],
+      "naturalness_patterns": [
+        {
+          "id": "nl-some-did-not-sommige-deden-dat-niet",
+          "source": "Some did not",
+          "target": "Sommige deden dat niet",
+          "message": "Literal English do/did pro-form. Dutch should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "Een deel kwam nooit terug.",
+            "Sommige inhoud is nooit hersteld."
+          ]
+        },
+        {
+          "id": "nl-the-ugly-part-het-lelijke-deel",
+          "source": "The ugly part?",
+          "target": "Het lelijke deel?",
+          "message": "Source-shaped framing from English. Dutch should use natural framing such as Het ergste? when introducing the real problem.",
+          "suggestions": [
+            "Het ergste?",
+            "Het pijnlijke?"
+          ]
+        },
+        {
+          "id": "nl-carried-damage-droeg-schade",
+          "source": "carried damage",
+          "target": "droeg schade",
+          "message": "English-shaped backup damage phrasing. Dutch should say that the backup was damaged by the same failure.",
+          "suggestions": [
+            "was door dezelfde fout beschadigd",
+            "was door hetzelfde probleem geraakt"
+          ]
+        }
+      ]
+    },
+    "pt": {
+      "review_patterns": [
+        "frase literal do inglês em português",
+        "marketing genérico",
+        "claims novos não suportados",
+        "português do Brasil quando o alvo é português europeu"
+      ],
+      "script_signals": {
+        "required_characters": [
+          "á",
+          "à",
+          "â",
+          "ã",
+          "ç",
+          "é",
+          "ê",
+          "í",
+          "ó",
+          "ô",
+          "õ",
+          "ú",
+          "Á",
+          "À",
+          "Â",
+          "Ã",
+          "Ç",
+          "É",
+          "Ê",
+          "Í",
+          "Ó",
+          "Ô",
+          "Õ",
+          "Ú"
+        ],
+        "minimum_letters": 500,
+        "minimum_matches": 2,
+        "minimum_matches_per_1000_letters": 2
+      }
+    },
+    "zh": {
+      "review_patterns": [
+        "literal English phrasing in Simplified Chinese",
+        "Traditional Chinese characters in a Simplified Chinese target",
+        "unsupported new claims",
+        "generic marketing filler",
+        "mixed English and Chinese outside preserved technical terms"
+      ],
+      "script_signals": {
+        "required_pattern": "\\p{Han}",
+        "minimum_letters": 250,
+        "minimum_matches": 40,
+        "minimum_matches_per_1000_letters": 120
+      }
+    },
+    "ja": {
+      "review_patterns": [
+        "literal English phrasing in Japanese",
+        "unsupported new claims",
+        "generic marketing filler",
+        "unnatural katakana overuse for terms that have normal Japanese wording",
+        "mixed English and Japanese outside preserved technical terms"
+      ],
+      "script_signals": {
+        "required_pattern": "(?:\\p{Hiragana}|\\p{Katakana}|\\p{Han})",
+        "minimum_letters": 250,
+        "minimum_matches": 40,
+        "minimum_matches_per_1000_letters": 120
+      }
+    },
+    "vi": {
+      "review_patterns": [
+        "literal English phrasing in Vietnamese",
+        "Vietnamese text stripped of diacritics",
+        "unsupported new claims",
+        "generic marketing filler",
+        "mixed English and Vietnamese outside preserved technical terms"
+      ],
+      "script_signals": {
+        "required_characters": [
+          "á",
+          "à",
+          "ả",
+          "ã",
+          "ạ",
+          "ă",
+          "ắ",
+          "ằ",
+          "ẳ",
+          "ẵ",
+          "ặ",
+          "â",
+          "ấ",
+          "ầ",
+          "ẩ",
+          "ẫ",
+          "ậ",
+          "é",
+          "è",
+          "ẻ",
+          "ẽ",
+          "ẹ",
+          "ê",
+          "ế",
+          "ề",
+          "ể",
+          "ễ",
+          "ệ",
+          "í",
+          "ì",
+          "ỉ",
+          "ĩ",
+          "ị",
+          "ó",
+          "ò",
+          "ỏ",
+          "õ",
+          "ọ",
+          "ô",
+          "ố",
+          "ồ",
+          "ổ",
+          "ỗ",
+          "ộ",
+          "ơ",
+          "ớ",
+          "ờ",
+          "ở",
+          "ỡ",
+          "ợ",
+          "ú",
+          "ù",
+          "ủ",
+          "ũ",
+          "ụ",
+          "ư",
+          "ứ",
+          "ừ",
+          "ử",
+          "ữ",
+          "ự",
+          "ý",
+          "ỳ",
+          "ỷ",
+          "ỹ",
+          "ỵ",
+          "đ",
+          "Á",
+          "À",
+          "Ả",
+          "Ã",
+          "Ạ",
+          "Ă",
+          "Ắ",
+          "Ằ",
+          "Ẳ",
+          "Ẵ",
+          "Ặ",
+          "Â",
+          "Ấ",
+          "Ầ",
+          "Ẩ",
+          "Ẫ",
+          "Ậ",
+          "É",
+          "È",
+          "Ẻ",
+          "Ẽ",
+          "Ẹ",
+          "Ê",
+          "Ế",
+          "Ề",
+          "Ể",
+          "Ễ",
+          "Ệ",
+          "Í",
+          "Ì",
+          "Ỉ",
+          "Ĩ",
+          "Ị",
+          "Ó",
+          "Ò",
+          "Ỏ",
+          "Õ",
+          "Ọ",
+          "Ô",
+          "Ố",
+          "Ồ",
+          "Ổ",
+          "Ỗ",
+          "Ộ",
+          "Ơ",
+          "Ớ",
+          "Ờ",
+          "Ở",
+          "Ỡ",
+          "Ợ",
+          "Ú",
+          "Ù",
+          "Ủ",
+          "Ũ",
+          "Ụ",
+          "Ư",
+          "Ứ",
+          "Ừ",
+          "Ử",
+          "Ữ",
+          "Ự",
+          "Ý",
+          "Ỳ",
+          "Ỷ",
+          "Ỹ",
+          "Ỵ",
+          "Đ"
+        ],
+        "minimum_letters": 500,
+        "minimum_matches": 8,
+        "minimum_matches_per_1000_letters": 8
+      }
+    },
+    "sv": {
+      "review_patterns": [
+        "scriptlös",
+        "den verkliga korta",
+        "inte fäst efter lansering"
+      ],
+      "naturalness_patterns": [
+        {
+          "id": "sv-some-did-not-vissa-gjorde-det-inte",
+          "source": "Some did not",
+          "target": "Vissa gjorde det inte",
+          "message": "Literal English do/did pro-form. Swedish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "En del kom aldrig tillbaka.",
+            "Vissa delar kom aldrig tillbaka."
+          ]
+        },
+        {
+          "id": "sv-some-did-not-en-del-gjorde-det-inte",
+          "source": "Some did not",
+          "target": "En del gjorde det inte",
+          "message": "Literal English do/did pro-form. Swedish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "En del kom aldrig tillbaka.",
+            "Vissa delar kom aldrig tillbaka."
+          ]
+        },
+        {
+          "id": "sv-some-did-not-nagra-gjorde-det-inte",
+          "source": "Some did not",
+          "target": "Några gjorde det inte",
+          "message": "Literal English do/did pro-form. Swedish should resolve the repeated action naturally instead of copying the English auxiliary structure.",
+          "suggestions": [
+            "En del kom aldrig tillbaka.",
+            "Vissa delar kom aldrig tillbaka."
+          ]
+        },
+        {
+          "id": "sv-the-ugly-part-den-fula-delen",
+          "source": "The ugly part?",
+          "target": "Den fula delen?",
+          "message": "Source-shaped framing from English. Swedish should use natural framing such as Det värsta? when introducing the real problem.",
+          "suggestions": [
+            "Det värsta?",
+            "Det riktigt illa?"
+          ]
+        },
+        {
+          "id": "sv-carried-damage-bar-skador",
+          "source": "carried damage",
+          "target": "bar skador",
+          "message": "English-shaped backup damage phrasing. Swedish should say that the backup was damaged by the same failure.",
+          "suggestions": [
+            "var skadad av samma fel",
+            "hade skadats av samma fel"
+          ]
+        }
+      ],
+      "script_signals": {
+        "required_characters": [
+          "å",
+          "ä",
+          "ö",
+          "Å",
+          "Ä",
+          "Ö"
+        ],
+        "minimum_letters": 500,
+        "minimum_matches": 2,
+        "minimum_matches_per_1000_letters": 2,
+        "shadow_terms": [
+          "flerspråkig",
+          "flerspråkigt",
+          "flerspråkiga",
+          "språk",
+          "språket",
+          "språkspecifika",
+          "språkflöde",
+          "arbetsflöde",
+          "arbetsflödet",
+          "översättning",
+          "översättningsflöde",
+          "översättningslager",
+          "håller",
+          "flöde",
+          "flödet",
+          "felsökning",
+          "underhåll",
+          "underhållsarbete",
+          "utanför",
+          "ovanpå",
+          "återställning",
+          "förlorat",
+          "större",
+          "söksignaler",
+          "sökord",
+          "sökintention",
+          "länkar",
+          "använd"
+        ]
+      }
+    }
+  }
+}

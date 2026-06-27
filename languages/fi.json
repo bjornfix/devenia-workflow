@@ -1,0 +1,180 @@
+{
+  "name": "Finnish",
+  "native_name": "Suomi",
+  "locale": "fi_FI",
+  "wordpress_locale": "fi",
+  "prefix": "fi",
+  "menu_name": "Main Menu FI",
+  "source": "0",
+  "flag": "🇫🇮",
+  "menu_items": {
+    "4": "Tietoa",
+    "5": "Yhteys",
+    "7": "Palvelut",
+    "501": "Opi",
+    "1837": "Suositeltu",
+    "6420": "Maksuehtomme",
+    "6424": "Liiketoimintayhteenveto",
+    "6744": "Blogi",
+    "6871": "Maailma",
+    "12025": "Etusivu",
+    "12746": "Kuvien optimointi",
+    "13056": "Videon optimointi",
+    "13067": "Verkkosuunnittelu ja kehitys",
+    "14263": "SEO-palvelut",
+    "14264": "Linkkien rakentaminen",
+    "14614": "WordPress-korjaukset",
+    "14617": "Hallittu tekniikka",
+    "14624": "AI-palvelut",
+    "14646": "Lisäosat",
+    "18409": "Send"
+  },
+  "custom_menu_items": {
+    "Company Overview": "Yrityksen yleiskuva",
+    "Send": "Send",
+    "Downloads": "Lataukset",
+    "Privacy Policy": "Tietosuojakäytäntö",
+    "Terms of Service": "Käyttöehdot",
+    "World": "Maailma"
+  },
+  "widget_text": {
+    "Navigate": "Navigointi",
+    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "Käytännön verkkotyötä sivustoille, joiden pitää herättää luottamusta, löytyä, pysyä kunnossa ja kehittyä.",
+    "Start with the URL": "Aloita URL-osoitteesta",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Käytä sähköpostipainiketta ja liitä mukaan sivu, oireet ja mitä pitäisi parantaa. Vastaamme kirjallisesti ensimmäisellä käytännön askeleella.",
+    "Email us about the website": "Lähetä the sitelle sähköpostia sivustosta",
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Kysymys%20sivustosta&body=Hello%2C%0A%0AURL%3A%0A%0AOireet%3A%0A%0AMit%C3%A4%20pit%C3%A4isi%20parantaa%3A%0A%0A",
+    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "Yksi brändi, jota operoivat the site operator, the site operator ja the site operator. <a href=\"/\">Rekisteröidyt yritystiedot</a>."
+  },
+  "not_found_text": {
+    "Page not found.": "Tätä sivua ei ole täällä.",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "Osoite voi olla vanha, siirretty tai puutteellinen. Jatka alla olevista reiteistä tai lähetä URL meille, jos sivun pitäisi yhä olla olemassa.",
+    "Choose a route": "Löydä oikea reitti",
+    "Broken link? Email ": "Rikkinäinen linkki? Lähetä viesti osoitteeseen ",
+    " with the URL.": " ja lisää URL mukaan.",
+    "Use the visit.": "Tee seuraavasta askeleesta hyödyllinen.",
+    "Services, Learn, plugins, and contact are below.": "Nopeimmat reitit ovat palvelut, oppaat, lisäosat tai yhteydenotto.",
+    "Where to go": "Aloita tästä",
+    "Choose the closest match.": "Valitse se, joka vastaa parhaiten tavoitettasi.",
+    "Services": "Palvelut",
+    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "Apua sivustoon, näkyvyyteen, WordPressiin, suorituskykyyn tai AI-työnkulkuihin.",
+    "View services →": "Siirry palveluihin →",
+    "Learn": "Oppaat",
+    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "Käytännön selityksiä ennen kuin päätät, mitä muuttaa tai ostaa.",
+    "View Learn →": "Siirry oppaisiin →",
+    "Plugins": "Lisäosat",
+    "Production WordPress plugins and small tools that remove friction.": "the siten WordPress-lisäosat ja tarkkaan rajatut työkalut.",
+    "View plugins →": "Siirry lisäosiin →",
+    "Contact": "Yhteys",
+    "Send the broken URL and expected destination.": "Jos odotit tiettyä sivua, lähetä URL ja mitä tarvitsit.",
+    "Contact us →": "Ota yhteyttä the sitean →",
+    "How to start": "Jos ilmoitat linkistä",
+    "Recover the intent, not just the URL.": "Kerro, mitä yritit löytää, älä vain mikä osoite ei toiminut.",
+    "01 Send context": "01 Lähetä URL",
+    "Send the URL, the issue, and what a useful outcome would look like.": "Kerro osoite, mistä löysit sen ja mitä odotit avautuvan.",
+    "02 We identify the constraint": "02 Tarkistamme, mikä epäonnistui",
+    "We separate symptoms from causes before recommending work.": "Selvitämme, siirtyikö sivu, onko linkki väärä vai pitäisikö sisältö palauttaa.",
+    "03 We suggest the first move": "03 Ohjaamme eteenpäin",
+    "You get a practical next step, not a generic package.": "Saat hyödyllisimmän seuraavan askeleen: oikean sivun, korjauksen tai lyhyen vastauksen.",
+    "04 Then we execute": "04 Korjaamme sen, mikä kuuluu korjata",
+    "If the site is the right fit, we handle the work carefully.": "Jos virhe on meidän, korjaamme sen huolellisesti.",
+    "Ready to ask?": "Etsitkö yhä jotain tiettyä?",
+    "Was this broken link important?": "Jos tämän sivun pitäisi olla olemassa, kerro mitä etsit.",
+    "Send the URL you tried and what you expected to find.": "Lähetä kokeilemasi URL ja sivu tai vastaus, jota odotit.",
+    "Email ": "Sähköposti osoitteeseen ",
+    "Useful for someone else? Share this:": "Jaa the site:",
+    "Share on X (Twitter)": "Jaa X:ssä (Twitter)",
+    "Share on LinkedIn": "Jaa LinkedInissä",
+    "Share on Facebook": "Jaa Facebookissa",
+    "Share on Email": "Jaa sähköpostilla"
+  },
+  "language_profile": {
+    "review_language": "Finnish",
+    "tone": "selkea, konkreettinen ja ammattimainen suomi; myy tarkkuudella, ei liioittelulla",
+    "formality": "ammattimainen",
+    "preserve_terms": [
+      "the site",
+      "WordPress",
+      "GeneratePress",
+      "GenerateBlocks",
+      "Gutenberg",
+      "Chrome Web Store",
+      "Send",
+      "MCP",
+      "AI",
+      "SEO",
+      "API",
+      "FAQ",
+      "Gmail",
+      "Gravatar",
+      "Cookies",
+      "Chrome",
+      "Limited Use",
+      "User Data Policy"
+    ],
+    "never_translate_terms": [
+      "the site",
+      "Send",
+      "WordPress",
+      "GeneratePress",
+      "GenerateBlocks",
+      "Gutenberg",
+      "MCP"
+    ],
+    "locale_guidance": "Use Finnish for Finland. Use Finnish market terminology where normal, and preserve only real brand/product names and established technical names.",
+    "localized_terms": {
+      "Homepage": [
+        "etusivu"
+      ],
+      "Website": [
+        "verkkosivusto",
+        "sivusto"
+      ],
+      "Services": [
+        "palvelut"
+      ],
+      "Learn": [
+        "opi"
+      ],
+      "Plugins": [
+        "lisäosat",
+        "plugin"
+      ],
+      "Contact": [
+        "yhteys"
+      ],
+      "Blog": [
+        "blogi"
+      ],
+      "homepage": [
+        "etusivu"
+      ],
+      "website": [
+        "verkkosivusto",
+        "sivusto"
+      ],
+      "services": [
+        "palvelut"
+      ],
+      "learn": [
+        "opi"
+      ],
+      "plugins": [
+        "lisäosat",
+        "plugin"
+      ],
+      "contact": [
+        "yhteys"
+      ],
+      "blog": [
+        "blogi"
+      ]
+    }
+  },
+  "not_found_routes": [
+    "/services/",
+    "/learn/",
+    "/plugins/",
+    "/about/contact-us/"
+  ]
+}

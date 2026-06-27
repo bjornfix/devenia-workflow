@@ -1,0 +1,182 @@
+{
+  "name": "Danish",
+  "native_name": "Dansk",
+  "locale": "da_DK",
+  "wordpress_locale": "da_DK",
+  "prefix": "da",
+  "menu_name": "Main Menu DA",
+  "source": "0",
+  "flag": "🇩🇰",
+  "menu_items": {
+    "4": "Om os",
+    "5": "Kontakt",
+    "7": "Tjenester",
+    "501": "Lær",
+    "1837": "Anbefalet",
+    "6420": "Vores betalingsvilkår",
+    "6424": "Forretningsresume",
+    "6744": "Blog",
+    "6871": "Verden",
+    "12025": "Forside",
+    "12746": "Billedoptimering",
+    "13056": "Videooptimering",
+    "13067": "Webdesign og udvikling",
+    "14263": "SEO-tjenester",
+    "14264": "Linkbuilding",
+    "14614": "WordPress-rettelser",
+    "14617": "Driftet teknik",
+    "14624": "AI-tjenester",
+    "14646": "Plugins",
+    "18409": "Send"
+  },
+  "custom_menu_items": {
+    "Company Overview": "Virksomhedsoversigt",
+    "Send": "Send",
+    "Downloads": "Downloads",
+    "Privacy Policy": "Privatlivspolitik",
+    "Terms of Service": "Servicevilkår",
+    "World": "Verden"
+  },
+  "widget_text": {
+    "Navigate": "Naviger",
+    "Practical internet work for websites that need to be trusted, found, maintained, and improved.": "Praktisk webarbejde for websites, der skal skabe tillid, findes, vedligeholdes og forbedres.",
+    "Start with the URL": "Start med URL’en",
+    "Use the email button and include the page, symptoms, and what should improve. We reply in writing with the practical first move.": "Brug e-mailknappen og medtag siden, symptomerne og hvad der bør forbedres. Vi svarer skriftligt med det første praktiske skridt.",
+    "Email us about the website": "Send the site en e-mail om websitet",
+    "mailto:admin@example.com?subject=Website%20question&body=Hello%2C%0A%0AURL%3A%0A%0ASymptoms%3A%0A%0AWhat%20should%20improve%3A%0A%0A": "mailto:admin@example.com?subject=Sp%C3%B8rgsm%C3%A5l%20om%20website&body=Hello%2C%0A%0AURL%3A%0A%0ASymptomer%3A%0A%0AHvad%20b%C3%B8r%20forbedres%3A%0A%0A",
+    "One brand operated by the site operator. <a href=\"/about/contact-us/\">Registered company details</a>.": "Ét brand drevet af the site operator, the site operator og the site operator. <a href=\"/\">Registrerede virksomhedsoplysninger</a>."
+  },
+  "not_found_text": {
+    "Page not found.": "Siden findes ikke her.",
+    "The link may have moved or been retired. Choose a route below, or email us with the broken URL.": "Adressen kan være gammel, flyttet eller ufuldstændig. Brug valgene nedenfor til at komme videre, eller send os URL'en, hvis siden stadig burde findes.",
+    "Choose a route": "Find den rigtige vej videre",
+    "Broken link? Email ": "Ødelagt link? Send ",
+    " with the URL.": " URL'en.",
+    "Use the visit.": "Gør næste skridt nyttigt.",
+    "Services, Learn, plugins, and contact are below.": "De hurtigste veje videre er services, fagligt indhold, plugins eller kontakt.",
+    "Where to go": "Start her",
+    "Choose the closest match.": "Vælg det, der bedst matcher det, du prøvede at gøre.",
+    "Services": "Services",
+    "SEO, WordPress fixes, managed tech, media optimization, and AI workflows.": "Til hjælp med website, synlighed, WordPress, ydeevne eller AI-arbejdsgange.",
+    "View services →": "Gå til services →",
+    "Learn": "Lær",
+    "Plain-English guides for SEO, WordPress, markets, and plugin decisions.": "Praktiske forklaringer, før du beslutter, hvad der skal ændres eller købes.",
+    "View Learn →": "Gå til Lær →",
+    "Plugins": "Plugins",
+    "Production WordPress plugins and small tools that remove friction.": "WordPress-plugins og fokuserede værktøjer bygget af the site.",
+    "View plugins →": "Gå til plugins →",
+    "Contact": "Kontakt",
+    "Send the broken URL and expected destination.": "Hvis du forventede en bestemt side, så send URL'en og hvad du havde brug for.",
+    "Contact us →": "Kontakt the site →",
+    "How to start": "Hvis du melder linket",
+    "Recover the intent, not just the URL.": "Fortæl, hvad du prøvede at finde, ikke kun hvilken adresse der fejlede.",
+    "01 Send context": "01 Send URL'en",
+    "Send the URL, the issue, and what a useful outcome would look like.": "Medtag adressen, hvor du fandt den, og hvad du forventede at åbne.",
+    "02 We identify the constraint": "02 Vi undersøger, hvad der svigtede",
+    "We separate symptoms from causes before recommending work.": "Vi ser, om siden er flyttet, linket er forkert, eller indholdet bør gendannes.",
+    "03 We suggest the first move": "03 Vi peger dig videre",
+    "You get a practical next step, not a generic package.": "Du får et nyttigt næste skridt: den rigtige side, en rettelse eller et kort svar.",
+    "04 Then we execute": "04 Vi retter det, der bør rettes",
+    "If the site is the right fit, we handle the work carefully.": "Hvis fejlen ligger hos os, retter vi den grundigt.",
+    "Ready to ask?": "Leder du stadig efter noget bestemt?",
+    "Was this broken link important?": "Hvis denne side burde findes, så fortæl os, hvad du ledte efter.",
+    "Send the URL you tried and what you expected to find.": "Send URL'en, du prøvede, og siden eller svaret du forventede.",
+    "Email ": "Send mail til ",
+    "Useful for someone else? Share this:": "Del the site:",
+    "Share on X (Twitter)": "Del på X (Twitter)",
+    "Share on LinkedIn": "Del på LinkedIn",
+    "Share on Facebook": "Del på Facebook",
+    "Share on Email": "Del via mail"
+  },
+  "language_profile": {
+    "review_language": "Danish",
+    "tone": "klart, konkret og professionelt dansk; salgende gennem præcision",
+    "formality": "professionel du-form",
+    "preserve_terms": [
+      "the site",
+      "WordPress",
+      "GeneratePress",
+      "GenerateBlocks",
+      "Gutenberg",
+      "Chrome Web Store",
+      "Send",
+      "MCP",
+      "AI",
+      "SEO",
+      "API",
+      "FAQ",
+      "Gmail",
+      "Gravatar",
+      "Cookies",
+      "Chrome",
+      "Limited Use",
+      "User Data Policy"
+    ],
+    "never_translate_terms": [
+      "the site",
+      "Send",
+      "WordPress",
+      "GeneratePress",
+      "GenerateBlocks",
+      "Gutenberg",
+      "MCP"
+    ],
+    "locale_guidance": "Use Danish for Denmark. Use Danish market terminology where normal, and preserve only real brand/product names and established technical names.",
+    "localized_terms": {
+      "Homepage": [
+        "forside"
+      ],
+      "Website": [
+        "website",
+        "hjemmeside"
+      ],
+      "Services": [
+        "services",
+        "tjenester"
+      ],
+      "Learn": [
+        "lær"
+      ],
+      "Plugins": [
+        "plugins",
+        "udvidelser"
+      ],
+      "Contact": [
+        "kontakt"
+      ],
+      "Blog": [
+        "blog"
+      ],
+      "homepage": [
+        "forside"
+      ],
+      "website": [
+        "website",
+        "hjemmeside"
+      ],
+      "services": [
+        "services",
+        "tjenester"
+      ],
+      "learn": [
+        "lær"
+      ],
+      "plugins": [
+        "plugins",
+        "udvidelser"
+      ],
+      "contact": [
+        "kontakt"
+      ],
+      "blog": [
+        "blog"
+      ]
+    }
+  },
+  "not_found_routes": [
+    "/services/",
+    "/learn/",
+    "/plugins/",
+    "/about/contact-us/"
+  ]
+}

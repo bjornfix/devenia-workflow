@@ -1,0 +1,492 @@
+{
+  "schema_version": 1,
+  "description": "Regression cases for translation fitness. These examples preserve known bad translation failure classes so future plugin releases cannot make them pass silently.",
+  "cases": [
+    {
+      "id": "nb-stripped-diacritics-basic",
+      "language": "nb",
+      "description": "Norwegian text with stripped Bokmal orthography must fail even when the words are otherwise understandable.",
+      "content": "<!-- wp:paragraph --><p>La meg spare deg noen ar: et flerspraklig sprak og sokesignaler ma ha riktig ortografi.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_ascii_shadow_term"
+      ],
+      "minimum_issue_count": 2
+    },
+    {
+      "id": "nb-valid-last-download-context",
+      "language": "nb",
+      "description": "Norwegian UI copy may use Last ned and laste opp without being treated as stripped låst/låste.",
+      "content": "<!-- wp:paragraph --><p>Ingen funksjoner er låst bak betaling. Alternativ 1Last opp ny fil. Last ned innstikket fra WordPress.org. Du kan også laste opp en ny fil uten å ødelegge URL-en.</p><!-- /wp:paragraph -->",
+      "profile_patch": {
+        "script_signals": {
+          "shadow_context_exclusions": [
+            {
+              "term": "låst",
+              "shadow": "last",
+              "pattern": "(?:^|[^\\p{L}])last\\s+(?:ned|opp)\\b"
+            },
+            {
+              "term": "låste",
+              "shadow": "laste",
+              "pattern": "\\blaste\\s+opp\\b"
+            }
+          ]
+        }
+      },
+      "expected_passed": true
+    },
+    {
+      "id": "nb-literal-calque-backup-damage",
+      "language": "nb",
+      "description": "Norwegian translationese copied from English sentence structure must fail even when spelling and structure are otherwise valid.",
+      "source_content": "<!-- wp:paragraph --><p>The ugly part? Even the backup carried damage from the same failure. Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Det stygge? Også sikkerhetskopien bar skade fra samme feil. Noe innhold kom tilbake. Noe gjorde ikke det.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 3
+    },
+    {
+      "id": "nb-literal-calque-some-did-it-never",
+      "language": "nb",
+      "description": "Norwegian should not copy English do/did pro-form structure when resolving Some did not.",
+      "source_content": "<!-- wp:paragraph --><p>Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Noe av innholdet kom tilbake. Noe gjorde det aldri.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "nb-literal-calque-some-did-it-not",
+      "language": "nb",
+      "description": "Norwegian should not copy English do/did pro-form structure as Noe gjorde det ikke.",
+      "source_content": "<!-- wp:paragraph --><p>Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Noe av innholdet kom tilbake. Noe gjorde det ikke.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "nb-literal-calque-here-is-wh-family",
+      "language": "nb",
+      "description": "Norwegian should not copy English here is/here's wh-framing as Her er hvorfor/hvordan/hva style phrasing.",
+      "source_content": "<!-- wp:paragraph --><p>We don't use Google Analytics. We use Statcounter. Here's why.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Vi bruker ikke Google Analytics. Vi bruker Statcounter. Her er hvorfor.</p><!-- /wp:paragraph -->",
+      "profile_patch": {
+        "naturalness_patterns": [
+          {
+            "id": "nb-here-is-wh-calque-family",
+            "source_regex": "\\bhere(?:\\s+is|'s)\\s+(why|how|what|when)\\b",
+            "target_regex": "\\bher\\s+er\\s+(hvorfor|hvordan|hva|når)\\b",
+            "message": "Literal English-shaped here is/here's wh-framing. Norwegian should usually resolve the phrase naturally instead of mirroring the English construction.",
+            "suggestions": [
+              "Her er grunnen.",
+              "Slik gjør vi det.",
+              "Dette betyr det."
+            ]
+          }
+        ]
+      },
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "nb-source-carryover-start-natural-word",
+      "language": "nb",
+      "description": "Norwegian should not fail source-carryover QA just because the natural Norwegian word Start also appears titlecased in the English source.",
+      "source_content": "<!-- wp:heading {\"level\":3} --><h3 class=\"wp-block-heading\">Start With Category Pages</h3><!-- /wp:heading --><!-- wp:paragraph --><p>Start with a narrower search market.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:heading {\"level\":3} --><h3 class=\"wp-block-heading\">Begynn med kategorisidene</h3><!-- /wp:heading --><!-- wp:paragraph --><p>Start heller med et smalere søkemarked der nettbutikken faktisk kan være det beste svaret.</p><!-- /wp:paragraph -->",
+      "expected_passed": true,
+      "expected_issue_codes": [],
+      "minimum_issue_count": 0
+    },
+    {
+      "id": "de-source-carryover-content-loanword-should-fail",
+      "language": "de",
+      "description": "German should prefer local words such as Inhalte when they cover the meaning; English loanwords like Content should still be flagged unless explicitly preserved.",
+      "source_content": "<!-- wp:heading --><h2 class=\"wp-block-heading\">Content Beyond Product Pages</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Build useful content around buyer decisions.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:heading --><h2 class=\"wp-block-heading\">Content jenseits der Produktseiten</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Baut hilfreiche Inhalte rund um Kaufentscheidungen auf.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "source_language_carryover"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "de-literal-calque-some-did-not",
+      "language": "de",
+      "description": "German should not copy English do/did pro-form structure when resolving Some did not.",
+      "source_content": "<!-- wp:paragraph --><p>Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Ein Teil der Inhalte kam zurück. Einige taten es nicht.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "fr-literal-calque-some-did-not",
+      "language": "fr",
+      "description": "French should not copy English do/did pro-form structure when resolving Some did not.",
+      "source_content": "<!-- wp:paragraph --><p>Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Une partie du contenu est revenue. Certains ne l'ont pas fait.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "es-literal-calque-some-did-not",
+      "language": "es",
+      "description": "Spanish should not copy English do/did pro-form structure when resolving Some did not.",
+      "source_content": "<!-- wp:paragraph --><p>Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Parte del contenido volvió. Algunos no lo hicieron.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "sv-literal-calque-some-did-not",
+      "language": "sv",
+      "description": "Swedish should not copy English do/did pro-form structure when resolving Some did not.",
+      "source_content": "<!-- wp:paragraph --><p>Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>En del av innehållet kom tillbaka. Vissa gjorde det inte.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "da-literal-calque-some-did-not",
+      "language": "da",
+      "description": "Danish should not copy English do/did pro-form structure when resolving Some did not.",
+      "source_content": "<!-- wp:paragraph --><p>Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Noget af indholdet kom tilbage. Noget gjorde det ikke.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "fi-literal-calque-some-did-not",
+      "language": "fi",
+      "description": "Finnish should not copy English do/did pro-form structure when resolving Some did not.",
+      "source_content": "<!-- wp:paragraph --><p>Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Osa sisällöstä palasi. Osa ei tehnyt sitä.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "ar-literal-calque-some-did-not",
+      "language": "ar",
+      "description": "Arabic should not copy English do/did pro-form structure when resolving Some did not.",
+      "source_content": "<!-- wp:paragraph --><p>Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>عاد جزء من المحتوى. البعض لم يفعل ذلك.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "de-literal-calque-backup-damage",
+      "language": "de",
+      "description": "German backup-damage paragraph should fail when it keeps English-shaped framing and damage phrasing.",
+      "source_content": "<!-- wp:paragraph --><p>The ugly part? Even the backup carried damage from the same failure. Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Der unangenehme Teil? Selbst das Backup enthielt Schäden aus demselben Fehler. Ein Teil der Inhalte kam zurück. Ein Teil nicht.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 2
+    },
+    {
+      "id": "fr-literal-calque-backup-damage",
+      "language": "fr",
+      "description": "French backup-damage paragraph should fail when it keeps English-shaped framing and damage phrasing.",
+      "source_content": "<!-- wp:paragraph --><p>The ugly part? Even the backup carried damage from the same failure. Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>La partie la plus laide ? Même la sauvegarde contenait des dommages issus de la même panne. Certains contenus sont revenus. D’autres non.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 2
+    },
+    {
+      "id": "es-literal-calque-backup-damage",
+      "language": "es",
+      "description": "Spanish backup-damage paragraph should fail when it keeps English-shaped framing and damage phrasing.",
+      "source_content": "<!-- wp:paragraph --><p>The ugly part? Even the backup carried damage from the same failure. Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>¿La parte fea? Incluso la copia de seguridad llevaba daños del mismo fallo. Parte del contenido volvió. Parte no.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 2
+    },
+    {
+      "id": "sv-literal-calque-backup-damage",
+      "language": "sv",
+      "description": "Swedish backup-damage paragraph should fail when it keeps English-shaped framing, damage phrasing, and do/did pro-form.",
+      "source_content": "<!-- wp:paragraph --><p>The ugly part? Even the backup carried damage from the same failure. Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Den fula delen? Även backupen bar skador från samma fel. En del innehåll kom tillbaka. En del gjorde det inte.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 3
+    },
+    {
+      "id": "da-literal-calque-backup-damage",
+      "language": "da",
+      "description": "Danish backup-damage paragraph should fail when it keeps English-shaped framing, damage phrasing, and do/did pro-form.",
+      "source_content": "<!-- wp:paragraph --><p>The ugly part? Even the backup carried damage from the same failure. Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Den grimme del? Selv backuppen bar skader fra samme fejl. Noget indhold kom tilbage. Noget gjorde ikke.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 3
+    },
+    {
+      "id": "fi-literal-calque-backup-damage",
+      "language": "fi",
+      "description": "Finnish backup-damage paragraph should fail when it keeps English-shaped framing.",
+      "source_content": "<!-- wp:paragraph --><p>The ugly part? Even the backup carried damage from the same failure. Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Ruma osa? Myös varmuuskopiossa oli saman vian aiheuttamaa vahinkoa. Osa sisällöstä palasi. Osa ei.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "ar-literal-calque-backup-damage",
+      "language": "ar",
+      "description": "Arabic backup-damage paragraph should fail when it keeps English-shaped framing and damage phrasing.",
+      "source_content": "<!-- wp:paragraph --><p>The ugly part? Even the backup carried damage from the same failure. Some content came back. Some did not.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>الجزء السيئ؟ حتى النسخة الاحتياطية كانت تحمل ضررًا من الفشل نفسه. عاد بعض المحتوى. وبعضه لم يعد.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 2
+    },
+    {
+      "id": "de-stripped-diacritics-multilingual-post",
+      "language": "de",
+      "description": "German translation residue with ASCII shadows such as Ubersetzung and Prufung must fail.",
+      "content": "<!-- wp:paragraph --><p>Die Ubersetzung braucht eine Prufung, bevor sie in offentlichen Beitrage zuruck in den Workflow geht.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_ascii_shadow_term"
+      ],
+      "minimum_issue_count": 3
+    },
+    {
+      "id": "fr-stripped-diacritics-multilingual-post",
+      "language": "fr",
+      "description": "French translation residue with missing accents must fail before linguistic review.",
+      "content": "<!-- wp:paragraph --><p>Les controles rendent la page operationnelle, meme apres plusieurs annees de maintenance.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_ascii_shadow_term"
+      ],
+      "minimum_issue_count": 3
+    },
+    {
+      "id": "fr-valid-ou-conjunction-control",
+      "language": "fr",
+      "description": "French text may use the normal conjunction ou without being treated as stripped où.",
+      "content": "<!-- wp:paragraph --><p>La page, la recherche ou la technique peuvent bloquer les demandes. Le contrôle éditorial garde le système compréhensible.</p><!-- /wp:paragraph -->",
+      "expected_passed": true,
+      "expected_issue_codes": [],
+      "minimum_issue_count": 0
+    },
+    {
+      "id": "es-stripped-diacritics-multilingual-post",
+      "language": "es",
+      "description": "Spanish translation residue with stripped accents and n tilde must fail.",
+      "content": "<!-- wp:paragraph --><p>La revision encontro el dano despues de anos y la reparacion quedo pendiente.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_ascii_shadow_term"
+      ],
+      "minimum_issue_count": 3
+    },
+    {
+      "id": "sv-stripped-diacritics-multilingual-post",
+      "language": "sv",
+      "description": "Swedish live failure class: Lat/Flodet/haller style text must fail instead of reaching publication.",
+      "content": "<!-- wp:paragraph --><p>Lat mig spara dig nagra ar. Flodet haller arbetsflode, felsokning och underhallsarbete utanfor det vanliga spraket.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_ascii_shadow_term"
+      ],
+      "minimum_issue_count": 4
+    },
+    {
+      "id": "da-stripped-diacritics-multilingual-post",
+      "language": "da",
+      "description": "Danish translation residue must fail, including short high-signal words such as sa/far and longer workflow terms.",
+      "content": "<!-- wp:paragraph --><p>Sa far du faerre gra har. Oversaettelsesflow kraever disciplineret indlaeg og vedligeholdelsesarbejde.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_ascii_shadow_term"
+      ],
+      "minimum_issue_count": 4
+    },
+    {
+      "id": "fi-stripped-diacritics-multilingual-post",
+      "language": "fi",
+      "description": "Finnish translation residue with stripped vowel marks must fail.",
+      "content": "<!-- wp:paragraph --><p>Hyva tyonkulku kayttaa vahemman aikaa, mutta tarkeaa sisaltoa ei saa rikkoa.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_ascii_shadow_term"
+      ],
+      "minimum_issue_count": 3
+    },
+    {
+      "id": "ar-literary-homepage-contact-promise",
+      "language": "ar",
+      "description": "Arabic homepage copy must not pass when the main promise becomes literary and abstract instead of concrete to a non-specialist buyer.",
+      "source_content": "<!-- wp:paragraph --><p>Make your website clear enough that the right customers want to contact you.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>يشعر العملاء المناسبون بأن التواصل معك هو الخطوة الصحيحة.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "ar-literal-low-risk-first",
+      "language": "ar",
+      "description": "Arabic offer copy must not expose literal internal labels such as Low-risk first.",
+      "source_content": "<!-- wp:paragraph --><p>Low-risk first.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>مخاطرة منخفضة أولاً.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "ar-visible-copy-framework-formula",
+      "language": "ar",
+      "description": "Arabic customer copy must not show the internal copy formula instead of the customer outcome.",
+      "source_content": "<!-- wp:paragraph --><p>Offer, proof, and next step.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>العرض والدليل والخطوة التالية.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "language_naturalness_pattern_found"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "ar-latin-transliteration-long",
+      "language": "ar",
+      "description": "Arabic translation supplied as Latin transliteration must fail because it has no Arabic script signal.",
+      "content": "<!-- wp:paragraph --><p>Hadha nash mutarjam lakin maktub bi huruf latiniya faqat. Al safha tatahaddath an nizam tarjamah wa murajaah wa rawabit wa nashr wa tahqiq mubashir, lakin la tastakhdim ay huruf arabiya fi al matn. Hadha yajib an yafshal qabla al nashr lianna al qari al arabi la yahsal ala lughah tabiiyah. Idha kan al nizam yaqbalu mithl hadha al nash, fa huwa la yahmi tajribat al qari wala yahmi al mawqif al tijari lil safha.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_script_signal_missing"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "zh-latin-transliteration-long",
+      "language": "zh",
+      "description": "Simplified Chinese translation supplied as Latin transliteration must fail because it has no Han script signal.",
+      "content": "<!-- wp:paragraph --><p>Zhe shi yi duan yong la ding zi mu xie cheng de zhong wen fanyi. Nei rong tan dao wang zhan, sou suo ke jian du, WordPress, SEO, AI gong zuo liu, lian jie, cai dan, fa bu, shen he, he yong hu ying gai zen yang lian xi the site. Ru guo xi tong jie shou zhe yang de wen ben, du zhe kan dao de bu shi zi ran de jian ti zhong wen, er shi pin yin shi de ti dai pin. Zhe lei wen ben ying gai zai fa bu qian bei lan jie.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_script_signal_missing"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "ja-latin-transliteration-long",
+      "language": "ja",
+      "description": "Japanese translation supplied as Latin transliteration must fail because it has no Japanese script signal.",
+      "content": "<!-- wp:paragraph --><p>Kore wa romaji dake de kakareta nihongo no honbun desu. Naiyou wa web saito, kensaku de mitsukerareru koto, WordPress no shuusei, SEO, AI no sagyou flow, link, menu, koukai, review, soshite the site ni URL wo okuru houhou ni tsuite setsumei shiteimasu. Moshikashite system ga kono youna bunshou wo ukeireru nara, yomu hito wa futsuu no nihongo wo eraremasen. Sono tame koukai mae ni kanarazu shippai subeki desu.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_script_signal_missing"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "pt-stripped-diacritics-long",
+      "language": "pt",
+      "description": "Portuguese text with stripped local orthography should fail when the long text loses expected Portuguese diacritics.",
+      "content": "<!-- wp:paragraph --><p>Este texto foi escrito como portugues sem acentos suficientes para uma pagina longa. A pagina fala sobre otimizacao de sites, conteudo, manutencao, ligacoes internas, publicacao, revisao, experiencia do utilizador, informacao clara, servicos digitais, tecnologia gerida e inteligencia artificial. O objetivo seria explicar porque um site precisa de ser encontrado, compreendido e melhorado, mas a ortografia perdeu sinais locais importantes. Se uma traducao assim passasse, o sistema nao protegeria a leitura natural em portugues europeu nem a qualidade comercial da pagina. O mesmo problema aparece quando uma equipa publica chamadas para contacto, descricoes de servicos, instrucoes tecnicas, categorias do blog e textos de rodape sem a grafia correta. O leitor percebe que algo esta errado, mesmo quando a frase ainda parece compreensivel. Por isso uma pagina longa em portugues europeu sem sinais locais deve ser bloqueada antes da publicacao.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_script_signal_missing"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "vi-stripped-diacritics-long",
+      "language": "vi",
+      "description": "Vietnamese text with stripped local orthography should fail when the long text loses expected Vietnamese diacritics.",
+      "content": "<!-- wp:paragraph --><p>Day la mot doan tieng Viet dai nhung bi bo dau gan nhu hoan toan. Noi dung noi ve website, kha nang duoc tim thay tren cong cu tim kiem, WordPress, SEO, quy trinh AI, lien ket noi bo, menu, xuat ban, danh gia, bao tri va cach gui URL cho the site. Mot ban dich nhu vay co the van doan duoc y nghia, nhung no khong phai la tieng Viet tu nhien cho nguoi doc Viet Nam. Neu he thong cho phep van ban dai khong dau nhu the nay di qua, trang se trong thieu chuyen nghiep va lam giam niem tin cua khach hang. Cac tieu de, nut keu goi hanh dong, cau hoi thuong gap, mo ta dich vu, duong dan danh muc va noi dung chan trang deu can dau tieng Viet de nguoi doc thay day la noi dung duoc viet can than. Vi vay noi dung tieng Viet dai bi mat dau phai bi chan truoc khi xuat ban.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "target_language_script_signal_missing"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "nb-invalid-empty-protocol-relative-link",
+      "language": "nb",
+      "description": "Translated content must fail when an internal source link is replaced with an empty protocol-relative href such as //.",
+      "source_content": "<!-- wp:paragraph --><p><a href=\"/learn/dictionary/\">Open Dictionary</a></p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p><a href=\"//\">Åpne ordboken</a></p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "invalid_link_href"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "nb-removed-world-learn-link",
+      "language": "nb",
+      "description": "Translated Learn content must fail when it keeps the removed World hub link instead of rewriting the obsolete section.",
+      "source_content": "<!-- wp:paragraph --><p><a href=\"/learn/world/\">Open World</a></p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p><a href=\"/learn/world/\">Åpne markedssidene</a></p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "unresolved_internal_content_link"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "sv-valid-orthography-control",
+      "language": "sv",
+      "description": "A short Swedish control with correct local characters should not fail the orthography regression corpus.",
+      "content": "<!-- wp:paragraph --><p>Låt mig spara dig några år. Flödet håller arbetsflöde och felsökning på rätt språk.</p><!-- /wp:paragraph -->",
+      "expected_passed": true,
+      "expected_issue_codes": [],
+      "minimum_issue_count": 0
+    }
+  ]
+}

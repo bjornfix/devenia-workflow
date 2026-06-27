@@ -1,0 +1,175 @@
+body.devenia-qce-active [data-devenia-qce-path] {
+	cursor: text;
+	outline: 1px dashed rgba(21, 94, 239, 0.45);
+	outline-offset: 4px;
+	transition: outline-color 120ms ease, background-color 120ms ease;
+}
+
+body.devenia-qce-active [data-devenia-qce-path]:hover,
+body.devenia-qce-active [data-devenia-qce-path]:focus {
+	background: rgba(21, 94, 239, 0.08);
+	outline-color: rgba(21, 94, 239, 0.9);
+}
+
+body.devenia-qce-active [data-devenia-qce-path]:focus {
+	box-shadow: 0 0 0 3px rgba(21, 94, 239, 0.18);
+}
+
+body.devenia-qce-active [data-devenia-qce-path].devenia-qce-dirty {
+	outline-color: rgba(181, 71, 8, 0.95);
+	background: rgba(255, 250, 235, 0.9);
+}
+
+body.devenia-qce-active [data-devenia-qce-path].devenia-qce-saving {
+	opacity: 0.68;
+}
+
+body.devenia-qce-active [data-devenia-qce-path][contenteditable="plaintext-only"]:focus {
+	background: #ffffff;
+	color: #101828;
+	caret-color: #155eef;
+	text-shadow: none;
+	-webkit-text-fill-color: currentColor;
+}
+
+.devenia-qce-toolbar {
+	position: absolute;
+	z-index: 99999;
+	display: flex;
+	gap: 6px;
+	padding: 6px;
+	border: 1px solid #b9c2cf;
+	border-radius: 8px;
+	background: #ffffff;
+	color: #15171a;
+	box-shadow: 0 12px 34px rgba(18, 24, 33, 0.24);
+	font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.devenia-qce-toolbar[hidden],
+.devenia-qce-status[hidden] {
+	display: none;
+}
+
+.devenia-qce-toolbar button {
+	min-height: 32px;
+	border: 1px solid #b9c2cf;
+	border-radius: 6px;
+	background: #ffffff;
+	color: #15171a;
+	padding: 5px 10px;
+	cursor: pointer;
+	font: inherit;
+}
+
+.devenia-qce-toolbar__save {
+	border-color: #155eef !important;
+	background: #155eef !important;
+	color: #ffffff !important;
+}
+
+.devenia-qce-toolbar button:focus-visible {
+	outline: 2px solid #155eef;
+	outline-offset: 2px;
+}
+
+.devenia-qce-status {
+	position: fixed;
+	right: 18px;
+	bottom: 18px;
+	z-index: 99999;
+	max-width: min(360px, calc(100vw - 36px));
+	padding: 10px 12px;
+	border: 1px solid #d8dde6;
+	border-radius: 8px;
+	background: #ffffff;
+	color: #15171a;
+	box-shadow: 0 12px 34px rgba(18, 24, 33, 0.2);
+	font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.devenia-qce-status[data-mode="error"] {
+	border-color: #fecdca;
+	color: #b42318;
+}
+
+.devenia-qce-status[data-mode="success"] {
+	border-color: #abefc6;
+	color: #027a48;
+}
+
+html[dir="rtl"] .devenia-qce-status {
+	right: auto;
+	left: 18px;
+}
+
+@media (prefers-color-scheme: dark) {
+	body.devenia-qce-active [data-devenia-qce-path]:hover,
+	body.devenia-qce-active [data-devenia-qce-path]:focus {
+		background: rgba(143, 198, 255, 0.14);
+	}
+
+	body.devenia-qce-active [data-devenia-qce-path].devenia-qce-dirty {
+		background: rgba(181, 71, 8, 0.22);
+	}
+
+	.devenia-qce-toolbar,
+	.devenia-qce-toolbar button,
+	.devenia-qce-status {
+		border-color: #4a5568;
+		background: #1d2430;
+		color: #f7fafc;
+		box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+	}
+}
+
+html.devenia-dark-mode body.devenia-qce-active [data-devenia-qce-path] {
+	outline-color: rgba(143, 198, 255, 0.58);
+}
+
+html.devenia-dark-mode body.devenia-qce-active [data-devenia-qce-path]:hover,
+html.devenia-dark-mode body.devenia-qce-active [data-devenia-qce-path]:focus {
+	background: rgba(143, 198, 255, 0.16);
+	outline-color: rgba(143, 198, 255, 0.95);
+}
+
+html.devenia-dark-mode body.devenia-qce-active [data-devenia-qce-path][contenteditable="plaintext-only"]:focus {
+	background: #0f172a;
+	color: #f8fafc;
+	caret-color: #8fc6ff;
+	box-shadow: 0 0 0 3px rgba(143, 198, 255, 0.24);
+	text-shadow: none;
+	-webkit-text-fill-color: currentColor;
+}
+
+html.devenia-dark-mode body.devenia-qce-active [data-devenia-qce-path].devenia-qce-dirty {
+	background: rgba(251, 191, 36, 0.22);
+	color: #fff7ed;
+	outline-color: rgba(251, 191, 36, 0.92);
+	-webkit-text-fill-color: currentColor;
+}
+
+html.devenia-dark-mode .devenia-qce-toolbar,
+html.devenia-dark-mode .devenia-qce-toolbar button,
+html.devenia-dark-mode .devenia-qce-status {
+	border-color: #4a5568;
+	background: #111827;
+	color: #f8fafc;
+	box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+}
+
+html.devenia-dark-mode .devenia-qce-toolbar__save {
+	border-color: #8fc6ff !important;
+	background: #2563eb !important;
+	color: #ffffff !important;
+}
+
+html.devenia-dark-mode .devenia-qce-status[data-mode="error"] {
+	border-color: #fda29b;
+	color: #fecaca;
+}
+
+html.devenia-dark-mode .devenia-qce-status[data-mode="success"] {
+	border-color: #75e0a7;
+	color: #abefc6;
+}
