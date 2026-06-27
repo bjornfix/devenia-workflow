@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.276
+Stable tag: 0.1.277
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -74,11 +74,15 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 == Changelog ==
 
+== 0.1.277 ==
+* Requires translated blog archive metadata labels and date formats to come from runtime language configuration fields, not PHP values.
+* Adds a public release gate against reintroducing translated blog archive labels or language-specific date-format maps in PHP.
+
 = 0.1.276 =
 * Reads translated blog archive metadata labels and date formats from runtime language configuration instead of PHP language maps.
 
 = 0.1.274 =
-* Localizes the translated blog archive "Last updated" label for Portuguese, Chinese, Japanese, and Vietnamese.
+* Localizes translated blog archive metadata labels for the newest language archives.
 
 = 0.1.273 =
 * Prevents localized blog archive date formatting from fataling when WordPress uses a numeric timezone offset.
@@ -157,11 +161,14 @@ Older workflow changes are kept in the project repository history.
 
 == Upgrade Notice ==
 
+== 0.1.277 ==
+Requires translated blog archive metadata labels and date formats to be stored in runtime language configuration.
+
 = 0.1.276 =
 Moves translated blog archive labels and date formats to runtime language configuration.
 
 = 0.1.274 =
-Localizes the blog archive updated-date label for the newest language archives.
+Localizes translated blog archive metadata labels for the newest language archives.
 
 = 0.1.273 =
 Prevents a frontend fatal on localized blog archives when WordPress stores timezone as a numeric offset.

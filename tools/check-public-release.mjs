@@ -181,6 +181,20 @@ for (const file of gitFiles()) {
 const vendorHookPattern = /\b(?:add_action|add_filter|do_action|apply_filters)\(\s*['"](?:generate_|rank_math\/|mcp_abilities_elementor_)/;
 const rankMathMetaWritePattern = /\b(?:update_post_meta|delete_post_meta)\(\s*\$?[A-Za-z0-9_>()[\]'"\s,-]+,\s*['"]rank_math_/;
 const coreVendorReferencePattern = /\b(?:rank_math|Rank Math|generateblocks|GenerateBlocks|generatepress|GeneratePress|elementor|Elementor|mcp_abilities_elementor_)\b/;
+const translatedArchiveLabelPattern = /\b(?:Last updated|Sist oppdatert|Zuletzt aktualisiert|Mis à jour|Última actualización|Senast uppdaterad|Senest opdateret|Päivitetty viimeksi|آخر تحديث|Ultimo aggiornamento|Laatst bijgewerkt|Última atualização|最后更新|最終更新日|Cập nhật lần cuối)\b/u;
+const languageDateFormatMapPattern = /['"](?:en|nb|de|fr|es|sv|da|fi|ar|it|nl|pt|zh|ja|vi)['"]\s*=>\s*['"]([^'"]+)['"]/gu;
+function hasHardcodedLanguageDateFormat(content) {
+  for (const match of content.matchAll(languageDateFormatMapPattern)) {
+    const value = String(match[1] ?? "");
+    if (
+      /^[djDlFmMnYySzgGhHisuaAcBeIOPTUWeNrStTLoXxZFcr:.,/ \-年月日]+$/u.test(value)
+      && ((/[YymndjDFMl]/.test(value) && /[./\-\s]/.test(value)) || /[年月日]/u.test(value))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 for (const file of gitFiles().filter((name) => name.endsWith(".php"))) {
   if (file.startsWith("addons/")) {
     continue;
@@ -197,6 +211,12 @@ for (const file of gitFiles().filter((name) => name.endsWith(".php"))) {
   }
   if (coreVendorReferencePattern.test(contentWithoutAddonRequires)) {
     issue(file, "vendor_reference_outside_addon", "Vendor-specific code and identifiers belong in optional addon files, not in the theme-neutral core.");
+  }
+  if (translatedArchiveLabelPattern.test(content)) {
+    issue(file, "translated_archive_label_hardcoded", "Translated blog archive labels belong in runtime language configuration, not PHP.");
+  }
+  if (hasHardcodedLanguageDateFormat(content)) {
+    issue(file, "language_date_format_hardcoded", "Language-specific date formats belong in runtime language configuration, not PHP maps.");
   }
 }
 

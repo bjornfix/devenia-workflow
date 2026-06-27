@@ -68,7 +68,8 @@ final class AI_Translation_Workflow_RankMath_Addon {
 			return $description;
 		}
 
-		return Devenia_AI_Translations::translated_posts_page_meta_description( Devenia_AI_Translations::frontend_language() );
+		$runtime_description = Devenia_AI_Translations::translated_posts_page_meta_description( Devenia_AI_Translations::frontend_language() );
+		return '' !== $runtime_description ? $runtime_description : $description;
 	}
 
 	/**

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.276
+ * Version: 0.1.277
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.276';
+	const VERSION = '0.1.277';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -16825,27 +16825,14 @@ final class Devenia_AI_Translations {
 	 * Localized archive meta descriptions for translated posts pages.
 	 */
 	public static function translated_posts_page_meta_description( string $language ): string {
-		$descriptions = array(
-			'ar'    => 'مقالات وأدلة وتحديثات حول المواقع وSEO والتقنية.',
-			'da'    => 'Artikler, guider og opdateringer om websites, SEO og teknik.',
-			'de'    => 'Artikel, Leitfäden und Updates zu Websites, SEO und Technik.',
-			'es'    => 'Artículos, guías y novedades sobre sitios web, SEO y tecnología.',
-				'fi'    => 'Artikkeleita, oppaita ja päivityksiä verkkosivuista, SEO:sta ja teknologiasta.',
-			'fr'    => 'Articles, guides et actualités sur les sites web, le SEO et la technologie.',
-			'it'    => 'Articoli, guide e aggiornamenti su siti web, SEO e tecnologia.',
-			'ja'    => 'Webサイト、SEO、テクノロジーに関する記事、ガイド、最新情報。',
-			'nb'    => 'Artikler, guider og oppdateringer om nettsteder, SEO og teknologi.',
-			'nl'    => 'Artikelen, gidsen en updates over websites, SEO en technologie.',
-			'pt-br' => 'Artigos, guias e novidades sobre sites, SEO e tecnologia.',
-			'pt-pt' => 'Artigos, guias e novidades sobre sites, SEO e tecnologia.',
-			'sv'    => 'Artiklar, guider och uppdateringar om webbplatser, SEO och teknik.',
-			'vi'    => 'Bài viết, hướng dẫn và cập nhật về website, SEO và công nghệ.',
-			'zh'    => '关于网站、SEO 和技术的文章、指南与更新。',
-		);
-
 		$language = sanitize_key( $language );
+		$config   = self::languages()[ $language ] ?? array();
+		$text     = '';
+		if ( isset( $config['blog_archive_text'] ) && is_array( $config['blog_archive_text'] ) ) {
+			$text = trim( wp_strip_all_tags( (string) ( $config['blog_archive_text']['meta_description'] ?? '' ) ) );
+		}
 
-			return $descriptions[ $language ] ?? 'Articles, guides and updates about websites, SEO and technology.';
+		return $text;
 	}
 
 	/**
@@ -17119,7 +17106,7 @@ final class Devenia_AI_Translations {
 		$modified_attr  = get_the_modified_date( 'c' );
 		$modified_label = self::translated_posts_page_date_label( $modified_timestamp, $language );
 		$label          = self::blog_archive_updated_label( $language );
-		if ( '' === $modified_label ) {
+		if ( '' === $modified_label || '' === $label ) {
 			return;
 		}
 		?>
@@ -17137,15 +17124,14 @@ final class Devenia_AI_Translations {
 	 * Localized last-updated label for blog archive cards.
 	 */
 	private static function blog_archive_updated_label( string $language ): string {
-		$source_key = 'Last updated:';
-		$config     = self::languages()[ sanitize_key( $language ) ] ?? array();
-		$text       = '';
+		$config = self::languages()[ sanitize_key( $language ) ] ?? array();
+		$text   = '';
 
 		if ( isset( $config['blog_archive_text'] ) && is_array( $config['blog_archive_text'] ) ) {
-			$text = trim( wp_strip_all_tags( (string) ( $config['blog_archive_text'][ $source_key ] ?? '' ) ) );
+			$text = trim( wp_strip_all_tags( (string) ( $config['blog_archive_text']['updated_label'] ?? '' ) ) );
 		}
 
-		return '' !== $text ? $text : $source_key;
+		return $text;
 	}
 
 	/**
@@ -17177,7 +17163,7 @@ final class Devenia_AI_Translations {
 		$config   = self::languages()[ $language ] ?? array();
 		$format   = '';
 		if ( isset( $config['blog_archive_text'] ) && is_array( $config['blog_archive_text'] ) ) {
-			$format = trim( sanitize_text_field( (string) ( $config['blog_archive_text']['date_format'] ?? '' ) ) );
+			$format = trim( sanitize_text_field( (string) ( $config['blog_archive_text']['updated_date_format'] ?? '' ) ) );
 		}
 
 		if ( '' !== $format ) {
