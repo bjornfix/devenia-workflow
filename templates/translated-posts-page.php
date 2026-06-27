@@ -3,7 +3,7 @@
  * Translated posts page template.
  *
  * Keeps translated blog URLs page-based for language routing, while rendering
- * the post list through the same GeneratePress archive loop used by /blog/.
+ * the post list through a standard WordPress archive surface.
  *
  * @package Devenia_AI_Translations
  */
@@ -14,19 +14,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 get_header();
 
-// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- GeneratePress template hook name.
-do_action( 'generate_before_main_content' );
+do_action( 'ai_translation_workflow_before_translated_posts_page_main_content' );
 ?>
 
 <div class="content-area" id="primary">
-	<main <?php function_exists( 'generate_do_attr' ) ? generate_do_attr( 'main' ) : post_class( 'site-main' ); ?>>
+	<main id="main" class="site-main ai-translation-workflow-translated-posts-main">
 			<?php
 			$devenia_ai_translations_posts_query = Devenia_AI_Translations::translated_posts_page_query();
 			$devenia_ai_translations_query_state = Devenia_AI_Translations::enter_translated_posts_page_loop_context();
 
 			if ( $devenia_ai_translations_posts_query->have_posts() ) {
-				// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- GeneratePress loop hook name.
-				do_action( 'generate_before_loop', 'index' );
+				do_action( 'ai_translation_workflow_before_translated_posts_page_loop' );
 
 				while ( $devenia_ai_translations_posts_query->have_posts() ) {
 					$devenia_ai_translations_posts_query->the_post();
@@ -34,14 +32,9 @@ do_action( 'generate_before_main_content' );
 				}
 
 				Devenia_AI_Translations::render_translated_posts_page_pagination( $devenia_ai_translations_posts_query );
-				// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- GeneratePress loop hook name.
-				do_action( 'generate_after_loop', 'index' );
+				do_action( 'ai_translation_workflow_after_translated_posts_page_loop' );
 			} else {
-				if ( function_exists( 'generate_do_template_part' ) ) {
-					generate_do_template_part( 'none' );
-				} else {
-					get_template_part( 'content', 'none' );
-				}
+				get_template_part( 'content', 'none' );
 			}
 
 			wp_reset_postdata();
@@ -50,18 +43,14 @@ do_action( 'generate_before_main_content' );
 	</main>
 </div>
 <?php
-// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- GeneratePress template hook name.
-do_action( 'generate_after_primary_content_area' );
+do_action( 'ai_translation_workflow_after_translated_posts_page_primary_content_area' );
 
-if ( function_exists( 'generate_construct_sidebars' ) ) {
-	generate_construct_sidebars();
-} else {
+if ( apply_filters( 'ai_translation_workflow_render_translated_posts_page_default_sidebar', true ) ) {
 	get_sidebar();
 }
 ?>
 
 <?php
-// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- GeneratePress template hook name.
-do_action( 'generate_after_main_content' );
+do_action( 'ai_translation_workflow_after_translated_posts_page_main_content' );
 
 get_footer();

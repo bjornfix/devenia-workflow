@@ -1,10 +1,14 @@
 @media (min-width: 769px) {
-	.devenia-translated-posts-page.post-image-aligned-left .inside-article .post-image {
+	.devenia-translated-posts-page.post-image-aligned-left .ai-translation-workflow-post-card .post-image {
 		float: left;
 		margin-right: 2em;
 		margin-top: 0;
 		text-align: left;
 	}
+}
+
+.ai-translation-workflow-post-card {
+	display: flow-root;
 }
 
 :root[dir="rtl"] body.devenia-translated-posts-page .entry-meta .cat-links {
@@ -24,62 +28,4 @@
 	position: static;
 	margin: 0 0 0 0.35em;
 	flex: 0 0 auto;
-}
-
-:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-hero-grid,
-:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid {
-	margin-left: 0;
-	margin-right: -54px;
-}
-
-:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid {
-	margin-right: -52px;
-}
-
-:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-hero-grid > .gb-grid-column,
-:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid > .gb-grid-column {
-	padding-left: 0;
-	padding-right: 54px;
-}
-
-:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid > .gb-grid-column {
-	padding-right: 52px;
-}
-
-:root[dir="rtl"] body.devenia-translated-posts-page .gb-container-dv-blog-hero-side {
-	padding-right: 28px;
-	padding-left: 0;
-	border-right: 1px solid rgba(255,244,232,0.18);
-	border-left: 0;
-}
-
-:root[dir="rtl"] body.devenia-translated-posts-page .gb-container-dv-blog-contact-right {
-	padding-right: 26px;
-	padding-left: 0;
-	border-right: 1px solid rgba(255,248,240,0.16);
-	border-left: 0;
-}
-
-@media (max-width: 767px) {
-	:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-hero-grid,
-	:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid {
-		margin-right: 0;
-		margin-left: 0;
-		max-width: 100%;
-		width: 100%;
-		box-sizing: border-box;
-	}
-
-	:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-hero-grid > .gb-grid-column,
-	:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid > .gb-grid-column {
-		padding-right: 0;
-		padding-left: 0;
-		box-sizing: border-box;
-	}
-
-	:root[dir="rtl"] body.devenia-translated-posts-page .gb-container-dv-blog-hero-side,
-	:root[dir="rtl"] body.devenia-translated-posts-page .gb-container-dv-blog-contact-right {
-		padding-right: 0;
-		border-right-width: 0;
-	}
 }

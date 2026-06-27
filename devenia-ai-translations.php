@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.259
+ * Version: 0.1.260
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.259';
+	const VERSION = '0.1.260';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -69,11 +69,12 @@ final class Devenia_AI_Translations {
 	const MENU_ITEM_META_MANAGED = '_devenia_translation_menu_managed';
 
 	/**
-	 * Language for the translated posts-page loop while GeneratePress is treated as is_home().
+	 * Language for the translated posts-page loop while archive template hooks run.
 	 *
 	 * @var string
 	 */
 	private static $translated_posts_page_loop_language = '';
+	private static $language_menu_appended = false;
 
 	/**
 	 * Whether reviewer-style learning should ignore this plugin's own writes.
@@ -110,7 +111,6 @@ final class Devenia_AI_Translations {
 		add_filter( 'term_link', array( __CLASS__, 'filter_translated_term_link' ), 20, 3 );
 		add_filter( 'previous_post_link', array( __CLASS__, 'filter_adjacent_post_link_for_translation' ), 20, 5 );
 		add_filter( 'next_post_link', array( __CLASS__, 'filter_adjacent_post_link_for_translation' ), 20, 5 );
-		add_filter( 'generate_body_itemtype', array( __CLASS__, 'filter_translated_posts_page_body_itemtype' ), 20 );
 		add_filter( 'rank_math/opengraph/type', array( __CLASS__, 'filter_translated_posts_page_opengraph_type' ), 20 );
 		add_filter( 'rank_math/frontend/canonical', array( __CLASS__, 'filter_translated_posts_page_canonical' ), 20 );
 		add_filter( 'rank_math/frontend/title', array( __CLASS__, 'filter_translated_posts_page_seo_title' ), 20 );
@@ -120,8 +120,6 @@ final class Devenia_AI_Translations {
 		add_filter( 'the_content', array( __CLASS__, 'mark_quick_copy_edit_rendered_content' ), 99 );
 		add_filter( 'body_class', array( __CLASS__, 'add_translated_posts_page_body_class' ), 999 );
 		add_filter( 'body_class', array( __CLASS__, 'add_translated_front_page_body_class' ), 999 );
-		add_action( 'generate_after_entry_title', array( __CLASS__, 'render_source_blog_archive_updated_on' ), 12 );
-		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_translated_posts_page_source_styles' ), 20 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_frontend_heading_fit_assets' ), 25 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_quick_copy_edit_assets' ), 30 );
 		add_action( 'admin_bar_menu', array( __CLASS__, 'add_quick_copy_edit_admin_bar_node' ), 90 );
@@ -129,7 +127,6 @@ final class Devenia_AI_Translations {
 		add_action( 'rest_api_init', array( __CLASS__, 'register_quick_copy_edit_rest_routes' ) );
 		add_action( 'parse_request', array( __CLASS__, 'map_translated_post_request' ), 1 );
 		add_action( 'wp_head', array( __CLASS__, 'print_language_links' ), 6 );
-		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_rtl_layout_styles' ), 22 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_translated_posts_page_styles' ), 23 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_language_menu_styles' ), 24 );
 		add_action( 'wp', array( __CLASS__, 'switch_frontend_locale' ), 1 );
@@ -148,13 +145,10 @@ final class Devenia_AI_Translations {
 		add_filter( 'wp_nav_menu_args', array( __CLASS__, 'use_language_primary_menu' ), 20 );
 		add_filter( 'wp_nav_menu_objects', array( __CLASS__, 'localize_nav_menu_objects' ), 20, 2 );
 		add_filter( 'wp_nav_menu_items', array( __CLASS__, 'append_language_menu_items' ), 20, 2 );
-		add_action( 'generate_menu_bar_items', array( __CLASS__, 'render_mobile_language_menu_bar_item' ), 18 );
 		add_filter( 'widget_block_content', array( __CLASS__, 'localize_widget_block_content' ), 20, 3 );
 		add_filter( 'widget_title', array( __CLASS__, 'localize_widget_title' ), 20, 3 );
 		add_filter( 'comment_form_defaults', array( __CLASS__, 'localize_comment_form_defaults' ), 20 );
 		add_filter( 'comment_form_default_fields', array( __CLASS__, 'localize_comment_form_default_fields' ), 20 );
-		add_filter( 'generate_logo_href', array( __CLASS__, 'filter_logo_home_href' ), 20 );
-		add_filter( 'generate_site_title_href', array( __CLASS__, 'filter_logo_home_href' ), 20 );
 		add_filter( 'manage_page_posts_columns', array( __CLASS__, 'add_admin_columns' ) );
 		add_action( 'manage_page_posts_custom_column', array( __CLASS__, 'render_admin_column' ), 10, 2 );
 		add_action( 'restrict_manage_posts', array( __CLASS__, 'render_admin_filters' ) );
@@ -13848,12 +13842,14 @@ final class Devenia_AI_Translations {
 		}
 
 		$theme_location = isset( $args->theme_location ) ? (string) $args->theme_location : '';
-		if ( 'primary' !== $theme_location ) {
-			return $items;
-		}
-
 		$menu_id = isset( $args->menu_id ) ? (string) $args->menu_id : '';
 		if ( 'mobile-menu' === $menu_id ) {
+			return $items;
+		}
+		if ( '' !== $theme_location && 'primary' !== $theme_location ) {
+			return $items;
+		}
+		if ( '' === $theme_location && self::$language_menu_appended ) {
 			return $items;
 		}
 
@@ -13868,11 +13864,13 @@ final class Devenia_AI_Translations {
 			return $items;
 		}
 
+		self::$language_menu_appended = true;
+
 		return $items . $output;
 	}
 
 	/**
-	 * Render the mobile header language selector in GeneratePress menu bar items.
+	 * Render the optional mobile header language selector in a menu-bar surface.
 	 */
 	public static function render_mobile_language_menu_bar_item(): void {
 		if ( ! self::is_frontend_language_surface() ) {
@@ -14271,7 +14269,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Point GeneratePress header/site-title logo links at the active language root.
+	 * Point theme header/site-title logo links at the active language root.
 	 */
 	public static function filter_logo_home_href( string $href ): string {
 		if ( ! self::is_frontend_language_surface() ) {
@@ -15804,7 +15802,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Give translated blog archives the same GeneratePress body schema as /blog/.
+	 * Give translated blog archives an archive-like body schema where the active theme supports it.
 	 */
 	public static function filter_translated_posts_page_body_itemtype( string $itemtype ): string {
 		return self::is_translated_posts_page_request() ? 'Blog' : $itemtype;
@@ -15931,7 +15929,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Render translated blog pages with the same GeneratePress archive loop as the source posts page.
+	 * Render translated blog pages through the plugin's theme-neutral archive template.
 	 */
 	public static function use_translated_posts_page_template( string $template ): string {
 		if ( ! self::is_translated_posts_page_request() ) {
@@ -15997,7 +15995,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Load the source posts-page GenerateBlocks CSS for translated blog archives.
+	 * Load optional source posts-page GenerateBlocks CSS for translated blog archives.
 	 */
 	public static function enqueue_translated_posts_page_source_styles(): void {
 		if ( ! self::is_translated_posts_page_request() ) {
@@ -17301,7 +17299,7 @@ final class Devenia_AI_Translations {
 	public static function render_translated_posts_page_article(): void {
 		?>
 		<article id="post-<?php the_ID(); ?>" <?php post_class(); ?> itemtype="https://schema.org/CreativeWork" itemscope>
-			<div class="inside-article">
+			<div class="ai-translation-workflow-post-card">
 				<?php if ( has_post_thumbnail() ) : ?>
 					<div class="post-image">
 						<a href="<?php the_permalink(); ?>">
@@ -17340,7 +17338,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Load the GeneratePress archive image rule that GP omits for page-backed translated blog URLs.
+	 * Load default translated blog archive layout rules.
 	 */
 	public static function enqueue_translated_posts_page_styles(): void {
 		if ( ! self::is_translated_posts_page_request() ) {
@@ -17351,7 +17349,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Render source blog archive updated-on markup through GeneratePress.
+	 * Render source blog archive updated-on markup for themes that expose an entry-title hook.
 	 */
 	public static function render_source_blog_archive_updated_on(): void {
 		if ( is_admin() || ! is_home() || ! in_the_loop() || ! is_main_query() ) {
@@ -19560,7 +19558,7 @@ final class Devenia_AI_Translations {
 			$summary['disallowed_block_count'] = count( $disallowed_blocks );
 			$issues[] = self::qa_item(
 				'translated_posts_archive_static_page_blocks',
-				'Translated posts archives must keep hero, presentation, and shortcode output outside stored page content. Use only the Query Loop archive surface; GeneratePress Elements own the hero.',
+				'Translated posts archives must keep hero, presentation, and shortcode output outside stored page content. Use only the Query Loop archive surface; the theme/template layer owns archive presentation.',
 				array(
 					'source_id'           => $source_id,
 					'disallowed_blocks'   => $disallowed_blocks,
@@ -22091,6 +22089,9 @@ final class Devenia_AI_Translations {
 		);
 	}
 }
+
+require_once __DIR__ . '/addons/generatepress.php';
+require_once __DIR__ . '/addons/generateblocks.php';
 
 register_activation_hook( __FILE__, array( 'Devenia_AI_Translations', 'activate' ) );
 Devenia_AI_Translations::init();

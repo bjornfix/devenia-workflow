@@ -6,10 +6,10 @@ WordPress workflow plugin for AI-assisted multilingual pages and posts.
 [![WordPress](https://img.shields.io/badge/WordPress-6.9%2B-blue.svg)](https://wordpress.org)
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
-**Tested up to:** 7.0  
-**Stable tag:** 0.1.258  
-**License:** GPLv2 or later  
-**License URI:** https://www.gnu.org/licenses/gpl-2.0.html  
+**Tested up to:** 7.0
+**Stable tag:** 0.1.260
+**License:** GPLv2 or later
+**License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
 
 ## What It Does
@@ -24,6 +24,9 @@ source of truth for downstream translations, but a post or page may now be
 authored first in another configured language. In that case the plugin queues
 the authored original for English source generation, then requires source review
 before downstream translations can use the generated English source.
+
+The core plugin is theme-neutral. Theme or builder integrations live in optional
+`addons/` files and are loaded only when the matching vendor surface is present.
 
 ## The Real Workflow
 
@@ -131,6 +134,24 @@ Before changing the plugin:
 6. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.260
+
+- Makes the translated posts-page template use standard WordPress markup and
+  plugin-owned hooks instead of direct GeneratePress hooks.
+- Moves GeneratePress and GenerateBlocks hook registration into optional
+  `addons/` files.
+- Keeps GeneratePress/GenerateBlocks compatibility styles out of the default
+  frontend stylesheet.
+- Allows the language selector to attach to a standard WordPress menu when a
+  theme does not use a `primary` menu location.
+
+### 0.1.259
+
+- Moves RTL layout and translated blog archive frontend CSS out of inline PHP
+  into versioned asset files.
+- Centralizes plugin asset URL and filemtime version handling for frontend
+  styles and scripts.
 
 ### 0.1.258
 

@@ -4,7 +4,7 @@ Tags: translations, ai, workflow, multilingual
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.259
+Stable tag: 0.1.260
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -35,6 +35,9 @@ No. Existing translated pages, menu items, slugs, URLs, runtime text, and page-s
 Use `ai-translations/upsert-page`, run `ai-translations/qa-translation`, record the required linguistic and quality review evidence, then publish through `ai-translations/publish-translation`.
 
 == Upgrade Notice ==
+
+= 0.1.260 =
+Makes the frontend archive surface theme-neutral and moves GeneratePress/GenerateBlocks hooks into optional addons.
 
 = 0.1.259 =
 Moves frontend layout CSS into versioned assets and centralizes plugin asset loading.
@@ -97,6 +100,12 @@ Adds audited rule-event support for script-signal options, so language-specific 
 Older workflow changes are kept in the project repository history.
 
 == Changelog ==
+
+= 0.1.260 =
+* Makes the translated posts-page template use standard WordPress markup and plugin-owned hooks instead of direct GeneratePress hooks.
+* Moves GeneratePress and GenerateBlocks hook registration into optional `addons/` files.
+* Keeps GeneratePress/GenerateBlocks compatibility styles out of the default frontend stylesheet.
+* Allows the language selector to attach to a standard WordPress menu when a theme does not use a `primary` menu location.
 
 = 0.1.259 =
 * Moves RTL layout and translated blog archive frontend CSS out of inline PHP into versioned asset files.
