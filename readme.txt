@@ -4,7 +4,7 @@ Tags: translations, ai, workflow, multilingual
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.260
+Stable tag: 0.1.261
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -35,6 +35,9 @@ No. Existing translated pages, menu items, slugs, URLs, runtime text, and page-s
 Use `ai-translations/upsert-page`, run `ai-translations/qa-translation`, record the required linguistic and quality review evidence, then publish through `ai-translations/publish-translation`.
 
 == Upgrade Notice ==
+
+= 0.1.261 =
+Fixes WordPress.org package checks for the public plugin slug and optional vendor addon hooks.
 
 = 0.1.260 =
 Makes the frontend archive surface theme-neutral and moves GeneratePress/GenerateBlocks hooks into optional addons.
@@ -100,6 +103,11 @@ Adds audited rule-event support for script-signal options, so language-specific 
 Older workflow changes are kept in the project repository history.
 
 == Changelog ==
+
+= 0.1.261 =
+* Restores the WordPress text domain to the plugin slug expected by WordPress.org package checks.
+* Removes hidden development files from the distributable plugin ZIP.
+* Documents intentional GeneratePress hook calls in the optional GeneratePress addon for Plugin Check.
 
 = 0.1.260 =
 * Makes the translated posts-page template use standard WordPress markup and plugin-owned hooks instead of direct GeneratePress hooks.

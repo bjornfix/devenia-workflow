@@ -2,11 +2,11 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.260
+ * Version: 0.1.261
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
- * Text Domain: ai-translation-workflow
+ * Text Domain: devenia-ai-translations
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.260';
+	const VERSION = '0.1.261';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -15339,8 +15339,8 @@ final class Devenia_AI_Translations {
 		);
 
 		wp_die(
-			esc_html__( 'Content save blocked: storage integrity guardrails failed. Fix the reported route, link, or block markup issues before saving.', 'ai-translation-workflow' ),
-			esc_html__( 'Invalid content storage', 'ai-translation-workflow' ),
+			esc_html__( 'Content save blocked: storage integrity guardrails failed. Fix the reported route, link, or block markup issues before saving.', 'devenia-ai-translations' ),
+			esc_html__( 'Invalid content storage', 'devenia-ai-translations' ),
 			array( 'response' => 400 )
 		);
 	}
@@ -15838,7 +15838,7 @@ final class Devenia_AI_Translations {
 
 		$post_title = trim( wp_strip_all_tags( get_the_title( get_queried_object_id() ) ) );
 		if ( '' === $post_title ) {
-			$post_title = __( 'Blog', 'ai-translation-workflow' );
+			$post_title = __( 'Blog', 'devenia-ai-translations' );
 		}
 
 		$site_name = trim( wp_strip_all_tags( get_bloginfo( 'name' ) ) );
@@ -16038,7 +16038,7 @@ final class Devenia_AI_Translations {
 		$admin_bar->add_node(
 			array(
 				'id'    => 'devenia-quick-copy-edit',
-				'title' => esc_html__( 'Quick Copy Edit', 'ai-translation-workflow' ),
+				'title' => esc_html__( 'Quick Copy Edit', 'devenia-ai-translations' ),
 				'href'  => '#devenia-quick-copy-edit',
 				'meta'  => array(
 					'class' => 'devenia-quick-copy-edit-admin-bar',
@@ -16067,15 +16067,15 @@ final class Devenia_AI_Translations {
 				'endpoint' => esc_url_raw( rest_url( 'ai-translation-workflow/v1/quick-copy-edit' ) ),
 				'nonce'    => wp_create_nonce( 'wp_rest' ),
 				'labels'   => array(
-					'open'        => __( 'Quick Copy Edit', 'ai-translation-workflow' ),
-					'close'       => __( 'Close', 'ai-translation-workflow' ),
-					'active'      => __( 'Click text to edit it inline.', 'ai-translation-workflow' ),
-					'inactive'    => __( 'Quick Copy Edit is off.', 'ai-translation-workflow' ),
-					'save'        => __( 'Save', 'ai-translation-workflow' ),
-					'cancel'      => __( 'Cancel', 'ai-translation-workflow' ),
-					'saved'       => __( 'Saved.', 'ai-translation-workflow' ),
-					'error'       => __( 'Could not save this text change.', 'ai-translation-workflow' ),
-					'unchanged'   => __( 'No text change to save.', 'ai-translation-workflow' ),
+					'open'        => __( 'Quick Copy Edit', 'devenia-ai-translations' ),
+					'close'       => __( 'Close', 'devenia-ai-translations' ),
+					'active'      => __( 'Click text to edit it inline.', 'devenia-ai-translations' ),
+					'inactive'    => __( 'Quick Copy Edit is off.', 'devenia-ai-translations' ),
+					'save'        => __( 'Save', 'devenia-ai-translations' ),
+					'cancel'      => __( 'Cancel', 'devenia-ai-translations' ),
+					'saved'       => __( 'Saved.', 'devenia-ai-translations' ),
+					'error'       => __( 'Could not save this text change.', 'devenia-ai-translations' ),
+					'unchanged'   => __( 'No text change to save.', 'devenia-ai-translations' ),
 				),
 			)
 		);
@@ -16206,10 +16206,10 @@ final class Devenia_AI_Translations {
 		$post_id = absint( $request->get_param( 'post_id' ) );
 		$post    = $post_id ? get_post( $post_id ) : null;
 		if ( ! $post || ! self::is_translatable_post_type( (string) $post->post_type ) ) {
-			return new WP_Error( 'devenia_quick_copy_edit_invalid_post', __( 'This content cannot be quick-edited.', 'ai-translation-workflow' ), array( 'status' => 404 ) );
+			return new WP_Error( 'devenia_quick_copy_edit_invalid_post', __( 'This content cannot be quick-edited.', 'devenia-ai-translations' ), array( 'status' => 404 ) );
 		}
 		if ( ! current_user_can( 'edit_post', $post_id ) ) {
-			return new WP_Error( 'devenia_quick_copy_edit_forbidden', __( 'You are not allowed to edit this content.', 'ai-translation-workflow' ), array( 'status' => 403 ) );
+			return new WP_Error( 'devenia_quick_copy_edit_forbidden', __( 'You are not allowed to edit this content.', 'devenia-ai-translations' ), array( 'status' => 403 ) );
 		}
 
 		return true;
@@ -17010,14 +17010,14 @@ final class Devenia_AI_Translations {
 		switch ( $block_name ) {
 			case 'core/heading':
 			case 'generateblocks/headline':
-				return __( 'Heading', 'ai-translation-workflow' );
+				return __( 'Heading', 'devenia-ai-translations' );
 			case 'core/button':
 			case 'generateblocks/button':
-				return __( 'Button', 'ai-translation-workflow' );
+				return __( 'Button', 'devenia-ai-translations' );
 			case 'core/list-item':
-				return __( 'List item', 'ai-translation-workflow' );
+				return __( 'List item', 'devenia-ai-translations' );
 			default:
-				return __( 'Paragraph', 'ai-translation-workflow' );
+				return __( 'Paragraph', 'devenia-ai-translations' );
 		}
 	}
 
@@ -17026,13 +17026,13 @@ final class Devenia_AI_Translations {
 	 */
 	private static function quick_copy_edit_segment_label( string $segment_type ): string {
 		if ( 'strong' === $segment_type ) {
-			return __( 'Paragraph heading', 'ai-translation-workflow' );
+			return __( 'Paragraph heading', 'devenia-ai-translations' );
 		}
 		if ( 'after_break' === $segment_type ) {
-			return __( 'Paragraph body', 'ai-translation-workflow' );
+			return __( 'Paragraph body', 'devenia-ai-translations' );
 		}
 
-		return __( 'Paragraph', 'ai-translation-workflow' );
+		return __( 'Paragraph', 'devenia-ai-translations' );
 	}
 
 	/**
@@ -17317,8 +17317,8 @@ final class Devenia_AI_Translations {
 					<?php the_excerpt(); ?>
 				</div>
 
-				<footer class="entry-meta" aria-label="<?php echo esc_attr__( 'Entry meta', 'ai-translation-workflow' ); ?>">
-					<span class="cat-links"><span class="screen-reader-text"><?php echo esc_html__( 'Categories', 'ai-translation-workflow' ); ?> </span><?php echo wp_kses_post( get_the_category_list( ', ' ) ); ?></span>
+				<footer class="entry-meta" aria-label="<?php echo esc_attr__( 'Entry meta', 'devenia-ai-translations' ); ?>">
+					<span class="cat-links"><span class="screen-reader-text"><?php echo esc_html__( 'Categories', 'devenia-ai-translations' ); ?> </span><?php echo wp_kses_post( get_the_category_list( ', ' ) ); ?></span>
 				</footer>
 			</div>
 		</article>
@@ -17561,21 +17561,21 @@ final class Devenia_AI_Translations {
 				'format'    => '',
 				'current'   => $current,
 				'total'     => (int) $query->max_num_pages,
-				'prev_text' => __( 'Previous', 'ai-translation-workflow' ),
-				'next_text' => __( 'Next', 'ai-translation-workflow' ) . ' <span aria-hidden="true">&rarr;</span>',
+				'prev_text' => __( 'Previous', 'devenia-ai-translations' ),
+				'next_text' => __( 'Next', 'devenia-ai-translations' ) . ' <span aria-hidden="true">&rarr;</span>',
 				'type'      => 'plain',
 				'mid_size'  => 1,
 				'end_size'  => 1,
-				'before_page_number' => '<span class="screen-reader-text">' . esc_html__( 'Page', 'ai-translation-workflow' ) . '</span>',
+				'before_page_number' => '<span class="screen-reader-text">' . esc_html__( 'Page', 'devenia-ai-translations' ) . '</span>',
 			)
 		);
 		if ( $links && $page_one_url !== $page_one_dupe ) {
 			$links = str_replace( esc_url( $page_one_dupe ), esc_url( $page_one_url ), $links );
 		}
 
-		echo '<nav id="nav-below" class="paging-navigation" aria-label="' . esc_attr__( 'Archive Page', 'ai-translation-workflow' ) . '">';
+		echo '<nav id="nav-below" class="paging-navigation" aria-label="' . esc_attr__( 'Archive Page', 'devenia-ai-translations' ) . '">';
 		if ( $current < (int) $query->max_num_pages ) {
-			echo '<div class="nav-previous"><span class="prev" title="' . esc_attr__( 'Previous', 'ai-translation-workflow' ) . '"><a href="' . esc_url( $older_url ) . '">' . esc_html__( 'Older posts', 'ai-translation-workflow' ) . '</a></span></div>';
+			echo '<div class="nav-previous"><span class="prev" title="' . esc_attr__( 'Previous', 'devenia-ai-translations' ) . '"><a href="' . esc_url( $older_url ) . '">' . esc_html__( 'Older posts', 'devenia-ai-translations' ) . '</a></span></div>';
 		}
 		if ( $links ) {
 			echo '<div class="nav-links">' . wp_kses_post( $links ) . '</div>';

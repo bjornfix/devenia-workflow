@@ -54,6 +54,7 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 	 * Mirror GeneratePress archive wrapper hook.
 	 */
 	public static function before_main_content(): void {
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Optional GeneratePress adapter hook.
 		do_action( 'generate_before_main_content' );
 	}
 
@@ -61,6 +62,7 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 	 * Mirror GeneratePress loop hook.
 	 */
 	public static function before_loop(): void {
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Optional GeneratePress adapter hook.
 		do_action( 'generate_before_loop', 'index' );
 	}
 
@@ -68,6 +70,7 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 	 * Mirror GeneratePress loop hook.
 	 */
 	public static function after_loop(): void {
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Optional GeneratePress adapter hook.
 		do_action( 'generate_after_loop', 'index' );
 	}
 
@@ -75,6 +78,7 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 	 * Mirror GeneratePress content-area hook and sidebar output.
 	 */
 	public static function after_primary_content_area(): void {
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Optional GeneratePress adapter hook.
 		do_action( 'generate_after_primary_content_area' );
 
 		if ( function_exists( 'generate_construct_sidebars' ) ) {
@@ -86,6 +90,7 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 	 * Mirror GeneratePress archive wrapper hook.
 	 */
 	public static function after_main_content(): void {
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Optional GeneratePress adapter hook.
 		do_action( 'generate_after_main_content' );
 	}
 

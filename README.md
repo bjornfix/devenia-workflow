@@ -7,7 +7,7 @@ WordPress workflow plugin for AI-assisted multilingual pages and posts.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.260
+**Stable tag:** 0.1.261
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -134,6 +134,14 @@ Before changing the plugin:
 6. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.261
+
+- Restores the WordPress text domain to the plugin slug expected by
+  WordPress.org package checks.
+- Removes hidden development files from the distributable plugin ZIP.
+- Documents intentional GeneratePress hook calls in the optional GeneratePress
+  addon for Plugin Check.
 
 ### 0.1.260
 
