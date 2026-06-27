@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.258
+ * Version: 0.1.259
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.258';
+	const VERSION = '0.1.259';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -128,11 +128,11 @@ final class Devenia_AI_Translations {
 		add_action( 'init', array( __CLASS__, 'maybe_run_upgrade' ), 20 );
 		add_action( 'rest_api_init', array( __CLASS__, 'register_quick_copy_edit_rest_routes' ) );
 		add_action( 'parse_request', array( __CLASS__, 'map_translated_post_request' ), 1 );
-			add_action( 'wp_head', array( __CLASS__, 'print_language_links' ), 6 );
-			add_action( 'wp_head', array( __CLASS__, 'print_rtl_layout_styles' ), 17 );
-			add_action( 'wp_head', array( __CLASS__, 'print_translated_posts_page_styles' ), 18 );
-			add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_language_menu_styles' ), 24 );
-			add_action( 'wp', array( __CLASS__, 'switch_frontend_locale' ), 1 );
+		add_action( 'wp_head', array( __CLASS__, 'print_language_links' ), 6 );
+		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_rtl_layout_styles' ), 22 );
+		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_translated_posts_page_styles' ), 23 );
+		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_language_menu_styles' ), 24 );
+		add_action( 'wp', array( __CLASS__, 'switch_frontend_locale' ), 1 );
 		add_action( 'template_redirect', array( __CLASS__, 'redirect_translated_posts_page_first_page_query' ), 1 );
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_start_not_found_localization' ), 20 );
 		add_action( 'template_redirect', array( __CLASS__, 'redirect_localized_source_paths_with_language_prefix' ), 2 );
@@ -14872,16 +14872,56 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		$base = plugin_dir_url( __FILE__ );
-		$dir  = plugin_dir_path( __FILE__ );
-		$path = $dir . 'assets/language-menu.css';
+		self::enqueue_plugin_style( 'ai-translation-workflow-language-menu', 'assets/language-menu.css' );
+	}
 
+	/**
+	 * Enqueue a plugin stylesheet with filemtime-based cache busting.
+	 *
+	 * @param string        $handle Style handle.
+	 * @param string        $relative Relative plugin asset path.
+	 * @param array<string> $deps Style dependencies.
+	 */
+	private static function enqueue_plugin_style( string $handle, string $relative, array $deps = array() ): void {
 		wp_enqueue_style(
-			'ai-translation-workflow-language-menu',
-			$base . 'assets/language-menu.css',
-			array(),
-			is_readable( $path ) ? (string) filemtime( $path ) : self::VERSION
+			$handle,
+			self::plugin_asset_url( $relative ),
+			$deps,
+			self::plugin_asset_version( $relative )
 		);
+	}
+
+	/**
+	 * Enqueue a plugin script with filemtime-based cache busting.
+	 *
+	 * @param string        $handle Script handle.
+	 * @param string        $relative Relative plugin asset path.
+	 * @param array<string> $deps Script dependencies.
+	 * @param bool          $in_footer Whether to load in footer.
+	 */
+	private static function enqueue_plugin_script( string $handle, string $relative, array $deps = array(), bool $in_footer = true ): void {
+		wp_enqueue_script(
+			$handle,
+			self::plugin_asset_url( $relative ),
+			$deps,
+			self::plugin_asset_version( $relative ),
+			$in_footer
+		);
+	}
+
+	/**
+	 * Resolve a plugin asset URL.
+	 */
+	private static function plugin_asset_url( string $relative ): string {
+		return plugin_dir_url( __FILE__ ) . ltrim( $relative, '/' );
+	}
+
+	/**
+	 * Resolve a plugin asset version.
+	 */
+	private static function plugin_asset_version( string $relative ): string {
+		$path = plugin_dir_path( __FILE__ ) . ltrim( $relative, '/' );
+		return is_readable( $path ) ? (string) filemtime( $path ) : self::VERSION;
 	}
 
 	/**
@@ -16018,22 +16058,9 @@ final class Devenia_AI_Translations {
 		}
 
 		$post_id = (int) get_queried_object_id();
-		$base    = plugin_dir_url( __FILE__ );
-		$dir     = plugin_dir_path( __FILE__ );
 
-		wp_enqueue_style(
-			'devenia-ai-translations-quick-copy-edit',
-			$base . 'assets/quick-copy-edit.css',
-			array(),
-			is_readable( $dir . 'assets/quick-copy-edit.css' ) ? (string) filemtime( $dir . 'assets/quick-copy-edit.css' ) : self::VERSION
-		);
-		wp_enqueue_script(
-			'devenia-ai-translations-quick-copy-edit',
-			$base . 'assets/quick-copy-edit.js',
-			array(),
-			is_readable( $dir . 'assets/quick-copy-edit.js' ) ? (string) filemtime( $dir . 'assets/quick-copy-edit.js' ) : self::VERSION,
-			true
-		);
+		self::enqueue_plugin_style( 'devenia-ai-translations-quick-copy-edit', 'assets/quick-copy-edit.css' );
+		self::enqueue_plugin_script( 'devenia-ai-translations-quick-copy-edit', 'assets/quick-copy-edit.js' );
 		wp_localize_script(
 			'devenia-ai-translations-quick-copy-edit',
 			'AITranslationWorkflowQuickCopyEdit',
@@ -16064,22 +16091,8 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		$base = plugin_dir_url( __FILE__ );
-		$dir  = plugin_dir_path( __FILE__ );
-
-		wp_enqueue_style(
-			'devenia-ai-translations-heading-fit',
-			$base . 'assets/frontend-heading-fit.css',
-			array(),
-			is_readable( $dir . 'assets/frontend-heading-fit.css' ) ? (string) filemtime( $dir . 'assets/frontend-heading-fit.css' ) : self::VERSION
-		);
-		wp_enqueue_script(
-			'devenia-ai-translations-heading-fit',
-			$base . 'assets/frontend-heading-fit.js',
-			array(),
-			is_readable( $dir . 'assets/frontend-heading-fit.js' ) ? (string) filemtime( $dir . 'assets/frontend-heading-fit.js' ) : self::VERSION,
-			true
-		);
+		self::enqueue_plugin_style( 'devenia-ai-translations-heading-fit', 'assets/frontend-heading-fit.css' );
+		self::enqueue_plugin_script( 'devenia-ai-translations-heading-fit', 'assets/frontend-heading-fit.js' );
 		wp_localize_script(
 			'devenia-ai-translations-heading-fit',
 			'AITranslationWorkflowHeadingFit',
@@ -17315,134 +17328,26 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Print generic RTL layout corrections for translated pages.
+	 * Load generic RTL layout corrections for translated pages.
 	 */
-	public static function print_rtl_layout_styles(): void {
+	public static function enqueue_rtl_layout_styles(): void {
 		$language = self::frontend_language();
 		if ( ! self::is_rtl_language( $language ) ) {
 			return;
 		}
 
-		?>
-		<style id="devenia-ai-translations-rtl-layout-css">
-			:root[dir="rtl"] .entry-content .gb-container[class*="dv-"][class*="-hero-side"] {
-				padding-right: 28px !important;
-				padding-left: 0 !important;
-				border-right: 1px solid rgba(255,244,232,0.18) !important;
-				border-left-width: 0 !important;
-			}
-			:root[dir="rtl"] .entry-content .gb-container[class*="dv-"][class*="-split-side"],
-			:root[dir="rtl"] .entry-content .gb-container[class*="dv-"][class*="-contact-right"] {
-				padding-right: 26px !important;
-				padding-left: 0 !important;
-				border-right: 1px solid rgba(255,248,240,0.16) !important;
-				border-left-width: 0 !important;
-			}
-			@media (max-width: 767px) {
-				:root[dir="rtl"] .entry-content .gb-grid-wrapper[class*="dv-"] {
-					margin-right: 0 !important;
-					margin-left: 0 !important;
-				}
-				:root[dir="rtl"] .entry-content .gb-grid-wrapper[class*="dv-"] > .gb-grid-column {
-					padding-right: 0 !important;
-					padding-left: 0 !important;
-				}
-				:root[dir="rtl"] .entry-content .gb-container[class*="dv-"][class*="-hero-side"],
-				:root[dir="rtl"] .entry-content .gb-container[class*="dv-"][class*="-split-side"],
-				:root[dir="rtl"] .entry-content .gb-container[class*="dv-"][class*="-contact-right"] {
-					padding-right: 0 !important;
-					border-right-width: 0 !important;
-				}
-			}
-		</style>
-		<?php
+		self::enqueue_plugin_style( 'devenia-ai-translations-rtl-layout', 'assets/rtl-layout.css' );
 	}
 
 	/**
-	 * Print the GeneratePress archive image rule that GP omits for page-backed translated blog URLs.
+	 * Load the GeneratePress archive image rule that GP omits for page-backed translated blog URLs.
 	 */
-	public static function print_translated_posts_page_styles(): void {
+	public static function enqueue_translated_posts_page_styles(): void {
 		if ( ! self::is_translated_posts_page_request() ) {
 			return;
 		}
 
-		?>
-		<style id="devenia-ai-translations-blog-archive-css">
-			@media (min-width: 769px) {
-				.devenia-translated-posts-page.post-image-aligned-left .inside-article .post-image {
-					float: left;
-					margin-right: 2em;
-					margin-top: 0;
-					text-align: left;
-				}
-			}
-			:root[dir="rtl"] body.devenia-translated-posts-page .entry-meta .cat-links {
-				display: inline-flex;
-				align-items: baseline;
-				gap: 0.35em;
-				flex-wrap: wrap;
-				max-width: 100%;
-				min-width: 0;
-			}
-			:root[dir="rtl"] body.devenia-translated-posts-page .entry-meta .cat-links a {
-				overflow-wrap: anywhere;
-			}
-			:root[dir="rtl"] body.devenia-translated-posts-page .entry-meta .cat-links:before {
-				position: static;
-				margin: 0 0 0 0.35em;
-				flex: 0 0 auto;
-			}
-			:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-hero-grid,
-			:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid {
-				margin-left: 0;
-				margin-right: -54px;
-			}
-			:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid {
-				margin-right: -52px;
-			}
-			:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-hero-grid > .gb-grid-column,
-			:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid > .gb-grid-column {
-				padding-left: 0;
-				padding-right: 54px;
-			}
-			:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid > .gb-grid-column {
-				padding-right: 52px;
-			}
-			:root[dir="rtl"] body.devenia-translated-posts-page .gb-container-dv-blog-hero-side {
-				padding-right: 28px;
-				padding-left: 0;
-				border-right: 1px solid rgba(255,244,232,0.18);
-				border-left: 0;
-			}
-			:root[dir="rtl"] body.devenia-translated-posts-page .gb-container-dv-blog-contact-right {
-				padding-right: 26px;
-				padding-left: 0;
-				border-right: 1px solid rgba(255,248,240,0.16);
-				border-left: 0;
-			}
-			@media (max-width: 767px) {
-				:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-hero-grid,
-				:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid {
-					margin-right: 0;
-					margin-left: 0;
-					max-width: 100%;
-					width: 100%;
-					box-sizing: border-box;
-				}
-				:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-hero-grid > .gb-grid-column,
-				:root[dir="rtl"] body.devenia-translated-posts-page .gb-grid-wrapper-dv-blog-contact-grid > .gb-grid-column {
-					padding-right: 0;
-					padding-left: 0;
-					box-sizing: border-box;
-				}
-				:root[dir="rtl"] body.devenia-translated-posts-page .gb-container-dv-blog-hero-side,
-				:root[dir="rtl"] body.devenia-translated-posts-page .gb-container-dv-blog-contact-right {
-					padding-right: 0;
-					border-right-width: 0;
-				}
-			}
-		</style>
-		<?php
+		self::enqueue_plugin_style( 'devenia-ai-translations-translated-posts-page', 'assets/translated-posts-page.css' );
 	}
 
 	/**

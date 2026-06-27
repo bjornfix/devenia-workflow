@@ -4,7 +4,7 @@ Tags: translations, ai, workflow, multilingual
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.258
+Stable tag: 0.1.259
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -35,6 +35,9 @@ No. Existing translated pages, menu items, slugs, URLs, runtime text, and page-s
 Use `ai-translations/upsert-page`, run `ai-translations/qa-translation`, record the required linguistic and quality review evidence, then publish through `ai-translations/publish-translation`.
 
 == Upgrade Notice ==
+
+= 0.1.259 =
+Moves frontend layout CSS into versioned assets and centralizes plugin asset loading.
 
 = 0.1.258 =
 Prepares public-release metadata, generic ability documentation, and architecture seams.
@@ -94,6 +97,10 @@ Adds audited rule-event support for script-signal options, so language-specific 
 Older workflow changes are kept in the project repository history.
 
 == Changelog ==
+
+= 0.1.259 =
+* Moves RTL layout and translated blog archive frontend CSS out of inline PHP into versioned asset files.
+* Centralizes plugin asset URL and filemtime version handling for frontend styles and scripts.
 
 = 0.1.258 =
 * Prepares public-release metadata by replacing private site-specific wording with generic plugin, ability, and documentation language.
