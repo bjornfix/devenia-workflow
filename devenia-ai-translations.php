@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.272
+ * Version: 0.1.273
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.272';
+	const VERSION = '0.1.273';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -17194,6 +17194,10 @@ final class Devenia_AI_Translations {
 			'fi' => 'j.n.Y',
 			'it' => 'd/m/Y',
 			'nl' => 'd-m-Y',
+			'pt' => 'd/m/Y',
+			'zh' => 'Y年n月j日',
+			'ja' => 'Y年n月j日',
+			'vi' => 'd/m/Y',
 		);
 
 		$language = sanitize_key( $language );
@@ -17243,18 +17247,35 @@ final class Devenia_AI_Translations {
 		}
 
 		$timezone = wp_timezone();
-		$formatter = new IntlDateFormatter(
-			str_replace( '_', '-', $locale ),
-			IntlDateFormatter::SHORT,
-			IntlDateFormatter::NONE,
-			$timezone->getName()
-		);
+		$timezone_name = self::intl_timezone_name( $timezone );
+		try {
+			$formatter = new IntlDateFormatter(
+				str_replace( '_', '-', $locale ),
+				IntlDateFormatter::SHORT,
+				IntlDateFormatter::NONE,
+				$timezone_name
+			);
+		} catch ( Exception $e ) {
+			return '';
+		}
 		if ( ! $formatter ) {
 			return '';
 		}
 
 		$date = $formatter->format( $timestamp );
 		return is_string( $date ) ? $date : '';
+	}
+
+	/**
+	 * Return an Intl-compatible timezone identifier.
+	 */
+	private static function intl_timezone_name( DateTimeZone $timezone ): string {
+		$name = $timezone->getName();
+		if ( preg_match( '/^[+-]\d{2}:\d{2}$/', $name ) ) {
+			return 'UTC';
+		}
+
+		return $name;
 	}
 
 	/**
