@@ -46,6 +46,10 @@ const textDomain = matchOne(mainFile, /^\s*\*\s*Text Domain:\s*(.+)$/m, "missing
 const contributors = matchOne("readme.txt", /^Contributors:\s*(.+)$/m, "missing_contributors", "readme.txt Contributors is missing.");
 const author = matchOne(mainFile, /^\s*\*\s*Author:\s*(.+)$/m, "missing_author", "Plugin header Author is missing.");
 
+if (!fs.existsSync(path.join(base, "uninstall.php"))) {
+  issue("uninstall.php", "missing_uninstall", "Public plugins with custom tables/options need an explicit uninstall cleanup file.");
+}
+
 if (headerVersion && constantVersion && headerVersion !== constantVersion) {
   issue(mainFile, "version_mismatch", "Plugin header Version and VERSION constant differ.", { headerVersion, constantVersion });
 }

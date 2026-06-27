@@ -7,7 +7,7 @@ WordPress workflow plugin for AI-assisted multilingual pages and posts.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.263
+**Stable tag:** 0.1.264
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -135,6 +135,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.264
+
+- Adds explicit uninstall cleanup for plugin-owned options and custom workflow
+  tables while preserving WordPress content.
+- Adds a public release gate that requires uninstall cleanup to stay present.
 
 ### 0.1.263
 
