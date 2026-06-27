@@ -7,7 +7,7 @@ WordPress workflow plugin for AI-assisted multilingual pages and posts.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.269
+**Stable tag:** 0.1.270
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -133,6 +133,13 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.270
+
+- Prevents historical pre-public migration tasks from running on fresh installs.
+- Replaces exported site-style menu names with neutral packaged language menu defaults.
+- Removes the site-specific slug-lockdown integration from public core.
+- Extends the public release gate to block those site-specific integrations from returning to core.
 
 ### 0.1.269
 

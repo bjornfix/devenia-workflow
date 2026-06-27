@@ -143,6 +143,9 @@ const privatePatterns = [
   ["eman_email", /\beman@/i],
   ["old_private_name", /Devenia AI Translations/],
   ["old_ability_namespace", /devenia-translations\//],
+  ["site_specific_slug_lockdown", /url_change_lockdown/i],
+  ["site_exported_menu_names", /\bMain Menu [A-Z]{2}\b|main-menu-nb/i],
+  ["site_legacy_language_migration", /languages\['no'\]|META_LANGUAGE,\s*true\s*\)\s*\)\s*\)\s*===?\s*'no'|migrate_market_language_codes/],
   ["private_entitlement", /\b(entitlement|coupon|free sample|pricing|abuse|misuse|private workflow)\b/i],
 ];
 

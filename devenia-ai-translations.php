@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.269
+ * Version: 0.1.270
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.269';
+	const VERSION = '0.1.270';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -539,10 +539,6 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		if ( '' === $stored_version || version_compare( $stored_version, '0.1.63', '<' ) ) {
-			self::migrate_market_language_codes();
-		}
-
 		if ( '' === $stored_version || version_compare( $stored_version, '0.1.87', '<' ) ) {
 			self::validate_language_files();
 			self::ensure_supported_wordpress_language_packs();
@@ -569,124 +565,12 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Move legacy language records and locale defaults to the market-specific standard.
-	 */
-	private static function migrate_market_language_codes(): void {
-		$legacy_query = self::translation_page_query(
-			array(
-				'post_status'    => array( 'publish', 'draft', 'pending', 'private' ),
-				'posts_per_page' => 1000,
-				'fields'         => 'ids',
-			)
-		);
-		foreach ( $legacy_query->posts as $post_id ) {
-			if ( 'no' === (string) get_post_meta( (int) $post_id, self::META_LANGUAGE, true ) ) {
-				update_post_meta( (int) $post_id, self::META_LANGUAGE, 'nb' );
-			}
-
-			$path = (string) get_post_meta( (int) $post_id, self::META_LOCALIZED_PATH, true );
-			if ( 'no' === $path || 'nb/no' === $path ) {
-				update_post_meta( (int) $post_id, self::META_LOCALIZED_PATH, 'nb' );
-			} elseif ( str_starts_with( $path, 'no/' ) ) {
-				update_post_meta( (int) $post_id, self::META_LOCALIZED_PATH, 'nb/' . substr( $path, 3 ) );
-			} elseif ( str_starts_with( $path, 'nb/no/' ) ) {
-				update_post_meta( (int) $post_id, self::META_LOCALIZED_PATH, 'nb/' . substr( $path, 6 ) );
-			}
-		}
-
-		$front_page_id = absint( get_option( 'page_on_front' ) );
-		$legacy_root   = get_page_by_path( 'no', OBJECT, 'page' );
-		$nb_root_id    = $front_page_id ? self::find_translation_id( $front_page_id, 'nb' ) : 0;
-		$root_id       = $nb_root_id ?: ( $legacy_root instanceof WP_Post ? (int) $legacy_root->ID : 0 );
-
-		if ( $root_id ) {
-			self::with_slug_change_unlock(
-				static function () use ( $root_id ): void {
-					wp_update_post(
-						array(
-							'ID'          => $root_id,
-							'post_name'   => 'nb',
-							'post_parent' => 0,
-						)
-					);
-				}
-			);
-			clean_post_cache( $root_id );
-		}
-
-		self::repair_url_hierarchy(
-			array(
-				'languages' => array( 'nb' ),
-				'dry_run'   => false,
-			)
-		);
-
-		$legacy_menu = wp_get_nav_menu_object( 'Main Menu NO' );
-		$target_menu = wp_get_nav_menu_object( 'Main Menu NB' );
-		if ( $legacy_menu && ! $target_menu ) {
-			self::with_slug_change_unlock(
-				static function () use ( $legacy_menu ): void {
-					wp_update_term(
-						(int) $legacy_menu->term_id,
-						'nav_menu',
-						array(
-							'name' => 'Main Menu NB',
-							'slug' => 'main-menu-nb',
-						)
-					);
-				}
-			);
-		}
-
-		$languages = get_option( self::OPTION_LANGUAGES );
-		if ( is_array( $languages ) && isset( $languages['no'] ) ) {
-			if ( ! isset( $languages['nb'] ) ) {
-				$languages['nb'] = $languages['no'];
-			}
-			unset( $languages['no'] );
-		}
-		if ( is_array( $languages ) ) {
-			if ( isset( $languages['en'] ) && is_array( $languages['en'] ) ) {
-				$languages['en']['locale'] = 'en_GB';
-			}
-			if ( isset( $languages['fi'] ) && is_array( $languages['fi'] ) ) {
-				$languages['fi']['locale'] = 'fi_FI';
-			}
-			update_option( self::OPTION_LANGUAGES, $languages, false );
-		}
-
-		flush_rewrite_rules( false );
-	}
-
-	/**
 	 * Temporarily allow intentional slug changes during this plugin's own migrations.
-	 *
-	 * URL Change Lockdown deliberately blocks programmatic slug changes. This migration
-	 * is an explicit language-prefix change, so only this callback is unlocked.
 	 *
 	 * @param callable $callback Migration callback.
 	 */
 	private static function with_slug_change_unlock( callable $callback ): void {
-		$removed_post_filter = false;
-		$removed_term_filter = false;
-
-		if ( function_exists( 'url_change_lockdown_guard_post_data' ) ) {
-			$removed_post_filter = remove_filter( 'wp_insert_post_data', 'url_change_lockdown_guard_post_data', PHP_INT_MAX );
-		}
-		if ( function_exists( 'url_change_lockdown_guard_term_data' ) ) {
-			$removed_term_filter = remove_filter( 'wp_update_term_data', 'url_change_lockdown_guard_term_data', PHP_INT_MAX );
-		}
-
-		try {
-			$callback();
-		} finally {
-			if ( $removed_post_filter ) {
-				add_filter( 'wp_insert_post_data', 'url_change_lockdown_guard_post_data', PHP_INT_MAX, 2 );
-			}
-			if ( $removed_term_filter ) {
-				add_filter( 'wp_update_term_data', 'url_change_lockdown_guard_term_data', PHP_INT_MAX, 4 );
-			}
-		}
+		$callback();
 	}
 
 	/**
@@ -1689,7 +1573,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'en_GB',
 				'wordpress_locale' => 'en_GB',
 				'prefix'    => '',
-				'menu_name' => 'Main Menu',
+				'menu_name' => 'English Menu',
 				'source'    => '1',
 				'flag'      => '🇬🇧',
 			),
@@ -1699,7 +1583,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'nb_NO',
 				'wordpress_locale' => 'nb_NO',
 				'prefix'    => 'nb',
-				'menu_name' => 'Main Menu NB',
+				'menu_name' => 'Norwegian Bokmal Menu',
 				'source'    => '0',
 				'flag'      => '🇳🇴',
 			),
@@ -1709,7 +1593,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'de_DE',
 				'wordpress_locale' => 'de_DE',
 				'prefix'    => 'de',
-				'menu_name' => 'Main Menu DE',
+				'menu_name' => 'German Menu',
 				'source'    => '0',
 				'flag'      => '🇩🇪',
 			),
@@ -1719,7 +1603,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'fr_FR',
 				'wordpress_locale' => 'fr_FR',
 				'prefix'    => 'fr',
-				'menu_name' => 'Main Menu FR',
+				'menu_name' => 'French Menu',
 				'source'    => '0',
 				'flag'      => '🇫🇷',
 			),
@@ -1729,7 +1613,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'es_ES',
 				'wordpress_locale' => 'es_ES',
 				'prefix'    => 'es',
-				'menu_name' => 'Main Menu ES',
+				'menu_name' => 'Spanish Menu',
 				'source'    => '0',
 				'flag'      => '🇪🇸',
 			),
@@ -1739,7 +1623,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'sv_SE',
 				'wordpress_locale' => 'sv_SE',
 				'prefix'    => 'sv',
-				'menu_name' => 'Main Menu SV',
+				'menu_name' => 'Swedish Menu',
 				'source'    => '0',
 				'flag'      => '🇸🇪',
 			),
@@ -1749,7 +1633,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'da_DK',
 				'wordpress_locale' => 'da_DK',
 				'prefix'    => 'da',
-				'menu_name' => 'Main Menu DA',
+				'menu_name' => 'Danish Menu',
 				'source'    => '0',
 				'flag'      => '🇩🇰',
 			),
@@ -1759,7 +1643,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'fi_FI',
 				'wordpress_locale' => 'fi',
 				'prefix'    => 'fi',
-				'menu_name' => 'Main Menu FI',
+				'menu_name' => 'Finnish Menu',
 				'source'    => '0',
 				'flag'      => '🇫🇮',
 			),
@@ -1769,7 +1653,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'it_IT',
 				'wordpress_locale' => 'it_IT',
 				'prefix'    => 'it',
-				'menu_name' => 'Main Menu IT',
+				'menu_name' => 'Italian Menu',
 				'source'    => '0',
 				'flag'      => '🇮🇹',
 			),
@@ -1779,7 +1663,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'nl_NL',
 				'wordpress_locale' => 'nl_NL',
 				'prefix'    => 'nl',
-				'menu_name' => 'Main Menu NL',
+				'menu_name' => 'Dutch Menu',
 				'source'    => '0',
 				'flag'      => '🇳🇱',
 			),
@@ -1789,7 +1673,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'pt_PT',
 				'wordpress_locale' => 'pt_PT',
 				'prefix'    => 'pt',
-				'menu_name' => 'Main Menu PT',
+				'menu_name' => 'Portuguese Menu',
 				'menu_region' => 'Europe',
 				'source'    => '0',
 				'flag'      => '🇵🇹',
@@ -1801,7 +1685,7 @@ final class Devenia_AI_Translations {
 				'wordpress_locale' => 'zh_CN',
 				'script'    => 'zh-Hans',
 				'prefix'    => 'zh',
-				'menu_name' => 'Main Menu ZH',
+				'menu_name' => 'Simplified Chinese Menu',
 				'menu_region' => 'Asia',
 				'source'    => '0',
 				'flag'      => '🇨🇳',
@@ -1813,7 +1697,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'ja_JP',
 				'wordpress_locale' => 'ja',
 				'prefix'    => 'ja',
-				'menu_name' => 'Main Menu JA',
+				'menu_name' => 'Japanese Menu',
 				'menu_region' => 'Asia',
 				'source'    => '0',
 				'flag'      => '🇯🇵',
@@ -1825,7 +1709,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'vi_VN',
 				'wordpress_locale' => 'vi',
 				'prefix'    => 'vi',
-				'menu_name' => 'Main Menu VI',
+				'menu_name' => 'Vietnamese Menu',
 				'menu_region' => 'Asia',
 				'source'    => '0',
 				'flag'      => '🇻🇳',
@@ -1836,7 +1720,7 @@ final class Devenia_AI_Translations {
 				'locale'    => 'ar_EG',
 				'wordpress_locale' => 'ar',
 				'prefix'    => 'ar',
-				'menu_name' => 'Main Menu AR',
+				'menu_name' => 'Arabic Menu',
 				'source'    => '0',
 				'flag'      => '🇪🇬',
 				'direction' => 'rtl',
@@ -1944,13 +1828,6 @@ final class Devenia_AI_Translations {
 		if ( ! is_array( $languages ) ) {
 			$cache = array_replace_recursive( $defaults, $file_languages );
 			return $cache;
-		}
-
-		if ( isset( $languages['no'] ) ) {
-			if ( ! isset( $languages['nb'] ) ) {
-				$languages['nb'] = $languages['no'];
-			}
-			unset( $languages['no'] );
 		}
 
 		$cache = array_replace_recursive( $defaults, $file_languages, $languages );
@@ -2087,10 +1964,6 @@ final class Devenia_AI_Translations {
 			return ! empty( $file_registry );
 		}
 
-		if ( isset( $languages['no'] ) && ! isset( $languages['nb'] ) ) {
-			return true;
-		}
-
 		foreach ( $file_registry as $language => $config ) {
 			if ( ! is_array( $config ) ) {
 				continue;
@@ -2123,13 +1996,6 @@ final class Devenia_AI_Translations {
 
 		if ( ! is_array( $languages ) ) {
 			$languages = array();
-		}
-
-		if ( isset( $languages['no'] ) ) {
-			if ( ! isset( $languages['nb'] ) ) {
-				$languages['nb'] = $languages['no'];
-			}
-			unset( $languages['no'] );
 		}
 
 		$changed = false;
