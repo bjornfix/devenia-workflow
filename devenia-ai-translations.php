@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.266
+ * Version: 0.1.267
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.266';
+	const VERSION = '0.1.267';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -128,6 +128,7 @@ final class Devenia_AI_Translations {
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_start_frontend_text_localization' ), 99 );
 		add_action( 'shutdown', array( __CLASS__, 'record_slow_frontend_request' ), 0 );
 		add_action( 'wp_abilities_api_init', array( __CLASS__, 'register_abilities' ) );
+		add_action( 'admin_notices', array( __CLASS__, 'render_missing_abilities_api_notice' ) );
 		add_filter( 'wp_insert_post_data', array( __CLASS__, 'normalize_invalid_translation_content_before_save' ), 5, 2 );
 		add_action( 'pre_post_update', array( __CLASS__, 'block_invalid_translation_content_save' ), 5, 2 );
 		add_action( 'post_updated', array( __CLASS__, 'capture_manual_reviewer_style_on_post_update' ), 30, 3 );
@@ -6212,71 +6213,71 @@ final class Devenia_AI_Translations {
 	/**
 	 * Capability guard for MCP abilities.
 	 */
-		public static function ability_permission_callback(): bool {
-			return current_user_can( 'manage_options' );
+	public static function ability_permission_callback(): bool {
+		return current_user_can( 'manage_options' );
+	}
+
+	/**
+	 * Normalize stable ability aliases before the operation implementation runs.
+	 *
+	 * The public schemas stay strict. This seam exists so older operator flows and
+	 * closely related abilities can share the same content/time concepts without
+	 * spreading alias handling into every implementation.
+	 *
+	 * @param string $operation Operation name.
+	 * @param array<string,mixed> $input Raw ability input.
+	 * @return array<string,mixed>
+	 */
+	private static function normalize_ability_input( string $operation, array $input ): array {
+		$content_id = self::first_positive_int_from_input(
+			$input,
+			array( 'content_id', 'page_id', 'post_id', 'translation_id' )
+		);
+
+		if ( in_array( $operation, array( 'qa_translation', 'mark_reviewed', 'mark_linguistic_reviewed', 'publish_translation', 'verify_live_translation' ), true ) && empty( $input['translation_id'] ) && $content_id ) {
+			$input['translation_id'] = $content_id;
 		}
 
-		/**
-		 * Normalize stable ability aliases before the operation implementation runs.
-		 *
-		 * The public schemas stay strict. This seam exists so older operator flows and
-		 * closely related abilities can share the same content/time concepts without
-		 * spreading alias handling into every implementation.
-		 *
-		 * @param string $operation Operation name.
-		 * @param array<string,mixed> $input Raw ability input.
-		 * @return array<string,mixed>
-		 */
-		private static function normalize_ability_input( string $operation, array $input ): array {
-			$content_id = self::first_positive_int_from_input(
-				$input,
-				array( 'content_id', 'page_id', 'post_id', 'translation_id' )
-			);
-
-			if ( in_array( $operation, array( 'qa_translation', 'mark_reviewed', 'mark_linguistic_reviewed', 'publish_translation', 'verify_live_translation' ), true ) && empty( $input['translation_id'] ) && $content_id ) {
-				$input['translation_id'] = $content_id;
-			}
-
-			if ( in_array( $operation, array( 'quality_verdict', 'mark_quality_reviewed', 'internal_link_opportunities' ), true ) && empty( $input['content_id'] ) && empty( $input['page_id'] ) && $content_id ) {
-				$input['content_id'] = $content_id;
-			}
-
-			if ( 'publish_translation' === $operation && isset( $input['timeout'] ) && ! isset( $input['live_verification_timeout'] ) ) {
-				$input['live_verification_timeout'] = absint( $input['timeout'] );
-				unset( $input['timeout'] );
-			}
-
-			if ( 'verify_live_translation' === $operation && isset( $input['live_verification_timeout'] ) && ! isset( $input['timeout'] ) ) {
-				$input['timeout'] = absint( $input['live_verification_timeout'] );
-				unset( $input['live_verification_timeout'] );
-			}
-
-			return $input;
+		if ( in_array( $operation, array( 'quality_verdict', 'mark_quality_reviewed', 'internal_link_opportunities' ), true ) && empty( $input['content_id'] ) && empty( $input['page_id'] ) && $content_id ) {
+			$input['content_id'] = $content_id;
 		}
 
-		/**
-		 * Return the first positive integer from a known alias list.
-		 *
-		 * @param array<string,mixed> $input Input payload.
-		 * @param array<int,string> $keys Candidate keys in priority order.
-		 */
-		private static function first_positive_int_from_input( array $input, array $keys ): int {
-			foreach ( $keys as $key ) {
-				if ( ! array_key_exists( $key, $input ) ) {
-					continue;
-				}
-				$value = absint( $input[ $key ] );
-				if ( $value > 0 ) {
-					return $value;
-				}
-			}
-
-			return 0;
+		if ( 'publish_translation' === $operation && isset( $input['timeout'] ) && ! isset( $input['live_verification_timeout'] ) ) {
+			$input['live_verification_timeout'] = absint( $input['timeout'] );
+			unset( $input['timeout'] );
 		}
 
-		/**
-		 * Register MCP abilities.
-		 */
+		if ( 'verify_live_translation' === $operation && isset( $input['live_verification_timeout'] ) && ! isset( $input['timeout'] ) ) {
+			$input['timeout'] = absint( $input['live_verification_timeout'] );
+			unset( $input['live_verification_timeout'] );
+		}
+
+		return $input;
+	}
+
+	/**
+	 * Return the first positive integer from a known alias list.
+	 *
+	 * @param array<string,mixed> $input Input payload.
+	 * @param array<int,string> $keys Candidate keys in priority order.
+	 */
+	private static function first_positive_int_from_input( array $input, array $keys ): int {
+		foreach ( $keys as $key ) {
+			if ( ! array_key_exists( $key, $input ) ) {
+				continue;
+			}
+			$value = absint( $input[ $key ] );
+			if ( $value > 0 ) {
+				return $value;
+			}
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Register MCP abilities.
+	 */
 	public static function register_abilities(): void {
 		if ( ! function_exists( 'wp_register_ability' ) ) {
 			return;
@@ -6286,6 +6287,20 @@ final class Devenia_AI_Translations {
 			$args['permission_callback'] = array( __CLASS__, 'ability_permission_callback' );
 			self::register_ability( $name, $args );
 		}
+	}
+
+	/**
+	 * Warn administrators when the required Abilities API is unavailable.
+	 */
+	public static function render_missing_abilities_api_notice(): void {
+		if ( function_exists( 'wp_register_ability' ) || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-warning"><p>%s</p></div>',
+			esc_html__( 'AI Translation Workflow is active, but the WordPress Abilities API is not available. Workflow abilities will be registered after WordPress or an installed abilities provider makes wp_register_ability() available.', 'devenia-ai-translations' )
+		);
 	}
 
 	/**

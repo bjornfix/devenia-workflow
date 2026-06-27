@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.266
+Stable tag: 0.1.267
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -56,6 +56,10 @@ Yes. Translated pages and posts are ordinary WordPress content. Existing transla
 
 Yes. The workflow supports both posts and pages, including localized URLs, mapping metadata, QA checks, review state, and publish checks.
 
+= What happens if the WordPress Abilities API is unavailable? =
+
+The plugin stays active, but workflow abilities are not registered until WordPress or an installed abilities provider makes `wp_register_ability()` available. Administrators will see a dashboard notice in that state.
+
 = Can a non-English page become the starting point? =
 
 Yes. A post or page can be authored first in another configured language. The plugin can place it in an authored-original intake workflow so an English technical source can be created and reviewed before downstream translations continue.
@@ -69,6 +73,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.267 =
+* Adds an administrator notice when the WordPress Abilities API is unavailable.
+* Cleans up indentation around ability registration helpers.
 
 = 0.1.266 =
 * Makes the public release gate build a temporary git archive and fail if development-only paths are present.
@@ -116,6 +124,9 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 Older workflow changes are kept in the project repository history.
 
 == Upgrade Notice ==
+
+= 0.1.267 =
+Adds an administrator notice when the WordPress Abilities API is unavailable.
 
 = 0.1.266 =
 Adds an archive-level public release check for development-only paths.
