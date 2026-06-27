@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.274
+ * Version: 0.1.276
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.274';
+	const VERSION = '0.1.276';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -1892,7 +1892,7 @@ final class Devenia_AI_Translations {
 	 * @return array<int,string>
 	 */
 	private static function runtime_text_sections(): array {
-		return array( 'menu_items', 'custom_menu_items', 'widget_text', 'not_found_text', 'comment_form_text', 'not_found_routes' );
+		return array( 'menu_items', 'custom_menu_items', 'widget_text', 'not_found_text', 'comment_form_text', 'not_found_routes', 'blog_archive_text' );
 	}
 
 	/**
@@ -1901,7 +1901,7 @@ final class Devenia_AI_Translations {
 	 * @return array<int,string>
 	 */
 	private static function editable_runtime_text_sections(): array {
-		return array( 'menu_items', 'custom_menu_items', 'widget_text', 'not_found_text', 'comment_form_text' );
+		return array( 'menu_items', 'custom_menu_items', 'widget_text', 'not_found_text', 'comment_form_text', 'blog_archive_text' );
 	}
 
 	/**
@@ -17137,25 +17137,15 @@ final class Devenia_AI_Translations {
 	 * Localized last-updated label for blog archive cards.
 	 */
 	private static function blog_archive_updated_label( string $language ): string {
-		$labels = array(
-			'en' => 'Last updated:',
-			'nb' => 'Sist oppdatert:',
-			'de' => 'Zuletzt aktualisiert:',
-			'fr' => 'Mis à jour :',
-			'es' => 'Última actualización:',
-			'sv' => 'Senast uppdaterad:',
-			'da' => 'Senest opdateret:',
-			'fi' => 'Päivitetty viimeksi:',
-			'ar' => 'آخر تحديث:',
-			'it' => 'Ultimo aggiornamento:',
-			'nl' => 'Laatst bijgewerkt:',
-			'pt' => 'Última atualização:',
-			'zh' => '最后更新：',
-			'ja' => '最終更新日：',
-			'vi' => 'Cập nhật lần cuối:',
-		);
+		$source_key = 'Last updated:';
+		$config     = self::languages()[ sanitize_key( $language ) ] ?? array();
+		$text       = '';
 
-		return $labels[ sanitize_key( $language ) ] ?? $labels['en'];
+		if ( isset( $config['blog_archive_text'] ) && is_array( $config['blog_archive_text'] ) ) {
+			$text = trim( wp_strip_all_tags( (string) ( $config['blog_archive_text'][ $source_key ] ?? '' ) ) );
+		}
+
+		return '' !== $text ? $text : $source_key;
 	}
 
 	/**
@@ -17183,30 +17173,15 @@ final class Devenia_AI_Translations {
 	 * Local short date for blog archive meta.
 	 */
 	private static function localized_short_date_label( int $timestamp, string $language, string $locale ): string {
-		if ( 'ar' === sanitize_key( $language ) ) {
-			return self::arabic_short_date_label( $timestamp );
+		$language = sanitize_key( $language );
+		$config   = self::languages()[ $language ] ?? array();
+		$format   = '';
+		if ( isset( $config['blog_archive_text'] ) && is_array( $config['blog_archive_text'] ) ) {
+			$format = trim( sanitize_text_field( (string) ( $config['blog_archive_text']['date_format'] ?? '' ) ) );
 		}
 
-		$formats = array(
-			'en' => 'd/m/Y',
-			'nb' => 'd.m.Y',
-			'de' => 'd.m.Y',
-			'fr' => 'd/m/Y',
-			'es' => 'd/m/Y',
-			'sv' => 'Y-m-d',
-			'da' => 'd.m.Y',
-			'fi' => 'j.n.Y',
-			'it' => 'd/m/Y',
-			'nl' => 'd-m-Y',
-			'pt' => 'd/m/Y',
-			'zh' => 'Y年n月j日',
-			'ja' => 'Y年n月j日',
-			'vi' => 'd/m/Y',
-		);
-
-		$language = sanitize_key( $language );
-		if ( isset( $formats[ $language ] ) ) {
-			return wp_date( $formats[ $language ], $timestamp, wp_timezone() );
+		if ( '' !== $format ) {
+			return wp_date( $format, $timestamp, wp_timezone() );
 		}
 
 		$intl_date = self::intl_short_date_label( $timestamp, $locale );
@@ -17215,31 +17190,6 @@ final class Devenia_AI_Translations {
 		}
 
 		return wp_date( get_option( 'date_format' ), $timestamp, wp_timezone() );
-	}
-
-	/**
-	 * Arabic short date with Arabic-Indic digits and Arabic month names.
-	 */
-	private static function arabic_short_date_label( int $timestamp ): string {
-		$months = array(
-			1  => 'يناير',
-			2  => 'فبراير',
-			3  => 'مارس',
-			4  => 'أبريل',
-			5  => 'مايو',
-			6  => 'يونيو',
-			7  => 'يوليو',
-			8  => 'أغسطس',
-			9  => 'سبتمبر',
-			10 => 'أكتوبر',
-			11 => 'نوفمبر',
-			12 => 'ديسمبر',
-		);
-		$month = (int) wp_date( 'n', $timestamp, wp_timezone() );
-		$day   = wp_date( 'j', $timestamp, wp_timezone() );
-		$year  = wp_date( 'Y', $timestamp, wp_timezone() );
-
-		return self::arabic_indic_digits( $day ) . ' ' . ( $months[ $month ] ?? '' ) . ' ' . self::arabic_indic_digits( $year );
 	}
 
 	/**
