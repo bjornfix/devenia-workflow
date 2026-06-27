@@ -55,6 +55,20 @@ function verifyGitArchiveExcludes() {
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean);
+    const required = [
+      `${slug}/${mainFile}`,
+      `${slug}/readme.txt`,
+      `${slug}/uninstall.php`,
+    ];
+    for (const entry of required) {
+      if (!listing.includes(entry)) {
+        issue(".gitattributes", "archive_missing_required_public_file", "Git archive release package is missing a required public plugin file.", { entry });
+      }
+    }
+    const outsidePrefix = listing.filter((entry) => !entry.startsWith(`${slug}/`));
+    if (outsidePrefix.length > 0) {
+      issue(".gitattributes", "archive_contains_unprefixed_paths", "Git archive release package must contain only paths under the plugin slug directory.", { outsidePrefix });
+    }
     const forbidden = listing.filter((entry) => (
       entry.startsWith(`${slug}/tools/`)
       || entry === `${slug}/README.md`
