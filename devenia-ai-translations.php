@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.277
+ * Version: 0.1.278
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.277';
+	const VERSION = '0.1.278';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -17167,15 +17167,40 @@ final class Devenia_AI_Translations {
 		}
 
 		if ( '' !== $format ) {
-			return wp_date( $format, $timestamp, wp_timezone() );
+			return self::localized_date_digits( wp_date( $format, $timestamp, wp_timezone() ), $language, $locale );
 		}
 
 		$intl_date = self::intl_short_date_label( $timestamp, $locale );
 		if ( '' !== $intl_date ) {
-			return $intl_date;
+			return self::localized_date_digits( $intl_date, $language, $locale );
 		}
 
-		return wp_date( get_option( 'date_format' ), $timestamp, wp_timezone() );
+		return self::localized_date_digits( wp_date( get_option( 'date_format' ), $timestamp, wp_timezone() ), $language, $locale );
+	}
+
+	/**
+	 * Apply runtime-configured digit shaping to localized date labels.
+	 */
+	private static function localized_date_digits( string $date, string $language, string $locale ): string {
+		$config       = self::languages()[ sanitize_key( $language ) ] ?? array();
+		$digit_system = '';
+		if ( isset( $config['blog_archive_text'] ) && is_array( $config['blog_archive_text'] ) ) {
+			$digit_system = sanitize_key( (string) ( $config['blog_archive_text']['digit_system'] ?? '' ) );
+		}
+
+		if ( 'arabic_indic' !== $digit_system || '' === $locale || ! class_exists( 'NumberFormatter' ) ) {
+			return $date;
+		}
+
+		$formatter = new NumberFormatter( str_replace( '_', '-', $locale ), NumberFormatter::DECIMAL );
+		return preg_replace_callback(
+			'/\d+/',
+			static function ( array $matches ) use ( $formatter ): string {
+				$formatted = $formatter->format( (int) $matches[0] );
+				return is_string( $formatted ) ? $formatted : $matches[0];
+			},
+			$date
+		) ?? $date;
 	}
 
 	/**
@@ -17216,27 +17241,6 @@ final class Devenia_AI_Translations {
 		}
 
 		return $name;
-	}
-
-	/**
-	 * Convert ASCII digits to Arabic-Indic digits.
-	 */
-	private static function arabic_indic_digits( string $text ): string {
-		return strtr(
-			$text,
-			array(
-				'0' => '٠',
-				'1' => '١',
-				'2' => '٢',
-				'3' => '٣',
-				'4' => '٤',
-				'5' => '٥',
-				'6' => '٦',
-				'7' => '٧',
-				'8' => '٨',
-				'9' => '٩',
-			)
-		);
 	}
 
 	/**

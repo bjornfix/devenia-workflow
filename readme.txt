@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.277
+Stable tag: 0.1.278
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -73,6 +73,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+== 0.1.278 ==
+* Reads localized date digit shaping from runtime language configuration instead of PHP language branches.
 
 == 0.1.277 ==
 * Requires translated blog archive metadata labels and date formats to come from runtime language configuration fields, not PHP values.
@@ -160,6 +163,9 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 Older workflow changes are kept in the project repository history.
 
 == Upgrade Notice ==
+
+== 0.1.278 ==
+Reads localized date digit shaping from runtime language configuration.
 
 == 0.1.277 ==
 Requires translated blog archive metadata labels and date formats to be stored in runtime language configuration.
