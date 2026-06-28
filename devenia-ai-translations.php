@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.280
+ * Version: 0.1.282
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.280';
+	const VERSION = '0.1.282';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -15894,13 +15894,36 @@ final class Devenia_AI_Translations {
 			return $content;
 		}
 
-		foreach ( self::quick_copy_edit_items_for_content( (string) $post->post_content ) as $item ) {
+		$items = self::quick_copy_edit_items_for_content( (string) $post->post_content );
+		$marked_segment_blocks = array();
+		foreach ( $items as $item ) {
 			$html = (string) ( $item['html'] ?? '' );
 			if ( '' === $html ) {
 				continue;
 			}
 
 			if ( self::quick_copy_edit_item_is_segment( $item ) ) {
+				if ( 'html_text' === self::quick_copy_edit_item_segment_type( $item ) ) {
+					$segment_block_key = self::quick_copy_edit_item_segment_block_key( $item );
+					if ( isset( $marked_segment_blocks[ $segment_block_key ] ) ) {
+						continue;
+					}
+
+					$segment_items = array_values(
+						array_filter(
+							$items,
+							static function ( array $candidate ) use ( $segment_block_key ): bool {
+								return Devenia_AI_Translations::quick_copy_edit_item_is_segment( $candidate )
+									&& 'html_text' === Devenia_AI_Translations::quick_copy_edit_item_segment_type( $candidate )
+									&& $segment_block_key === Devenia_AI_Translations::quick_copy_edit_item_segment_block_key( $candidate );
+							}
+						)
+					);
+					$content = self::quick_copy_edit_mark_rendered_html_text_segment_group( $content, $segment_items );
+					$marked_segment_blocks[ $segment_block_key ] = true;
+					continue;
+				}
+
 				$content = self::quick_copy_edit_mark_rendered_segment_text( $content, $item );
 				continue;
 			}
@@ -16331,6 +16354,27 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Return the rich-text segment type for an editable item.
+	 *
+	 * @param array<string,mixed> $item Editable item.
+	 */
+	public static function quick_copy_edit_item_segment_type( array $item ): string {
+		$segment = isset( $item['segment'] ) && is_array( $item['segment'] ) ? $item['segment'] : array();
+		return (string) ( $segment['type'] ?? '' );
+	}
+
+	/**
+	 * Return the block-level key shared by segment items from the same block.
+	 *
+	 * @param array<string,mixed> $item Editable item.
+	 */
+	public static function quick_copy_edit_item_segment_block_key( array $item ): string {
+		$path = (string) ( $item['path'] ?? '' );
+		$path = (string) preg_replace( '/:segment:\d+$/', '', $path );
+		return $path . "\n" . (string) ( $item['html'] ?? '' );
+	}
+
+	/**
 	 * Mark a rendered rich-text segment inside a supported block.
 	 *
 	 * @param array<string,mixed> $item Editable item.
@@ -16533,6 +16577,45 @@ final class Devenia_AI_Translations {
 		}
 
 		return self::quick_copy_edit_mark_rendered_simple_segment( $content, $item );
+	}
+
+	/**
+	 * Mark all editable text-node segments from one rendered HTML block at once.
+	 *
+	 * @param array<int,array<string,mixed>> $items Segment items from the same block.
+	 */
+	private static function quick_copy_edit_mark_rendered_html_text_segment_group( string $content, array $items ): string {
+		if ( empty( $items ) ) {
+			return $content;
+		}
+
+		$first = $items[0];
+		$html  = (string) ( $first['html'] ?? '' );
+		if ( '' === $html || false === strpos( $content, $html ) ) {
+			foreach ( $items as $item ) {
+				$content = self::quick_copy_edit_mark_rendered_html_text_segment( $content, $item );
+			}
+			return $content;
+		}
+
+		usort(
+			$items,
+			static function ( array $a, array $b ): int {
+				$a_segment = isset( $a['segment'] ) && is_array( $a['segment'] ) ? $a['segment'] : array();
+				$b_segment = isset( $b['segment'] ) && is_array( $b['segment'] ) ? $b['segment'] : array();
+				return (int) ( $b_segment['index'] ?? 0 ) <=> (int) ( $a_segment['index'] ?? 0 );
+			}
+		);
+
+		$marked = $html;
+		foreach ( $items as $item ) {
+			$next_marked = self::quick_copy_edit_wrap_html_text_segment( $marked, $item );
+			if ( '' !== $next_marked ) {
+				$marked = $next_marked;
+			}
+		}
+
+		return $marked === $html ? $content : self::replace_first_string( $html, $marked, $content );
 	}
 
 	/**

@@ -15,6 +15,8 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	 */
 	public static function register(): void {
 		add_action( 'plugins_loaded', array( __CLASS__, 'maybe_register_hooks' ), 20 );
+		add_filter( 'ai_translation_workflow_quick_copy_edit_segment_block_names', array( __CLASS__, 'add_quick_copy_edit_segment_blocks' ) );
+		add_filter( 'ai_translation_workflow_quick_copy_edit_updated_block', array( __CLASS__, 'sync_quick_copy_edit_faq_attrs' ), 10, 2 );
 	}
 
 	/**
@@ -34,8 +36,6 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		add_filter( 'ai_translation_workflow_seo_meta_state', array( __CLASS__, 'seo_meta_state' ), 10, 2 );
 		add_filter( 'ai_translation_workflow_route_integrity_issues', array( __CLASS__, 'route_integrity_issues' ), 10, 4 );
 		add_filter( 'ai_translation_workflow_repair_translation_self_redirects', array( __CLASS__, 'repair_translation_self_redirects' ), 10, 3 );
-		add_filter( 'ai_translation_workflow_quick_copy_edit_segment_block_names', array( __CLASS__, 'add_quick_copy_edit_segment_blocks' ) );
-		add_filter( 'ai_translation_workflow_quick_copy_edit_updated_block', array( __CLASS__, 'sync_quick_copy_edit_faq_attrs' ), 10, 2 );
 	}
 
 	public static function filter_translated_posts_page_opengraph_type( string $type ): string {
