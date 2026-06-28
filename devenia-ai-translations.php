@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.290
+ * Version: 0.1.291
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.290';
+	const VERSION = '0.1.291';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -9619,6 +9619,7 @@ final class Devenia_AI_Translations {
 			array(
 				'auto_generated' => empty( $seo_input ),
 				'input'          => $seo_input,
+				'content_hash'   => hash( 'sha256', wp_strip_all_tags( $title ) . "\n" . wp_strip_all_tags( $excerpt ) . "\n" . self::normalize_review_text( wp_strip_all_tags( $content ) ) ),
 			)
 		);
 
@@ -10861,6 +10862,7 @@ final class Devenia_AI_Translations {
 			'has_custom_title'  => null,
 			'has_description'   => null,
 			'has_focus_keyword' => null,
+			'content_hash'      => hash( 'sha256', wp_strip_all_tags( (string) $post->post_title ) . "\n" . wp_strip_all_tags( (string) $post->post_excerpt ) . "\n" . self::normalize_review_text( wp_strip_all_tags( (string) $post->post_content ) ) ),
 			'adapters'          => array(),
 		);
 
@@ -18851,6 +18853,8 @@ final class Devenia_AI_Translations {
 
 		$candidates = self::source_language_carryover_candidates( $source_content, $language, $source_id );
 		$fragments  = self::text_fragments_for_copy_quality( $content );
+		$fragment_issues = self::source_language_carryover_fragment_issues( $content, $source_content, $language );
+		$issues = array_merge( $issues, $fragment_issues );
 		foreach ( $fragments as $fragment ) {
 			$text = (string) $fragment['text'];
 			foreach ( $candidates as $term ) {
@@ -18879,8 +18883,115 @@ final class Devenia_AI_Translations {
 			'summary'       => array(
 				'source_available' => true,
 				'candidate_count'  => count( $candidates ),
+				'fragment_match_count' => count( $fragment_issues ),
 			),
 		);
+	}
+
+	/**
+	 * Detect long visible source-language fragments copied into a translation.
+	 *
+	 * Term-based carryover is intentionally conservative for headings, labels,
+	 * and product names. Long prose needs a separate check: if a translated text
+	 * fragment still contains a whole source paragraph, it is untranslated copy.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function source_language_carryover_fragment_issues( string $content, string $source_content, string $language ): array {
+		$issues = array();
+		if ( '' === trim( $source_content ) || '' === trim( $content ) || '' === $language || ! self::is_translation_language( $language ) ) {
+			return $issues;
+		}
+
+		$source_fragments = self::text_fragments_for_copy_quality( $source_content );
+		$target_fragments = self::text_fragments_for_copy_quality( $content );
+		if ( empty( $source_fragments ) || empty( $target_fragments ) ) {
+			return $issues;
+		}
+
+		$source_index = array();
+		$seen_source  = array();
+		foreach ( $source_fragments as $fragment ) {
+			$text = self::source_language_fragment_key( (string) $fragment['text'] );
+			if ( self::source_language_fragment_is_too_short( $text ) ) {
+				continue;
+			}
+			if ( isset( $seen_source[ $text ] ) ) {
+				continue;
+			}
+			$seen_source[ $text ] = true;
+			$source_index[] = array(
+				'text'      => $text,
+				'raw_text'  => (string) $fragment['text'],
+				'block'     => (string) $fragment['block'],
+				'unique_id' => (string) $fragment['unique_id'],
+			);
+		}
+
+		if ( empty( $source_index ) ) {
+			return $issues;
+		}
+
+		$reported = array();
+		foreach ( $target_fragments as $target_fragment ) {
+			$target_text = self::source_language_fragment_key( (string) $target_fragment['text'] );
+			if ( self::source_language_fragment_is_too_short( $target_text ) ) {
+				continue;
+			}
+
+			foreach ( $source_index as $source_fragment ) {
+				if ( false === self::review_text_position( $target_text, $source_fragment['text'] ) ) {
+					continue;
+				}
+				$report_key = md5( $target_text . "\n" . $source_fragment['text'] );
+				if ( isset( $reported[ $report_key ] ) ) {
+					continue;
+				}
+				$reported[ $report_key ] = true;
+
+				$issues[] = self::qa_item(
+					'source_language_fragment_carryover',
+					'Translation contains a long visible source-language text fragment copied from the source.',
+					array(
+						'language' => $language,
+						'text'     => (string) $target_fragment['text'],
+						'block'    => (string) $target_fragment['block'],
+						'unique_id'=> (string) $target_fragment['unique_id'],
+						'source_block' => $source_fragment['block'],
+						'source_unique_id' => $source_fragment['unique_id'],
+						'source_text' => $source_fragment['raw_text'],
+					)
+				);
+
+				if ( count( $issues ) >= 10 ) {
+					return $issues;
+				}
+			}
+		}
+
+		return $issues;
+	}
+
+	private static function source_language_fragment_key( string $text ): string {
+		$text = self::text_without_review_ignored_tokens( $text );
+		$text = self::normalize_review_text( $text );
+		return self::lower_review_text( $text );
+	}
+
+	private static function source_language_fragment_is_too_short( string $text ): bool {
+		return self::unicode_letter_count( $text ) < 90;
+	}
+
+	/**
+	 * Unicode-safe position helper with fallback.
+	 *
+	 * @return int|false
+	 */
+	private static function review_text_position( string $haystack, string $needle ) {
+		if ( '' === $haystack || '' === $needle ) {
+			return false;
+		}
+		return function_exists( 'mb_strpos' ) ? mb_strpos( $haystack, $needle, 0, 'UTF-8' ) : strpos( $haystack, $needle );
 	}
 
 	/**

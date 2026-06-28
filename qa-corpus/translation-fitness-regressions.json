@@ -110,6 +110,18 @@
       "minimum_issue_count": 0
     },
     {
+      "id": "nb-long-source-paragraph-carryover-should-fail",
+      "language": "nb",
+      "description": "Norwegian QA must fail when a long English source paragraph is copied unchanged into translated body copy.",
+      "source_content": "<!-- wp:paragraph --><p><strong>In GA4, bounce rate is the percentage of sessions that were not engaged.</strong> A session is engaged when it lasts longer than 10 seconds, has a key event, or has at least two page or screen views. That makes bounce rate useful, but only when you read it with intent and context.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p><strong>In GA4, bounce rate is the percentage of sessions that were not engaged.</strong> A session is engaged when it lasts longer than 10 seconds, has a key event, or has at least two page or screen views. That makes bounce rate useful, but only when you read it with intent and context.</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>I GA4 er fluktfrekvens et nyttig tall bare når det leses sammen med intensjon, engasjement og måleoppsett.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "source_language_fragment_carryover"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
       "id": "de-source-carryover-content-loanword-should-fail",
       "language": "de",
       "description": "German should prefer local words such as Inhalte when they cover the meaning; English loanwords like Content should still be flagged unless explicitly preserved.",

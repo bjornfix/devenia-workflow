@@ -10,6 +10,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class AI_Translation_Workflow_RankMath_Addon {
+	const META_SEO_SYNC_SIGNATURE = '_devenia_ai_translations_rankmath_sync_signature';
+
 	/**
 	 * Register Rank Math hooks.
 	 */
@@ -109,8 +111,6 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	 * @param array<string,mixed>  $context Adapter context.
 	 */
 	public static function sync_seo_meta( array $result, int $post_id, array $fields, array $context ): array {
-		unset( $context );
-
 		$updated = is_array( $result['updated'] ?? null ) ? $result['updated'] : array();
 		foreach ( array( 'title' => 'rank_math_title', 'description' => 'rank_math_description', 'focus_keyword' => 'rank_math_focus_keyword' ) as $field => $meta_key ) {
 			$value = trim( (string) ( $fields[ $field ] ?? '' ) );
@@ -126,6 +126,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		}
 
 		if ( $updated ) {
+			update_post_meta( $post_id, self::META_SEO_SYNC_SIGNATURE, self::seo_sync_signature( $fields, $context ) );
 			clean_post_cache( $post_id );
 		}
 		$result['success']  = true;
@@ -144,17 +145,20 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		$description   = self::normalize_text( (string) get_post_meta( $post_id, 'rank_math_description', true ) );
 		$focus_keyword = self::normalize_text( (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true ) );
 		$stale_fields  = is_array( $state['stale_fields'] ?? null ) ? $state['stale_fields'] : array();
+		$signature     = (string) get_post_meta( $post_id, self::META_SEO_SYNC_SIGNATURE, true );
+		$signature_ok  = '' !== $signature && hash_equals( $signature, self::seo_sync_signature_from_values( $seo_title, $description, $focus_keyword, (string) ( $state['content_hash'] ?? '' ) ) );
 
-		if ( '' !== $seo_title && '' !== $current_title && ! self::seo_title_matches_post_title( $seo_title, $current_title ) ) {
+		if ( '' !== $seo_title && '' !== $current_title && ! $signature_ok && ! self::seo_title_is_deliberate_custom_title( $seo_title, $description, $focus_keyword ) && ! self::seo_title_matches_post_title( $seo_title, $current_title ) ) {
 			$stale_fields[] = 'rank_math_title';
 		}
 
 		$state['passed']            = empty( $stale_fields );
-		$state['state']             = empty( $stale_fields ) ? ( '' === $seo_title ? 'default_title_pattern' : 'current' ) : 'stale';
+		$state['state']             = empty( $stale_fields ) ? self::seo_meta_current_state_name( $seo_title, $signature_ok ) : 'stale';
 		$state['stale_fields']      = array_values( array_unique( $stale_fields ) );
 		$state['has_custom_title']  = '' !== $seo_title;
 		$state['has_description']   = '' !== $description;
 		$state['has_focus_keyword'] = '' !== $focus_keyword;
+		$state['tracked_signature'] = $signature_ok;
 		$state['adapters']          = self::append_adapter( $state['adapters'] ?? array() );
 		return $state;
 	}
@@ -316,6 +320,46 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		}
 
 		return self::seo_title_comparison_key( $seo_title, $site_name ) === self::seo_title_comparison_key( $post_title, $site_name );
+	}
+
+	private static function seo_title_is_deliberate_custom_title( string $seo_title, string $description, string $focus_keyword ): bool {
+		$seo_title = self::normalize_text( $seo_title );
+		if ( '' === $seo_title || false !== strpos( $seo_title, '%title%' ) ) {
+			return true;
+		}
+
+		$length = function_exists( 'mb_strlen' ) ? mb_strlen( $seo_title, 'UTF-8' ) : strlen( $seo_title );
+		return $length >= 18 && $length <= 90 && '' !== $description && '' !== $focus_keyword;
+	}
+
+	private static function seo_meta_current_state_name( string $seo_title, bool $signature_ok ): string {
+		if ( '' === $seo_title ) {
+			return 'default_title_pattern';
+		}
+		return $signature_ok ? 'current' : 'custom_title_reviewed';
+	}
+
+	/**
+	 * @param array<string,string> $fields Prepared SEO fields.
+	 * @param array<string,mixed>  $context Sync context.
+	 */
+	private static function seo_sync_signature( array $fields, array $context ): string {
+		return self::seo_sync_signature_from_values(
+			(string) ( $fields['title'] ?? '' ),
+			(string) ( $fields['description'] ?? '' ),
+			(string) ( $fields['focus_keyword'] ?? '' ),
+			(string) ( $context['content_hash'] ?? '' )
+		);
+	}
+
+	private static function seo_sync_signature_from_values( string $title, string $description, string $focus_keyword, string $content_hash ): string {
+		return hash(
+			'sha256',
+			self::normalize_text( $title ) . "\n" .
+			self::normalize_text( $description ) . "\n" .
+			self::normalize_text( $focus_keyword ) . "\n" .
+			self::normalize_text( $content_hash )
+		);
 	}
 
 	private static function seo_title_comparison_key( string $text, string $site_name ): string {
