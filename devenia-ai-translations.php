@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.286
+ * Version: 0.1.287
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.286';
+	const VERSION = '0.1.287';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -111,14 +111,10 @@ final class Devenia_AI_Translations {
 		add_filter( 'previous_post_link', array( __CLASS__, 'filter_adjacent_post_link_for_translation' ), 20, 5 );
 		add_filter( 'next_post_link', array( __CLASS__, 'filter_adjacent_post_link_for_translation' ), 20, 5 );
 		add_filter( 'template_include', array( __CLASS__, 'use_translated_posts_page_template' ), 20 );
-		add_filter( 'the_content', array( __CLASS__, 'mark_quick_copy_edit_rendered_content' ), 99 );
 		add_filter( 'body_class', array( __CLASS__, 'add_translated_posts_page_body_class' ), 999 );
 		add_filter( 'body_class', array( __CLASS__, 'add_translated_front_page_body_class' ), 999 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_frontend_heading_fit_assets' ), 25 );
-		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_quick_copy_edit_assets' ), 30 );
-		add_action( 'admin_bar_menu', array( __CLASS__, 'add_quick_copy_edit_admin_bar_node' ), 90 );
 		add_action( 'init', array( __CLASS__, 'maybe_run_upgrade' ), 20 );
-		add_action( 'rest_api_init', array( __CLASS__, 'register_quick_copy_edit_rest_routes' ) );
 		add_action( 'parse_request', array( __CLASS__, 'map_translated_post_request' ), 1 );
 		add_action( 'wp_head', array( __CLASS__, 'print_language_links' ), 6 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_translated_posts_page_styles' ), 23 );

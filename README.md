@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.286
+**Stable tag:** 0.1.287
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -30,7 +30,7 @@ AI Translation Workflow keeps the WordPress side reliable, reviewable,
 publishable, and portable.
 
 Logged-in editors can make supported text fixes directly on the rendered page
-with Quick Copy Edit. Those saves go back through the stored Gutenberg content,
+with the companion Frontend Text Edit plugin. Those saves go back through the stored Gutenberg content,
 normal WordPress permissions, and the plugin's storage guardrails.
 
 Human edits and reviewer feedback can also become reusable learning: keep a
@@ -75,7 +75,7 @@ rebuilding pages from scratch.
 
 ## Frontend Editing And Learning
 
-Quick Copy Edit lets authorized editors fix supported visible text directly on
+Frontend Text Edit lets authorized editors fix supported visible text directly on
 the frontend. The edit is saved into the WordPress block tree instead of a
 separate translation database, so the correction stays with the page.
 
@@ -196,6 +196,10 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.287
+
+- Moves active frontend text editing out to the separate Frontend Text Edit plugin.
 
 ### 0.1.286
 

@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.286
+Stable tag: 0.1.287
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -27,7 +27,7 @@ It is designed for controlled translation workflows where an AI assistant, autom
 * Keep language menus in sync with available translations.
 * Run QA checks for source-language carryover, terminology, structure, script issues, and link integrity.
 * Require linguistic and quality review evidence before publishing.
-* Let authorized editors make supported text fixes directly on the rendered frontend with Quick Copy Edit.
+* Integrate with Frontend Text Edit for supported rendered frontend text fixes.
 * Capture human edits and reviewer feedback as learning that can become style guidance or QA rules.
 * Support authored-original intake when content starts in a non-source language.
 * Repair localized internal links, URL hierarchy, and featured images where possible.
@@ -58,7 +58,7 @@ Most automatic translation plugins focus on generating translated text or proxyi
 
 = Can editors fix translated copy on the frontend? =
 
-Yes. Authorized editors can use Quick Copy Edit on supported rendered text. Changes are saved back into the WordPress block content through normal permissions and storage guardrails, not into a separate translation store.
+Yes. With the companion Frontend Text Edit plugin, authorized editors can edit supported rendered text. Changes are saved back into the WordPress block content through normal permissions and storage guardrails, not into a separate translation store.
 
 = Can manual edits improve future translations? =
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+== 0.1.287 ==
+* Moves active frontend text editing out to the separate Frontend Text Edit plugin.
 
 == 0.1.286 ==
 * Keeps FAQ answer edit targets tight by marking the matching inner answer paragraph when available.

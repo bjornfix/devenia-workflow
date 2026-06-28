@@ -15,9 +15,6 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	 */
 	public static function register(): void {
 		add_action( 'plugins_loaded', array( __CLASS__, 'maybe_register_hooks' ), 20 );
-		add_filter( 'ai_translation_workflow_quick_copy_edit_segment_block_names', array( __CLASS__, 'add_quick_copy_edit_segment_blocks' ) );
-		add_filter( 'ai_translation_workflow_quick_copy_edit_updated_block', array( __CLASS__, 'sync_quick_copy_edit_faq_attrs' ), 10, 2 );
-		add_filter( 'ai_translation_workflow_quick_copy_edit_rendered_segment_selectors', array( __CLASS__, 'quick_copy_edit_rendered_segment_selectors' ), 10, 3 );
 	}
 
 	/**
@@ -374,11 +371,33 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		}
 		$seo_lower  = function_exists( 'mb_strtolower' ) ? mb_strtolower( $seo_title, 'UTF-8' ) : strtolower( $seo_title );
 		$post_lower = function_exists( 'mb_strtolower' ) ? mb_strtolower( $post_title, 'UTF-8' ) : strtolower( $post_title );
-		return $seo_lower === $post_lower || false !== strpos( $seo_lower, $post_lower );
+		if ( $seo_lower === $post_lower || false !== strpos( $seo_lower, $post_lower ) ) {
+			return true;
+		}
+
+		$site_name = self::normalize_text( get_bloginfo( 'name', 'display' ) );
+		if ( '' === $site_name ) {
+			return false;
+		}
+
+		return self::seo_title_comparison_key( $seo_title, $site_name ) === self::seo_title_comparison_key( $post_title, $site_name );
+	}
+
+	private static function seo_title_comparison_key( string $text, string $site_name ): string {
+		$text      = self::normalize_text( $text );
+		$site_name = self::normalize_text( $site_name );
+		if ( '' !== $site_name ) {
+			$text = preg_replace( '/\b' . preg_quote( $site_name, '/' ) . '\b/iu', ' ', $text );
+		}
+		$text = preg_replace( '/[|:·•\-–—]+/u', ' ', is_string( $text ) ? $text : '' );
+		$text = preg_replace( '/\s+/u', ' ', is_string( $text ) ? $text : '' );
+		$text = trim( is_string( $text ) ? $text : '' );
+		return function_exists( 'mb_strtolower' ) ? mb_strtolower( $text, 'UTF-8' ) : strtolower( $text );
 	}
 
 	private static function normalize_text( string $text ): string {
 		$text = wp_strip_all_tags( $text );
+		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 		$text = preg_replace( '/\s+/u', ' ', $text );
 		return trim( is_string( $text ) ? $text : '' );
 	}

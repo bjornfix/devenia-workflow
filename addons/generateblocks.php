@@ -15,9 +15,6 @@ final class AI_Translation_Workflow_GenerateBlocks_Addon {
 	 */
 	public static function register(): void {
 		add_action( 'wp', array( __CLASS__, 'maybe_register_hooks' ), 20 );
-		add_filter( 'ai_translation_workflow_quick_copy_edit_supported_block_names', array( __CLASS__, 'add_quick_copy_edit_text_blocks' ) );
-		add_filter( 'ai_translation_workflow_quick_copy_edit_button_block_names', array( __CLASS__, 'add_button_blocks' ) );
-		add_filter( 'ai_translation_workflow_quick_copy_edit_stable_render_class', array( __CLASS__, 'stable_render_class' ), 10, 3 );
 		add_filter( 'ai_translation_workflow_copy_quality_text_block_names', array( __CLASS__, 'add_copy_quality_text_blocks' ) );
 		add_filter( 'ai_translation_workflow_semantic_text_unit_block_names', array( __CLASS__, 'add_semantic_text_unit_blocks' ) );
 		add_filter( 'ai_translation_workflow_semantic_button_block_names', array( __CLASS__, 'add_button_blocks' ) );
