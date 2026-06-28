@@ -1,23 +1,41 @@
 # AI Translation Workflow
 
-WordPress workflow plugin for AI-assisted multilingual pages and posts.
+Portable workflow layer for AI-assisted multilingual WordPress content.
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/gpl-2.0)
 [![WordPress](https://img.shields.io/badge/WordPress-6.9%2B-blue.svg)](https://wordpress.org)
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.272
+**Stable tag:** 0.1.280
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
 
 ## What It Does
 
-AI Translation Workflow gives AI/MCP operators a controlled way to create and
-maintain ordinary WordPress translations with localized URLs, mapping metadata,
-stale-source detection, hreflang output, language-menu sync, QA guardrails, and
-review gates before publishing.
+AI Translation Workflow gives site operators a controlled way to create and
+maintain multilingual content as ordinary WordPress pages and posts. The
+translated content stays in WordPress, so the plugin can be removed later
+without rebuilding the site from a proprietary translation store.
+
+Around that native content model, the plugin adds localized URLs, mapping
+metadata, stale-source detection, hreflang output, language-menu sync, QA
+guardrails, review evidence, frontend copy editing, reviewer learning, repair
+tools, and publish checks.
+
+The plugin is a workflow and quality layer, not an automatic translation SaaS.
+Translation text can come from an AI assistant, automation client, or editor;
+AI Translation Workflow keeps the WordPress side reliable, reviewable,
+publishable, and portable.
+
+Logged-in editors can make supported text fixes directly on the rendered page
+with Quick Copy Edit. Those saves go back through the stored Gutenberg content,
+normal WordPress permissions, and the plugin's storage guardrails.
+
+Human edits and reviewer feedback can also become reusable learning: keep a
+manual change as reviewer-style guidance, promote it into a QA rule, or ignore
+it when it is only a one-off correction.
 
 It is not a WPML or Polylang replacement. English content remains the technical
 source of truth for downstream translations, but a post or page may now be
@@ -27,6 +45,45 @@ before downstream translations can use the generated English source.
 
 The core plugin is theme-neutral. Theme or builder integrations live in optional
 `addons/` files and are loaded only when the matching vendor surface is present.
+
+## Positioning
+
+Most AI translation plugins compete on automatic generation, number of
+languages, or external translation services. AI Translation Workflow is built
+for teams that want the translation work to remain ordinary WordPress content
+instead of being locked into a proxy layer, external store, or replacement
+content system.
+
+The plugin can then add source mapping, localized routing, hreflang, QA checks,
+review evidence, frontend copy editing, reviewer learning, language-menu sync,
+runtime text, and repair operations around that portable WordPress content.
+
+That makes it closer to a controlled multilingual publishing workflow than a
+one-click translation engine.
+
+## No Content Lock-In
+
+Uninstalling the plugin removes plugin-owned options and workflow tables, but it
+does not delete translated posts, pages, menus, terms, media, or regular
+WordPress content.
+
+If you stop using AI Translation Workflow, the workflow automation, localized
+routing helpers, hreflang output, menus sync, and QA gates stop with it. The
+translated content itself remains editable in WordPress, so the site can be
+continued manually, migrated to another multilingual setup, or archived without
+rebuilding pages from scratch.
+
+## Frontend Editing And Learning
+
+Quick Copy Edit lets authorized editors fix supported visible text directly on
+the frontend. The edit is saved into the WordPress block tree instead of a
+separate translation database, so the correction stays with the page.
+
+Those manual edits can feed the learning workflow. Captured before/after
+changes appear in a learning inbox where they can be kept as reviewer-style
+guidance, promoted into a future QA rule, or ignored. Reviewer style profiles
+and copy feedback then help future translation briefs reflect the way humans
+actually corrected the site.
 
 ## The Real Workflow
 
@@ -98,9 +155,15 @@ Use these surfaces instead:
 - `ai-translations/list-language-rule-events`
 - `ai-translations/learning-inbox`
 - `ai-translations/review-learning-event`
+- `ai-translations/agency-copy-brief`
+- `ai-translations/record-copy-feedback`
+- `ai-translations/get-reviewer-style-profile`
+- `ai-translations/record-reviewer-style-edit`
 - `ai-translations/language-policy-status`
 - `ai-translations/translation-fitness-status`
 - `ai-translations/lifecycle-regression-status`
+- `ai-translations/frontend-performance-status`
+- `ai-translations/warm-cache`
 - `ai-translations/gutenberg-content-safety-scan`
 - `ai-translations/repair-url-hierarchy`
 - `ai-translations/repair-internal-links`
@@ -108,8 +171,8 @@ Use these surfaces instead:
 
 ## Documentation
 
-- [GitHub Tags](https://github.com/basicus/ai-translation-workflow/tags)
-- [GitHub Releases](https://github.com/basicus/ai-translation-workflow/releases)
+- [GitHub Tags](https://github.com/bjornfix/ai-translation-workflow/tags)
+- [GitHub Releases](https://github.com/bjornfix/ai-translation-workflow/releases)
 
 ## Installation
 
@@ -133,6 +196,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.280
+
+- Adds adapter-based Quick Copy Edit text segments for rich stored block markup.
+- Lets Quick Copy Edit reach inline rich paragraph text without flattening the whole block.
+- Adds Rank Math FAQ segment support and keeps FAQ question/answer attributes synchronized after frontend edits.
 
 ### 0.1.272
 

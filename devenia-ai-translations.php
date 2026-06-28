@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: AI Translation Workflow
- * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.279
+ * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
+ * Version: 0.1.280
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.279';
+	const VERSION = '0.1.280';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -16193,11 +16193,14 @@ final class Devenia_AI_Translations {
 	private static function quick_copy_edit_segment_items_for_block( array $block, array $path ): array {
 		$block_name = (string) ( $block['blockName'] ?? '' );
 		$html       = (string) ( $block['innerHTML'] ?? '' );
-		if ( 'core/paragraph' !== $block_name || '' === $html ) {
+		if ( '' === $html || self::quick_copy_edit_block_supported( $block_name, $html ) ) {
 			return array();
 		}
 
 		$segments = self::quick_copy_edit_rich_paragraph_segments( $html );
+		if ( empty( $segments ) && in_array( $block_name, self::quick_copy_edit_segment_block_names(), true ) ) {
+			$segments = self::quick_copy_edit_html_text_segments( $html );
+		}
 		if ( empty( $segments ) ) {
 			return array();
 		}
@@ -16259,10 +16262,21 @@ final class Devenia_AI_Translations {
 		}
 
 		$block['innerHTML'] = $new_html;
+		$block              = apply_filters(
+			'ai_translation_workflow_quick_copy_edit_updated_block',
+			$block,
+			array(
+				'block_name'    => $block_name,
+				'old_html'      => $html,
+				'new_html'      => $new_html,
+				'text'          => $text,
+				'segment_index' => $segment_index,
+			)
+		);
 		if ( ! empty( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
 			foreach ( $block['innerContent'] as $index => $chunk ) {
 				if ( is_string( $chunk ) && $chunk === $html ) {
-					$block['innerContent'][ $index ] = $new_html;
+					$block['innerContent'][ $index ] = (string) ( $block['innerHTML'] ?? $new_html );
 					break;
 				}
 			}
@@ -16334,6 +16348,9 @@ final class Devenia_AI_Translations {
 		}
 		if ( 'after_break' === $type ) {
 			return self::quick_copy_edit_mark_rendered_after_break_segment( $content, $item );
+		}
+		if ( 'html_text' === $type ) {
+			return self::quick_copy_edit_mark_rendered_html_text_segment( $content, $item );
 		}
 
 		return $content;
@@ -16493,6 +16510,116 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Mark one editable text-node segment in rendered markup.
+	 *
+	 * @param array<string,mixed> $item Editable item.
+	 */
+	private static function quick_copy_edit_mark_rendered_html_text_segment( string $content, array $item ): string {
+		$html = (string) ( $item['html'] ?? '' );
+		if ( '' === $html ) {
+			return $content;
+		}
+
+		if ( false !== strpos( $content, $html ) ) {
+			$marked = self::quick_copy_edit_wrap_html_text_segment( $html, $item );
+			if ( '' !== $marked && $marked !== $html ) {
+				return self::replace_first_string( $html, $marked, $content );
+			}
+		}
+
+		$next_content = self::quick_copy_edit_mark_rendered_equivalent_segment( $content, $item );
+		if ( $next_content !== $content ) {
+			return $next_content;
+		}
+
+		return self::quick_copy_edit_mark_rendered_simple_segment( $content, $item );
+	}
+
+	/**
+	 * Mark a text-node segment in a dynamically-rendered equivalent block.
+	 *
+	 * @param array<string,mixed> $item Editable item.
+	 */
+	private static function quick_copy_edit_mark_rendered_equivalent_segment( string $content, array $item ): string {
+		$html         = (string) ( $item['html'] ?? '' );
+		$text         = (string) ( $item['text'] ?? '' );
+		$block_text   = self::quick_copy_edit_plain_text( $html );
+		$tag_name     = self::quick_copy_edit_first_tag_name( $html );
+		$stable_class = self::quick_copy_edit_stable_render_class( $html );
+		if ( '' === $html || '' === $text || '' === $block_text || '' === $tag_name || '' === $stable_class ) {
+			return $content;
+		}
+
+		$pattern = sprintf(
+			'/<%1$s\b(?=[^>]*\bclass\s*=\s*["\'][^"\']*\b%2$s\b[^"\']*["\'])[^>]*>.*?<\/%1$s>/is',
+			preg_quote( $tag_name, '/' ),
+			preg_quote( $stable_class, '/' )
+		);
+		if ( ! preg_match_all( $pattern, $content, $matches, PREG_OFFSET_CAPTURE ) ) {
+			return $content;
+		}
+
+		foreach ( $matches[0] as $match ) {
+			$candidate = (string) $match[0];
+			if ( self::quick_copy_edit_plain_text( $candidate ) !== $block_text ) {
+				continue;
+			}
+
+			$marked = self::quick_copy_edit_wrap_html_text_segment( $candidate, $item );
+			if ( '' !== $marked && $marked !== $candidate ) {
+				return substr_replace( $content, $marked, (int) $match[1], strlen( $candidate ) );
+			}
+		}
+
+		return $content;
+	}
+
+	/**
+	 * Mark a text-node segment in a rendered block with matching tag and text.
+	 *
+	 * @param array<string,mixed> $item Editable item.
+	 */
+	private static function quick_copy_edit_mark_rendered_simple_segment( string $content, array $item ): string {
+		$block_name = (string) ( $item['blockName'] ?? '' );
+		$html       = (string) ( $item['html'] ?? '' );
+		$block_text = self::quick_copy_edit_plain_text( $html );
+		$tag_names  = self::quick_copy_edit_rendered_match_tag_names( $block_name, $html );
+		if ( '' === $html || '' === $block_text || empty( $tag_names ) ) {
+			return $content;
+		}
+
+		$pattern = sprintf(
+			'/<(%1$s)\b(?![^>]*\bdata-devenia-qce-path=)[^>]*>.*?<\/\1>/is',
+			implode(
+				'|',
+				array_map(
+					static function ( string $tag_name ): string {
+						return preg_quote( $tag_name, '/' );
+					},
+					$tag_names
+				)
+			)
+		);
+		if ( ! preg_match_all( $pattern, $content, $matches, PREG_OFFSET_CAPTURE ) ) {
+			return $content;
+		}
+
+		foreach ( $matches[0] as $match ) {
+			$candidate = (string) $match[0];
+			if ( self::quick_copy_edit_plain_text( $candidate ) !== $block_text ) {
+				continue;
+			}
+
+			$marked = self::quick_copy_edit_wrap_html_text_segment( $candidate, $item );
+			if ( '' !== $marked && $marked !== $candidate ) {
+				return substr_replace( $content, $marked, (int) $match[1], strlen( $candidate ) );
+			}
+		}
+
+		return $content;
+	}
+
+	/**
 	 * Candidate rendered tags that can safely represent one editable text block.
 	 *
 	 * @return array<int,string>
@@ -16645,6 +16772,19 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Blocks where individual visible text nodes can be edited when the whole
+	 * block is too rich for a single plain-text replacement.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function quick_copy_edit_segment_block_names(): array {
+		$names = array( 'core/paragraph' );
+		$names = apply_filters( 'ai_translation_workflow_quick_copy_edit_segment_block_names', $names );
+
+		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/paragraph' );
+	}
+
+	/**
 	 * Whether this block can be edited by replacing plain text only.
 	 */
 	private static function quick_copy_edit_block_supported( string $block_name, string $html ): bool {
@@ -16678,39 +16818,37 @@ final class Devenia_AI_Translations {
 	 * Replace one safe rich-text segment while preserving the block wrapper.
 	 */
 	private static function quick_copy_edit_replace_segment_text( string $block_name, string $html, int $segment_index, string $text ): string {
-		if ( 'core/paragraph' !== $block_name ) {
-			return '';
-		}
-
 		$segments = self::quick_copy_edit_rich_paragraph_segments( $html );
-		if ( empty( $segments[ $segment_index ] ) ) {
+		if ( ! empty( $segments[ $segment_index ] ) ) {
+			$escaped = esc_html( $text );
+			if ( 0 === $segment_index ) {
+				return (string) preg_replace_callback(
+					self::quick_copy_edit_rich_paragraph_pattern(),
+					static function ( array $match ) use ( $escaped ): string {
+						return (string) $match['p_open'] . (string) $match['prefix'] . (string) $match['strong_open'] . $escaped . (string) $match['strong_close'] . (string) $match['between'] . (string) $match['body'] . (string) $match['p_close'];
+					},
+					trim( $html ),
+					1
+				);
+			}
+
+			if ( 1 === $segment_index ) {
+				return (string) preg_replace_callback(
+					self::quick_copy_edit_rich_paragraph_pattern(),
+					static function ( array $match ) use ( $escaped ): string {
+						return (string) $match['p_open'] . (string) $match['prefix'] . (string) $match['strong_open'] . (string) $match['strong_text'] . (string) $match['strong_close'] . (string) $match['between'] . $escaped . (string) $match['p_close'];
+					},
+					trim( $html ),
+					1
+				);
+			}
+		}
+
+		if ( ! in_array( $block_name, self::quick_copy_edit_segment_block_names(), true ) ) {
 			return '';
 		}
 
-		$escaped = esc_html( $text );
-		if ( 0 === $segment_index ) {
-			return (string) preg_replace_callback(
-				self::quick_copy_edit_rich_paragraph_pattern(),
-				static function ( array $match ) use ( $escaped ): string {
-					return (string) $match['p_open'] . (string) $match['prefix'] . (string) $match['strong_open'] . $escaped . (string) $match['strong_close'] . (string) $match['between'] . (string) $match['body'] . (string) $match['p_close'];
-				},
-				trim( $html ),
-				1
-			);
-		}
-
-		if ( 1 === $segment_index ) {
-			return (string) preg_replace_callback(
-				self::quick_copy_edit_rich_paragraph_pattern(),
-				static function ( array $match ) use ( $escaped ): string {
-					return (string) $match['p_open'] . (string) $match['prefix'] . (string) $match['strong_open'] . (string) $match['strong_text'] . (string) $match['strong_close'] . (string) $match['between'] . $escaped . (string) $match['p_close'];
-				},
-				trim( $html ),
-				1
-			);
-		}
-
-		return '';
+		return self::quick_copy_edit_replace_html_text_segment( $html, $segment_index, $text );
 	}
 
 	/**
@@ -16762,6 +16900,90 @@ final class Devenia_AI_Translations {
 				'text' => $body_text,
 			),
 		);
+	}
+
+	/**
+	 * Safe visible text-node segments from richer stored block HTML.
+	 *
+	 * @return array<int,array{type:string,text:string,offset:int,length:int}>
+	 */
+	private static function quick_copy_edit_html_text_segments( string $html ): array {
+		$segments = array();
+		if ( '' === trim( $html ) || ! preg_match_all( '/<[^>]+>|[^<]+/s', $html, $matches, PREG_OFFSET_CAPTURE ) ) {
+			return $segments;
+		}
+
+		foreach ( $matches[0] as $match ) {
+			$token = (string) $match[0];
+			if ( '' === $token || '<' === $token[0] ) {
+				continue;
+			}
+			$text = self::quick_copy_edit_plain_text( $token );
+			if ( '' === $text ) {
+				continue;
+			}
+
+			$segments[] = array(
+				'type'   => 'html_text',
+				'text'   => $text,
+				'offset' => (int) $match[1],
+				'length' => strlen( $token ),
+			);
+		}
+
+		return $segments;
+	}
+
+	/**
+	 * Replace one text-node segment while preserving all surrounding markup.
+	 */
+	private static function quick_copy_edit_replace_html_text_segment( string $html, int $segment_index, string $text ): string {
+		$segments = self::quick_copy_edit_html_text_segments( $html );
+		if ( empty( $segments[ $segment_index ] ) ) {
+			return '';
+		}
+
+		$segment = $segments[ $segment_index ];
+		$offset  = (int) ( $segment['offset'] ?? -1 );
+		$length  = (int) ( $segment['length'] ?? 0 );
+		if ( $offset < 0 || $length < 1 ) {
+			return '';
+		}
+
+		return substr_replace( $html, esc_html( $text ), $offset, $length );
+	}
+
+	/**
+	 * Wrap one text-node segment with quick-edit marker attributes.
+	 *
+	 * @param array<string,mixed> $item Editable item.
+	 */
+	private static function quick_copy_edit_wrap_html_text_segment( string $html, array $item ): string {
+		$segment = isset( $item['segment'] ) && is_array( $item['segment'] ) ? $item['segment'] : array();
+		$index   = isset( $segment['index'] ) ? (int) $segment['index'] : -1;
+		if ( $index < 0 ) {
+			return '';
+		}
+
+		$segments = self::quick_copy_edit_html_text_segments( $html );
+		if ( empty( $segments[ $index ] ) ) {
+			return '';
+		}
+
+		$target = $segments[ $index ];
+		$offset = (int) ( $target['offset'] ?? -1 );
+		$length = (int) ( $target['length'] ?? 0 );
+		if ( $offset < 0 || $length < 1 ) {
+			return '';
+		}
+
+		$raw_text = substr( $html, $offset, $length );
+		if ( self::quick_copy_edit_plain_text( $raw_text ) !== (string) ( $item['text'] ?? '' ) ) {
+			return '';
+		}
+
+		$wrapped = '<span' . self::quick_copy_edit_marker_attributes( $item ) . '>' . $raw_text . '</span>';
+		return substr_replace( $html, $wrapped, $offset, $length );
 	}
 
 	/**
