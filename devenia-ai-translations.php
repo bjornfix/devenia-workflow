@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.282
+ * Version: 0.1.286
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.282';
+	const VERSION = '0.1.286';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -16571,6 +16571,11 @@ final class Devenia_AI_Translations {
 			}
 		}
 
+		$next_content = self::quick_copy_edit_mark_rendered_selector_segment( $content, $item );
+		if ( $next_content !== $content ) {
+			return $next_content;
+		}
+
 		$next_content = self::quick_copy_edit_mark_rendered_equivalent_segment( $content, $item );
 		if ( $next_content !== $content ) {
 			return $next_content;
@@ -16586,6 +16591,13 @@ final class Devenia_AI_Translations {
 	 */
 	private static function quick_copy_edit_mark_rendered_html_text_segment_group( string $content, array $items ): string {
 		if ( empty( $items ) ) {
+			return $content;
+		}
+
+		if ( self::quick_copy_edit_segment_group_prefers_selector_marking( $items ) ) {
+			foreach ( $items as $item ) {
+				$content = self::quick_copy_edit_mark_rendered_selector_segment( $content, $item );
+			}
 			return $content;
 		}
 
@@ -16616,6 +16628,135 @@ final class Devenia_AI_Translations {
 		}
 
 		return $marked === $html ? $content : self::replace_first_string( $html, $marked, $content );
+	}
+
+	/**
+	 * Whether a segment group should be marked on existing rendered elements.
+	 *
+	 * This is safer for linked text because the editable element should be the
+	 * anchor itself, allowing the frontend script to suppress navigation.
+	 *
+	 * @param array<int,array<string,mixed>> $items Segment items from the same block.
+	 */
+	private static function quick_copy_edit_segment_group_prefers_selector_marking( array $items ): bool {
+		foreach ( $items as $item ) {
+			if ( ! empty( self::quick_copy_edit_rendered_segment_selectors( $item ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Mark a rendered segment using adapter-provided tag/class selectors.
+	 *
+	 * @param array<string,mixed> $item Editable item.
+	 */
+	private static function quick_copy_edit_mark_rendered_selector_segment( string $content, array $item ): string {
+		$selectors = self::quick_copy_edit_rendered_segment_selectors( $item );
+		if ( empty( $selectors ) ) {
+			return $content;
+		}
+
+		$text = (string) ( $item['text'] ?? '' );
+		if ( '' === $text ) {
+			return $content;
+		}
+
+		foreach ( $selectors as $selector ) {
+			$selector = is_array( $selector ) ? $selector : array();
+			$tag      = isset( $selector['tag'] ) ? strtolower( (string) $selector['tag'] ) : '';
+			$class    = isset( $selector['class'] ) ? (string) $selector['class'] : '';
+			if ( '' === $tag || ! preg_match( '/^[a-z][a-z0-9]*$/', $tag ) ) {
+				continue;
+			}
+
+			$class_assertion = '' === $class ? '' : sprintf(
+				'(?=[^>]*\bclass\s*=\s*["\'][^"\']*\b%1$s\b[^"\']*["\'])',
+				preg_quote( $class, '/' )
+			);
+			$pattern = sprintf( '/<%1$s\b(?![^>]*\bdata-devenia-qce-path=)%2$s[^>]*>.*?<\/%1$s>/is', preg_quote( $tag, '/' ), $class_assertion );
+			if ( ! preg_match_all( $pattern, $content, $matches, PREG_OFFSET_CAPTURE ) ) {
+				continue;
+			}
+
+			foreach ( $matches[0] as $match ) {
+				$candidate = (string) $match[0];
+				if ( self::quick_copy_edit_plain_text( $candidate ) !== $text ) {
+					continue;
+				}
+
+				$marked = self::quick_copy_edit_mark_selector_child( $candidate, $selector, $item, $text );
+				if ( '' !== $marked && $marked !== $candidate ) {
+					return substr_replace( $content, $marked, (int) $match[1], strlen( $candidate ) );
+				}
+
+				$marked = (string) preg_replace( '/^<' . preg_quote( $tag, '/' ) . '\b/i', '<' . $tag . self::quick_copy_edit_marker_attributes( $item ), $candidate, 1 );
+				if ( '' !== $marked && $marked !== $candidate ) {
+					return substr_replace( $content, $marked, (int) $match[1], strlen( $candidate ) );
+				}
+			}
+		}
+
+		return $content;
+	}
+
+	/**
+	 * Mark a matching child element inside an adapter-selected container.
+	 *
+	 * This keeps the editable surface tight for rendered wrappers where the
+	 * stable selector belongs to the container but the visible copy usually
+	 * lives in an inner paragraph.
+	 *
+	 * @param array<string,mixed> $selector Adapter selector.
+	 * @param array<string,mixed> $item     Editable item.
+	 */
+	private static function quick_copy_edit_mark_selector_child( string $candidate, array $selector, array $item, string $text ): string {
+		$child_tag = isset( $selector['mark_child_tag'] ) ? strtolower( (string) $selector['mark_child_tag'] ) : '';
+		if ( '' === $child_tag || ! preg_match( '/^[a-z][a-z0-9]*$/', $child_tag ) ) {
+			return '';
+		}
+
+		$pattern = sprintf( '/<%1$s\b(?![^>]*\bdata-devenia-qce-path=)[^>]*>.*?<\/%1$s>/is', preg_quote( $child_tag, '/' ) );
+		if ( ! preg_match_all( $pattern, $candidate, $matches, PREG_OFFSET_CAPTURE ) ) {
+			return '';
+		}
+
+		foreach ( $matches[0] as $match ) {
+			$child = (string) $match[0];
+			if ( self::quick_copy_edit_plain_text( $child ) !== $text ) {
+				continue;
+			}
+
+			$marked_child = (string) preg_replace( '/^<' . preg_quote( $child_tag, '/' ) . '\b/i', '<' . $child_tag . self::quick_copy_edit_marker_attributes( $item ), $child, 1 );
+			if ( '' !== $marked_child && $marked_child !== $child ) {
+				return substr_replace( $candidate, $marked_child, (int) $match[1], strlen( $child ) );
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Return adapter/default rendered selectors for one text segment.
+	 *
+	 * @param array<string,mixed> $item Editable item.
+	 * @return array<int,array<string,string>>
+	 */
+	private static function quick_copy_edit_rendered_segment_selectors( array $item ): array {
+		$block_name = (string) ( $item['blockName'] ?? '' );
+		$selectors  = array();
+		if ( 'core/list-item' === $block_name && false !== strpos( (string) ( $item['html'] ?? '' ), '<a ' ) ) {
+			$selectors[] = array( 'tag' => 'a', 'class' => '' );
+		}
+
+		$selectors = apply_filters( 'ai_translation_workflow_quick_copy_edit_rendered_segment_selectors', $selectors, $block_name, $item );
+		if ( ! is_array( $selectors ) ) {
+			return array();
+		}
+
+		return array_values( array_filter( $selectors, 'is_array' ) );
 	}
 
 	/**
@@ -16861,10 +17002,10 @@ final class Devenia_AI_Translations {
 	 * @return array<int,string>
 	 */
 	private static function quick_copy_edit_segment_block_names(): array {
-		$names = array( 'core/paragraph' );
+		$names = array( 'core/paragraph', 'core/list-item' );
 		$names = apply_filters( 'ai_translation_workflow_quick_copy_edit_segment_block_names', $names );
 
-		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/paragraph' );
+		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/paragraph', 'core/list-item' );
 	}
 
 	/**

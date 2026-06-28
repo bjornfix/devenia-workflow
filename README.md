@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.282
+**Stable tag:** 0.1.286
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -196,6 +196,22 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.286
+
+- Keeps FAQ answer edit targets tight by marking the matching inner answer paragraph when available.
+
+### 0.1.285
+
+- Keeps Quick Copy Edit active on FAQ answers rendered with nested markup.
+
+### 0.1.284
+
+- Adds Quick Copy Edit support for linked list-item text while preserving anchor URLs.
+
+### 0.1.283
+
+- Adds adapter-provided rendered segment selectors so Rank Math FAQ questions and answers remain editable when frontend markup differs from stored block HTML.
 
 ### 0.1.282
 

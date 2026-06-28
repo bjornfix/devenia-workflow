@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.282
+Stable tag: 0.1.286
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,18 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+== 0.1.286 ==
+* Keeps FAQ answer edit targets tight by marking the matching inner answer paragraph when available.
+
+== 0.1.285 ==
+* Keeps Quick Copy Edit active on FAQ answers rendered with nested markup.
+
+== 0.1.284 ==
+* Adds Quick Copy Edit support for linked list-item text while preserving anchor URLs.
+
+== 0.1.283 ==
+* Adds adapter-provided rendered segment selectors so Rank Math FAQ questions and answers remain editable when frontend markup differs from stored block HTML.
 
 == 0.1.282 ==
 * Marks all Quick Copy Edit text segments in the same rich HTML block together, so Rank Math FAQ questions and answers are all editable.

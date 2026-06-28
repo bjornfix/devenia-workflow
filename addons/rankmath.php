@@ -17,6 +17,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		add_action( 'plugins_loaded', array( __CLASS__, 'maybe_register_hooks' ), 20 );
 		add_filter( 'ai_translation_workflow_quick_copy_edit_segment_block_names', array( __CLASS__, 'add_quick_copy_edit_segment_blocks' ) );
 		add_filter( 'ai_translation_workflow_quick_copy_edit_updated_block', array( __CLASS__, 'sync_quick_copy_edit_faq_attrs' ), 10, 2 );
+		add_filter( 'ai_translation_workflow_quick_copy_edit_rendered_segment_selectors', array( __CLASS__, 'quick_copy_edit_rendered_segment_selectors' ), 10, 3 );
 	}
 
 	/**
@@ -113,6 +114,28 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	 */
 	public static function add_quick_copy_edit_segment_blocks( array $names ): array {
 		return self::merge_block_names( $names, array( 'rank-math/faq-block' ) );
+	}
+
+	/**
+	 * Return stable rendered FAQ selectors for Quick Copy Edit segment matching.
+	 *
+	 * @param array<int,array<string,string>> $selectors Existing selectors.
+	 * @param string                          $block_name Block name.
+	 * @param array<string,mixed>             $item Editable item.
+	 * @return array<int,array<string,string>>
+	 */
+	public static function quick_copy_edit_rendered_segment_selectors( array $selectors, string $block_name, array $item ): array {
+		if ( 'rank-math/faq-block' !== $block_name ) {
+			return $selectors;
+		}
+
+		$segment = isset( $item['segment'] ) && is_array( $item['segment'] ) ? $item['segment'] : array();
+		$index   = isset( $segment['index'] ) ? absint( $segment['index'] ) : 0;
+		$selectors[] = 0 === $index % 2
+			? array( 'tag' => 'h3', 'class' => 'rank-math-question' )
+			: array( 'tag' => 'div', 'class' => 'rank-math-answer', 'mark_child_tag' => 'p' );
+
+		return $selectors;
 	}
 
 	/**
