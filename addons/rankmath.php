@@ -104,6 +104,71 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	}
 
 	/**
+	 * Add Rank Math FAQ blocks to the Quick Copy Edit segment adapter.
+	 *
+	 * @param array<int,string> $names Block names.
+	 * @return array<int,string>
+	 */
+	public static function add_quick_copy_edit_segment_blocks( array $names ): array {
+		return self::merge_block_names( $names, array( 'rank-math/faq-block' ) );
+	}
+
+	/**
+	 * Return stable rendered FAQ selectors for Quick Copy Edit segment matching.
+	 *
+	 * @param array<int,array<string,string>> $selectors Existing selectors.
+	 * @param string                          $block_name Block name.
+	 * @param array<string,mixed>             $item Editable item.
+	 * @return array<int,array<string,string>>
+	 */
+	public static function quick_copy_edit_rendered_segment_selectors( array $selectors, string $block_name, array $item ): array {
+		if ( 'rank-math/faq-block' !== $block_name ) {
+			return $selectors;
+		}
+
+		$segment = isset( $item['segment'] ) && is_array( $item['segment'] ) ? $item['segment'] : array();
+		$index   = isset( $segment['index'] ) ? absint( $segment['index'] ) : 0;
+		$selectors[] = 0 === $index % 2
+			? array( 'tag' => 'h3', 'class' => 'rank-math-question' )
+			: array( 'tag' => 'div', 'class' => 'rank-math-answer', 'mark_child_tag' => 'p' );
+
+		return $selectors;
+	}
+
+	/**
+	 * Keep Rank Math FAQ block attributes in sync after a frontend text edit.
+	 *
+	 * @param array<string,mixed> $block Parsed block.
+	 * @param array<string,mixed> $context Quick Copy Edit update context.
+	 * @return array<string,mixed>
+	 */
+	public static function sync_quick_copy_edit_faq_attrs( array $block, array $context ): array {
+		if ( 'rank-math/faq-block' !== (string) ( $context['block_name'] ?? '' ) ) {
+			return $block;
+		}
+
+		$segment_index = $context['segment_index'] ?? null;
+		if ( null === $segment_index || ! isset( $block['attrs']['questions'] ) || ! is_array( $block['attrs']['questions'] ) ) {
+			return $block;
+		}
+
+		$segment_index  = absint( $segment_index );
+		$question_index = (int) floor( $segment_index / 2 );
+		$field          = 0 === $segment_index % 2 ? 'title' : 'content';
+		if ( ! isset( $block['attrs']['questions'][ $question_index ] ) || ! is_array( $block['attrs']['questions'][ $question_index ] ) ) {
+			return $block;
+		}
+
+		$text = sanitize_text_field( (string) ( $context['text'] ?? '' ) );
+		if ( 'content' === $field ) {
+			$text = sanitize_textarea_field( (string) ( $context['text'] ?? '' ) );
+		}
+
+		$block['attrs']['questions'][ $question_index ][ $field ] = $text;
+		return $block;
+	}
+
+	/**
 	 * @param array<string,mixed>  $result Current sync result.
 	 * @param array<string,string> $fields Prepared SEO fields.
 	 * @param array<string,mixed>  $context Adapter context.

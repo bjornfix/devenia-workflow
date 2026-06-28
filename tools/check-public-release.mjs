@@ -33,7 +33,7 @@ function gitFiles() {
     return execFileSync("git", ["ls-files"], { cwd: base, encoding: "utf8" })
       .split("\n")
       .map((line) => line.trim())
-      .filter((line) => line && fs.existsSync(path.join(base, line)));
+      .filter(Boolean);
   } catch (error) {
     issue(".", "git_ls_files_failed", error instanceof Error ? error.message : String(error));
     return [];
