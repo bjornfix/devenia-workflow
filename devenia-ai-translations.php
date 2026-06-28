@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: AI/MCP workflow for WordPress content translations, localized URLs, hreflang, QA guardrails, and language menu sync.
- * Version: 0.1.278
+ * Version: 0.1.279
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.278';
+	const VERSION = '0.1.279';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -103,6 +103,8 @@ final class Devenia_AI_Translations {
 	public static function init(): void {
 		add_filter( 'locale', array( __CLASS__, 'filter_locale' ) );
 		add_filter( 'language_attributes', array( __CLASS__, 'filter_language_attributes' ) );
+		add_filter( 'ai_translation_workflow_language_codes', array( __CLASS__, 'filter_runtime_language_codes' ) );
+		add_filter( 'ai_translation_workflow_runtime_text', array( __CLASS__, 'filter_runtime_text_value' ), 10, 5 );
 		add_filter( 'query_vars', array( __CLASS__, 'register_translation_query_vars' ) );
 		add_filter( 'post_link', array( __CLASS__, 'filter_translated_post_link' ), 20, 2 );
 		add_filter( 'term_link', array( __CLASS__, 'filter_translated_term_link' ), 20, 3 );
@@ -1819,6 +1821,66 @@ final class Devenia_AI_Translations {
 
 		$cache = array_replace_recursive( $defaults, $file_languages, $languages );
 		return $cache;
+	}
+
+	/**
+	 * Share configured language codes with lightweight companion plugins.
+	 *
+	 * @param mixed $codes Existing filter value.
+	 * @return string[]
+	 */
+	public static function filter_runtime_language_codes( $codes ): array {
+		$existing = is_array( $codes ) ? $codes : array();
+		$languages = array_keys( self::languages() );
+
+		return array_values(
+			array_unique(
+				array_filter(
+					array_map(
+						static function ( $language ): string {
+							return sanitize_key( (string) $language );
+						},
+						array_merge( $existing, $languages )
+					)
+				)
+			)
+		);
+	}
+
+	/**
+	 * Read one runtime text registry value without exposing option internals.
+	 *
+	 * @param mixed $default Fallback value.
+	 */
+	public static function runtime_text_value( string $language, string $section, string $key, $default = '' ): string {
+		$language = sanitize_key( $language );
+		$section  = sanitize_key( $section );
+		$key      = trim( $key );
+		$fallback = is_scalar( $default ) ? (string) $default : '';
+
+		if ( '' === $language || '' === $section || '' === $key || ! in_array( $section, self::runtime_text_sections(), true ) ) {
+			return $fallback;
+		}
+
+		$languages = self::languages();
+		$value     = $languages[ $language ][ $section ][ $key ] ?? null;
+
+		return is_scalar( $value ) ? (string) $value : $fallback;
+	}
+
+	/**
+	 * Filter adapter for the runtime text registry.
+	 *
+	 * @param mixed $value Existing filter value.
+	 * @param mixed $language Language code.
+	 * @param mixed $section Runtime text section.
+	 * @param mixed $key Runtime text key.
+	 * @param mixed $default Fallback value.
+	 */
+	public static function filter_runtime_text_value( $value, $language, $section, $key, $default = '' ): string {
+		$fallback = is_scalar( $value ) ? (string) $value : ( is_scalar( $default ) ? (string) $default : '' );
+
+		return self::runtime_text_value( (string) $language, (string) $section, (string) $key, $fallback );
 	}
 
 	/**
