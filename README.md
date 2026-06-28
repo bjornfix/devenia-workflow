@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.289
+**Stable tag:** 0.1.290
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -197,9 +197,17 @@ Before changing the plugin:
 
 ## Changelog
 
+### 0.1.290
+
+- Removes the old bundled Quick Copy Edit implementation while preserving active heading-fit frontend assets.
+
 ### 0.1.289
 
 - Restores the bundled inactive frontend editing helpers after the 0.1.288 cleanup caused a frontend fatal on some pages.
+
+### 0.1.288
+
+- Removes the old bundled Quick Copy Edit implementation after extracting frontend editing to Frontend Text Edit.
 
 ### 0.1.287
 

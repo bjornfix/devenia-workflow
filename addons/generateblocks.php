@@ -53,16 +53,6 @@ final class AI_Translation_Workflow_GenerateBlocks_Addon {
 	}
 
 	/**
-	 * Add GenerateBlocks simple text blocks to Quick Copy Edit.
-	 *
-	 * @param array<int,string> $names Block names.
-	 * @return array<int,string>
-	 */
-	public static function add_quick_copy_edit_text_blocks( array $names ): array {
-		return self::merge_block_names( $names, array( 'generateblocks/headline', 'generateblocks/button' ) );
-	}
-
-	/**
 	 * Add GenerateBlocks button blocks.
 	 *
 	 * @param array<int,string> $names Block names.
