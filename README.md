@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.292
+**Stable tag:** 0.1.294
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -196,6 +196,15 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.294
+
+- Prevents translated category/tag creation from reusing the source term when a localized slug collides with the source slug.
+- Repairs source category/tag terms that were accidentally marked as translated terms by earlier collision handling.
+
+### 0.1.293
+
+- Adds runtime-managed share text and localizes Scriptless Social Sharing screen-reader labels on translated frontend pages.
 
 ### 0.1.291
 

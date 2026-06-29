@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.292
+ * Version: 0.1.294
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.292';
+	const VERSION = '0.1.294';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -553,6 +553,10 @@ final class Devenia_AI_Translations {
 
 		if ( '' === $stored_version || version_compare( $stored_version, '0.1.180', '<' ) ) {
 			self::repair_translated_post_publication_dates();
+		}
+
+		if ( '' === $stored_version || version_compare( $stored_version, '0.1.294', '<' ) ) {
+			self::repair_source_term_translation_meta();
 		}
 
 		update_option( self::OPTION_VERSION, self::VERSION, false );
@@ -1897,7 +1901,7 @@ final class Devenia_AI_Translations {
 		$profile   = self::language_review_profile( $language );
 		$replacements = array();
 
-		foreach ( array( 'widget_text', 'not_found_text' ) as $section ) {
+		foreach ( array( 'widget_text', 'not_found_text', 'share_text' ) as $section ) {
 			if ( isset( $config[ $section ] ) && is_array( $config[ $section ] ) ) {
 				foreach ( $config[ $section ] as $source => $translated ) {
 					if ( is_string( $source ) && is_string( $translated ) && '' !== $source ) {
@@ -1950,7 +1954,7 @@ final class Devenia_AI_Translations {
 	 * @return array<int,string>
 	 */
 	private static function runtime_text_sections(): array {
-		return array( 'menu_items', 'custom_menu_items', 'widget_text', 'not_found_text', 'comment_form_text', 'not_found_routes', 'blog_archive_text' );
+		return array( 'menu_items', 'custom_menu_items', 'widget_text', 'not_found_text', 'share_text', 'comment_form_text', 'not_found_routes', 'blog_archive_text' );
 	}
 
 	/**
@@ -1959,7 +1963,7 @@ final class Devenia_AI_Translations {
 	 * @return array<int,string>
 	 */
 	private static function editable_runtime_text_sections(): array {
-		return array( 'menu_items', 'custom_menu_items', 'widget_text', 'not_found_text', 'comment_form_text', 'blog_archive_text' );
+		return array( 'menu_items', 'custom_menu_items', 'widget_text', 'not_found_text', 'share_text', 'comment_form_text', 'blog_archive_text' );
 	}
 
 	/**
@@ -9815,10 +9819,33 @@ final class Devenia_AI_Translations {
 			$term_id          = is_array( $term_exists_data )
 				? absint( $term_exists_data['term_id'] ?? 0 )
 				: absint( $term_exists_data );
+			if ( $term_id === (int) $source_term->term_id || ! self::term_is_translation_of( $term_id, (int) $source_term->term_id, $language ) ) {
+				$fallback_slug = sanitize_title( $language . '-' . (string) $source_term->slug );
+				if ( $fallback_slug === $slug ) {
+					$fallback_slug = sanitize_title( $language . '-' . (int) $source_term->term_id );
+				}
+
+				$args['slug'] = $fallback_slug;
+				$created      = wp_insert_term( $name, (string) $source_term->taxonomy, $args );
+				if ( is_wp_error( $created ) && 'term_exists' === $created->get_error_code() ) {
+					$term_exists_data = $created->get_error_data();
+					$term_id          = is_array( $term_exists_data )
+						? absint( $term_exists_data['term_id'] ?? 0 )
+						: absint( $term_exists_data );
+				} elseif ( is_wp_error( $created ) ) {
+					return 0;
+				} else {
+					$term_id = absint( $created['term_id'] ?? 0 );
+				}
+			}
 		} elseif ( is_wp_error( $created ) ) {
 			return 0;
 		} else {
 			$term_id = absint( $created['term_id'] ?? 0 );
+		}
+
+		if ( $term_id === (int) $source_term->term_id ) {
+			return 0;
 		}
 
 		if ( $term_id ) {
@@ -9827,6 +9854,53 @@ final class Devenia_AI_Translations {
 		}
 
 		return $term_id;
+	}
+
+	/**
+	 * Check whether an existing term is already the requested language variant.
+	 */
+	private static function term_is_translation_of( int $term_id, int $source_term_id, string $language ): bool {
+		if ( ! $term_id || $term_id === $source_term_id ) {
+			return false;
+		}
+
+		return $source_term_id === absint( get_term_meta( $term_id, self::TERM_META_SOURCE_ID, true ) )
+			&& sanitize_key( $language ) === sanitize_key( (string) get_term_meta( $term_id, self::TERM_META_LANGUAGE, true ) );
+	}
+
+	/**
+	 * Remove translation metadata from source terms that were accidentally reused as translations.
+	 */
+	private static function repair_source_term_translation_meta(): void {
+		foreach ( array( 'category', 'post_tag' ) as $taxonomy ) {
+			$terms = get_terms(
+				array(
+					'taxonomy'   => $taxonomy,
+					'hide_empty' => false,
+					'fields'     => 'ids',
+					'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Narrow upgrade repair for contaminated source term metadata.
+						array(
+							'key'     => self::TERM_META_LANGUAGE,
+							'compare' => 'EXISTS',
+						),
+					),
+				)
+			);
+			if ( is_wp_error( $terms ) ) {
+				continue;
+			}
+
+			foreach ( $terms as $term_id ) {
+				$term_id        = absint( $term_id );
+				$source_term_id = absint( get_term_meta( $term_id, self::TERM_META_SOURCE_ID, true ) );
+				if ( ! $term_id || ( $source_term_id && $source_term_id !== $term_id ) ) {
+					continue;
+				}
+
+				delete_term_meta( $term_id, self::TERM_META_SOURCE_ID );
+				delete_term_meta( $term_id, self::TERM_META_LANGUAGE );
+			}
+		}
 	}
 
 	/**
@@ -14513,8 +14587,22 @@ final class Devenia_AI_Translations {
 	 * @param array{search:array<int,string>,replace:array<int,string>,has_replacements:bool} $runtime Runtime replacement map.
 	 */
 	private static function localize_scriptless_social_sharing_html( string $html, array $runtime ): string {
-		return (string) preg_replace_callback(
+		$html = (string) preg_replace_callback(
 			'/(<h[1-6]\b[^>]*class=(["\'])[^"\']*\bscriptlesssocialsharing__heading\b[^"\']*\2[^>]*>)(.*?)(<\/h[1-6]>)/isu',
+			static function ( array $match ) use ( $runtime ): string {
+				$text = html_entity_decode( wp_strip_all_tags( (string) $match[3] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$updated = self::apply_runtime_text_replacements( $text, $runtime );
+				if ( $updated === $text ) {
+					return (string) $match[0];
+				}
+
+				return (string) $match[1] . esc_html( $updated ) . (string) $match[4];
+			},
+			$html
+		);
+
+		return (string) preg_replace_callback(
+			'/(<span\b[^>]*class=(["\'])[^"\']*\bscreen-reader-text\b[^"\']*\2[^>]*>)(.*?)(<\/span>)/isu',
 			static function ( array $match ) use ( $runtime ): string {
 				$text = html_entity_decode( wp_strip_all_tags( (string) $match[3] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 				$updated = self::apply_runtime_text_replacements( $text, $runtime );

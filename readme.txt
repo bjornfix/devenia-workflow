@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.292
+Stable tag: 0.1.294
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,13 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+== 0.1.294 ==
+* Prevents translated category/tag creation from reusing the source term when a localized slug collides with the source slug.
+* Repairs source category/tag terms that were accidentally marked as translated terms by earlier collision handling.
+
+== 0.1.293 ==
+* Adds runtime-managed share text and localizes Scriptless Social Sharing screen-reader labels on translated frontend pages.
 
 == 0.1.292 ==
 * Adds partial source-language fragment detection so copied English sentence middles cannot pass translation QA inside otherwise localized copy.
