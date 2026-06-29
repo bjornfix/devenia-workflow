@@ -122,6 +122,18 @@
       "minimum_issue_count": 1
     },
     {
+      "id": "vi-partial-source-sentence-carryover-should-fail",
+      "language": "vi",
+      "description": "Vietnamese QA must fail when an English source sentence middle is left inside otherwise Vietnamese body copy.",
+      "source_content": "<!-- wp:paragraph --><p>Paid services start when the relevant checkout, written order, proposal, or invoice is accepted. The scope is limited to what was ordered or agreed in writing. If the work needs more access, more information, or a different scope than expected, we may pause and ask for confirmation before continuing.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>Dịch vụ trả phí start when the relevant checkout, written order, proposal, or invoice is accepted. The scope is limited to what was ordered or agreed in writing. If the work needs more access, more information, or a different scope than expected, we may pause and ask for confirmation before continuing.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "source_language_partial_fragment_carryover"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
       "id": "de-source-carryover-content-loanword-should-fail",
       "language": "de",
       "description": "German should prefer local words such as Inhalte when they cover the meaning; English loanwords like Content should still be flagged unless explicitly preserved.",

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.291
+ * Version: 0.1.292
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.291';
+	const VERSION = '0.1.292';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -18853,7 +18853,10 @@ final class Devenia_AI_Translations {
 
 		$candidates = self::source_language_carryover_candidates( $source_content, $language, $source_id );
 		$fragments  = self::text_fragments_for_copy_quality( $content );
-		$fragment_issues = self::source_language_carryover_fragment_issues( $content, $source_content, $language );
+		$fragment_issues = array_merge(
+			self::source_language_carryover_fragment_issues( $content, $source_content, $language ),
+			self::source_language_carryover_partial_fragment_issues( $content, $source_content, $language )
+		);
 		$issues = array_merge( $issues, $fragment_issues );
 		foreach ( $fragments as $fragment ) {
 			$text = (string) $fragment['text'];
@@ -18956,7 +18959,7 @@ final class Devenia_AI_Translations {
 						'language' => $language,
 						'text'     => (string) $target_fragment['text'],
 						'block'    => (string) $target_fragment['block'],
-						'unique_id'=> (string) $target_fragment['unique_id'],
+						'unique_id' => (string) $target_fragment['unique_id'],
 						'source_block' => $source_fragment['block'],
 						'source_unique_id' => $source_fragment['unique_id'],
 						'source_text' => $source_fragment['raw_text'],
@@ -18970,6 +18973,122 @@ final class Devenia_AI_Translations {
 		}
 
 		return $issues;
+	}
+
+	/**
+	 * Detect copied source-language sentence middles embedded inside local copy.
+	 *
+	 * Whole-fragment matching catches fully copied paragraphs. This catches the
+	 * common failure where only the first words were translated and the rest of
+	 * an English source sentence was left inside an otherwise local paragraph.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function source_language_carryover_partial_fragment_issues( string $content, string $source_content, string $language ): array {
+		$issues = array();
+		if ( '' === trim( $source_content ) || '' === trim( $content ) || '' === $language || ! self::is_translation_language( $language ) ) {
+			return $issues;
+		}
+
+		$source_fragments = self::text_fragments_for_copy_quality( $source_content );
+		$target_fragments = self::text_fragments_for_copy_quality( $content );
+		if ( empty( $source_fragments ) || empty( $target_fragments ) ) {
+			return $issues;
+		}
+
+		$source_sequences = array();
+		foreach ( $source_fragments as $fragment ) {
+			foreach ( self::source_language_word_sequences( (string) $fragment['text'] ) as $sequence ) {
+				if ( self::unicode_letter_count( $sequence ) < 45 ) {
+					continue;
+				}
+				$source_sequences[ $sequence ] = array(
+					'text'      => $sequence,
+					'raw_text'  => (string) $fragment['text'],
+					'block'     => (string) $fragment['block'],
+					'unique_id' => (string) $fragment['unique_id'],
+				);
+			}
+		}
+
+		if ( empty( $source_sequences ) ) {
+			return $issues;
+		}
+
+		$reported = array();
+		foreach ( $target_fragments as $target_fragment ) {
+			$target_text = self::source_language_fragment_key( (string) $target_fragment['text'] );
+			if ( self::source_language_fragment_is_too_short( $target_text ) ) {
+				continue;
+			}
+
+			foreach ( $source_sequences as $source_sequence ) {
+				if ( false === self::review_text_position( $target_text, $source_sequence['text'] ) ) {
+					continue;
+				}
+				$report_key = md5( $target_text . "\n" . $source_sequence['text'] );
+				if ( isset( $reported[ $report_key ] ) ) {
+					continue;
+				}
+				$reported[ $report_key ] = true;
+
+				$issues[] = self::qa_item(
+					'source_language_partial_fragment_carryover',
+					'Translation contains a long visible source-language word sequence copied from the source.',
+					array(
+						'language' => $language,
+						'text'     => (string) $target_fragment['text'],
+						'block'    => (string) $target_fragment['block'],
+						'unique_id' => (string) $target_fragment['unique_id'],
+						'source_block' => $source_sequence['block'],
+						'source_unique_id' => $source_sequence['unique_id'],
+						'source_text' => $source_sequence['raw_text'],
+						'matched_sequence' => $source_sequence['text'],
+					)
+				);
+
+				if ( count( $issues ) >= 10 ) {
+					return $issues;
+				}
+			}
+		}
+
+		return $issues;
+	}
+
+	/**
+	 * Build normalized source-language word sequences from a visible text unit.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function source_language_word_sequences( string $text, int $window = 8 ): array {
+		$key = self::source_language_fragment_key( $text );
+		if ( '' === $key ) {
+			return array();
+		}
+		if ( ! preg_match_all( '/[a-z][a-z0-9\'-]*/i', $key, $matches ) ) {
+			return array();
+		}
+
+		$words = array_values(
+			array_filter(
+				array_map( 'strtolower', $matches[0] ),
+				static function ( string $word ): bool {
+					return strlen( $word ) >= 2;
+				}
+			)
+		);
+		if ( count( $words ) < $window ) {
+			return array();
+		}
+
+		$sequences = array();
+		$limit     = count( $words ) - $window;
+		for ( $i = 0; $i <= $limit; $i++ ) {
+			$sequences[] = implode( ' ', array_slice( $words, $i, $window ) );
+		}
+
+		return array_values( array_unique( $sequences ) );
 	}
 
 	private static function source_language_fragment_key( string $text ): string {
