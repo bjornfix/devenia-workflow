@@ -572,6 +572,17 @@
       }
     },
     {
+      "id": "nb-rankmath-faq-escaped-link-markup-should-fail",
+      "language": "nb",
+      "description": "Norwegian QA must fail when Rank Math FAQ answers contain escaped HTML link markup as visible text.",
+      "content": "<!-- wp:rank-math/faq-block {\"questions\":[{\"id\":\"faq-one\",\"title\":\"Hva betyr mest i SEO?\",\"content\":\"Nyttig innhold, teknisk tilgjengelighet og tillit i form av lenker. Se u003ca href=’https://devenia.com/learn/dictionary/seo-factors/’u003eSEO-faktoreru003c/au003e for en grundigere forklaring.\",\"visible\":true}]} --><div class=\"wp-block-rank-math-faq-block rank-math-block\"><div class=\"rank-math-list\"><div id=\"faq-one\" class=\"rank-math-list-item\"><h3 class=\"rank-math-question\">Hva betyr mest i SEO?</h3><div class=\"rank-math-answer\">Nyttig innhold, teknisk tilgjengelighet og tillit i form av lenker. Se u003ca href=’https://devenia.com/learn/dictionary/seo-factors/’u003eSEO-faktoreru003c/au003e for en grundigere forklaring.</div></div></div></div><!-- /wp:rank-math/faq-block -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "escaped_html_markup_literal"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
       "id": "sv-valid-orthography-control",
       "language": "sv",
       "description": "A short Swedish control with correct local characters should not fail the orthography regression corpus.",

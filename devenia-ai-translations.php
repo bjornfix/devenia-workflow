@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.319
+ * Version: 0.1.321
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.319';
+	const VERSION = '0.1.321';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -11041,7 +11041,13 @@ final class Devenia_AI_Translations {
 		$content    = self::localize_internal_links_in_content( $content, $language );
 		$content    = self::normalize_gutenberg_content_for_storage( $content );
 		$excerpt    = isset( $input['excerpt'] ) ? sanitize_textarea_field( (string) $input['excerpt'] ) : '';
-		$guardrails = self::translation_guardrails( $content, (string) $source->post_content, $language, $title, $excerpt, $source_id );
+		$guardrails = self::translation_guardrails(
+			$content,
+			(string) $source->post_content,
+			$title,
+			$excerpt,
+			self::translation_fitness_context( $language, $source_id )
+		);
 		if ( ! empty( $guardrails['issues'] ) ) {
 			return array(
 				'success'    => false,
@@ -23480,6 +23486,13 @@ final class Devenia_AI_Translations {
 
 		if ( false !== strpos( $content, '&amp;amp;' ) ) {
 			$issues[] = self::qa_item( 'double_escaped_html_entity', 'Content contains double-escaped HTML entities such as &amp;amp;.', array( 'entity' => '&amp;amp;' ) );
+		}
+		if ( preg_match( '/(?:\\\\u003c|\\\\u003e|(?<![A-Za-z0-9])u003c|(?<![A-Za-z0-9])u003e)/i', $content, $match ) ) {
+			$issues[] = self::qa_item(
+				'escaped_html_markup_literal',
+				'Content contains escaped HTML markup such as u003c or \\u003c. Decode it into real block markup or plain text before saving.',
+				array( 'token' => $match[0] )
+			);
 		}
 		if ( preg_match( '/<!--\s+wp:html\b/', $content ) ) {
 			$issues[] = self::qa_item( 'custom_html_block', 'Custom HTML blocks are not allowed in translated pages.' );

@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.319
+**Stable tag:** 0.1.321
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -197,6 +197,14 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.321
+
+- Adds a Gutenberg guardrail that blocks escaped HTML markup literals such as u003c and \u003c before they can be saved as visible text.
+
+### 0.1.320
+
+- Fixes translated post/page creation after the translation-fitness interface consolidation by passing guardrail context through the current array-based signature.
 
 ### 0.1.319
 

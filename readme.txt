@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.319
+Stable tag: 0.1.321
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,12 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.321 =
+* Adds a Gutenberg guardrail that blocks escaped HTML markup literals such as u003c and \u003c before they can be saved as visible text.
+
+= 0.1.320 =
+* Fixes translated post/page creation after the translation-fitness interface consolidation by passing guardrail context through the current array-based signature.
 
 = 0.1.319 =
 * Deepens the translation-fitness scan architecture by splitting filters, index health, ID selection, item evaluation, and response shaping behind the same public scan interface.
