@@ -30,12 +30,31 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		add_filter( 'rank_math/opengraph/type', array( __CLASS__, 'filter_translated_posts_page_opengraph_type' ), 20 );
 		add_filter( 'rank_math/frontend/canonical', array( __CLASS__, 'filter_translated_posts_page_canonical' ), 20 );
 		add_filter( 'rank_math/frontend/title', array( __CLASS__, 'filter_translated_posts_page_seo_title' ), 20 );
+		add_filter( 'rank_math/opengraph/facebook/title', array( __CLASS__, 'filter_translated_posts_page_seo_title' ), 20 );
+		add_filter( 'rank_math/opengraph/twitter/title', array( __CLASS__, 'filter_translated_posts_page_seo_title' ), 20 );
 		add_filter( 'rank_math/frontend/description', array( __CLASS__, 'filter_translated_posts_page_seo_description' ), 20 );
+		add_filter( 'rank_math/opengraph/facebook/description', array( __CLASS__, 'filter_translated_posts_page_seo_description' ), 20 );
+		add_filter( 'rank_math/opengraph/twitter/description', array( __CLASS__, 'filter_translated_posts_page_seo_description' ), 20 );
+		add_filter( 'rank_math/frontend/title', array( __CLASS__, 'filter_author_archive_seo_title' ), 20 );
+		add_filter( 'rank_math/opengraph/facebook/title', array( __CLASS__, 'filter_author_archive_seo_title' ), 20 );
+		add_filter( 'rank_math/opengraph/twitter/title', array( __CLASS__, 'filter_author_archive_seo_title' ), 20 );
+		add_filter( 'rank_math/frontend/description', array( __CLASS__, 'filter_author_archive_seo_description' ), 20 );
+		add_filter( 'rank_math/opengraph/facebook/description', array( __CLASS__, 'filter_author_archive_seo_description' ), 20 );
+		add_filter( 'rank_math/opengraph/twitter/description', array( __CLASS__, 'filter_author_archive_seo_description' ), 20 );
 		add_filter( 'rank_math/json_ld', array( __CLASS__, 'filter_translated_posts_page_json_ld' ), 99, 2 );
+		add_action( 'ai_translation_workflow_flush_sitemap_cache', array( __CLASS__, 'flush_sitemap_cache' ) );
+		add_filter( 'ai_translation_workflow_title_template_option_name', array( __CLASS__, 'title_template_option_name' ), 10, 2 );
 		add_filter( 'ai_translation_workflow_sync_seo_meta', array( __CLASS__, 'sync_seo_meta' ), 10, 4 );
 		add_filter( 'ai_translation_workflow_seo_meta_state', array( __CLASS__, 'seo_meta_state' ), 10, 2 );
 		add_filter( 'ai_translation_workflow_route_integrity_issues', array( __CLASS__, 'route_integrity_issues' ), 10, 4 );
 		add_filter( 'ai_translation_workflow_repair_translation_self_redirects', array( __CLASS__, 'repair_translation_self_redirects' ), 10, 3 );
+	}
+
+	/**
+	 * Provide the Rank Math title-template option for generic workflow title rendering.
+	 */
+	public static function title_template_option_name( string $option_name, string $template_key ): string {
+		return '' !== $template_key ? 'rank-math-options-titles' : $option_name;
 	}
 
 	public static function filter_translated_posts_page_opengraph_type( string $type ): string {
@@ -61,8 +80,14 @@ final class AI_Translation_Workflow_RankMath_Addon {
 			$post_title = __( 'Blog', 'devenia-ai-translations' );
 		}
 
-		$site_name = trim( wp_strip_all_tags( get_bloginfo( 'name' ) ) );
-		return '' === $site_name ? $post_title : sprintf( '%s | %s', $post_title, $site_name );
+		return Devenia_AI_Translations::title_from_template_option(
+			'rank-math-options-titles',
+			'pt_page_title',
+			array(
+				'title' => $post_title,
+			),
+			$post_title
+		);
 	}
 
 	public static function filter_translated_posts_page_seo_description( string $description ): string {
@@ -72,6 +97,49 @@ final class AI_Translation_Workflow_RankMath_Addon {
 
 		$runtime_description = Devenia_AI_Translations::translated_posts_page_meta_description( Devenia_AI_Translations::frontend_language() );
 		return '' !== $runtime_description ? $runtime_description : $description;
+	}
+
+	/**
+	 * Use runtime author archive data for Rank Math title surfaces.
+	 *
+	 * @param mixed $title Existing SEO title.
+	 * @return mixed
+	 */
+	public static function filter_author_archive_seo_title( $title ) {
+		$base_title = Devenia_AI_Translations::current_author_archive_title( false );
+		if ( '' === $base_title ) {
+			return $title;
+		}
+
+		$seo_title = Devenia_AI_Translations::title_from_template_option(
+			'rank-math-options-titles',
+			'author_archive_title',
+			array(
+				'name'  => $base_title,
+				'title' => $base_title,
+			),
+			$base_title
+		);
+
+		return '' !== trim( $seo_title ) ? $seo_title : $title;
+	}
+
+	/**
+	 * Use runtime author archive data for Rank Math description surfaces.
+	 */
+	public static function filter_author_archive_seo_description( string $description ): string {
+		$localized_description = Devenia_AI_Translations::current_author_archive_meta_description();
+
+		return '' !== $localized_description ? $localized_description : $description;
+	}
+
+	/**
+	 * Invalidate Rank Math sitemap cache after translation publishes.
+	 */
+	public static function flush_sitemap_cache(): void {
+		if ( class_exists( '\RankMath\Sitemap\Cache' ) && method_exists( '\RankMath\Sitemap\Cache', 'invalidate_storage' ) ) {
+			\RankMath\Sitemap\Cache::invalidate_storage();
+		}
 	}
 
 	/**

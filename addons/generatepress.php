@@ -30,6 +30,7 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 		add_action( 'generate_menu_bar_items', array( 'Devenia_AI_Translations', 'render_mobile_language_menu_bar_item' ), 18 );
 		add_filter( 'generate_logo_href', array( 'Devenia_AI_Translations', 'filter_logo_home_href' ), 20 );
 		add_filter( 'generate_site_title_href', array( 'Devenia_AI_Translations', 'filter_logo_home_href' ), 20 );
+		add_filter( 'generate_excerpt_more_output', array( 'Devenia_AI_Translations', 'localize_read_more_output' ), 20 );
 		add_filter( 'ai_translation_workflow_sync_source_presentation_meta', array( __CLASS__, 'sync_source_presentation_meta' ), 10, 3 );
 		add_action( 'wp_enqueue_scripts', array( 'Devenia_AI_Translations', 'enqueue_rtl_layout_styles' ), 22 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_styles' ), 24 );

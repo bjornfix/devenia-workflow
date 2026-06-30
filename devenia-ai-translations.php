@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.294
+ * Version: 0.1.310
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.294';
+	const VERSION = '0.1.310';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -23,6 +23,10 @@ final class Devenia_AI_Translations {
 	const OPTION_TRANSLATION_INDEX_SCHEMA = 'devenia_ai_translations_index_schema';
 	const OPTION_FRONTEND_SLOW_LOG = 'devenia_ai_translations_frontend_slow_log';
 	const OPTION_REVIEWER_STYLE_PROFILES = 'devenia_ai_translations_reviewer_style_profiles';
+	const OPTION_AUTHOR_ARCHIVES = 'devenia_ai_translations_author_archives';
+	const OPTION_TRANSLATION_CLAIM_PREFIX = 'devenia_ai_translation_claim_';
+	const DEFAULT_TRANSLATION_CLAIM_TTL = 1800;
+	const MAX_TRANSLATION_CLAIM_TTL = 14400;
 	const TRANSLATION_INDEX_SCHEMA_VERSION = '2';
 	const OPTION_LANGUAGE_RULE_EVENTS_SCHEMA = 'devenia_ai_translations_rule_events_schema';
 	const LANGUAGE_RULE_EVENTS_SCHEMA_VERSION = '1';
@@ -106,6 +110,11 @@ final class Devenia_AI_Translations {
 		add_filter( 'ai_translation_workflow_language_codes', array( __CLASS__, 'filter_runtime_language_codes' ) );
 		add_filter( 'ai_translation_workflow_runtime_text', array( __CLASS__, 'filter_runtime_text_value' ), 10, 5 );
 		add_filter( 'query_vars', array( __CLASS__, 'register_translation_query_vars' ) );
+		add_filter( 'devenia_site_presentation_author_archive_context', array( __CLASS__, 'filter_author_archive_context' ), 10, 2 );
+		add_filter( 'devenia_site_presentation_single_post_context', array( __CLASS__, 'filter_site_presentation_single_post_context' ), 10, 2 );
+		add_filter( 'document_title_parts', array( __CLASS__, 'filter_author_archive_document_title_parts' ), 20 );
+		add_filter( 'pre_get_document_title', array( __CLASS__, 'filter_author_archive_document_title' ), 20 );
+		add_filter( 'the_content_more_link', array( __CLASS__, 'localize_read_more_output' ), 20 );
 		add_filter( 'post_link', array( __CLASS__, 'filter_translated_post_link' ), 20, 2 );
 		add_filter( 'term_link', array( __CLASS__, 'filter_translated_term_link' ), 20, 3 );
 		add_filter( 'previous_post_link', array( __CLASS__, 'filter_adjacent_post_link_for_translation' ), 20, 5 );
@@ -143,6 +152,7 @@ final class Devenia_AI_Translations {
 		add_filter( 'manage_page_posts_columns', array( __CLASS__, 'add_admin_columns' ) );
 		add_action( 'manage_page_posts_custom_column', array( __CLASS__, 'render_admin_column' ), 10, 2 );
 		add_action( 'restrict_manage_posts', array( __CLASS__, 'render_admin_filters' ) );
+		add_action( 'pre_get_posts', array( __CLASS__, 'filter_localized_author_archive_query' ), 15 );
 		add_action( 'pre_get_posts', array( __CLASS__, 'filter_source_blog_archive_query' ), 20 );
 		add_action( 'pre_get_posts', array( __CLASS__, 'apply_admin_filters' ) );
 	}
@@ -365,6 +375,10 @@ final class Devenia_AI_Translations {
 	 */
 	public static function register_translation_query_vars( array $vars ): array {
 		$vars[] = 'devenia_translation_post';
+		$vars[] = 'devenia_author_archive_language';
+		$vars[] = 'devenia_author_archive_author_id';
+		$vars[] = 'devenia_translated_term_language';
+		$vars[] = 'devenia_translated_term_id';
 		return array_values( array_unique( $vars ) );
 	}
 
@@ -437,15 +451,29 @@ final class Devenia_AI_Translations {
 		}
 
 		$path = '/' . trim( (string) $wp->request, '/' ) . '/';
+		$author_match = self::translated_author_archive_request_for_path( $path );
+		if ( ! empty( $author_match ) ) {
+			$wp->query_vars = array(
+				'author_name'                     => (string) $author_match['user_nicename'],
+				'devenia_author_archive_language' => (string) $author_match['language'],
+				'devenia_author_archive_author_id' => absint( $author_match['author_id'] ),
+			);
+			return;
+		}
+
 		$term_match = self::translated_term_request_for_path( $path );
 		if ( ! empty( $term_match ) ) {
 			if ( 'post_tag' === $term_match['taxonomy'] ) {
 				$wp->query_vars = array(
-					'tag' => (string) $term_match['slug'],
+					'tag'                              => (string) $term_match['slug'],
+					'devenia_translated_term_language' => (string) $term_match['language'],
+					'devenia_translated_term_id'       => absint( $term_match['term_id'] ),
 				);
 			} else {
 				$wp->query_vars = array(
-					'category_name' => (string) $term_match['slug'],
+					'category_name'                    => (string) $term_match['slug'],
+					'devenia_translated_term_language' => (string) $term_match['language'],
+					'devenia_translated_term_id'       => absint( $term_match['term_id'] ),
 				);
 			}
 			return;
@@ -510,11 +538,402 @@ final class Devenia_AI_Translations {
 					'taxonomy' => $taxonomy,
 					'slug'     => (string) $term->slug,
 					'term_id'  => (int) $term->term_id,
+					'language' => (string) $language,
 				);
 			}
 		}
 
 		return array();
+	}
+
+	/**
+	 * Match a localized author archive path to a native WordPress author query.
+	 *
+	 * Author archive translations are runtime WordPress data, not packaged
+	 * language-file values. The plugin only owns routing and lookup.
+	 *
+	 * @return array{language:string,author_id:int,user_nicename:string}|array<string,mixed>
+	 */
+	private static function translated_author_archive_request_for_path( string $path ): array {
+		$clean_path = trim( $path, '/' );
+		if ( '' === $clean_path ) {
+			return array();
+		}
+
+		foreach ( self::author_archive_registry() as $author_id => $translations ) {
+			foreach ( $translations as $language => $translation ) {
+				if ( empty( $translation['path'] ) || 'published' !== (string) ( $translation['status'] ?? '' ) ) {
+					continue;
+				}
+
+				if ( trim( (string) $translation['path'], '/' ) !== $clean_path ) {
+					continue;
+				}
+
+				$user = get_user_by( 'id', (int) $author_id );
+				if ( ! $user instanceof WP_User ) {
+					continue;
+				}
+
+				return array(
+					'language'      => sanitize_key( (string) $language ),
+					'author_id'     => (int) $author_id,
+					'user_nicename' => (string) $user->user_nicename,
+				);
+			}
+		}
+
+		return array();
+	}
+
+	/**
+	 * Author archive runtime registry.
+	 *
+	 * @return array<int,array<string,array<string,mixed>>>
+	 */
+	private static function author_archive_registry(): array {
+		$registry = get_option( self::OPTION_AUTHOR_ARCHIVES, array() );
+		if ( ! is_array( $registry ) ) {
+			return array();
+		}
+
+		$clean = array();
+		foreach ( $registry as $author_id => $translations ) {
+			$author_id = absint( $author_id );
+			if ( ! $author_id || ! is_array( $translations ) ) {
+				continue;
+			}
+
+			foreach ( $translations as $language => $translation ) {
+				$language = sanitize_key( (string) $language );
+				if ( ! self::is_translation_language( $language ) || ! is_array( $translation ) ) {
+					continue;
+				}
+
+				$clean[ $author_id ][ $language ] = self::sanitize_author_archive_translation( $translation );
+			}
+		}
+
+		return $clean;
+	}
+
+	/**
+	 * Sanitize one author archive translation record from runtime storage/input.
+	 *
+	 * @param array<string,mixed> $translation Raw translation.
+	 * @return array<string,mixed>
+	 */
+	private static function sanitize_author_archive_translation( array $translation ): array {
+		$status = sanitize_key( (string) ( $translation['status'] ?? 'draft' ) );
+		if ( ! in_array( $status, array( 'draft', 'needs_review', 'reviewed', 'published' ), true ) ) {
+			$status = 'draft';
+		}
+
+		return array(
+			'status'       => $status,
+			'path'         => trim( sanitize_text_field( (string) ( $translation['path'] ?? '' ) ), '/' ),
+			'name'         => sanitize_text_field( (string) ( $translation['name'] ?? '' ) ),
+			'description'  => wp_kses_post( (string) ( $translation['description'] ?? '' ) ),
+			'kicker'       => sanitize_text_field( (string) ( $translation['kicker'] ?? '' ) ),
+			'title'        => sanitize_text_field( (string) ( $translation['title'] ?? '' ) ),
+			'button_label' => sanitize_text_field( (string) ( $translation['button_label'] ?? '' ) ),
+			'button_url'   => esc_url_raw( (string) ( $translation['button_url'] ?? '' ) ),
+			'note'         => sanitize_text_field( (string) ( $translation['note'] ?? '' ) ),
+			'cta_kicker'   => sanitize_text_field( (string) ( $translation['cta_kicker'] ?? '' ) ),
+			'cta_title'    => sanitize_text_field( (string) ( $translation['cta_title'] ?? '' ) ),
+			'cta_text'     => wp_kses_post( (string) ( $translation['cta_text'] ?? '' ) ),
+			'cta_button_label' => sanitize_text_field( (string) ( $translation['cta_button_label'] ?? '' ) ),
+			'cta_button_url' => esc_url_raw( (string) ( $translation['cta_button_url'] ?? '' ) ),
+			'source_hash'  => sanitize_text_field( (string) ( $translation['source_hash'] ?? '' ) ),
+			'updated_at'   => sanitize_text_field( (string) ( $translation['updated_at'] ?? '' ) ),
+		);
+	}
+
+	/**
+	 * Let the Devenia presentation adapter render localized author archive copy.
+	 *
+	 * @param mixed   $context Existing presentation context.
+	 * @param WP_User $author  Author being rendered.
+	 * @return mixed
+	 */
+	public static function filter_author_archive_context( $context, $author ) {
+		if ( ! is_array( $context ) || ! $author instanceof WP_User ) {
+			return $context;
+		}
+
+		$language = self::frontend_language();
+		if ( ! self::is_translation_language( $language ) ) {
+			return $context;
+		}
+
+		$registry = self::author_archive_registry();
+		$record   = $registry[ (int) $author->ID ][ $language ] ?? array();
+		if ( empty( $record ) || 'published' !== (string) ( $record['status'] ?? '' ) ) {
+			return $context;
+		}
+
+		foreach ( array( 'name', 'description', 'kicker', 'title', 'button_label', 'button_url', 'note', 'cta_kicker', 'cta_title', 'cta_text', 'cta_button_label', 'cta_button_url' ) as $key ) {
+			if ( isset( $record[ $key ] ) && '' !== trim( (string) $record[ $key ] ) ) {
+				$context[ $key ] = $record[ $key ];
+			}
+		}
+
+		$languages = self::languages();
+		$context['language'] = $language;
+		$context['dir']      = isset( $languages[ $language ]['direction'] ) && 'rtl' === (string) $languages[ $language ]['direction'] ? 'rtl' : 'ltr';
+		$context['url']      = self::author_archive_url( (int) $author->ID, $language );
+
+		return $context;
+	}
+
+	/**
+	 * Localize single post hero metadata rendered by Devenia Site Presentation.
+	 *
+	 * @param mixed   $context Existing presentation context.
+	 * @param WP_Post $post    Post being rendered.
+	 * @return mixed
+	 */
+	public static function filter_site_presentation_single_post_context( $context, $post ) {
+		if ( ! is_array( $context ) || ! $post instanceof WP_Post || 'post' !== (string) $post->post_type ) {
+			return $context;
+		}
+
+		$language = self::frontend_language();
+		$surface  = self::frontend_surface( (int) $post->ID );
+		if ( isset( $surface['language'] ) && '' !== (string) $surface['language'] ) {
+			$language = sanitize_key( (string) $surface['language'] );
+		}
+
+		$languages           = self::languages();
+		$context['language'] = $language;
+		$context['dir']      = isset( $languages[ $language ]['direction'] ) && 'rtl' === (string) $languages[ $language ]['direction'] ? 'rtl' : 'ltr';
+		$context['meta']     = self::site_presentation_single_post_meta_markup( $post, $language );
+
+		return $context;
+	}
+
+	/**
+	 * Build localized post hero metadata from runtime language data.
+	 */
+	private static function site_presentation_single_post_meta_markup( WP_Post $post, string $language ): string {
+		$language  = sanitize_key( $language );
+		$parts     = array();
+		$author_id = (int) $post->post_author;
+		$author    = trim( (string) get_the_author_meta( 'display_name', $author_id ) );
+		$author    = '' !== $author ? $author : trim( (string) get_the_author_meta( 'user_login', $author_id ) );
+
+		if ( '' !== $author ) {
+			$author_name = self::localized_author_display_name( $author_id, $language, $author );
+			$author_url  = self::author_archive_url( $author_id, $language );
+			$parts[]     = '' !== $author_url
+				? sprintf( '<a href="%1$s">%2$s</a>', esc_url( $author_url ), esc_html( $author_name ) )
+				: esc_html( $author_name );
+		}
+
+		$modified_timestamp = absint( get_post_modified_time( 'U', false, $post ) );
+		if ( $modified_timestamp ) {
+			$date_label = trim( self::runtime_text_value( $language, 'blog_archive_text', 'updated_label', '' ) );
+			$date_text  = self::translated_posts_page_date_label( $modified_timestamp, $language );
+			$datetime   = get_post_modified_time( 'c', false, $post );
+			if ( '' === $date_text ) {
+				$date_text = get_the_modified_date( '', $post );
+			}
+			if ( '' !== $date_text ) {
+				$parts[] = sprintf(
+					'%1$s<time class="updated" datetime="%2$s" itemprop="dateModified">%3$s</time>',
+					'' !== $date_label ? '<span class="devenia-post-presentation__date-label">' . esc_html( $date_label ) . '</span> ' : '',
+					esc_attr( $datetime ),
+					esc_html( $date_text )
+				);
+			}
+		}
+
+		return implode( ' <span aria-hidden="true">/</span> ', $parts );
+	}
+
+	/**
+	 * Use runtime author archive data for translated author document titles.
+	 */
+	public static function filter_author_archive_document_title( string $title ): string {
+		$seo_title = self::current_author_archive_title();
+
+		return '' !== $seo_title ? $seo_title : $title;
+	}
+
+	/**
+	 * Use runtime author archive data for document title parts.
+	 *
+	 * @param array<string,string> $parts Document title parts.
+	 * @return array<string,string>
+	 */
+	public static function filter_author_archive_document_title_parts( array $parts ): array {
+		$seo_title = self::current_author_archive_title( false );
+		if ( '' === $seo_title ) {
+			return $parts;
+		}
+
+		$parts['title'] = $seo_title;
+		unset( $parts['tagline'] );
+
+		return $parts;
+	}
+
+	/**
+	 * Render a title template with localized runtime values.
+	 *
+	 * @param string               $option_name  Optional WordPress option containing title templates.
+	 * @param string               $template_key Option key.
+	 * @param array<string,string> $values       Token values, with or without percent markers.
+	 * @param string               $fallback     Localized fallback title when no template is configured.
+	 */
+	public static function title_from_template_option( string $option_name, string $template_key, array $values, string $fallback ): string {
+		$options  = '' !== $option_name ? get_option( $option_name, array() ) : array();
+		$template = is_array( $options ) && '' !== $template_key ? trim( (string) ( $options[ $template_key ] ?? '' ) ) : '';
+		if ( '' === $template ) {
+			$template = '%title% %sep% %sitename%';
+		}
+
+		$tokens = array(
+			'%sep%'      => self::title_separator_from_option( $option_name ),
+			'%sitename%' => wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ),
+			'%page%'     => '',
+		);
+
+		foreach ( $values as $key => $value ) {
+			$token            = '%' . trim( (string) $key, '%' ) . '%';
+			$tokens[ $token ] = trim( wp_strip_all_tags( (string) $value ) );
+		}
+		if ( empty( $tokens['%title%'] ) ) {
+			$tokens['%title%'] = trim( wp_strip_all_tags( $fallback ) );
+		}
+
+		$title = strtr( $template, $tokens );
+		$title = self::normalize_rendered_title( $title, $tokens['%sep%'] );
+
+		return '' !== $title ? $title : trim( wp_strip_all_tags( $fallback ) );
+	}
+
+	/**
+	 * Title separator from a template option, falling back to WordPress' default.
+	 */
+	public static function title_separator_from_option( string $option_name = '' ): string {
+		$options   = '' !== $option_name ? get_option( $option_name, array() ) : array();
+		$separator = is_array( $options ) ? trim( (string) ( $options['title_separator'] ?? '' ) ) : '';
+
+		return '' !== $separator ? $separator : '|';
+	}
+
+	/**
+	 * Remove empty placeholder gaps and duplicate separators from a rendered title.
+	 */
+	private static function normalize_rendered_title( string $title, string $separator ): string {
+		$title = html_entity_decode( wp_strip_all_tags( $title ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' );
+		$title = trim( preg_replace( '/\s+/', ' ', $title ) ?? $title );
+
+		if ( '' !== $separator ) {
+			$quoted = preg_quote( $separator, '/' );
+			$title  = preg_replace( '/\s*' . $quoted . '\s*(?:' . $quoted . '\s*)+/', ' ' . $separator . ' ', $title ) ?? $title;
+			$title  = preg_replace( '/^(?:\s*' . $quoted . '\s*)+/', '', $title ) ?? $title;
+			$title  = preg_replace( '/(?:\s*' . $quoted . '\s*)+$/', '', $title ) ?? $title;
+			$title  = trim( preg_replace( '/\s+/', ' ', $title ) ?? $title );
+		}
+
+		return $title;
+	}
+
+	/**
+	 * Runtime meta description for the current author archive request.
+	 */
+	public static function current_author_archive_meta_description(): string {
+		if ( ! is_author() || is_admin() || ! self::is_frontend_runtime_request() ) {
+			return '';
+		}
+
+		$author = get_queried_object();
+		if ( ! $author instanceof WP_User ) {
+			$author_id = absint( get_query_var( 'author' ) );
+			if ( ! $author_id ) {
+				$author_id = absint( get_query_var( 'devenia_author_archive_author_id' ) );
+			}
+			$author = $author_id ? get_user_by( 'id', $author_id ) : null;
+		}
+		if ( ! $author instanceof WP_User ) {
+			return '';
+		}
+
+		$language = self::frontend_language();
+		$record   = self::author_archive_registry()[ (int) $author->ID ][ $language ] ?? array();
+		if ( 'en' !== $language && ( empty( $record ) || 'published' !== (string) ( $record['status'] ?? '' ) ) ) {
+			return '';
+		}
+
+		$description = trim( wp_strip_all_tags( (string) ( $record['description'] ?? '' ) ) );
+		if ( '' === $description && 'en' === $language ) {
+			$description = trim( wp_strip_all_tags( (string) get_the_author_meta( 'description', (int) $author->ID ) ) );
+		}
+
+		return self::trim_meta_description( $description );
+	}
+
+	/**
+	 * Runtime title for the current author archive request.
+	 */
+	public static function current_author_archive_title( bool $include_site_name = true ): string {
+		if ( ! is_author() || is_admin() || ! self::is_frontend_runtime_request() ) {
+			return '';
+		}
+
+		$author = get_queried_object();
+		if ( ! $author instanceof WP_User ) {
+			$author_id = absint( get_query_var( 'author' ) );
+			if ( ! $author_id ) {
+				$author_id = absint( get_query_var( 'devenia_author_archive_author_id' ) );
+			}
+			$author    = $author_id ? get_user_by( 'id', $author_id ) : null;
+		}
+		if ( ! $author instanceof WP_User ) {
+			return '';
+		}
+
+		$language = self::frontend_language();
+		$record   = self::author_archive_registry()[ (int) $author->ID ][ $language ] ?? array();
+		if ( 'en' !== $language && ( empty( $record ) || 'published' !== (string) ( $record['status'] ?? '' ) ) ) {
+			return '';
+		}
+
+		$name   = trim( (string) ( $record['name'] ?? '' ) );
+		$title  = trim( (string) ( $record['title'] ?? '' ) );
+		$kicker = trim( (string) ( $record['kicker'] ?? '' ) );
+		if ( '' === $name ) {
+			$name = trim( (string) $author->display_name );
+		}
+		if ( '' === $title ) {
+			$title = $name;
+		}
+
+		$base = $title;
+		if ( '' !== $name && 0 === strcasecmp( $title, $name ) && '' !== $kicker ) {
+			$base = trim( $kicker . ' ' . $name );
+		}
+		$base = trim( wp_strip_all_tags( $base ) );
+		if ( '' === $base ) {
+			return '';
+		}
+
+		if ( ! $include_site_name ) {
+			return $base;
+		}
+
+		$template_option = (string) apply_filters( 'ai_translation_workflow_title_template_option_name', '', 'author_archive_title' );
+		return self::title_from_template_option(
+			$template_option,
+			'author_archive_title',
+			array(
+				'name'  => $base,
+				'title' => $base,
+			),
+			$base
+		);
 	}
 
 	/**
@@ -6306,12 +6725,18 @@ final class Devenia_AI_Translations {
 			return self::mark_source_generation_reviewed( $input );
 		case 'get_source':
 			return self::get_source_payload( (int) ( $input['source_id'] ?? 0 ) );
+		case 'reserve_translation_work':
+			return self::reserve_translation_work( $input );
+		case 'release_translation_reservation':
+			return self::release_translation_reservation( $input );
+		case 'list_translation_reservations':
+			return self::list_translation_reservations( $input );
 		case 'upsert_page':
 			return self::upsert_translation( $input );
 		case 'list_translations':
 			return self::list_translations( $input );
 		case 'mark_reviewed':
-			return self::mark_reviewed( (int) ( $input['translation_id'] ?? 0 ), (string) ( $input['translation_status'] ?? '' ) );
+			return self::mark_reviewed( (int) ( $input['translation_id'] ?? 0 ), (string) ( $input['translation_status'] ?? '' ), (string) ( $input['claim_token'] ?? '' ) );
 		case 'qa_translation':
 			return self::qa_translation( $input );
 		case 'mark_linguistic_reviewed':
@@ -6326,6 +6751,10 @@ final class Devenia_AI_Translations {
 			return self::translation_queue( $input );
 		case 'review_queue':
 			return self::review_queue( $input );
+		case 'author_archive_queue':
+			return self::author_archive_queue( $input );
+		case 'update_author_archive_translation':
+			return self::update_author_archive_translation( $input );
 		case 'quality_review_queue':
 			return self::quality_review_queue( $input );
 		case 'quality_verdict':
@@ -6673,6 +7102,36 @@ final class Devenia_AI_Translations {
 				'execute_callback' => function ( $input ) {
 					return self::run_ability_operation( 'get_source', $input );
 				},
+			'meta'             => self::ability_meta( true, false, true ),
+			),
+			'ai-translations/reserve-work' => array(
+				'label'            => 'Reserve Translation Work',
+				'description'      => 'Claims one source/language translation row for a limited time so parallel AI agents do not work the same item at once.',
+				'input_schema'     => self::translation_reservation_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'reserve_translation_work', $input );
+				},
+				'meta'             => self::ability_meta( false, false, false ),
+			),
+			'ai-translations/release-reservation' => array(
+				'label'            => 'Release Translation Reservation',
+				'description'      => 'Releases an active source/language translation reservation after work is complete or abandoned.',
+				'input_schema'     => self::translation_reservation_release_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'release_translation_reservation', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
+			),
+			'ai-translations/list-reservations' => array(
+				'label'            => 'List Translation Reservations',
+				'description'      => 'Lists active translation work reservations, optionally filtered by source content and language.',
+				'input_schema'     => self::translation_reservation_list_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'list_translation_reservations', $input );
+				},
 				'meta'             => self::ability_meta( true, false, true ),
 			),
 			'ai-translations/upsert-page' => array(
@@ -6715,6 +7174,10 @@ final class Devenia_AI_Translations {
 						'translation_status' => array(
 							'type' => 'string',
 							'enum' => array( 'draft', 'needs_review', 'reviewed', 'stale' ),
+						),
+						'claim_token'        => array(
+							'type'        => 'string',
+							'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
 						),
 					),
 					'additionalProperties' => false,
@@ -6801,6 +7264,26 @@ final class Devenia_AI_Translations {
 					return self::run_ability_operation( 'review_queue', $input );
 				},
 				'meta'             => self::ability_meta( true, false, true ),
+			),
+			'ai-translations/author-archive-queue' => array(
+				'label'            => 'List Author Archive Translation Queue',
+				'description'      => 'Lists author archive surfaces whose visible author info, archive URL, and CTA text need runtime localization. Localized values are stored in WordPress data, not packaged language files.',
+				'input_schema'     => self::author_archive_queue_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'author_archive_queue', $input );
+				},
+				'meta'             => self::ability_meta( true, false, true ),
+			),
+			'ai-translations/update-author-archive-translation' => array(
+				'label'            => 'Update Author Archive Translation',
+				'description'      => 'Stores localized author archive path, author info, and presentation copy in WordPress runtime data for one author and language.',
+				'input_schema'     => self::author_archive_update_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'update_author_archive_translation', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
 			),
 			'ai-translations/quality-review-queue' => array(
 				'label'            => 'List Translation Quality Review Queue',
@@ -7655,8 +8138,97 @@ final class Devenia_AI_Translations {
 				),
 				'statuses'         => array(
 					'type'        => 'array',
-					'description' => 'Optional queue states to include: missing, stale, draft, needs_review, needs_linguistic_review, ready_to_publish, complete.',
+					'description' => 'Optional queue states to include: missing, stale, draft, needs_review, needs_linguistic_review, ready_to_publish, reserved, complete.',
 					'items'       => array( 'type' => 'string' ),
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for translation work reservations.
+	 */
+	private static function translation_reservation_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'source_id' ),
+			'properties'           => array(
+				'source_id'   => array(
+					'type'        => 'integer',
+					'description' => 'Original WordPress page or post ID to reserve translation work for.',
+				),
+				'language'    => array(
+					'type'        => 'string',
+					'description' => 'Single target language to reserve. Use languages for several languages.',
+				),
+				'languages'   => array(
+					'type'        => 'array',
+					'description' => 'Target languages to reserve. Defaults to all configured target languages when omitted.',
+					'items'       => array( 'type' => 'string' ),
+				),
+				'owner'       => array(
+					'type'        => 'string',
+					'description' => 'Human-readable owner, such as the agent/session name.',
+				),
+				'note'        => array( 'type' => 'string' ),
+				'ttl_seconds' => array(
+					'type'        => 'integer',
+					'default'     => self::DEFAULT_TRANSLATION_CLAIM_TTL,
+					'minimum'     => 60,
+					'maximum'     => self::MAX_TRANSLATION_CLAIM_TTL,
+					'description' => 'How long the reservation remains active before another worker may claim it.',
+				),
+				'force'       => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Replace an existing active reservation.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for releasing translation work reservations.
+	 */
+	private static function translation_reservation_release_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'source_id' ),
+			'properties'           => array(
+				'source_id'    => array( 'type' => 'integer' ),
+				'language'     => array( 'type' => 'string' ),
+				'languages'    => array(
+					'type'  => 'array',
+					'items' => array( 'type' => 'string' ),
+				),
+				'claim_token' => array(
+					'type'        => 'string',
+					'description' => 'Token returned by reserve-work. Required unless force is true.',
+				),
+				'force'       => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Release reservations without matching the claim token.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for listing translation work reservations.
+	 */
+	private static function translation_reservation_list_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'source_id'       => array( 'type' => 'integer' ),
+				'language'        => array( 'type' => 'string' ),
+				'include_expired' => array(
+					'type'    => 'boolean',
+					'default' => false,
 				),
 			),
 			'additionalProperties' => false,
@@ -7680,6 +8252,71 @@ final class Devenia_AI_Translations {
 					'minimum'     => 1,
 					'maximum'     => 500,
 					'description' => 'Maximum number of source pages to inspect when source_id is omitted.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for author archive localization queue.
+	 */
+	private static function author_archive_queue_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'author_id'        => array( 'type' => 'integer' ),
+				'limit'            => array(
+					'type'    => 'integer',
+					'default' => 50,
+					'minimum' => 1,
+					'maximum' => 200,
+				),
+				'include_complete' => array(
+					'type'    => 'boolean',
+					'default' => false,
+				),
+				'statuses'         => array(
+					'type'        => 'array',
+					'description' => 'Optional queue states to include: missing, stale, draft, needs_review, complete.',
+					'items'       => array( 'type' => 'string' ),
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for storing localized author archive runtime values.
+	 */
+	private static function author_archive_update_input_schema(): array {
+		$text_field = array( 'type' => 'string' );
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'author_id', 'language' ),
+			'properties'           => array(
+				'author_id'    => array( 'type' => 'integer' ),
+				'language'     => array( 'type' => 'string' ),
+				'status'       => array(
+					'type' => 'string',
+					'enum' => array( 'draft', 'needs_review', 'reviewed', 'published' ),
+				),
+				'path'         => $text_field,
+				'name'         => $text_field,
+				'description'  => $text_field,
+				'kicker'       => $text_field,
+				'title'        => $text_field,
+				'button_label' => $text_field,
+				'button_url'   => $text_field,
+				'note'         => $text_field,
+				'cta_kicker'   => $text_field,
+				'cta_title'    => $text_field,
+				'cta_text'     => $text_field,
+				'cta_button_label' => $text_field,
+				'cta_button_url' => $text_field,
+				'delete'       => array(
+					'type'    => 'boolean',
+					'default' => false,
 				),
 			),
 			'additionalProperties' => false,
@@ -7802,6 +8439,10 @@ final class Devenia_AI_Translations {
 				'content_id' => array(
 					'type'        => 'integer',
 					'description' => 'Content ID to mark as quality-reviewed. Alias for page_id and supports translated posts.',
+				),
+				'claim_token' => array(
+					'type'        => 'string',
+					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
 				),
 				'reviewer' => array(
 					'type'        => 'string',
@@ -7963,6 +8604,10 @@ final class Devenia_AI_Translations {
 					'enum'    => array( 'draft', 'private', 'publish' ),
 				),
 				'translation_id'    => array( 'type' => 'integer' ),
+				'claim_token'       => array(
+					'type'        => 'string',
+					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
+				),
 				'allow_update_published' => array(
 					'type'    => 'boolean',
 					'default' => false,
@@ -8153,6 +8798,10 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Localized term slug. Languages requiring transliterated URLs must use ASCII.',
 				),
+				'description'    => array(
+					'type'        => 'string',
+					'description' => 'Localized category/tag archive description. Used by archive presentation when available.',
+				),
 			),
 			'additionalProperties' => false,
 		);
@@ -8263,6 +8912,10 @@ final class Devenia_AI_Translations {
 			'required'             => array( 'translation_id' ),
 			'properties'           => array(
 				'translation_id'       => array( 'type' => 'integer' ),
+				'claim_token'          => array(
+					'type'        => 'string',
+					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
+				),
 				'run_qa'               => array( 'type' => 'boolean', 'default' => true ),
 				'sync_menu'            => array( 'type' => 'boolean', 'default' => true ),
 				'include_custom_links' => array( 'type' => 'boolean', 'default' => true ),
@@ -8318,6 +8971,10 @@ final class Devenia_AI_Translations {
 			'required'             => array( 'translation_id' ),
 			'properties'           => array(
 				'translation_id' => array( 'type' => 'integer' ),
+				'claim_token'    => array(
+					'type'        => 'string',
+					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
+				),
 				'reviewer'       => array( 'type' => 'string' ),
 				'note'           => array( 'type' => 'string' ),
 				'natural_language_reviewed' => array(
@@ -9358,6 +10015,302 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Reserve translation work for one source across one or more target languages.
+	 */
+	private static function reserve_translation_work( array $input ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		$source    = get_post( $source_id );
+		if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
+			return self::error( 'Source content not found.' );
+		}
+
+		$languages = self::translation_reservation_languages_from_input( $input );
+		if ( ! $languages ) {
+			return self::error( 'No valid target languages supplied.' );
+		}
+
+		$ttl_seconds = isset( $input['ttl_seconds'] )
+			? max( 60, min( self::MAX_TRANSLATION_CLAIM_TTL, absint( $input['ttl_seconds'] ) ) )
+			: self::DEFAULT_TRANSLATION_CLAIM_TTL;
+		$force      = ! empty( $input['force'] );
+		$owner      = ! empty( $input['owner'] ) ? sanitize_text_field( (string) $input['owner'] ) : 'AI Translation Workflow';
+		$note       = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
+		$now        = time();
+		$token      = wp_generate_password( 32, false, false );
+		$claims     = array();
+		$conflicts  = array();
+
+		foreach ( $languages as $language ) {
+			$existing = self::translation_reservation_for_language( $source_id, $language );
+			if ( $existing && ! $force ) {
+				$conflicts[] = array(
+					'language'    => $language,
+					'reservation' => self::public_translation_reservation( $existing ),
+				);
+				continue;
+			}
+
+			$claim = array(
+				'source_id'  => $source_id,
+				'language'   => $language,
+				'token'      => $token,
+				'owner'      => $owner,
+				'note'       => $note,
+				'claimed_at' => gmdate( 'c', $now ),
+				'expires_at' => gmdate( 'c', $now + $ttl_seconds ),
+			);
+			$key   = self::translation_reservation_option_name( $source_id, $language );
+			$saved = $force ? update_option( $key, $claim, false ) : add_option( $key, $claim, '', 'no' );
+			if ( ! $saved ) {
+				$existing = self::translation_reservation_for_language( $source_id, $language );
+				if ( $existing && ! $force ) {
+					$conflicts[] = array(
+						'language'    => $language,
+						'reservation' => self::public_translation_reservation( $existing ),
+					);
+					continue;
+				}
+				update_option( $key, $claim, false );
+			}
+
+			$claims[] = self::public_translation_reservation( $claim );
+		}
+
+		return array(
+			'success'       => empty( $conflicts ),
+			'message'       => empty( $conflicts ) ? 'Translation work reserved.' : 'Some languages are already reserved.',
+			'source'        => self::source_summary_payload( $source ),
+			'claim_token'   => $token,
+			'ttl_seconds'   => $ttl_seconds,
+			'claims'        => $claims,
+			'conflicts'     => $conflicts,
+			'conflict_count'=> count( $conflicts ),
+		);
+	}
+
+	/**
+	 * Release translation work reservations.
+	 */
+	private static function release_translation_reservation( array $input ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		if ( ! $source_id || ! get_post( $source_id ) ) {
+			return self::error( 'Source content not found.' );
+		}
+
+		$languages = self::translation_reservation_languages_from_input( $input );
+		if ( ! $languages ) {
+			return self::error( 'No valid target languages supplied.' );
+		}
+
+		$token     = (string) ( $input['claim_token'] ?? '' );
+		$force     = ! empty( $input['force'] );
+		$released  = array();
+		$conflicts = array();
+		$missing   = array();
+
+		foreach ( $languages as $language ) {
+			$key      = self::translation_reservation_option_name( $source_id, $language );
+			$existing = self::translation_reservation_for_language( $source_id, $language, true );
+			if ( ! $existing ) {
+				$missing[] = $language;
+				continue;
+			}
+			if ( ! $force && ( '' === $token || ! hash_equals( (string) ( $existing['token'] ?? '' ), $token ) ) ) {
+				$conflicts[] = array(
+					'language'    => $language,
+					'reservation' => self::public_translation_reservation( $existing ),
+				);
+				continue;
+			}
+
+			delete_option( $key );
+			$released[] = $language;
+		}
+
+		return array(
+			'success'        => empty( $conflicts ),
+			'message'        => empty( $conflicts ) ? 'Translation reservations released.' : 'Some reservations were not released because the claim token did not match.',
+			'released'       => $released,
+			'missing'        => $missing,
+			'conflicts'      => $conflicts,
+			'conflict_count' => count( $conflicts ),
+		);
+	}
+
+	/**
+	 * List active translation work reservations.
+	 */
+	private static function list_translation_reservations( array $input ): array {
+		global $wpdb;
+
+		$source_id       = absint( $input['source_id'] ?? 0 );
+		$language        = sanitize_key( (string) ( $input['language'] ?? '' ) );
+		$include_expired = ! empty( $input['include_expired'] );
+		$prefix          = self::OPTION_TRANSLATION_CLAIM_PREFIX;
+		$like            = $wpdb->esc_like( $prefix ) . '%';
+		$option_names    = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			$wpdb->prepare(
+				"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s ORDER BY option_id DESC LIMIT 500",
+				$like
+			)
+		);
+		$reservations = array();
+
+		foreach ( $option_names as $option_name ) {
+			$claim = get_option( (string) $option_name, array() );
+			if ( ! is_array( $claim ) ) {
+				continue;
+			}
+			$claim = self::sanitize_translation_reservation( $claim );
+			if ( ! $claim ) {
+				continue;
+			}
+			if ( $source_id && (int) $claim['source_id'] !== $source_id ) {
+				continue;
+			}
+			if ( '' !== $language && (string) $claim['language'] !== $language ) {
+				continue;
+			}
+			if ( ! $include_expired && ! empty( $claim['expired'] ) ) {
+				delete_option( (string) $option_name );
+				continue;
+			}
+			$reservations[] = self::public_translation_reservation( $claim );
+		}
+
+		return array(
+			'success'      => true,
+			'reservations' => $reservations,
+			'total'        => count( $reservations ),
+		);
+	}
+
+	/**
+	 * Return valid target languages from reservation input.
+	 */
+	private static function translation_reservation_languages_from_input( array $input ): array {
+		$languages = array();
+		if ( ! empty( $input['language'] ) ) {
+			$languages[] = sanitize_key( (string) $input['language'] );
+		}
+		if ( ! empty( $input['languages'] ) && is_array( $input['languages'] ) ) {
+			foreach ( $input['languages'] as $language ) {
+				$languages[] = sanitize_key( (string) $language );
+			}
+		}
+		if ( ! $languages ) {
+			$languages = array_keys( self::target_languages() );
+		}
+
+		return array_values(
+			array_unique(
+				array_filter(
+					$languages,
+					static function ( string $language ): bool {
+						return self::is_translation_language( $language );
+					}
+				)
+			)
+		);
+	}
+
+	/**
+	 * Option key for one source/language reservation.
+	 */
+	private static function translation_reservation_option_name( int $source_id, string $language ): string {
+		return self::OPTION_TRANSLATION_CLAIM_PREFIX . absint( $source_id ) . '_' . sanitize_key( $language );
+	}
+
+	/**
+	 * Return an active reservation for a source/language pair.
+	 */
+	private static function translation_reservation_for_language( int $source_id, string $language, bool $include_expired = false ): array {
+		$key   = self::translation_reservation_option_name( $source_id, $language );
+		$claim = get_option( $key, array() );
+		if ( ! is_array( $claim ) ) {
+			return array();
+		}
+
+		$claim = self::sanitize_translation_reservation( $claim );
+		if ( ! $claim ) {
+			delete_option( $key );
+			return array();
+		}
+		if ( ! $include_expired && ! empty( $claim['expired'] ) ) {
+			delete_option( $key );
+			return array();
+		}
+
+		return $claim;
+	}
+
+	/**
+	 * Sanitize stored reservation data.
+	 */
+	private static function sanitize_translation_reservation( array $claim ): array {
+		$source_id = absint( $claim['source_id'] ?? 0 );
+		$language  = sanitize_key( (string) ( $claim['language'] ?? '' ) );
+		$token     = sanitize_text_field( (string) ( $claim['token'] ?? '' ) );
+		if ( ! $source_id || ! self::is_translation_language( $language ) || '' === $token ) {
+			return array();
+		}
+
+		$expires_at = (string) ( $claim['expires_at'] ?? '' );
+		$expires_ts = $expires_at ? strtotime( $expires_at ) : 0;
+		if ( ! $expires_ts ) {
+			$expires_ts = time() - 1;
+		}
+
+		return array(
+			'source_id'  => $source_id,
+			'language'   => $language,
+			'token'      => $token,
+			'owner'      => sanitize_text_field( (string) ( $claim['owner'] ?? '' ) ),
+			'note'       => sanitize_textarea_field( (string) ( $claim['note'] ?? '' ) ),
+			'claimed_at' => sanitize_text_field( (string) ( $claim['claimed_at'] ?? '' ) ),
+			'expires_at' => gmdate( 'c', $expires_ts ),
+			'expired'    => $expires_ts <= time(),
+		);
+	}
+
+	/**
+	 * Return reservation data safe to expose in queue/status output.
+	 */
+	private static function public_translation_reservation( array $claim ): array {
+		return array(
+			'source_id'  => absint( $claim['source_id'] ?? 0 ),
+			'language'   => sanitize_key( (string) ( $claim['language'] ?? '' ) ),
+			'owner'      => sanitize_text_field( (string) ( $claim['owner'] ?? '' ) ),
+			'note'       => sanitize_textarea_field( (string) ( $claim['note'] ?? '' ) ),
+			'claimed_at' => sanitize_text_field( (string) ( $claim['claimed_at'] ?? '' ) ),
+			'expires_at' => sanitize_text_field( (string) ( $claim['expires_at'] ?? '' ) ),
+			'expired'    => ! empty( $claim['expired'] ),
+		);
+	}
+
+	/**
+	 * Block writes when another active worker has reserved the source/language.
+	 */
+	private static function translation_claim_write_gate( int $source_id, string $language, string $claim_token ): array {
+		$reservation = self::translation_reservation_for_language( $source_id, $language );
+		if ( ! $reservation ) {
+			return array();
+		}
+		if ( '' !== $claim_token && hash_equals( (string) ( $reservation['token'] ?? '' ), $claim_token ) ) {
+			return array();
+		}
+
+		return array(
+			'success'     => false,
+			'message'     => 'Translation work is currently reserved by another worker. Use the matching claim_token, wait for expiry, or force-release the reservation after review.',
+			'code'        => 'translation_reserved',
+			'source_id'   => $source_id,
+			'language'    => $language,
+			'reservation' => self::public_translation_reservation( $reservation ),
+		);
+	}
+
+	/**
 	 * Create or update translated content.
 	 */
 	private static function upsert_translation( array $input ): array {
@@ -9370,6 +10323,10 @@ final class Devenia_AI_Translations {
 		$language = sanitize_key( (string) ( $input['language'] ?? '' ) );
 		if ( ! self::is_translation_language( $language ) ) {
 			return self::error( 'Unknown or source language.' );
+		}
+		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+		if ( $claim_gate ) {
+			return $claim_gate;
 		}
 		$source_generation_gate = self::generated_source_downstream_gate( $source_id, $language );
 		if ( $source_generation_gate ) {
@@ -9750,7 +10707,7 @@ final class Devenia_AI_Translations {
 	 * Normalize optional taxonomy input by source term ID.
 	 *
 	 * @param mixed $terms Raw taxonomy terms.
-	 * @return array<int,array{name?:string,slug?:string}>
+	 * @return array<int,array{name?:string,slug?:string,description?:string}>
 	 */
 	private static function taxonomy_input_by_source_term( $terms ): array {
 		if ( ! is_array( $terms ) ) {
@@ -9777,6 +10734,9 @@ final class Devenia_AI_Translations {
 			if ( isset( $term['slug'] ) ) {
 				$row['slug'] = sanitize_title( (string) $term['slug'] );
 			}
+			if ( isset( $term['description'] ) ) {
+				$row['description'] = wp_kses_post( (string) $term['description'] );
+			}
 			$normalized[ $source_term_id ] = $row;
 		}
 
@@ -9786,11 +10746,12 @@ final class Devenia_AI_Translations {
 	/**
 	 * Find or create one language-scoped category/tag term for a source term.
 	 *
-	 * @param array{name?:string,slug?:string} $term_data Client-provided localized term data.
+	 * @param array{name?:string,slug?:string,description?:string} $term_data Client-provided localized term data.
 	 */
 	private static function ensure_translated_term( WP_Term $source_term, string $language, array $term_data ): int {
 		$existing_id = self::find_translated_term_id( (int) $source_term->term_id, $language, (string) $source_term->taxonomy );
 		if ( $existing_id ) {
+			self::update_translated_term_details( $existing_id, $source_term, $term_data );
 			return $existing_id;
 		}
 
@@ -9806,6 +10767,9 @@ final class Devenia_AI_Translations {
 		}
 
 		$args = array( 'slug' => $slug );
+		if ( isset( $term_data['description'] ) && '' !== trim( (string) $term_data['description'] ) ) {
+			$args['description'] = (string) $term_data['description'];
+		}
 		if ( 'category' === $source_term->taxonomy && $source_term->parent ) {
 			$translated_parent = self::find_translated_term_id( (int) $source_term->parent, $language, (string) $source_term->taxonomy );
 			if ( $translated_parent ) {
@@ -9851,9 +10815,28 @@ final class Devenia_AI_Translations {
 		if ( $term_id ) {
 			update_term_meta( $term_id, self::TERM_META_SOURCE_ID, (int) $source_term->term_id );
 			update_term_meta( $term_id, self::TERM_META_LANGUAGE, sanitize_key( $language ) );
+			self::update_translated_term_details( $term_id, $source_term, $term_data );
 		}
 
 		return $term_id;
+	}
+
+	/**
+	 * Update mutable localized term fields for an existing translated term.
+	 *
+	 * @param array{name?:string,slug?:string,description?:string} $term_data Client-provided localized term data.
+	 */
+	private static function update_translated_term_details( int $term_id, WP_Term $source_term, array $term_data ): void {
+		$args = array();
+		if ( isset( $term_data['name'] ) && '' !== trim( (string) $term_data['name'] ) ) {
+			$args['name'] = trim( (string) $term_data['name'] );
+		}
+		if ( isset( $term_data['description'] ) ) {
+			$args['description'] = (string) $term_data['description'];
+		}
+		if ( ! empty( $args ) ) {
+			wp_update_term( $term_id, (string) $source_term->taxonomy, $args );
+		}
 	}
 
 	/**
@@ -10212,10 +11195,16 @@ final class Devenia_AI_Translations {
 	/**
 	 * Mark translation reviewed/status.
 	 */
-	private static function mark_reviewed( int $translation_id, string $translation_status ): array {
+	private static function mark_reviewed( int $translation_id, string $translation_status, string $claim_token = '' ): array {
 		$post = get_post( $translation_id );
 		if ( ! $post || ! self::is_translatable_post_type( (string) $post->post_type ) ) {
 			return self::error( 'Translation content not found.' );
+		}
+		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
+		$language  = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
+		$claim_gate = self::translation_claim_write_gate( $source_id, $language, $claim_token );
+		if ( $claim_gate ) {
+			return $claim_gate;
 		}
 
 		$status = self::sanitize_translation_status( $translation_status );
@@ -11200,6 +12189,11 @@ final class Devenia_AI_Translations {
 			}
 		}
 		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
+		$language  = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
+		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+		if ( $claim_gate ) {
+			return $claim_gate;
+		}
 		$integrity = self::translation_integrity_guardrails( (string) get_post_field( 'post_content', $translation_id ), $source_id );
 		if ( ! empty( $integrity['issues'] ) ) {
 			return array(
@@ -11238,7 +12232,7 @@ final class Devenia_AI_Translations {
 			'review_state'    => $review_state,
 			'quality_verdict' => $quality_verdict,
 			'source_id'       => $source_id,
-			'language'        => (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ),
+			'language'        => $language,
 		);
 	}
 
@@ -11339,9 +12333,7 @@ final class Devenia_AI_Translations {
 	 * Keep SEO discovery files fresh after translation changes.
 	 */
 	private static function flush_sitemap_cache(): void {
-		if ( class_exists( '\RankMath\Sitemap\Cache' ) && method_exists( '\RankMath\Sitemap\Cache', 'invalidate_storage' ) ) {
-			\RankMath\Sitemap\Cache::invalidate_storage();
-		}
+		do_action( 'ai_translation_workflow_flush_sitemap_cache' );
 	}
 
 	/**
@@ -11357,6 +12349,11 @@ final class Devenia_AI_Translations {
 			return self::error( 'The content is not registered as a registered translation.' );
 		}
 		$language = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
+		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
+		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+		if ( $claim_gate ) {
+			return $claim_gate;
+		}
 
 		if ( array_key_exists( 'run_qa', $input ) ? (bool) $input['run_qa'] : true ) {
 			$qa = self::qa_translation( $input );
@@ -11449,14 +12446,20 @@ final class Devenia_AI_Translations {
 			if ( ! empty( $config['source'] ) ) {
 				continue;
 			}
-			$row      = $translations[ $language ] ?? null;
+			$row         = $translations[ $language ] ?? null;
+			$state       = $row ? self::queue_state_for_translation( $row ) : 'missing';
+			$reservation = self::translation_reservation_for_language( $source_id, $language );
+			if ( $reservation && 'complete' !== $state ) {
+				$state = 'reserved';
+			}
 			$rows[] = array(
 				'language'    => $language,
 				'name'        => $config['name'] ?? strtoupper( $language ),
 				'flag'        => $config['flag'] ?? strtoupper( $language ),
 				'prefix'      => $config['prefix'] ?? '',
-				'state'       => $row ? self::queue_state_for_translation( $row ) : 'missing',
+				'state'       => $state,
 				'translation' => $row,
+				'reservation' => $reservation ? self::public_translation_reservation( $reservation ) : null,
 			);
 		}
 
@@ -11512,6 +12515,7 @@ final class Devenia_AI_Translations {
 			'needs_review'            => 0,
 			'needs_linguistic_review' => 0,
 			'ready_to_publish'        => 0,
+			'reserved'                => 0,
 			'complete'                => 0,
 		);
 
@@ -11561,6 +12565,172 @@ final class Devenia_AI_Translations {
 
 		return $result;
 	}
+
+	/**
+	 * Return author archive localization queue rows.
+	 */
+	private static function author_archive_queue( array $input ): array {
+		$author_id        = absint( $input['author_id'] ?? 0 );
+		$limit            = isset( $input['limit'] ) ? max( 1, min( 200, absint( $input['limit'] ) ) ) : 50;
+		$include_complete = ! empty( $input['include_complete'] );
+		$status_filter    = self::queue_status_filter( $input['statuses'] ?? array() );
+		$registry         = self::author_archive_registry();
+		$users            = array();
+
+		if ( $author_id ) {
+			$user = get_user_by( 'id', $author_id );
+			if ( ! $user instanceof WP_User ) {
+				return self::error( 'Author not found.' );
+			}
+			$users[] = $user;
+		} else {
+			$users = get_users(
+				array(
+					'has_published_posts' => array( 'post' ),
+					'number'              => $limit,
+					'orderby'             => 'post_count',
+					'order'               => 'DESC',
+				)
+			);
+		}
+
+		$items = array();
+		$totals = array(
+			'missing'      => 0,
+			'stale'        => 0,
+			'draft'        => 0,
+			'needs_review' => 0,
+			'complete'     => 0,
+		);
+
+		foreach ( $users as $user ) {
+			if ( ! $user instanceof WP_User ) {
+				continue;
+			}
+			$source_hash   = self::author_archive_source_hash( $user );
+			$language_rows = array();
+			$action_count  = 0;
+			foreach ( self::target_languages() as $language => $config ) {
+				$record = $registry[ (int) $user->ID ][ $language ] ?? array();
+				$state  = self::author_archive_queue_state( $record, $source_hash );
+				if ( ! empty( $status_filter ) && ! in_array( $state, $status_filter, true ) ) {
+					continue;
+				}
+				if ( isset( $totals[ $state ] ) ) {
+					++$totals[ $state ];
+				}
+				if ( 'complete' !== $state ) {
+					++$action_count;
+				}
+				$language_rows[] = array(
+					'language'    => $language,
+					'name'        => $config['name'] ?? strtoupper( (string) $language ),
+					'flag'        => $config['flag'] ?? strtoupper( (string) $language ),
+					'state'       => $state,
+					'action'      => self::author_archive_queue_action_for_state( $state ),
+					'url'         => self::author_archive_url( (int) $user->ID, (string) $language ),
+					'translation' => $record,
+				);
+			}
+
+			if ( ( ! empty( $status_filter ) && ! empty( $language_rows ) ) || $action_count > 0 || $include_complete ) {
+				$items[] = array(
+					'surface'      => 'author_archive',
+					'author'       => self::author_archive_source_payload( $user ),
+					'source_hash'  => $source_hash,
+					'languages'    => $language_rows,
+					'action_count' => $action_count,
+				);
+			}
+		}
+
+		return array(
+			'success'          => true,
+			'queue'            => 'author_archive',
+			'items'            => $items,
+			'item_count'       => count( $items ),
+			'inspected_count'  => count( $users ),
+			'totals'           => $totals,
+			'status_filter'    => array_values( $status_filter ),
+			'include_complete' => $include_complete,
+		);
+	}
+
+	/**
+	 * Store one localized author archive record in WordPress runtime data.
+	 */
+	private static function update_author_archive_translation( array $input ): array {
+		$author_id = absint( $input['author_id'] ?? 0 );
+		$user      = $author_id ? get_user_by( 'id', $author_id ) : null;
+		if ( ! $user instanceof WP_User ) {
+			return self::error( 'Author not found.' );
+		}
+
+		$language = sanitize_key( (string) ( $input['language'] ?? '' ) );
+		if ( ! self::is_translation_language( $language ) ) {
+			return self::error( 'Unknown target language.' );
+		}
+
+		$delete   = ! empty( $input['delete'] );
+		$registry = self::author_archive_registry();
+		if ( $delete ) {
+			unset( $registry[ $author_id ][ $language ] );
+			if ( empty( $registry[ $author_id ] ) ) {
+				unset( $registry[ $author_id ] );
+			}
+			update_option( self::OPTION_AUTHOR_ARCHIVES, $registry, false );
+			return array(
+				'success'   => true,
+				'deleted'   => true,
+				'author_id' => $author_id,
+				'language'  => $language,
+				'message'   => 'Author archive translation removed.',
+			);
+		}
+
+		$status = sanitize_key( (string) ( $input['status'] ?? 'draft' ) );
+		if ( ! in_array( $status, array( 'draft', 'needs_review', 'reviewed', 'published' ), true ) ) {
+			return self::error( 'Invalid author archive status.' );
+		}
+
+		$record = self::sanitize_author_archive_translation(
+			array(
+				'status'       => $status,
+				'path'         => (string) ( $input['path'] ?? self::default_author_archive_path( $author_id, $language ) ),
+				'name'         => (string) ( $input['name'] ?? '' ),
+				'description'  => (string) ( $input['description'] ?? '' ),
+				'kicker'       => (string) ( $input['kicker'] ?? '' ),
+				'title'        => (string) ( $input['title'] ?? '' ),
+				'button_label' => (string) ( $input['button_label'] ?? '' ),
+				'button_url'   => (string) ( $input['button_url'] ?? '' ),
+				'note'         => (string) ( $input['note'] ?? '' ),
+				'cta_kicker'   => (string) ( $input['cta_kicker'] ?? '' ),
+				'cta_title'    => (string) ( $input['cta_title'] ?? '' ),
+				'cta_text'     => (string) ( $input['cta_text'] ?? '' ),
+				'cta_button_label' => (string) ( $input['cta_button_label'] ?? '' ),
+				'cta_button_url' => (string) ( $input['cta_button_url'] ?? '' ),
+				'source_hash'  => self::author_archive_source_hash( $user ),
+				'updated_at'   => gmdate( 'c' ),
+			)
+		);
+
+		if ( '' === $record['path'] ) {
+			return self::error( 'Missing author archive path.' );
+		}
+
+		$registry[ $author_id ][ $language ] = $record;
+		update_option( self::OPTION_AUTHOR_ARCHIVES, $registry, false );
+
+		return array(
+			'success'      => true,
+			'author'       => self::author_archive_source_payload( $user ),
+			'language'     => $language,
+			'translation'  => $record,
+			'url'          => self::author_archive_url( $author_id, $language ),
+			'message'      => 'Author archive translation stored in WordPress runtime data.',
+		);
+	}
+
 
 	/**
 	 * Return published pages that need a full visible-page quality review.
@@ -11699,6 +12869,13 @@ final class Devenia_AI_Translations {
 		}
 
 		$language        = self::is_translation_post( $page_id ) ? sanitize_key( (string) get_post_meta( $page_id, self::META_LANGUAGE, true ) ) : self::source_language_code();
+		if ( self::is_translation_post( $page_id ) ) {
+			$source_id = absint( get_post_meta( $page_id, self::META_SOURCE_ID, true ) );
+			$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+			if ( $claim_gate ) {
+				return $claim_gate;
+			}
+		}
 		$required_checks = self::required_quality_review_checks( $language );
 		$review_checks   = self::review_checks_from_input( $input, $required_checks );
 		$missing_checks  = self::missing_review_checks( $review_checks, $required_checks );
@@ -12219,6 +13396,10 @@ final class Devenia_AI_Translations {
 		foreach ( self::target_languages() as $language => $config ) {
 			$translation = $translations[ $language ] ?? array();
 			$state       = self::queue_state_for_translation( $translation );
+			$reservation = self::translation_reservation_for_language( (int) $source->ID, $language );
+			if ( $reservation && 'complete' !== $state ) {
+				$state = 'reserved';
+			}
 			$action      = self::queue_action_for_state( $state );
 
 			if ( ! empty( $status_filter ) && ! in_array( $state, $status_filter, true ) ) {
@@ -12236,6 +13417,7 @@ final class Devenia_AI_Translations {
 				'state'       => $state,
 				'action'      => $action,
 				'translation' => $translation,
+				'reservation' => $reservation ? self::public_translation_reservation( $reservation ) : null,
 			);
 		}
 
@@ -12291,10 +13473,119 @@ final class Devenia_AI_Translations {
 			'needs_review'            => 'run_qa_and_review',
 			'needs_linguistic_review' => 'mark_linguistic_reviewed_after_review',
 			'ready_to_publish'        => 'publish_translation',
+			'reserved'                => 'wait_for_reservation_or_claim_expiry',
 			'complete'                => 'none',
 		);
 
 		return $actions[ $state ] ?? 'review';
+	}
+
+	/**
+	 * Classify one author archive translation row for the queue.
+	 *
+	 * @param array<string,mixed> $record Runtime author archive translation.
+	 */
+	private static function author_archive_queue_state( array $record, string $source_hash ): string {
+		if ( empty( $record ) ) {
+			return 'missing';
+		}
+		if ( ! empty( $record['source_hash'] ) && $source_hash && $source_hash !== (string) $record['source_hash'] ) {
+			return 'stale';
+		}
+		$status = (string) ( $record['status'] ?? '' );
+		if ( 'published' === $status ) {
+			return 'complete';
+		}
+		if ( 'reviewed' === $status || 'needs_review' === $status ) {
+			return 'needs_review';
+		}
+
+		return 'draft';
+	}
+
+	/**
+	 * Suggested next action for an author archive queue state.
+	 */
+	private static function author_archive_queue_action_for_state( string $state ): string {
+		$actions = array(
+			'missing'      => 'create_author_archive_translation',
+			'stale'        => 'refresh_author_archive_translation',
+			'draft'        => 'finish_author_archive_translation',
+			'needs_review' => 'review_and_publish_author_archive_translation',
+			'complete'     => 'none',
+		);
+
+		return $actions[ $state ] ?? 'review';
+	}
+
+	/**
+	 * Source payload for an author archive translation task.
+	 */
+	private static function author_archive_source_payload( WP_User $user ): array {
+		$name = trim( (string) $user->display_name );
+		if ( '' === $name ) {
+			$name = (string) $user->user_login;
+		}
+
+		return array(
+			'id'            => (int) $user->ID,
+			'user_nicename' => (string) $user->user_nicename,
+			'name'          => $name,
+			'first_name'    => (string) $user->first_name,
+			'description'   => trim( (string) get_the_author_meta( 'description', (int) $user->ID ) ),
+			'post_count'    => count_user_posts( (int) $user->ID, 'post', true ),
+			'url'           => get_author_posts_url( (int) $user->ID ),
+			'avatar_url'    => get_avatar_url( (int) $user->ID, array( 'size' => 640, 'default' => 'mp', 'rating' => 'g', 'scheme' => 'https' ) ),
+		);
+	}
+
+	/**
+	 * Hash the source author archive copy that translators must keep current.
+	 */
+	private static function author_archive_source_hash( WP_User $user ): string {
+		return hash(
+			'sha256',
+			wp_json_encode(
+				array(
+					'name'        => trim( (string) $user->display_name ),
+					'first_name'  => trim( (string) $user->first_name ),
+					'description' => trim( (string) get_the_author_meta( 'description', (int) $user->ID ) ),
+					'post_count'  => count_user_posts( (int) $user->ID, 'post', true ),
+				)
+			) ?: ''
+		);
+	}
+
+	/**
+	 * Default localized author path. Operators can override this per language.
+	 */
+	private static function default_author_archive_path( int $author_id, string $language ): string {
+		$user = get_user_by( 'id', $author_id );
+		if ( ! $user instanceof WP_User ) {
+			return '';
+		}
+
+		$prefix = self::language_prefix( $language );
+		if ( '' === $prefix ) {
+			return 'author/' . sanitize_title( (string) $user->user_nicename );
+		}
+
+		return trim( $prefix . '/author/' . sanitize_title( (string) $user->user_nicename ), '/' );
+	}
+
+	/**
+	 * Runtime author archive URL for a language.
+	 */
+	private static function author_archive_url( int $author_id, string $language ): string {
+		if ( 'en' === sanitize_key( $language ) ) {
+			return get_author_posts_url( $author_id );
+		}
+
+		$registry = self::author_archive_registry();
+		$path     = $registry[ $author_id ][ $language ]['path'] ?? self::default_author_archive_path( $author_id, $language );
+		$path     = trim( (string) $path, '/' );
+
+		return '' === $path ? '' : home_url( '/' . $path . '/' );
 	}
 
 	/**
@@ -13431,7 +14722,7 @@ final class Devenia_AI_Translations {
 			return array();
 		}
 
-		$allowed = array( 'missing', 'stale', 'draft', 'needs_review', 'needs_linguistic_review', 'ready_to_publish', 'complete' );
+		$allowed = array( 'missing', 'stale', 'draft', 'needs_review', 'needs_linguistic_review', 'ready_to_publish', 'reserved', 'complete' );
 		$clean   = array();
 		foreach ( $statuses as $status ) {
 			$status = sanitize_key( (string) $status );
@@ -14108,8 +15399,7 @@ final class Devenia_AI_Translations {
 			return $args;
 		}
 
-		$post_id  = get_queried_object_id();
-		$surface  = self::frontend_surface( (int) $post_id );
+		$surface  = self::frontend_surface();
 		$language = (string) $surface['language'];
 		if ( 'en' === $language ) {
 			return $args;
@@ -14327,7 +15617,10 @@ final class Devenia_AI_Translations {
 
 		$language = self::frontend_language();
 		$runtime  = self::runtime_text_replacements_for_language( $language );
-		if ( 'en' === $language || empty( $runtime['has_replacements'] ) ) {
+		$has_author_byline = is_singular( 'post' ) && 'en' !== $language && '' !== self::runtime_text_value( $language, 'blog_archive_text', 'author_by_label', '' );
+		$has_read_more = 'en' !== $language && '' !== self::frontend_read_more_label( $language );
+		$has_archive_meta_labels = 'en' !== $language && self::has_archive_entry_meta_label_context();
+		if ( 'en' === $language || ( empty( $runtime['has_replacements'] ) && ! $has_author_byline && ! $has_read_more && ! $has_archive_meta_labels ) ) {
 			return;
 		}
 
@@ -14537,10 +15830,16 @@ final class Devenia_AI_Translations {
 	public static function localize_frontend_visible_text( string $html ): string {
 		$language = self::frontend_language();
 		$runtime  = self::runtime_text_replacements_for_language( $language );
-		if ( empty( $runtime['has_replacements'] ) ) {
+		$has_author_byline = is_singular( 'post' ) && 'en' !== $language && '' !== self::runtime_text_value( $language, 'blog_archive_text', 'author_by_label', '' );
+		$has_read_more = 'en' !== $language && '' !== self::frontend_read_more_label( $language );
+		$has_archive_meta_labels = 'en' !== $language && self::has_archive_entry_meta_label_context();
+		if ( empty( $runtime['has_replacements'] ) && ! $has_author_byline && ! $has_read_more && ! $has_archive_meta_labels ) {
 			return $html;
 		}
 
+		$html = self::localize_author_byline_html( $html, $language );
+		$html = self::localize_read_more_html( $html, $language );
+		$html = self::localize_archive_entry_meta_labels_html( $html, $language );
 		$html = self::localize_scriptless_social_sharing_html( $html, $runtime );
 		$html = self::localize_akismet_privacy_notice_html( $html, $runtime );
 
@@ -14579,6 +15878,259 @@ final class Devenia_AI_Translations {
 				);
 			}
 		);
+	}
+
+	/**
+	 * Localize theme-provided read-more links.
+	 *
+	 * @param string $output Read-more link markup.
+	 */
+	public static function localize_read_more_output( string $output ): string {
+		if ( ! self::is_frontend_runtime_request() ) {
+			return $output;
+		}
+
+		return self::localize_read_more_html( $output, self::frontend_language() );
+	}
+
+	/**
+	 * Localize read-more anchors without changing destination URLs.
+	 */
+	private static function localize_read_more_html( string $html, string $language ): string {
+		$label = self::frontend_read_more_label( $language );
+		if ( '' === $label || false === strpos( $html, 'read-more' ) ) {
+			return $html;
+		}
+
+		$aria_prefix = trim( self::runtime_text_value( $language, 'blog_archive_text', 'read_more_aria_prefix', '' ) );
+
+		return (string) preg_replace_callback(
+			'/(<a\b([^>]*)class=(["\'])[^"\']*\bread-more\b[^"\']*\3([^>]*)>)(.*?)(<\/a>)/isu',
+			static function ( array $match ) use ( $label, $aria_prefix ): string {
+				$attributes = (string) $match[2] . 'class=' . (string) $match[3] . self::attribute_class_value_from_opening_tag( (string) $match[1] ) . (string) $match[3] . (string) $match[4];
+				$existing_aria = self::attribute_value_from_fragment( $attributes, 'aria-label' );
+				if ( '' !== $aria_prefix && preg_match( '/^Read more about\s+(.+)$/iu', $existing_aria, $aria_match ) ) {
+					$attributes = self::replace_or_append_attribute( $attributes, 'aria-label', $aria_prefix . ' ' . html_entity_decode( (string) $aria_match[1], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+				} elseif ( '' !== $existing_aria && preg_match( '/^Read more$/iu', $existing_aria ) ) {
+					$attributes = self::replace_or_append_attribute( $attributes, 'aria-label', $label );
+				}
+
+				return '<a' . $attributes . '>' . esc_html( $label ) . (string) $match[6];
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Runtime label for archive read-more links.
+	 */
+	private static function frontend_read_more_label( string $language ): string {
+		$language = sanitize_key( $language );
+		if ( 'en' === $language || ! self::is_translation_language( $language ) ) {
+			return '';
+		}
+
+		return trim( self::runtime_text_value( $language, 'blog_archive_text', 'read_more_label', '' ) );
+	}
+
+	/**
+	 * Whether the current request can include theme-rendered category/tag meta labels.
+	 */
+	private static function has_archive_entry_meta_label_context(): bool {
+		return is_home() || is_archive() || is_singular( 'post' );
+	}
+
+	/**
+	 * Localize theme-rendered category/tag screen-reader labels in post meta.
+	 */
+	private static function localize_archive_entry_meta_labels_html( string $html, string $language ): string {
+		$language = sanitize_key( $language );
+		if ( 'en' === $language || false === strpos( $html, 'screen-reader-text' ) ) {
+			return $html;
+		}
+
+		$labels = self::frontend_taxonomy_screen_reader_labels( $language );
+		if ( empty( $labels ) ) {
+			return $html;
+		}
+
+		return (string) preg_replace_callback(
+			'/(<span\b[^>]*class=(["\'])[^"\']*\bscreen-reader-text\b[^"\']*\2[^>]*>)(.*?)(<\/span>)/isu',
+			static function ( array $match ) use ( $labels ): string {
+				$text = html_entity_decode( wp_strip_all_tags( (string) $match[3] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$key  = trim( preg_replace( '/\s+/u', ' ', $text ) ?? $text );
+				if ( ! isset( $labels[ $key ] ) || '' === $labels[ $key ] ) {
+					return (string) $match[0];
+				}
+
+				return (string) $match[1] . esc_html( $labels[ $key ] ) . ' ' . (string) $match[4];
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Localized category/tag labels for theme post-meta screen-reader text.
+	 *
+	 * Runtime text values can override the default WordPress taxonomy labels.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function frontend_taxonomy_screen_reader_labels( string $language ): array {
+		$category = trim( self::runtime_text_value( $language, 'blog_archive_text', 'category_label', '' ) );
+		$tags     = trim( self::runtime_text_value( $language, 'blog_archive_text', 'tag_label', '' ) );
+
+		if ( '' === $category ) {
+			$taxonomy = get_taxonomy( 'category' );
+			$category = $taxonomy && ! empty( $taxonomy->labels->name ) ? (string) $taxonomy->labels->name : '';
+		}
+
+		if ( '' === $tags ) {
+			$taxonomy = get_taxonomy( 'post_tag' );
+			$tags = $taxonomy && ! empty( $taxonomy->labels->name ) ? (string) $taxonomy->labels->name : '';
+		}
+
+		return array_filter(
+			array(
+				'Categories' => $category,
+				'Tags'       => $tags,
+			),
+			static function ( string $value ): bool {
+				return '' !== trim( $value );
+			}
+		);
+	}
+
+	/**
+	 * Extract one attribute value from an opening-tag fragment.
+	 */
+	private static function attribute_value_from_fragment( string $attributes, string $name ): string {
+		if ( preg_match( '/\b' . preg_quote( $name, '/' ) . '\s*=\s*(["\'])(.*?)\1/isu', $attributes, $match ) ) {
+			return html_entity_decode( (string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		}
+
+		return '';
+	}
+
+	/**
+	 * Extract class value from a matched opening anchor tag.
+	 */
+	private static function attribute_class_value_from_opening_tag( string $opening_tag ): string {
+		if ( preg_match( '/\bclass=(["\'])(.*?)\1/isu', $opening_tag, $match ) ) {
+			return (string) $match[2];
+		}
+
+		return '';
+	}
+
+	/**
+	 * Localize theme-rendered post author bylines on translated posts.
+	 */
+	private static function localize_author_byline_html( string $html, string $language ): string {
+		$language = sanitize_key( $language );
+		if ( 'en' === $language || false === strpos( $html, 'class="byline"' ) ) {
+			return $html;
+		}
+
+		$label = trim( self::runtime_text_value( $language, 'blog_archive_text', 'author_by_label', '' ) );
+		if ( '' === $label ) {
+			return $html;
+		}
+
+		$title_format = trim( self::runtime_text_value( $language, 'blog_archive_text', 'author_posts_title_format', '' ) );
+
+		return (string) preg_replace_callback(
+			'/(<span\b[^>]*class=(["\'])[^"\']*\bbyline\b[^"\']*\2[^>]*>)\s*[^<]*\s*(<span\b[^>]*class=(["\'])[^"\']*\bauthor\b[^"\']*\4[^>]*>.*?<\/span>)(\s*<\/span>)/isu',
+			static function ( array $match ) use ( $language, $label, $title_format ): string {
+				$author_html = self::localize_author_byline_link_html( (string) $match[3], $language, $title_format );
+				return (string) $match[1] . esc_html( $label ) . ' ' . $author_html . (string) $match[5];
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Point one author byline link at the active language author archive.
+	 */
+	private static function localize_author_byline_link_html( string $html, string $language, string $title_format ): string {
+		return (string) preg_replace_callback(
+			'/<a\b([^>]*)\bhref=(["\'])([^"\']+)\2([^>]*)>(.*?)<\/a>/isu',
+			static function ( array $match ) use ( $language, $title_format ): string {
+				$href = html_entity_decode( (string) $match[3], ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' );
+				$path = trim( (string) wp_parse_url( $href, PHP_URL_PATH ), '/' );
+				if ( ! preg_match( '#^author/([^/]+)/?$#', $path, $path_match ) ) {
+					return (string) $match[0];
+				}
+
+				$user = get_user_by( 'slug', sanitize_title( (string) $path_match[1] ) );
+				if ( ! $user instanceof WP_User ) {
+					return (string) $match[0];
+				}
+
+				$name = trim( wp_strip_all_tags( (string) $match[5] ) );
+				if ( '' === $name ) {
+					$name = trim( (string) $user->display_name );
+				}
+				$localized_name = self::localized_author_display_name( (int) $user->ID, $language, $name );
+				$body           = (string) $match[5];
+				if ( '' !== $localized_name && $localized_name !== $name ) {
+					$updated_body = preg_replace_callback(
+						'/(<span\b[^>]*class=(["\'])[^"\']*\bauthor-name\b[^"\']*\2[^>]*>)(.*?)(<\/span>)/isu',
+						static function ( array $name_match ) use ( $localized_name ): string {
+							return (string) $name_match[1] . esc_html( $localized_name ) . (string) $name_match[4];
+						},
+						$body,
+						1
+					);
+					if ( is_string( $updated_body ) ) {
+						$body = $updated_body;
+						$name = $localized_name;
+					}
+				}
+
+				$attributes = (string) $match[1] . ' href=' . (string) $match[2] . (string) $match[3] . (string) $match[2] . (string) $match[4];
+				$attributes = self::replace_or_append_attribute( $attributes, 'href', self::author_archive_url( (int) $user->ID, $language ) );
+				if ( '' !== $title_format ) {
+					$title      = str_replace( '{name}', $name, $title_format );
+					$attributes = self::replace_or_append_attribute( $attributes, 'title', $title );
+				}
+
+				return '<a' . $attributes . '>' . $body . '</a>';
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Runtime localized author display name for inline bylines.
+	 */
+	private static function localized_author_display_name( int $author_id, string $language, string $fallback ): string {
+		$registry = self::author_archive_registry();
+		$name     = $registry[ $author_id ][ sanitize_key( $language ) ]['name'] ?? '';
+		$name     = is_scalar( $name ) ? trim( (string) $name ) : '';
+
+		return '' !== $name ? $name : $fallback;
+	}
+
+	/**
+	 * Replace an HTML attribute value in an opening tag fragment.
+	 */
+	private static function replace_or_append_attribute( string $attributes, string $name, string $value ): string {
+		$name  = sanitize_key( $name );
+		$value = esc_attr( $value );
+
+		if ( preg_match( '/\b' . preg_quote( $name, '/' ) . '\s*=\s*(["\'])(.*?)\1/i', $attributes ) ) {
+			return (string) preg_replace_callback(
+				'/\b' . preg_quote( $name, '/' ) . '\s*=\s*(["\'])(.*?)\1/i',
+				static function ( array $match ) use ( $name, $value ): string {
+					return $name . '=' . (string) $match[1] . $value . (string) $match[1];
+				},
+				$attributes,
+				1
+			);
+		}
+
+		return rtrim( $attributes ) . ' ' . $name . '="' . $value . '"';
 	}
 
 	/**
@@ -15518,6 +17070,56 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Build language links for an author archive.
+	 */
+	private static function language_links_for_author_archive(): array {
+		$author = get_queried_object();
+		if ( ! $author instanceof WP_User ) {
+			$author_id = absint( get_query_var( 'author' ) );
+			if ( ! $author_id ) {
+				$author_id = absint( get_query_var( 'devenia_author_archive_author_id' ) );
+			}
+			$author    = $author_id ? get_user_by( 'id', $author_id ) : null;
+		}
+
+		if ( ! $author instanceof WP_User ) {
+			return array();
+		}
+
+		$author_id = (int) $author->ID;
+		$links     = array(
+			'en' => array(
+				'id'  => $author_id,
+				'url' => get_author_posts_url( $author_id ),
+			),
+		);
+
+		$registry = self::author_archive_registry();
+		foreach ( self::target_languages() as $language => $config ) {
+			if ( empty( $registry[ $author_id ][ $language ] ) ) {
+				continue;
+			}
+
+			$record = $registry[ $author_id ][ $language ];
+			if ( 'published' !== (string) ( $record['status'] ?? '' ) || empty( $record['path'] ) ) {
+				continue;
+			}
+
+			$links[ $language ] = array(
+				'id'  => $author_id,
+				'url' => home_url( '/' . trim( (string) $record['path'], '/' ) . '/' ),
+			);
+		}
+
+		return array_filter(
+			$links,
+			static function ( array $link ): bool {
+				return ! empty( $link['url'] );
+			}
+		);
+	}
+
+	/**
 	 * Build language links for 404 pages.
 	 *
 	 * A 404 should not create language variants of a URL we already know is
@@ -15608,13 +17210,17 @@ final class Devenia_AI_Translations {
 	 * Whether the current frontend request should receive language handling.
 	 */
 	private static function is_frontend_language_surface(): bool {
-		return self::is_frontend_runtime_request() && ( is_singular( array( 'page', 'post' ) ) || is_home() || is_404() );
+		return self::is_frontend_runtime_request() && ( is_singular( array( 'page', 'post' ) ) || is_home() || is_author() || is_category() || is_tag() || is_404() );
 	}
 
 	/**
 	 * Resolve the content ID used for language handling on special query types.
 	 */
 	private static function frontend_surface_post_id( int $post_id = 0 ): int {
+		if ( is_author() || is_category() || is_tag() ) {
+			return 0;
+		}
+
 		if ( $post_id ) {
 			return $post_id;
 		}
@@ -16016,12 +17622,12 @@ final class Devenia_AI_Translations {
 	/**
 	 * Return the replacement/fallback rows for a translated blog archive.
 	 *
-	 * The source blog controls archive order by last modified date. For each published source post,
-	 * show the published local translation when one exists in the requested
-	 * language; otherwise show the source post. This keeps gradual rollout
-	 * possible without leaking other languages into the archive.
+	 * Local translations are listed before source-language fallbacks. Local
+	 * translations sort by their own modified date, while fallbacks sort by the
+	 * source post modified date. This keeps gradual rollout possible without
+	 * letting a newly updated English fallback outrank real local posts.
 	 *
-	 * @return array<int,array{source_id:int,display_id:int,mode:string,source_modified_gmt:string}>
+	 * @return array<int,array{source_id:int,display_id:int,mode:string,source_modified_gmt:string,display_modified_gmt:string}>
 	 */
 	private static function translated_posts_page_archive_items( string $language ): array {
 		$language = sanitize_key( $language );
@@ -16057,9 +17663,9 @@ final class Devenia_AI_Translations {
 			'update_post_term_cache' => false,
 			'meta_query'             => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Narrow archive source/translation separation.
 				array(
-				'key'     => self::META_SOURCE_ID,
-				'compare' => 'NOT EXISTS',
-			),
+					'key'     => self::META_SOURCE_ID,
+					'compare' => 'NOT EXISTS',
+				),
 			),
 		);
 		$source_query = new WP_Query( $source_args );
@@ -16071,10 +17677,116 @@ final class Devenia_AI_Translations {
 				'display_id'      => $translation_id ?: $source_id,
 				'mode'            => $translation_id ? 'local_translation' : 'source_fallback',
 				'source_modified_gmt' => (string) get_post_field( 'post_modified_gmt', $source_id ),
+				'display_modified_gmt' => (string) get_post_field( 'post_modified_gmt', $translation_id ?: $source_id ),
 			);
 		}
 
+		usort(
+			$items,
+			static function ( array $a, array $b ): int {
+				$a_is_fallback = 'source_fallback' === (string) ( $a['mode'] ?? '' );
+				$b_is_fallback = 'source_fallback' === (string) ( $b['mode'] ?? '' );
+				if ( $a_is_fallback !== $b_is_fallback ) {
+					return $a_is_fallback ? 1 : -1;
+				}
+
+				$a_date = $a_is_fallback ? (string) ( $a['source_modified_gmt'] ?? '' ) : (string) ( $a['display_modified_gmt'] ?? '' );
+				$b_date = $b_is_fallback ? (string) ( $b['source_modified_gmt'] ?? '' ) : (string) ( $b['display_modified_gmt'] ?? '' );
+				$date_compare = strcmp( $b_date, $a_date );
+				if ( 0 !== $date_compare ) {
+					return $date_compare;
+				}
+
+				return absint( $b['display_id'] ?? 0 ) <=> absint( $a['display_id'] ?? 0 );
+			}
+		);
+
 		return $items;
+	}
+
+	/**
+	 * Put local author posts before source-language posts on localized author archives.
+	 */
+	public static function filter_localized_author_archive_query( WP_Query $query ): void {
+		if ( is_admin() || ! $query->is_main_query() || ! $query->is_author() ) {
+			return;
+		}
+
+		$language = sanitize_key( (string) $query->get( 'devenia_author_archive_language' ) );
+		if ( ! self::is_translation_language( $language ) ) {
+			return;
+		}
+
+		$author = null;
+		$author_id = absint( $query->get( 'author' ) );
+		if ( $author_id ) {
+			$author = get_user_by( 'id', $author_id );
+		}
+		if ( ! $author instanceof WP_User ) {
+			$author_name = sanitize_title( (string) $query->get( 'author_name' ) );
+			$author      = '' !== $author_name ? get_user_by( 'slug', $author_name ) : null;
+		}
+		if ( ! $author instanceof WP_User ) {
+			return;
+		}
+
+		$post_ids = self::localized_author_archive_post_ids( (int) $author->ID, $language );
+		if ( empty( $post_ids ) ) {
+			$post_ids = array( 0 );
+		}
+
+		$query->set( 'post_type', 'post' );
+		$query->set( 'post_status', 'publish' );
+		$query->set( 'post__in', $post_ids );
+		$query->set( 'orderby', 'post__in' );
+		$query->set( 'ignore_sticky_posts', true );
+		$query->set( 'author', '' );
+		$query->set( 'author_name', '' );
+	}
+
+	/**
+	 * Local translations for one source author first, then that author's source posts.
+	 *
+	 * @return array<int,int>
+	 */
+	private static function localized_author_archive_post_ids( int $author_id, string $language ): array {
+		$language = sanitize_key( $language );
+		if ( ! $author_id || ! self::is_translation_language( $language ) ) {
+			return array();
+		}
+
+		$source_query = new WP_Query(
+			array(
+				'post_type'              => 'post',
+				'post_status'            => 'publish',
+				'author'                 => $author_id,
+				'posts_per_page'         => -1,
+				'fields'                 => 'ids',
+				'no_found_rows'          => true,
+				'ignore_sticky_posts'    => true,
+				'orderby'                => 'date',
+				'order'                  => 'DESC',
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+				'meta_query'             => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Required to keep source author scope separate from translated posts.
+					array(
+						'key'     => self::META_SOURCE_ID,
+						'compare' => 'NOT EXISTS',
+					),
+				),
+			)
+		);
+
+		$local_ids  = array();
+		$source_ids = array_map( 'absint', $source_query->posts );
+		foreach ( $source_ids as $source_id ) {
+			$translation_id = self::find_translation_id( $source_id, $language, array( 'publish' ) );
+			if ( $translation_id && 'post' === get_post_type( $translation_id ) ) {
+				$local_ids[] = $translation_id;
+			}
+		}
+
+		return array_values( array_unique( array_merge( $local_ids, $source_ids ) ) );
 	}
 
 	/**
@@ -16651,8 +18363,8 @@ final class Devenia_AI_Translations {
 	 * Mirror the source featured image onto a translation.
 	 */
 	private static function sync_source_featured_image( int $translation_id, WP_Post $source, bool $dry_run = false ): array {
-		$source_thumbnail_id      = absint( get_post_thumbnail_id( $source ) );
-		$translation_thumbnail_id = absint( get_post_thumbnail_id( $translation_id ) );
+		$source_thumbnail_id      = self::featured_image_id_for_post( $source );
+		$translation_thumbnail_id = self::featured_image_id_for_post( $translation_id );
 		$changed                  = $source_thumbnail_id !== $translation_thumbnail_id;
 
 		if ( $changed && ! $dry_run ) {
@@ -16661,14 +18373,46 @@ final class Devenia_AI_Translations {
 			} else {
 				delete_post_meta( $translation_id, '_thumbnail_id' );
 			}
+			wp_cache_delete( $translation_id, 'post_meta' );
 			clean_post_cache( $translation_id );
 		}
+
+		$verified_thumbnail_id = $dry_run ? $translation_thumbnail_id : self::featured_image_id_for_post( $translation_id );
 
 		return array(
 			'changed'             => $changed,
 			'before_thumbnail_id' => $translation_thumbnail_id,
 			'after_thumbnail_id'  => $source_thumbnail_id,
+			'verified_thumbnail_id' => $verified_thumbnail_id,
+			'write_verified'      => $dry_run || $verified_thumbnail_id === $source_thumbnail_id,
 		);
+	}
+
+	/**
+	 * Return the canonical featured image ID from postmeta, bypassing primed meta caches.
+	 *
+	 * Translation upsert/publish flows can prime postmeta for many translations in
+	 * one request. Reading _thumbnail_id from the database keeps repair and status
+	 * payloads tied to the stored value instead of a stale object-cache entry.
+	 *
+	 * @param int|WP_Post $post Post ID or object.
+	 */
+	private static function featured_image_id_for_post( $post ): int {
+		$post_id = $post instanceof WP_Post ? (int) $post->ID : absint( $post );
+		if ( ! $post_id ) {
+			return 0;
+		}
+
+		global $wpdb;
+		$value = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Intentional canonical _thumbnail_id read; must bypass stale meta caches during translation repair/status flows.
+			$wpdb->prepare(
+				"SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s ORDER BY meta_id DESC LIMIT 1",
+				$post_id,
+				'_thumbnail_id'
+			)
+		);
+
+		return absint( $value );
 	}
 
 	/**
@@ -16685,7 +18429,7 @@ final class Devenia_AI_Translations {
 			'content'  => $post->post_content,
 			'excerpt'  => $post->post_excerpt,
 			'modified' => $post->post_modified_gmt,
-			'featured_image_id' => absint( get_post_thumbnail_id( $post ) ),
+			'featured_image_id' => self::featured_image_id_for_post( $post ),
 			'taxonomies' => self::post_taxonomy_payload( $post ),
 			'source_generation' => self::source_generation_status_for_source( (int) $post->ID ),
 		);
@@ -16703,7 +18447,7 @@ final class Devenia_AI_Translations {
 			'status'   => $post->post_status,
 			'url'      => get_permalink( $post ),
 			'modified' => $post->post_modified_gmt,
-			'featured_image_id' => absint( get_post_thumbnail_id( $post ) ),
+			'featured_image_id' => self::featured_image_id_for_post( $post ),
 			'taxonomies' => self::post_taxonomy_payload( $post ),
 		);
 	}
@@ -16733,7 +18477,7 @@ final class Devenia_AI_Translations {
 			'status'             => $post->post_status,
 			'translation_status' => (string) get_post_meta( $post->ID, self::META_STATUS, true ),
 			'url'                => get_permalink( $post ),
-			'featured_image_id'  => absint( get_post_thumbnail_id( $post ) ),
+			'featured_image_id'  => self::featured_image_id_for_post( $post ),
 			'localized_path'     => (string) get_post_meta( $post->ID, self::META_LOCALIZED_PATH, true ),
 			'source_hash'        => $hash,
 			'current_source_hash'=> $current,
@@ -20428,6 +22172,28 @@ final class Devenia_AI_Translations {
 			}
 		}
 
+		if ( is_author() ) {
+			$mapped_language = sanitize_key( (string) get_query_var( 'devenia_author_archive_language' ) );
+			if ( self::is_translation_language( $mapped_language ) ) {
+				$language = $mapped_language;
+			}
+		}
+
+		if ( is_category() || is_tag() ) {
+			$mapped_language = sanitize_key( (string) get_query_var( 'devenia_translated_term_language' ) );
+			if ( self::is_translation_language( $mapped_language ) ) {
+				$language = $mapped_language;
+			} else {
+				$term = get_queried_object();
+				if ( $term instanceof WP_Term ) {
+					$term_language = sanitize_key( (string) get_term_meta( (int) $term->term_id, self::TERM_META_LANGUAGE, true ) );
+					if ( self::is_translation_language( $term_language ) ) {
+						$language = $term_language;
+					}
+				}
+			}
+		}
+
 		$languages = self::languages();
 		$locale    = isset( $languages[ $language ]['locale'] ) ? (string) $languages[ $language ]['locale'] : 'en_GB';
 		$wordpress_locale = isset( $languages[ $language ]['wordpress_locale'] ) && '' !== (string) $languages[ $language ]['wordpress_locale']
@@ -20442,7 +22208,7 @@ final class Devenia_AI_Translations {
 			'wordpress_locale' => '' !== $wordpress_locale ? $wordpress_locale : 'en_GB',
 			'direction' => $direction,
 			'source_id' => $post_id ? self::source_id_for_context( $post_id ) : 0,
-			'links'     => is_404() ? self::language_links_for_not_found() : ( $post_id ? self::language_links_for_post( $post_id ) : array() ),
+			'links'     => is_404() ? self::language_links_for_not_found() : ( is_author() ? self::language_links_for_author_archive() : ( $post_id ? self::language_links_for_post( $post_id ) : array() ) ),
 		);
 
 		return $cache[ $key ];

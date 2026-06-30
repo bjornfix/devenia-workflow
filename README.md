@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.294
+**Stable tag:** 0.1.310
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -196,6 +196,73 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.310
+
+- Moves vendor-specific SEO, sitemap, and theme hook integrations out of the core workflow file and into optional addons so the public core remains theme-neutral.
+
+### 0.1.309
+
+- Reads featured image IDs from canonical postmeta during translation sync and repair so stale meta caches cannot hide thumbnail drift.
+- Adds source/language translation work reservations with queue visibility and write gates so parallel agents do not overwrite the same translation work.
+
+### 0.1.308
+
+- Applies localized Rank Math meta descriptions to translated blog and author archive SEO, Open Graph, and Twitter description surfaces.
+
+### 0.1.307
+
+- Follows Rank Math title templates and separators for localized author and translated blog archive SEO titles.
+
+### 0.1.306
+
+- Supports localized category and tag descriptions in translated post taxonomy input.
+
+### 0.1.305
+
+- Localizes theme-rendered category and tag meta labels on translated archive and post surfaces.
+
+### 0.1.304
+
+- Applies translated frontend language context to localized category and tag archives, including menus, locale, and HTML language attributes.
+
+### 0.1.303
+
+- Sorts localized blog archives with local-language posts first by their own last-updated date, followed by source-language fallback posts.
+
+### 0.1.302
+
+- Localizes Devenia single post hero author links, author names, and modified-date metadata through runtime language data.
+
+### 0.1.301
+
+- Uses the localized author archive author ID fallback for SEO, Open Graph, Twitter, and document titles.
+
+### 0.1.300
+
+- Restores language switcher links on localized author archives that use curated author post lists.
+- Stores author archive hero and CTA button URLs in runtime WordPress data.
+
+### 0.1.299
+
+- Orders localized author archives with local translations from that author first, followed by that author's source-language posts.
+- Localizes archive read-more buttons from runtime WordPress text values.
+
+### 0.1.298
+
+- Uses runtime author archive data for translated author archive SEO, Open Graph, Twitter, and document titles.
+
+### 0.1.297
+
+- Fixes translated byline author-link attribute escaping and uses runtime author names inside byline links.
+
+### 0.1.296
+
+- Localizes translated post author bylines and points byline author links at runtime-managed localized author archives.
+
+### 0.1.295
+
+- Adds runtime-managed author archive translation queue, localized routing, language links, and presentation context filtering.
 
 ### 0.1.294
 
