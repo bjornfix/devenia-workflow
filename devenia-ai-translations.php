@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.318
+ * Version: 0.1.319
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.318';
+	const VERSION = '0.1.319';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -1175,7 +1175,7 @@ final class Devenia_AI_Translations {
 
 		$table     = self::translation_index_table();
 		$post_types = self::translatable_post_types();
-		$statuses   = array( 'publish', 'draft', 'pending', 'private', 'future' );
+		$statuses   = self::translation_workflow_post_statuses();
 		$wpdb->query( $wpdb->prepare( 'TRUNCATE TABLE %i', $table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Intentional custom registry table rebuild.
 
 		$post_type_placeholders = implode( ', ', array_fill( 0, count( $post_types ), '%s' ) );
@@ -1249,17 +1249,69 @@ final class Devenia_AI_Translations {
 	 * Scan stored translations through the same fitness module used by QA gates.
 	 */
 	private static function translation_fitness_scan( array $input ): array {
-		$allowed_statuses = array( 'publish', 'draft', 'pending', 'private', 'future' );
-		$post_statuses   = isset( $input['post_statuses'] ) && is_array( $input['post_statuses'] )
-			? array_values( array_intersect( array_map( 'sanitize_key', $input['post_statuses'] ), $allowed_statuses ) )
-			: array( 'publish', 'draft', 'pending', 'private', 'future' );
-		if ( empty( $post_statuses ) ) {
-			$post_statuses = array( 'publish', 'draft', 'pending', 'private', 'future' );
+		$filters      = self::translation_fitness_scan_filters( $input );
+		$index_status = self::translation_fitness_scan_index_status( $filters['rebuild_index'] );
+		$warnings     = self::translation_fitness_scan_index_warnings( $index_status );
+
+		if ( empty( $index_status['available'] ) ) {
+			return self::translation_fitness_scan_response( false, 0, 0, 0, 0, 0, 0, $index_status, $warnings, $filters, array() );
 		}
 
-		$post_types = isset( $input['post_types'] ) && is_array( $input['post_types'] )
-			? array_values( array_filter( array_map( 'sanitize_key', $input['post_types'] ) ) )
+		$ids       = self::translation_fitness_scan_ids( $filters );
+		$total_ids = count( $ids );
+		$query     = self::translation_fitness_scan_query( $ids, $filters );
+		$result    = self::translation_fitness_scan_items( $query->posts, $filters );
+
+		wp_reset_postdata();
+
+		return self::translation_fitness_scan_response(
+			true,
+			count( $query->posts ),
+			$total_ids,
+			(int) ceil( $total_ids / $filters['limit'] ),
+			$result['hit_count'],
+			$result['issue_count'],
+			$result['warning_count'],
+			$index_status,
+			$warnings,
+			$filters,
+			$result['items']
+		);
+	}
+
+	/**
+	 * Normalize fitness-scan input into one private Interface.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function translation_fitness_scan_filters( array $input ): array {
+		return array(
+			'post_statuses'      => self::sanitize_translation_post_statuses( $input['post_statuses'] ?? null ),
+			'post_types'         => self::sanitize_translation_scan_post_types( $input['post_types'] ?? null ),
+			'limit'              => min( 500, max( 1, absint( $input['limit'] ?? 100 ) ) ),
+			'page'               => max( 1, absint( $input['page'] ?? 1 ) ),
+			'language'           => ! empty( $input['language'] ) ? sanitize_key( (string) $input['language'] ) : '',
+			'source_id'          => ! empty( $input['source_id'] ) ? absint( $input['source_id'] ) : 0,
+			'translation_status' => ! empty( $input['translation_status'] ) ? self::sanitize_translation_status( (string) $input['translation_status'] ) : '',
+			'issue_codes'        => self::sanitize_string_list( $input['issue_codes'] ?? array() ),
+			'dimensions'         => self::sanitize_string_list( $input['dimensions'] ?? array() ),
+			'include_warnings'   => ! empty( $input['include_warnings'] ),
+			'include_clean'      => ! empty( $input['include_clean'] ),
+			'rebuild_index'      => ! empty( $input['rebuild_index'] ),
+		);
+	}
+
+	/**
+	 * Normalize translatable post types for a stored-translation scan.
+	 *
+	 * @param mixed $raw Raw post type list.
+	 * @return array<int,string>
+	 */
+	private static function sanitize_translation_scan_post_types( $raw ): array {
+		$post_types = is_array( $raw )
+			? array_values( array_filter( array_map( 'sanitize_key', $raw ) ) )
 			: self::translatable_post_types();
+
 		$post_types = array_values(
 			array_filter(
 				$post_types,
@@ -1268,112 +1320,136 @@ final class Devenia_AI_Translations {
 				}
 			)
 		);
-		if ( empty( $post_types ) ) {
-			$post_types = self::translatable_post_types();
-		}
 
-		$limit              = min( 500, max( 1, absint( $input['limit'] ?? 100 ) ) );
-		$page               = max( 1, absint( $input['page'] ?? 1 ) );
-		$language_filter    = ! empty( $input['language'] ) ? sanitize_key( (string) $input['language'] ) : '';
-		$source_filter      = ! empty( $input['source_id'] ) ? absint( $input['source_id'] ) : 0;
-		$status_filter      = ! empty( $input['translation_status'] ) ? self::sanitize_translation_status( (string) $input['translation_status'] ) : '';
-		$issue_codes_filter = self::sanitize_string_list( $input['issue_codes'] ?? array() );
-		$dimension_filter   = self::sanitize_string_list( $input['dimensions'] ?? array() );
-		$include_warnings   = ! empty( $input['include_warnings'] );
-		$include_clean      = ! empty( $input['include_clean'] );
-		$rebuild_index      = ! empty( $input['rebuild_index'] );
-		$index_status       = self::translation_index_status(
+		return empty( $post_types ) ? self::translatable_post_types() : $post_types;
+	}
+
+	/**
+	 * Read or rebuild index status for a scan.
+	 */
+	private static function translation_fitness_scan_index_status( bool $rebuild_index ): array {
+		return self::translation_index_status(
 			array(
 				'rebuild' => $rebuild_index,
 			)
 		);
-		$scan_warnings      = array();
+	}
+
+	/**
+	 * Turn index health into scan warnings.
+	 *
+	 * @param array<string,mixed> $index_status Index status result.
+	 * @return array<int,array<string,string>>
+	 */
+	private static function translation_fitness_scan_index_warnings( array $index_status ): array {
 		if ( empty( $index_status['available'] ) ) {
-			$scan_warnings[] = array(
-				'code'    => 'translation_index_unavailable',
-				'message' => 'The translation index table is unavailable; run the scan with rebuild_index=true after confirming database access.',
-			);
-
 			return array(
-				'success'       => false,
-				'scanned'       => 0,
-				'total'         => 0,
-				'page'          => $page,
-				'limit'         => $limit,
-				'total_pages'   => 0,
-				'hit_count'     => 0,
-				'issue_count'   => 0,
-				'warning_count' => 0,
-				'index'         => $index_status,
-				'warnings'      => $scan_warnings,
-				'filters'       => array(
-					'language'           => $language_filter,
-					'source_id'          => $source_filter,
-					'translation_status' => $status_filter,
-					'issue_codes'        => $issue_codes_filter,
-					'dimensions'         => $dimension_filter,
-					'include_warnings'   => $include_warnings,
-					'include_clean'      => $include_clean,
-					'rebuild_index'      => $rebuild_index,
+				array(
+					'code'    => 'translation_index_unavailable',
+					'message' => 'The translation index table is unavailable; run the scan with rebuild_index=true after confirming database access.',
 				),
-				'items'         => array(),
-			);
-		}
-		if ( empty( $index_status['row_count'] ) ) {
-			$scan_warnings[] = array(
-				'code'    => 'translation_index_empty',
-				'message' => 'The translation index contains no rows; run with rebuild_index=true if translations already exist.',
 			);
 		}
 
-		if ( $source_filter && '' !== $language_filter ) {
+		if ( empty( $index_status['row_count'] ) ) {
+			return array(
+				array(
+					'code'    => 'translation_index_empty',
+					'message' => 'The translation index contains no rows; run with rebuild_index=true if translations already exist.',
+				),
+			);
+		}
+
+		return array();
+	}
+
+	/**
+	 * Select indexed translation IDs for a scan.
+	 *
+	 * @param array<string,mixed> $filters Normalized scan filters.
+	 * @return array<int,int>
+	 */
+	private static function translation_fitness_scan_ids( array $filters ): array {
+		$source_id     = absint( $filters['source_id'] ?? 0 );
+		$language      = sanitize_key( (string) ( $filters['language'] ?? '' ) );
+		$post_statuses = isset( $filters['post_statuses'] ) && is_array( $filters['post_statuses'] ) ? $filters['post_statuses'] : self::translation_workflow_post_statuses();
+
+		if ( $source_id && '' !== $language ) {
 			$ids = array_values(
 				array_intersect(
-					self::translation_index_ids_for_source( $source_filter, $post_statuses ),
-					self::translation_index_ids_for_language( $language_filter, $post_statuses )
+					self::translation_index_ids_for_source( $source_id, $post_statuses ),
+					self::translation_index_ids_for_language( $language, $post_statuses )
 				)
 			);
-		} elseif ( $source_filter ) {
-			$ids = self::translation_index_ids_for_source( $source_filter, $post_statuses );
-		} elseif ( '' !== $language_filter ) {
-			$ids = self::translation_index_ids_for_language( $language_filter, $post_statuses );
+		} elseif ( $source_id ) {
+			$ids = self::translation_index_ids_for_source( $source_id, $post_statuses );
+		} elseif ( '' !== $language ) {
+			$ids = self::translation_index_ids_for_language( $language, $post_statuses );
 		} else {
 			$ids = self::translation_index_ids( $post_statuses );
 		}
 
-		$ids = array_values(
+		return array_values(
 			array_filter(
 				array_map( 'absint', $ids ),
-				static function ( int $translation_id ) use ( $status_filter, $post_types, $source_filter, $language_filter, $post_statuses ): bool {
-					if ( ! $translation_id ) {
-						return false;
-					}
-					$row = Devenia_AI_Translations::translation_index_row_for_translation( $translation_id, $post_statuses );
-					if ( empty( $row ) ) {
-						return false;
-					}
-					if ( $source_filter && absint( $row['source_id'] ?? 0 ) !== $source_filter ) {
-						return false;
-					}
-					if ( '' !== $language_filter && sanitize_key( (string) ( $row['language'] ?? '' ) ) !== $language_filter ) {
-						return false;
-					}
-					if ( '' !== $status_filter && sanitize_key( (string) ( $row['translation_status'] ?? '' ) ) !== $status_filter ) {
-						return false;
-					}
-					$post_type = get_post_type( $translation_id );
-					return is_string( $post_type ) && in_array( $post_type, $post_types, true );
+				static function ( int $translation_id ) use ( $filters ): bool {
+					return Devenia_AI_Translations::translation_fitness_scan_id_matches_filters( $translation_id, $filters );
 				}
 			)
 		);
+	}
 
-		$total_ids = count( $ids );
-		$paged_ids = array_slice( $ids, ( $page - 1 ) * $limit, $limit );
+	/**
+	 * Check an indexed translation ID against the normalized scan filters.
+	 */
+	private static function translation_fitness_scan_id_matches_filters( int $translation_id, array $filters ): bool {
+		if ( ! $translation_id ) {
+			return false;
+		}
 
-		$query = self::translation_content_query(
+		$post_statuses = isset( $filters['post_statuses'] ) && is_array( $filters['post_statuses'] ) ? $filters['post_statuses'] : self::translation_workflow_post_statuses();
+		$row           = self::translation_index_row_for_translation( $translation_id, $post_statuses );
+		if ( empty( $row ) ) {
+			return false;
+		}
+
+		$source_id = absint( $filters['source_id'] ?? 0 );
+		if ( $source_id && absint( $row['source_id'] ?? 0 ) !== $source_id ) {
+			return false;
+		}
+
+		$language = sanitize_key( (string) ( $filters['language'] ?? '' ) );
+		if ( '' !== $language && sanitize_key( (string) ( $row['language'] ?? '' ) ) !== $language ) {
+			return false;
+		}
+
+		$translation_status = sanitize_key( (string) ( $filters['translation_status'] ?? '' ) );
+		if ( '' !== $translation_status && sanitize_key( (string) ( $row['translation_status'] ?? '' ) ) !== $translation_status ) {
+			return false;
+		}
+
+		$post_types = isset( $filters['post_types'] ) && is_array( $filters['post_types'] ) ? $filters['post_types'] : self::translatable_post_types();
+		$post_type  = get_post_type( $translation_id );
+		return is_string( $post_type ) && in_array( $post_type, $post_types, true );
+	}
+
+	/**
+	 * Load posts for one page of a fitness scan.
+	 *
+	 * @param array<int,int>       $ids     Matching translation IDs.
+	 * @param array<string,mixed> $filters Normalized scan filters.
+	 */
+	private static function translation_fitness_scan_query( array $ids, array $filters ): WP_Query {
+		$limit      = max( 1, absint( $filters['limit'] ?? 100 ) );
+		$page       = max( 1, absint( $filters['page'] ?? 1 ) );
+		$paged_ids  = array_slice( $ids, ( $page - 1 ) * $limit, $limit );
+		$post_types = isset( $filters['post_types'] ) && is_array( $filters['post_types'] ) ? $filters['post_types'] : self::translatable_post_types();
+		$statuses   = isset( $filters['post_statuses'] ) && is_array( $filters['post_statuses'] ) ? $filters['post_statuses'] : self::translation_workflow_post_statuses();
+
+		return self::translation_content_query(
 			array(
 				'post_type'              => $post_types,
-				'post_status'            => $post_statuses,
+				'post_status'            => $statuses,
 				'posts_per_page'         => count( $paged_ids ) ?: 1,
 				'post__in'               => $paged_ids ?: array( 0 ),
 				'orderby'                => 'post__in',
@@ -1382,89 +1458,143 @@ final class Devenia_AI_Translations {
 				'update_post_term_cache' => false,
 			)
 		);
+	}
 
-		$items         = array();
-		$hit_count     = 0;
-		$issue_count   = 0;
-		$warning_count = 0;
-		$source_cache  = array();
+	/**
+	 * Evaluate loaded posts for a fitness scan.
+	 *
+	 * @param array<int,WP_Post>   $posts   Posts from the scan query.
+	 * @param array<string,mixed> $filters Normalized scan filters.
+	 * @return array{items:array<int,array<string,mixed>>,hit_count:int,issue_count:int,warning_count:int}
+	 */
+	private static function translation_fitness_scan_items( array $posts, array $filters ): array {
+		$result       = array(
+			'items'         => array(),
+			'hit_count'     => 0,
+			'issue_count'   => 0,
+			'warning_count' => 0,
+		);
+		$source_cache = array();
 
-		foreach ( $query->posts as $post ) {
-			if ( ! $post instanceof WP_Post || ! self::is_translation_post( (int) $post->ID ) ) {
+		foreach ( $posts as $post ) {
+			$item = self::translation_fitness_scan_item( $post, $filters, $source_cache );
+			if ( empty( $item ) ) {
 				continue;
 			}
 
-			$language  = sanitize_key( (string) get_post_meta( (int) $post->ID, self::META_LANGUAGE, true ) );
-			$source_id = absint( get_post_meta( (int) $post->ID, self::META_SOURCE_ID, true ) );
-			if ( ! isset( $source_cache[ $source_id ] ) ) {
-				$source_cache[ $source_id ] = $source_id ? (string) get_post_field( 'post_content', $source_id ) : '';
+			if ( ! empty( $item['findings'] ) ) {
+				++$result['hit_count'];
 			}
-
-			$fitness = self::translation_fitness(
-				(string) $post->post_content,
-				(string) $source_cache[ $source_id ],
-				$language,
-				(string) $post->post_title,
-				(string) $post->post_excerpt,
-				$source_id
-			);
-			$findings = self::translation_fitness_scan_findings( $fitness, $issue_codes_filter, $dimension_filter, $include_warnings );
-			if ( empty( $findings ) && ! $include_clean ) {
-				continue;
-			}
-
-			if ( ! empty( $findings ) ) {
-				++$hit_count;
-			}
-			foreach ( $findings as $finding ) {
+			foreach ( (array) $item['findings'] as $finding ) {
 				if ( ! empty( $finding['warning'] ) ) {
-					++$warning_count;
+					++$result['warning_count'];
 				} else {
-					++$issue_count;
+					++$result['issue_count'];
 				}
 			}
 
-			$items[] = array(
-				'id'                 => (int) $post->ID,
-				'source_id'          => $source_id,
-				'language'           => $language,
-				'post_type'          => (string) $post->post_type,
-				'post_status'        => (string) $post->post_status,
-				'translation_status' => self::sanitize_translation_status( (string) get_post_meta( (int) $post->ID, self::META_STATUS, true ) ),
-				'title'              => get_the_title( $post ),
-				'url'                => get_permalink( $post ),
-				'passed'             => empty( $findings ),
-				'findings'           => $findings,
-				'issue_codes'        => self::qa_item_codes( array_filter( $findings, static function ( array $finding ): bool { return empty( $finding['warning'] ); } ) ),
-				'warning_codes'      => self::qa_item_codes( array_filter( $findings, static function ( array $finding ): bool { return ! empty( $finding['warning'] ); } ) ),
-			);
+			$result['items'][] = $item;
 		}
 
-		wp_reset_postdata();
+		return $result;
+	}
+
+	/**
+	 * Evaluate one post for a fitness scan.
+	 *
+	 * @param mixed                $post         Potential WP_Post.
+	 * @param array<string,mixed> $filters      Normalized scan filters.
+	 * @param array<int,string>   $source_cache Source-content cache by source ID.
+	 * @return array<string,mixed>
+	 */
+	private static function translation_fitness_scan_item( $post, array $filters, array &$source_cache ): array {
+		if ( ! $post instanceof WP_Post || ! self::is_translation_post( (int) $post->ID ) ) {
+			return array();
+		}
+
+		$language  = sanitize_key( (string) get_post_meta( (int) $post->ID, self::META_LANGUAGE, true ) );
+		$source_id = absint( get_post_meta( (int) $post->ID, self::META_SOURCE_ID, true ) );
+		if ( ! isset( $source_cache[ $source_id ] ) ) {
+			$source_cache[ $source_id ] = $source_id ? (string) get_post_field( 'post_content', $source_id ) : '';
+		}
+
+		$fitness  = self::translation_fitness(
+			(string) $post->post_content,
+			(string) $source_cache[ $source_id ],
+			$language,
+			(string) $post->post_title,
+			(string) $post->post_excerpt,
+			$source_id
+		);
+		$findings = self::translation_fitness_scan_findings(
+			$fitness,
+			isset( $filters['issue_codes'] ) && is_array( $filters['issue_codes'] ) ? $filters['issue_codes'] : array(),
+			isset( $filters['dimensions'] ) && is_array( $filters['dimensions'] ) ? $filters['dimensions'] : array(),
+			! empty( $filters['include_warnings'] )
+		);
+		if ( empty( $findings ) && empty( $filters['include_clean'] ) ) {
+			return array();
+		}
 
 		return array(
-			'success'       => true,
-			'scanned'       => count( $query->posts ),
-			'total'         => $total_ids,
-			'page'          => $page,
-			'limit'         => $limit,
-			'total_pages'   => (int) ceil( $total_ids / $limit ),
+			'id'                 => (int) $post->ID,
+			'source_id'          => $source_id,
+			'language'           => $language,
+			'post_type'          => (string) $post->post_type,
+			'post_status'        => (string) $post->post_status,
+			'translation_status' => self::sanitize_translation_status( (string) get_post_meta( (int) $post->ID, self::META_STATUS, true ) ),
+			'title'              => get_the_title( $post ),
+			'url'                => get_permalink( $post ),
+			'passed'             => empty( $findings ),
+			'findings'           => $findings,
+			'issue_codes'        => self::qa_item_codes( array_filter( $findings, static function ( array $finding ): bool { return empty( $finding['warning'] ); } ) ),
+			'warning_codes'      => self::qa_item_codes( array_filter( $findings, static function ( array $finding ): bool { return ! empty( $finding['warning'] ); } ) ),
+		);
+	}
+
+	/**
+	 * Shape the public scan response in one place.
+	 *
+	 * @param array<string,mixed>             $index_status Index status.
+	 * @param array<int,array<string,string>> $warnings     Scan warnings.
+	 * @param array<string,mixed>             $filters      Normalized scan filters.
+	 * @param array<int,array<string,mixed>>  $items        Scan items.
+	 * @return array<string,mixed>
+	 */
+	private static function translation_fitness_scan_response( bool $success, int $scanned, int $total, int $total_pages, int $hit_count, int $issue_count, int $warning_count, array $index_status, array $warnings, array $filters, array $items ): array {
+		return array(
+			'success'       => $success,
+			'scanned'       => $scanned,
+			'total'         => $total,
+			'page'          => max( 1, absint( $filters['page'] ?? 1 ) ),
+			'limit'         => max( 1, absint( $filters['limit'] ?? 100 ) ),
+			'total_pages'   => $total_pages,
 			'hit_count'     => $hit_count,
 			'issue_count'   => $issue_count,
 			'warning_count' => $warning_count,
 			'index'         => $index_status,
-			'warnings'      => $scan_warnings,
-			'filters'       => array(
-				'language'           => $language_filter,
-				'source_id'          => $source_filter,
-				'translation_status' => $status_filter,
-				'issue_codes'        => $issue_codes_filter,
-				'dimensions'         => $dimension_filter,
-				'include_warnings'   => $include_warnings,
-				'include_clean'      => $include_clean,
-				'rebuild_index'      => $rebuild_index,
-			),
+			'warnings'      => $warnings,
+			'filters'       => self::translation_fitness_scan_public_filters( $filters ),
 			'items'         => $items,
+		);
+	}
+
+	/**
+	 * Keep the scan filter response stable while internals use richer filters.
+	 *
+	 * @param array<string,mixed> $filters Normalized scan filters.
+	 * @return array<string,mixed>
+	 */
+	private static function translation_fitness_scan_public_filters( array $filters ): array {
+		return array(
+			'language'           => sanitize_key( (string) ( $filters['language'] ?? '' ) ),
+			'source_id'          => absint( $filters['source_id'] ?? 0 ),
+			'translation_status' => sanitize_key( (string) ( $filters['translation_status'] ?? '' ) ),
+			'issue_codes'        => isset( $filters['issue_codes'] ) && is_array( $filters['issue_codes'] ) ? $filters['issue_codes'] : array(),
+			'dimensions'         => isset( $filters['dimensions'] ) && is_array( $filters['dimensions'] ) ? $filters['dimensions'] : array(),
+			'include_warnings'   => ! empty( $filters['include_warnings'] ),
+			'include_clean'      => ! empty( $filters['include_clean'] ),
+			'rebuild_index'      => ! empty( $filters['rebuild_index'] ),
 		);
 	}
 
@@ -1593,13 +1723,7 @@ final class Devenia_AI_Translations {
 			$post_types = array( 'page', 'post' );
 		}
 
-		$allowed_statuses = array( 'publish', 'draft', 'pending', 'private', 'future' );
-		$post_statuses   = isset( $input['post_statuses'] ) && is_array( $input['post_statuses'] )
-			? array_values( array_intersect( array_map( 'sanitize_key', $input['post_statuses'] ), $allowed_statuses ) )
-			: array( 'publish', 'draft', 'pending', 'private' );
-		if ( empty( $post_statuses ) ) {
-			$post_statuses = array( 'publish', 'draft', 'pending', 'private' );
-		}
+		$post_statuses = self::sanitize_translation_post_statuses( $input['post_statuses'] ?? null, false );
 
 		$limit         = min( 1000, max( 1, absint( $input['limit'] ?? 200 ) ) );
 		$page          = max( 1, absint( $input['page'] ?? 1 ) );
@@ -1946,12 +2070,39 @@ final class Devenia_AI_Translations {
 	 * @return array<int,string>
 	 */
 	private static function translation_index_statuses( array $post_status ): array {
-		$statuses = array_values( array_filter( array_map( 'sanitize_key', $post_status ) ) );
-		if ( empty( $statuses ) ) {
-			$statuses = array( 'publish', 'draft', 'pending', 'private' );
+		return self::sanitize_translation_post_statuses( $post_status );
+	}
+
+	/**
+	 * Post statuses that belong to the translation workflow.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function translation_workflow_post_statuses( bool $include_future = true ): array {
+		$statuses = array( 'publish', 'draft', 'pending', 'private' );
+		if ( $include_future ) {
+			$statuses[] = 'future';
 		}
 
 		return $statuses;
+	}
+
+	/**
+	 * Sanitize a caller-supplied post-status list against workflow statuses.
+	 *
+	 * @param mixed $raw Raw post-status list.
+	 * @return array<int,string>
+	 */
+	private static function sanitize_translation_post_statuses( $raw, bool $include_future = true ): array {
+		$default = self::translation_workflow_post_statuses( $include_future );
+		if ( ! is_array( $raw ) ) {
+			return $default;
+		}
+
+		$allowed  = self::translation_workflow_post_statuses();
+		$statuses = array_values( array_intersect( array_map( 'sanitize_key', $raw ), $allowed ) );
+
+		return empty( $statuses ) ? $default : $statuses;
 	}
 
 	/**
@@ -2139,7 +2290,7 @@ final class Devenia_AI_Translations {
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function translation_index_row_for_translation( int $translation_id, array $post_status = array( 'publish', 'draft', 'pending', 'private' ) ): array {
+	private static function translation_index_row_for_translation( int $translation_id, array $post_status = array() ): array {
 		static $cache = array();
 
 		$status_key = implode( '|', array_map( 'sanitize_key', $post_status ) );
@@ -5848,10 +5999,10 @@ final class Devenia_AI_Translations {
 		}
 
 		$ability_integrity = self::ability_dispatch_integrity_status();
-		$include_cases = array_key_exists( 'include_cases', $input ) ? (bool) $input['include_cases'] : true;
-		$rows          = array();
-		$failed        = array();
-		$totals        = array(
+		$include_cases    = array_key_exists( 'include_cases', $input ) ? (bool) $input['include_cases'] : true;
+		$rows             = array();
+		$failed           = array();
+		$totals           = array(
 			'case_count' => 0,
 			'passed'     => 0,
 			'failed'     => 0,
@@ -5859,32 +6010,32 @@ final class Devenia_AI_Translations {
 
 		foreach ( $loaded['cases'] as $case ) {
 			++$totals['case_count'];
-			$id       = isset( $case['id'] ) ? sanitize_text_field( (string) $case['id'] ) : 'case-' . $totals['case_count'];
-			$language = isset( $case['language'] ) ? sanitize_key( (string) $case['language'] ) : '';
-			$content  = isset( $case['content'] ) ? (string) $case['content'] : '';
-			$title    = isset( $case['title'] ) ? sanitize_text_field( (string) $case['title'] ) : '';
-			$excerpt  = isset( $case['excerpt'] ) ? sanitize_textarea_field( (string) $case['excerpt'] ) : '';
-			$source_content = isset( $case['source_content'] ) ? (string) $case['source_content'] : '';
-			$expected_passed = array_key_exists( 'expected_passed', $case ) ? (bool) $case['expected_passed'] : false;
-			$minimum_issue_count = isset( $case['minimum_issue_count'] ) ? max( 0, absint( $case['minimum_issue_count'] ) ) : ( $expected_passed ? 0 : 1 );
-				$expected_issue_codes = self::sanitize_qa_code_list( $case['expected_issue_codes'] ?? array() );
-				$profile_patch = self::sanitize_quality_profile_patch( $case['profile_patch'] ?? array() );
-				$runtime_profile_overrides = self::translation_fitness_regression_runtime_profiles( $case['runtime_profiles'] ?? array() );
+			$id                        = isset( $case['id'] ) ? sanitize_text_field( (string) $case['id'] ) : 'case-' . $totals['case_count'];
+			$language                  = isset( $case['language'] ) ? sanitize_key( (string) $case['language'] ) : '';
+			$content                   = isset( $case['content'] ) ? (string) $case['content'] : '';
+			$title                     = isset( $case['title'] ) ? sanitize_text_field( (string) $case['title'] ) : '';
+			$excerpt                   = isset( $case['excerpt'] ) ? sanitize_textarea_field( (string) $case['excerpt'] ) : '';
+			$source_content            = isset( $case['source_content'] ) ? (string) $case['source_content'] : '';
+			$expected_passed           = array_key_exists( 'expected_passed', $case ) ? (bool) $case['expected_passed'] : false;
+			$minimum_issue_count       = isset( $case['minimum_issue_count'] ) ? max( 0, absint( $case['minimum_issue_count'] ) ) : ( $expected_passed ? 0 : 1 );
+			$expected_issue_codes      = self::sanitize_qa_code_list( $case['expected_issue_codes'] ?? array() );
+			$profile_patch             = self::sanitize_quality_profile_patch( $case['profile_patch'] ?? array() );
+			$runtime_profile_overrides = self::translation_fitness_regression_runtime_profiles( $case['runtime_profiles'] ?? array() );
 
-				$fitness = array();
-				$case_passed = false;
-			$messages = array();
+			$fitness                = array();
+			$case_passed            = false;
+			$messages               = array();
 			$missing_expected_codes = $expected_issue_codes;
 
-				if ( '' === $language || '' === trim( $content ) ) {
-					$messages[] = 'Regression case is missing language or content.';
-				} else {
-					$fitness = self::translation_fitness( $content, $source_content, $language, $title, $excerpt, 0, $profile_patch, $runtime_profile_overrides );
-					$issue_codes = self::qa_item_codes( $fitness['issues'] ?? array() );
-					$missing_expected_codes = array_values( array_diff( $expected_issue_codes, $issue_codes ) );
-					$actual_passed = ! empty( $fitness['passed'] );
-				$actual_issue_count = count( $fitness['issues'] ?? array() );
-				$case_passed = $expected_passed === $actual_passed && empty( $missing_expected_codes );
+			if ( '' === $language || '' === trim( $content ) ) {
+				$messages[] = 'Regression case is missing language or content.';
+			} else {
+				$fitness                = self::translation_fitness( $content, $source_content, $language, $title, $excerpt, 0, $profile_patch, $runtime_profile_overrides );
+				$issue_codes            = self::qa_item_codes( $fitness['issues'] ?? array() );
+				$missing_expected_codes = array_values( array_diff( $expected_issue_codes, $issue_codes ) );
+				$actual_passed          = ! empty( $fitness['passed'] );
+				$actual_issue_count     = count( $fitness['issues'] ?? array() );
+				$case_passed            = $expected_passed === $actual_passed && empty( $missing_expected_codes );
 				if ( ! $expected_passed && $actual_issue_count < $minimum_issue_count ) {
 					$case_passed = false;
 					$messages[] = 'Expected more QA issues for a failing regression case.';
@@ -7870,18 +8021,18 @@ final class Devenia_AI_Translations {
 					'minimum'     => 1,
 					'description' => 'Optional source post/page ID to scan translations for.',
 				),
-					'post_types' => array(
-						'type'        => 'array',
-						'items'       => array( 'type' => 'string' ),
-						'default'     => self::translatable_post_types(),
-						'description' => 'Post types to scan. Defaults to every post type managed by the translation workflow.',
-					),
-					'post_statuses' => array(
-						'type'        => 'array',
-						'items'       => array( 'type' => 'string' ),
-						'default'     => array( 'publish', 'draft', 'pending', 'private', 'future' ),
-						'description' => 'Post statuses to scan. Defaults to active workflow statuses, including scheduled/future translations.',
-					),
+				'post_types' => array(
+					'type'        => 'array',
+					'items'       => array( 'type' => 'string' ),
+					'default'     => self::translatable_post_types(),
+					'description' => 'Post types to scan. Defaults to every post type managed by the translation workflow.',
+				),
+				'post_statuses' => array(
+					'type'        => 'array',
+					'items'       => array( 'type' => 'string' ),
+					'default'     => self::translation_workflow_post_statuses(),
+					'description' => 'Post statuses to scan. Defaults to active workflow statuses, including scheduled/future translations.',
+				),
 				'translation_status' => array(
 					'type'        => 'string',
 					'description' => 'Optional workflow status filter such as draft, reviewed, published, stale, or complete.',
@@ -7901,19 +8052,19 @@ final class Devenia_AI_Translations {
 					'default'     => false,
 					'description' => 'Include warning rows as findings.',
 				),
-					'include_clean' => array(
-						'type'        => 'boolean',
-						'default'     => false,
-						'description' => 'Include translations with no matching findings.',
-					),
-					'rebuild_index' => array(
-						'type'        => 'boolean',
-						'default'     => false,
-						'description' => 'Rebuild the translation index before scanning. Useful when the scan would otherwise report an empty or stale index.',
-					),
-					'limit' => array(
-						'type'        => 'integer',
-						'default'     => 100,
+				'include_clean' => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Include translations with no matching findings.',
+				),
+				'rebuild_index' => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Rebuild the translation index before scanning. Useful when the scan would otherwise report an empty or stale index.',
+				),
+				'limit' => array(
+					'type'        => 'integer',
+					'default'     => 100,
 					'minimum'     => 1,
 					'maximum'     => 500,
 					'description' => 'Maximum number of translations to scan in this pass.',
@@ -7955,7 +8106,7 @@ final class Devenia_AI_Translations {
 				'post_statuses' => array(
 					'type'        => 'array',
 					'items'       => array( 'type' => 'string' ),
-					'default'     => array( 'publish', 'draft', 'pending', 'private' ),
+					'default'     => self::translation_workflow_post_statuses( false ),
 					'description' => 'Post statuses to scan.',
 				),
 				'limit' => array(
@@ -9878,7 +10029,7 @@ final class Devenia_AI_Translations {
 		if ( $authored->post_type !== $source->post_type ) {
 			return self::error( 'Authored original and generated source post types do not match.' );
 		}
-		$existing_id = self::find_translation_id( $source_id, $language, array( 'publish', 'draft', 'pending', 'private', 'future' ) );
+			$existing_id = self::find_translation_id( $source_id, $language, self::translation_workflow_post_statuses() );
 		if ( $existing_id && $existing_id !== $authored_id ) {
 			return array(
 				'success' => false,
@@ -10303,7 +10454,7 @@ final class Devenia_AI_Translations {
 		} else {
 			global $wpdb;
 
-			$post_statuses      = array( 'publish', 'draft', 'pending', 'private', 'future' );
+			$post_statuses      = self::translation_workflow_post_statuses();
 			$post_type_marks    = implode( ', ', array_fill( 0, count( $post_types ), '%s' ) );
 			$post_status_marks  = implode( ', ', array_fill( 0, count( $post_statuses ), '%s' ) );
 			$inspection_limit   = min( 1000, max( 100, $limit * 5 ) );
@@ -11688,7 +11839,7 @@ final class Devenia_AI_Translations {
 		$status_filter = ! empty( $input['status'] ) ? self::sanitize_translation_status( (string) $input['status'] ) : '';
 		$query         = self::translation_page_query(
 			array(
-				'post_status'    => array( 'publish', 'draft', 'pending', 'private' ),
+					'post_status'    => self::translation_workflow_post_statuses( false ),
 				'posts_per_page' => 1000,
 			)
 		);
@@ -11917,7 +12068,7 @@ final class Devenia_AI_Translations {
 		$source_id = absint( $input['source_id'] ?? 0 );
 		$language  = sanitize_key( (string) ( $input['language'] ?? '' ) );
 		if ( $source_id && '' !== $language && self::is_translation_language( $language ) ) {
-			return self::find_translation_id( $source_id, $language, array( 'publish', 'draft', 'pending', 'private' ) );
+				return self::find_translation_id( $source_id, $language, self::translation_workflow_post_statuses( false ) );
 		}
 
 		return $source_id;
@@ -13450,7 +13601,7 @@ final class Devenia_AI_Translations {
 
 		$query = self::translation_page_query(
 			array(
-				'post_status'    => array( 'publish', 'draft', 'pending', 'private' ),
+					'post_status'    => self::translation_workflow_post_statuses( false ),
 				'posts_per_page' => 1000,
 			)
 		);
@@ -13845,7 +13996,7 @@ final class Devenia_AI_Translations {
 
 		$query = self::translation_content_query(
 			array(
-				'post_status'    => array( 'publish', 'draft', 'pending', 'private' ),
+					'post_status'    => self::translation_workflow_post_statuses( false ),
 				'posts_per_page' => 1000,
 			)
 		);
@@ -14908,7 +15059,7 @@ final class Devenia_AI_Translations {
 			return $cache[ $language ];
 		}
 
-		$frontend_rows = self::translation_frontend_rows_for_language( $language, array( 'publish', 'draft', 'pending', 'private' ) );
+		$frontend_rows = self::translation_frontend_rows_for_language( $language, self::translation_workflow_post_statuses( false ) );
 		if ( ! empty( $frontend_rows ) ) {
 			$map = array();
 			foreach ( $frontend_rows as $row ) {
@@ -14933,7 +15084,7 @@ final class Devenia_AI_Translations {
 
 		$query = self::translation_page_query(
 			array(
-				'post_status'    => array( 'publish', 'draft', 'pending', 'private' ),
+					'post_status'    => self::translation_workflow_post_statuses( false ),
 				'posts_per_page' => 1000,
 			)
 		);
@@ -17098,7 +17249,7 @@ final class Devenia_AI_Translations {
 		$status = '' !== $requested_status ? self::sanitize_translation_status( $requested_status ) : '';
 		$pages  = self::translation_page_query(
 			array(
-				'post_status'    => array( 'publish', 'draft', 'pending', 'private' ),
+					'post_status'    => self::translation_workflow_post_statuses( false ),
 				'posts_per_page' => 1000,
 				'fields'         => 'ids',
 			)
@@ -17514,9 +17665,10 @@ final class Devenia_AI_Translations {
 	/**
 	 * Find translation page ID.
 	 */
-	private static function find_translation_id( int $source_id, string $language, array $post_status = array( 'publish', 'draft', 'pending', 'private' ) ): int {
+	private static function find_translation_id( int $source_id, string $language, array $post_status = array() ): int {
 		static $cache = array();
 
+		$post_status = self::sanitize_translation_post_statuses( $post_status, false );
 		$status_key = implode( '|', array_map( 'sanitize_key', $post_status ) );
 		$cache_key  = $source_id . ':' . sanitize_key( $language ) . ':' . $status_key;
 		if ( isset( $cache[ $cache_key ] ) ) {
@@ -18695,9 +18847,10 @@ final class Devenia_AI_Translations {
 	/**
 	 * Translation rows for a source page.
 	 */
-	private static function translation_rows_for_source( int $source_id, array $post_status = array( 'publish', 'draft', 'pending', 'private' ) ): array {
+	private static function translation_rows_for_source( int $source_id, array $post_status = array() ): array {
 		static $cache = array();
 
+		$post_status = self::sanitize_translation_post_statuses( $post_status, false );
 		$status_key = implode( '|', array_map( 'sanitize_key', $post_status ) );
 		$cache_key  = $source_id . ':' . $status_key;
 		if ( isset( $cache[ $cache_key ] ) ) {
@@ -19193,7 +19346,7 @@ final class Devenia_AI_Translations {
 		if ( 'en' === sanitize_key( $language ) ) {
 			$url = get_permalink( $posts_page_id );
 		} else {
-			$translation_id = self::find_translation_id( $posts_page_id, $language, array( 'publish', 'draft', 'pending', 'private' ) );
+				$translation_id = self::find_translation_id( $posts_page_id, $language, self::translation_workflow_post_statuses( false ) );
 			$url = $translation_id ? get_permalink( $translation_id ) : '';
 		}
 
@@ -19362,7 +19515,7 @@ final class Devenia_AI_Translations {
 		$query = self::translation_page_query(
 			array(
 				'post_type'              => 'post',
-				'post_status'            => array( 'publish', 'draft', 'pending', 'private' ),
+					'post_status'            => self::translation_workflow_post_statuses( false ),
 				'posts_per_page'         => -1,
 				'fields'                 => 'ids',
 				'no_found_rows'          => true,
@@ -19416,7 +19569,8 @@ final class Devenia_AI_Translations {
 	 * checks.
 	 */
 	private static function translation_fitness( string $content, string $source_content = '', string $language = '', string $title = '', string $excerpt = '', int $source_id = 0, array $profile_patch = array(), array $runtime_profile_overrides = array() ): array {
-		$guardrails = self::translation_guardrails( $content, $source_content, $language, $title, $excerpt, $source_id, $profile_patch, $runtime_profile_overrides );
+		$context    = self::translation_fitness_context( $language, $source_id, $profile_patch, $runtime_profile_overrides );
+		$guardrails = self::translation_guardrails( $content, $source_content, $title, $excerpt, $context );
 		$dimensions = array(
 			'editor_integrity' => self::translation_fitness_dimension(
 				$guardrails,
@@ -19455,12 +19609,50 @@ final class Devenia_AI_Translations {
 			'dimensions'    => $dimensions,
 			'guardrails'    => $guardrails,
 			'profile'       => array(
-				'language' => $language,
-				'source_id' => $source_id,
-				'profile_patch_applied' => ! empty( $profile_patch ),
-				'runtime_profile_overrides_applied' => ! empty( $runtime_profile_overrides ),
+				'language' => $context['language'],
+				'source_id' => $context['source_id'],
+				'profile_patch_applied' => ! empty( $context['profile_patch'] ),
+				'runtime_profile_overrides_applied' => ! empty( $context['runtime_profile_overrides'] ),
 			),
 		);
+	}
+
+	/**
+	 * Normalize the translation-fitness context used by guardrail modules.
+	 *
+	 * @return array{language:string,source_id:int,profile_patch:array<string,mixed>,runtime_profile_overrides:array<string,array<string,mixed>>}
+	 */
+	private static function translation_fitness_context( string $language, int $source_id, array $profile_patch = array(), array $runtime_profile_overrides = array() ): array {
+		return array(
+			'language'                  => sanitize_key( $language ),
+			'source_id'                 => max( 0, $source_id ),
+			'profile_patch'             => self::sanitize_quality_profile_patch( $profile_patch ),
+			'runtime_profile_overrides' => self::sanitize_runtime_language_profile_overrides( $runtime_profile_overrides ),
+		);
+	}
+
+	/**
+	 * Sanitize per-language runtime profile overrides.
+	 *
+	 * @param array<string,mixed> $profiles Raw profiles keyed by language.
+	 * @return array<string,array<string,mixed>>
+	 */
+	private static function sanitize_runtime_language_profile_overrides( array $profiles ): array {
+		$sanitized = array();
+		foreach ( $profiles as $language => $profile ) {
+			if ( ! is_array( $profile ) ) {
+				continue;
+			}
+
+			$language = sanitize_key( (string) $language );
+			if ( '' === $language ) {
+				continue;
+			}
+
+			$sanitized[ $language ] = self::sanitize_quality_profile_patch( $profile );
+		}
+
+		return $sanitized;
 	}
 
 	/**
@@ -19534,7 +19726,12 @@ final class Devenia_AI_Translations {
 	 * Callers should not decide which structural checks run for a translation.
 	 * This module owns the hard issue/warning split for editor-safe content.
 	 */
-	private static function translation_guardrails( string $content, string $source_content = '', string $language = '', string $title = '', string $excerpt = '', int $source_id = 0, array $profile_patch = array(), array $runtime_profile_overrides = array() ): array {
+	private static function translation_guardrails( string $content, string $source_content = '', string $title = '', string $excerpt = '', array $context = array() ): array {
+		$language = sanitize_key( (string) ( $context['language'] ?? '' ) );
+		$source_id = absint( $context['source_id'] ?? 0 );
+		$profile_patch = isset( $context['profile_patch'] ) && is_array( $context['profile_patch'] ) ? $context['profile_patch'] : array();
+		$runtime_profile_overrides = isset( $context['runtime_profile_overrides'] ) && is_array( $context['runtime_profile_overrides'] ) ? $context['runtime_profile_overrides'] : array();
+
 		$gutenberg  = self::gutenberg_guardrails( $content );
 		$shortcodes = self::shortcode_guardrails( $content, $source_content, $source_id );
 		$source_structure = self::source_structure_guardrails( $content, $source_content, $source_id, $language );
@@ -20760,13 +20957,13 @@ final class Devenia_AI_Translations {
 			'warnings'      => array(),
 			'issue_count'   => count( $issues ),
 			'warning_count' => 0,
-				'summary'       => array(
-					'fragment_count' => count( $fragments ),
-					'language'       => sanitize_key( $language ),
-					'runtime_profile_override_count' => count( $runtime_profile_overrides ),
-				),
-			);
-		}
+			'summary'       => array(
+				'fragment_count' => count( $fragments ),
+				'language'       => sanitize_key( $language ),
+				'runtime_profile_override_count' => count( $runtime_profile_overrides ),
+			),
+		);
+	}
 
 	/**
 	 * Detect large fragments that appear to belong to another configured target language.
@@ -22623,7 +22820,7 @@ final class Devenia_AI_Translations {
 			$source_id = absint( $input['source_id'] ?? 0 );
 			$language  = sanitize_key( (string) ( $input['language'] ?? '' ) );
 			$content_id = $source_id && self::is_translation_language( $language )
-				? self::find_translation_id( $source_id, $language, array( 'publish', 'draft', 'pending', 'private' ) )
+					? self::find_translation_id( $source_id, $language, self::translation_workflow_post_statuses( false ) )
 				: $source_id;
 		}
 

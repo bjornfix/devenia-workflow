@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.318
+**Stable tag:** 0.1.319
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -197,6 +197,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.319
+
+- Deepens the translation-fitness scan architecture by splitting filters, index health, ID selection, item evaluation, and response shaping behind the same public scan interface.
+- Centralizes translation workflow post-status defaults so future/scheduled translations stay covered consistently.
+- Normalizes fitness guardrail context handling and cleans up critical QA schema/regression readability.
 
 ### 0.1.318
 
