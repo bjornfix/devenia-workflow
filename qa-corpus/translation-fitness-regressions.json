@@ -504,6 +504,74 @@
       "minimum_issue_count": 1
     },
     {
+      "id": "nb-short-source-sentence-carryover-should-fail",
+      "language": "nb",
+      "description": "Norwegian QA must fail when a short complete English source sentence remains inside otherwise translated body copy.",
+      "source_content": "<!-- wp:paragraph --><p>A 301 redirect tells browsers what changed. It tells search engines to use the new URL.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:paragraph --><p>En 301-viderekobling forteller nettlesere hva som er endret. It tells search engines to use the new URL.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "source_language_short_sentence_carryover"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "nb-rankmath-faq-english-answer-carryover-should-fail",
+      "language": "nb",
+      "description": "Norwegian QA must inspect Rank Math FAQ block question attributes and fail when an English answer remains there.",
+      "source_content": "<!-- wp:rank-math/faq-block {\"questions\":[{\"id\":\"faq-one\",\"title\":\"What is a 301 redirect?\",\"content\":\"A 301 redirect is permanent. It tells search engines to use the new URL.\",\"visible\":true}]} --><div class=\"wp-block-rank-math-faq-block rank-math-block\"><div class=\"rank-math-list\"><div id=\"faq-one\" class=\"rank-math-list-item\"><h3 class=\"rank-math-question\">What is a 301 redirect?</h3><div class=\"rank-math-answer\">A 301 redirect is permanent. It tells search engines to use the new URL.</div></div></div></div><!-- /wp:rank-math/faq-block -->",
+      "content": "<!-- wp:rank-math/faq-block {\"questions\":[{\"id\":\"faq-one\",\"title\":\"Hva er en 301-viderekobling?\",\"content\":\"En 301-viderekobling er permanent. It tells search engines to use the new URL.\",\"visible\":true}]} --><div class=\"wp-block-rank-math-faq-block rank-math-block\"><div class=\"rank-math-list\"><div id=\"faq-one\" class=\"rank-math-list-item\"><h3 class=\"rank-math-question\">Hva er en 301-viderekobling?</h3><div class=\"rank-math-answer\">En 301-viderekobling er permanent. It tells search engines to use the new URL.</div></div></div></div><!-- /wp:rank-math/faq-block -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "source_language_short_sentence_carryover"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
+      "id": "de-norwegian-target-language-carryover-should-fail",
+      "language": "de",
+      "description": "German QA must fail when Norwegian target-language copy is accidentally inserted into German content.",
+      "content": "<!-- wp:paragraph --><p>En XML-Sitemap er en maskinlesbar fil som lister URL-er du vil at søkemotorer skal oppdage på nettstedet ditt.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "wrong_language_profile_carryover"
+      ],
+      "minimum_issue_count": 1,
+      "runtime_profiles": {
+        "nb": {
+          "language_identity_terms": [
+            "nettstedet",
+            "søkemotorer",
+            "indeksering",
+            "oppdage",
+            "oppdages"
+          ]
+        }
+      }
+    },
+    {
+      "id": "ar-norwegian-target-language-carryover-should-fail",
+      "language": "ar",
+      "description": "Arabic QA must fail when Norwegian target-language copy is accidentally inserted into Arabic content.",
+      "content": "<!-- wp:paragraph --><p>En خريطة موقع XML er en maskinlesbar fil som lister URL-er du vil at søkemotorer skal oppdage på nettstedet ditt.</p><!-- /wp:paragraph -->",
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "wrong_language_profile_carryover"
+      ],
+      "minimum_issue_count": 1,
+      "runtime_profiles": {
+        "nb": {
+          "language_identity_terms": [
+            "nettstedet",
+            "søkemotorer",
+            "indeksering",
+            "oppdage",
+            "oppdages"
+          ]
+        }
+      }
+    },
+    {
       "id": "sv-valid-orthography-control",
       "language": "sv",
       "description": "A short Swedish control with correct local characters should not fail the orthography regression corpus.",

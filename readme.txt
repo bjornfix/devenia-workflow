@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.310
+Stable tag: 0.1.318
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,38 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.318 =
+* Includes scheduled/future translations in default fitness scans so the default scan covers the full active translation workflow index.
+
+= 0.1.317 =
+* Scans every post type managed by the translation workflow by default, while still allowing callers to narrow the scan explicitly.
+
+= 0.1.316 =
+* Rebuilds the translation index from actual translation metadata instead of a capped content query, so scan rebuilds do not drop valid translations.
+
+= 0.1.315 =
+* Adds translation index health reporting and optional rebuild support to the translation-fitness scanner.
+* Moves regression-only language identity data into explicit runtime profile fixtures instead of generic profile patches.
+* Cleans up translation fitness module locality so policy, dimensions, and guardrails stay behind one stable interface.
+
+= 0.1.314 =
+* Adds a general translation-fitness scanner so stored translations can be audited through the same QA modules used by save and review gates.
+* Moves wrong-language carryover detection into a separate language-integrity dimension.
+* Adds runtime quality profile fields for language identity markers, so language-specific detection data can live in WordPress options instead of plugin code.
+* Adds an internal ability dispatch integrity check to catch half-registered workflow operations before release.
+
+= 0.1.313 =
+* Adds a wrong-language carryover guardrail that detects when visible copy matches another configured target-language profile.
+* Adds regression coverage so target-language copy cannot pass silently inside another language's translation.
+
+= 0.1.312 =
+* Extends translation QA text extraction to Rank Math FAQ block question data so visible FAQ copy is checked by the same carryover guardrails as normal paragraphs.
+* Adds a regression case for English leftovers inside localized FAQ answers.
+
+= 0.1.311 =
+* Adds a QA guardrail for short copied source-language sentences that are too small for long-fragment carryover checks.
+* Adds a regression case so short English leftovers in translated body copy cannot pass silently.
 
 = 0.1.310 =
 * Moves vendor-specific SEO, sitemap, and theme hook integrations out of the core workflow file and into optional addons so the public core remains theme-neutral.
