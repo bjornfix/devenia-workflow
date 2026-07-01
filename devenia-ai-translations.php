@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.326
+ * Version: 0.1.327
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.326';
+	const VERSION = '0.1.327';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -24,7 +24,6 @@ final class Devenia_AI_Translations {
 	const OPTION_FRONTEND_SLOW_LOG = 'devenia_ai_translations_frontend_slow_log';
 	const OPTION_REVIEWER_STYLE_PROFILES = 'devenia_ai_translations_reviewer_style_profiles';
 	const OPTION_AUTHOR_ARCHIVES = 'devenia_ai_translations_author_archives';
-	const OPTION_STEP_TOKEN_HASHES = 'devenia_ai_translations_step_token_hashes';
 	const OPTION_TRANSLATION_CLAIM_PREFIX = 'devenia_ai_translation_claim_';
 	const DEFAULT_TRANSLATION_CLAIM_TTL = 1800;
 	const MAX_TRANSLATION_CLAIM_TTL = 14400;
@@ -53,6 +52,7 @@ final class Devenia_AI_Translations {
 	const META_QUALITY_REVIEWER_PROCESS = '_devenia_translation_quality_reviewer_process';
 	const META_WRITER_ACTOR = '_devenia_translation_writer_actor';
 	const META_WRITER_PROCESS = '_devenia_translation_writer_process';
+	const META_WRITER_TOKEN_LABEL = '_devenia_translation_writer_token_label';
 	const META_WRITER_RECORDED_AT = '_devenia_translation_writer_recorded_at';
 	const META_COPY_FEEDBACK = '_devenia_translation_copy_feedback';
 	const META_QA_OPTIONS = '_devenia_translation_qa_options';
@@ -9617,6 +9617,10 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required step-specific approval token for the quality_review step. Must be different from other workflow step tokens.',
 				),
+				'step_token_label' => array(
+					'type'        => 'string',
+					'description' => 'Required token-set label chosen by the owner for this Codex/session, such as codex-a or reviewer-b.',
+				),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
 					'description' => 'Required for translated content: stable identifier for the separate reviewer process/session. Must differ from the writer process.',
@@ -9681,7 +9685,7 @@ final class Devenia_AI_Translations {
 	private static function upsert_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'source_id', 'language', 'localized_slug', 'title', 'step_token' ),
+			'required'             => array( 'source_id', 'language', 'localized_slug', 'title', 'step_token', 'step_token_label' ),
 			'properties'           => array(
 				'source_id'         => array( 'type' => 'integer' ),
 				'language'          => array( 'type' => 'string' ),
@@ -9824,6 +9828,10 @@ final class Devenia_AI_Translations {
 				'step_token'        => array(
 					'type'        => 'string',
 					'description' => 'Required step-specific approval token for the draft_write step. Must be different from review and publish tokens.',
+				),
+				'step_token_label'  => array(
+					'type'        => 'string',
+					'description' => 'Required token-set label chosen by the owner for this Codex/session, such as codex-a or reviewer-b.',
 				),
 				'allow_update_published' => array(
 					'type'    => 'boolean',
@@ -10134,7 +10142,7 @@ final class Devenia_AI_Translations {
 	private static function publish_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'translation_id', 'reviewer_process_id', 'step_token' ),
+			'required'             => array( 'translation_id', 'reviewer_process_id', 'step_token', 'step_token_label' ),
 			'properties'           => array(
 				'translation_id'       => array( 'type' => 'integer' ),
 				'reviewer_process_id'  => array(
@@ -10144,6 +10152,10 @@ final class Devenia_AI_Translations {
 				'step_token'           => array(
 					'type'        => 'string',
 					'description' => 'Required step-specific approval token for the publish step. Must be different from draft and review tokens.',
+				),
+				'step_token_label'     => array(
+					'type'        => 'string',
+					'description' => 'Required token-set label chosen by the owner for this Codex/session, such as codex-a or reviewer-b.',
 				),
 				'claim_token'          => array(
 					'type'        => 'string',
@@ -10201,7 +10213,7 @@ final class Devenia_AI_Translations {
 	private static function linguistic_review_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'translation_id', 'reviewer_process_id', 'step_token' ),
+			'required'             => array( 'translation_id', 'reviewer_process_id', 'step_token', 'step_token_label' ),
 			'properties'           => array(
 				'translation_id' => array( 'type' => 'integer' ),
 				'reviewer_process_id' => array(
@@ -10211,6 +10223,10 @@ final class Devenia_AI_Translations {
 				'step_token'    => array(
 					'type'        => 'string',
 					'description' => 'Required step-specific approval token for the linguistic_review step. Must be different from other workflow step tokens.',
+				),
+				'step_token_label' => array(
+					'type'        => 'string',
+					'description' => 'Required token-set label chosen by the owner for this Codex/session, such as codex-a or reviewer-b.',
 				),
 				'claim_token'    => array(
 					'type'        => 'string',
@@ -15795,60 +15811,24 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Map workflow steps to their independently configured token hashes.
+	 * Canonical workflow step identifiers that require independent tokens.
 	 *
-	 * @return array<string,string>
+	 * @return string[]
 	 */
-	private static function translation_step_token_hashes(): array {
-		$hashes = get_option( self::OPTION_STEP_TOKEN_HASHES, array() );
-		$hashes = is_array( $hashes ) ? $hashes : array();
-		$steps  = array(
-			'draft_write'       => 'DEVENIA_AI_TRANSLATIONS_DRAFT_WRITE_TOKEN_HASH',
-			'linguistic_review' => 'DEVENIA_AI_TRANSLATIONS_LINGUISTIC_REVIEW_TOKEN_HASH',
-			'quality_review'    => 'DEVENIA_AI_TRANSLATIONS_QUALITY_REVIEW_TOKEN_HASH',
-			'publish'           => 'DEVENIA_AI_TRANSLATIONS_PUBLISH_TOKEN_HASH',
-		);
-
-		$out = array();
-		foreach ( $steps as $step => $constant_name ) {
-			$hash = isset( $hashes[ $step ] ) ? sanitize_text_field( (string) $hashes[ $step ] ) : '';
-			if ( '' === $hash && defined( $constant_name ) ) {
-				$hash = sanitize_text_field( (string) constant( $constant_name ) );
-			}
-			$out[ $step ] = $hash;
-		}
-
-		return $out;
-	}
-
-	/**
-	 * Check a raw step token against one configured hash.
-	 */
-	private static function translation_step_token_matches_hash( string $token, string $expected_hash ): bool {
-		if ( '' === $expected_hash ) {
-			return false;
-		}
-		if ( 0 === strpos( $expected_hash, 'sha256:' ) ) {
-			return hash_equals( substr( $expected_hash, 7 ), hash( 'sha256', $token ) );
-		}
-		if ( 0 === strpos( $expected_hash, 'hmac-sha256:' ) ) {
-			return hash_equals( substr( $expected_hash, 12 ), hash_hmac( 'sha256', $token, wp_salt( 'auth' ) ) );
-		}
-
-		return wp_check_password( $token, $expected_hash );
+	private static function translation_step_token_steps(): array {
+		return array( 'draft_write', 'linguistic_review', 'quality_review', 'publish' );
 	}
 
 	/**
 	 * Verify that a workflow step has its own token and that the caller knows it.
 	 */
 	private static function translation_step_token_gate( string $step, array $input ): array {
-		$step   = sanitize_key( $step );
-		$hashes = self::translation_step_token_hashes();
-		if ( empty( $hashes[ $step ] ) ) {
+		$step = sanitize_key( $step );
+		if ( ! in_array( $step, self::translation_step_token_steps(), true ) ) {
 			return array(
 				'success' => false,
-				'code'    => 'step_token_not_configured',
-				'message' => 'This translation workflow step has no configured token hash.',
+				'code'    => 'unknown_step_token_gate',
+				'message' => 'Unknown translation workflow step token gate.',
 				'step'    => $step,
 			);
 		}
@@ -15862,36 +15842,49 @@ final class Devenia_AI_Translations {
 				'step'    => $step,
 			);
 		}
-
-		$expected_hash = (string) $hashes[ $step ];
-		$valid         = self::translation_step_token_matches_hash( $token, $expected_hash );
-
-		if ( ! $valid ) {
+		$token_label = sanitize_key( (string) ( $input['step_token_label'] ?? '' ) );
+		if ( '' === $token_label ) {
 			return array(
 				'success' => false,
-				'code'    => 'step_token_invalid',
-				'message' => 'The supplied token is not valid for this translation workflow step.',
+				'code'    => 'step_token_label_required',
+				'message' => 'A token-set label chosen for this Codex/session is required for this translation workflow step.',
 				'step'    => $step,
 			);
 		}
-		foreach ( $hashes as $other_step => $other_hash ) {
-			if ( $other_step === $step || '' === $other_hash ) {
-				continue;
-			}
-			if ( self::translation_step_token_matches_hash( $token, (string) $other_hash ) ) {
-				return array(
-					'success'      => false,
-					'code'         => 'step_token_not_unique',
-					'message'      => 'This token is valid for more than one workflow step. Configure separate tokens for each step.',
-					'step'         => $step,
-					'matched_step' => sanitize_key( (string) $other_step ),
-				);
-			}
+
+		$decision = apply_filters(
+			'devenia_translation_step_token_gate',
+			null,
+			$step,
+			$token,
+			array(
+				'input'       => $input,
+				'token_label' => $token_label,
+				'actor'       => self::current_operator_label(),
+				'plugin'      => 'devenia-ai-translations',
+				'version'     => self::VERSION,
+				'required_steps' => self::translation_step_token_steps(),
+			)
+		);
+		if ( ! is_array( $decision ) ) {
+			return array(
+				'success' => false,
+				'code'    => 'step_token_authority_missing',
+				'message' => 'The external translation token authority did not answer. Activate and configure the token authority plugin before running this workflow step.',
+				'step'    => $step,
+			);
+		}
+		if ( empty( $decision['success'] ) ) {
+			$decision['success'] = false;
+			$decision['step']    = $step;
+			return $decision;
 		}
 
 		return array(
 			'success' => true,
 			'step'    => $step,
+			'step_token_label' => $token_label,
+			'authority' => sanitize_text_field( (string) ( $decision['authority'] ?? 'external' ) ),
 		);
 	}
 
@@ -15904,9 +15897,11 @@ final class Devenia_AI_Translations {
 			$process_id = self::default_writer_process_id();
 		}
 		$actor = ! empty( $input['writer_actor'] ) ? sanitize_text_field( (string) $input['writer_actor'] ) : self::current_operator_label();
+		$token_label = sanitize_key( (string) ( $input['step_token_label'] ?? '' ) );
 
 		update_post_meta( $translation_id, self::META_WRITER_PROCESS, $process_id );
 		update_post_meta( $translation_id, self::META_WRITER_ACTOR, $actor );
+		update_post_meta( $translation_id, self::META_WRITER_TOKEN_LABEL, $token_label );
 		update_post_meta( $translation_id, self::META_WRITER_RECORDED_AT, gmdate( 'c' ) );
 	}
 
@@ -15917,6 +15912,7 @@ final class Devenia_AI_Translations {
 		return array(
 			'process_id'  => (string) get_post_meta( $translation_id, self::META_WRITER_PROCESS, true ),
 			'actor'       => (string) get_post_meta( $translation_id, self::META_WRITER_ACTOR, true ),
+			'token_label' => (string) get_post_meta( $translation_id, self::META_WRITER_TOKEN_LABEL, true ),
 			'recorded_at' => (string) get_post_meta( $translation_id, self::META_WRITER_RECORDED_AT, true ),
 		);
 	}
@@ -15931,6 +15927,7 @@ final class Devenia_AI_Translations {
 		return array(
 			'process_id'  => $process_id,
 			'actor'       => $reviewer,
+			'token_label' => sanitize_key( (string) ( $input['step_token_label'] ?? '' ) ),
 			'recorded_at' => gmdate( 'c' ),
 			'writer'      => self::translation_writer_provenance( $translation_id ),
 		);
@@ -16057,12 +16054,14 @@ final class Devenia_AI_Translations {
 				$party = array(
 					'process_id'  => sanitize_text_field( (string) ( $raw[ $party_key ]['process_id'] ?? '' ) ),
 					'actor'       => sanitize_text_field( (string) ( $raw[ $party_key ]['actor'] ?? '' ) ),
+					'token_label' => sanitize_key( (string) ( $raw[ $party_key ]['token_label'] ?? '' ) ),
 					'recorded_at' => sanitize_text_field( (string) ( $raw[ $party_key ]['recorded_at'] ?? '' ) ),
 				);
 				if ( 'reviewer' === $party_key && isset( $raw[ $party_key ]['writer'] ) && is_array( $raw[ $party_key ]['writer'] ) ) {
 					$party['writer'] = array(
 						'process_id'  => sanitize_text_field( (string) ( $raw[ $party_key ]['writer']['process_id'] ?? '' ) ),
 						'actor'       => sanitize_text_field( (string) ( $raw[ $party_key ]['writer']['actor'] ?? '' ) ),
+						'token_label' => sanitize_key( (string) ( $raw[ $party_key ]['writer']['token_label'] ?? '' ) ),
 						'recorded_at' => sanitize_text_field( (string) ( $raw[ $party_key ]['writer']['recorded_at'] ?? '' ) ),
 					);
 				}
