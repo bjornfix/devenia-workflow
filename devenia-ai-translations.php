@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.325
+ * Version: 0.1.326
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.325';
+	const VERSION = '0.1.326';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -24,6 +24,7 @@ final class Devenia_AI_Translations {
 	const OPTION_FRONTEND_SLOW_LOG = 'devenia_ai_translations_frontend_slow_log';
 	const OPTION_REVIEWER_STYLE_PROFILES = 'devenia_ai_translations_reviewer_style_profiles';
 	const OPTION_AUTHOR_ARCHIVES = 'devenia_ai_translations_author_archives';
+	const OPTION_STEP_TOKEN_HASHES = 'devenia_ai_translations_step_token_hashes';
 	const OPTION_TRANSLATION_CLAIM_PREFIX = 'devenia_ai_translation_claim_';
 	const DEFAULT_TRANSLATION_CLAIM_TTL = 1800;
 	const MAX_TRANSLATION_CLAIM_TTL = 14400;
@@ -43,11 +44,16 @@ final class Devenia_AI_Translations {
 	const META_LINGUISTIC_REVIEW_NOTE = '_devenia_translation_linguistic_review_note';
 	const META_LINGUISTIC_REVIEW_CHECKS = '_devenia_translation_linguistic_review_checks';
 	const META_LINGUISTIC_REVIEW_EVIDENCE = '_devenia_translation_linguistic_review_evidence';
+	const META_LINGUISTIC_REVIEWER_PROCESS = '_devenia_translation_linguistic_reviewer_process';
 	const META_QUALITY_REVIEWED_AT = '_devenia_translation_quality_reviewed_at';
 	const META_QUALITY_REVIEWER    = '_devenia_translation_quality_reviewer';
 	const META_QUALITY_REVIEW_NOTE = '_devenia_translation_quality_review_note';
 	const META_QUALITY_REVIEW_CHECKS = '_devenia_translation_quality_review_checks';
 	const META_QUALITY_REVIEW_EVIDENCE = '_devenia_translation_quality_review_evidence';
+	const META_QUALITY_REVIEWER_PROCESS = '_devenia_translation_quality_reviewer_process';
+	const META_WRITER_ACTOR = '_devenia_translation_writer_actor';
+	const META_WRITER_PROCESS = '_devenia_translation_writer_process';
+	const META_WRITER_RECORDED_AT = '_devenia_translation_writer_recorded_at';
 	const META_COPY_FEEDBACK = '_devenia_translation_copy_feedback';
 	const META_QA_OPTIONS = '_devenia_translation_qa_options';
 	const META_AUTHORED_ORIGINAL_ID = '_devenia_translation_authored_original_id';
@@ -290,9 +296,20 @@ final class Devenia_AI_Translations {
 	 * Install persistent data structures when the plugin is activated.
 	 */
 	public static function activate(): void {
+		self::ensure_reviewer_capabilities();
 		self::install_translation_index_schema();
 		self::install_language_rule_events_schema();
 		self::rebuild_translation_index();
+	}
+
+	/**
+	 * Ensure trusted administrators can operate the separate reviewer gate.
+	 */
+	private static function ensure_reviewer_capabilities(): void {
+		$administrator = get_role( 'administrator' );
+		if ( $administrator instanceof WP_Role && ! $administrator->has_cap( 'devenia_approve_translation_quality' ) ) {
+			$administrator->add_cap( 'devenia_approve_translation_quality' );
+		}
 	}
 
 	/**
@@ -979,6 +996,7 @@ final class Devenia_AI_Translations {
 			self::repair_source_term_translation_meta();
 		}
 
+		self::ensure_reviewer_capabilities();
 		update_option( self::OPTION_VERSION, self::VERSION, false );
 	}
 
@@ -8131,7 +8149,7 @@ final class Devenia_AI_Translations {
 			),
 			'ai-translations/mark-reviewed' => array(
 				'label'            => 'Mark Translation Reviewed',
-				'description'      => 'Legacy status marker. Reviewed status now requires current linguistic review evidence; publishing must use publish-translation.',
+				'description'      => 'Legacy status marker for demotion/cleanup only. It cannot promote translations to reviewed or published.',
 				'input_schema'     => array(
 					'type'                 => 'object',
 					'required'             => array( 'translation_id', 'translation_status' ),
@@ -8139,7 +8157,7 @@ final class Devenia_AI_Translations {
 						'translation_id'     => array( 'type' => 'integer' ),
 						'translation_status' => array(
 							'type' => 'string',
-							'enum' => array( 'draft', 'needs_review', 'reviewed', 'stale' ),
+							'enum' => array( 'draft', 'needs_review', 'stale' ),
 						),
 						'claim_token'        => array(
 							'type'        => 'string',
@@ -9595,6 +9613,14 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
 				),
+				'step_token' => array(
+					'type'        => 'string',
+					'description' => 'Required step-specific approval token for the quality_review step. Must be different from other workflow step tokens.',
+				),
+				'reviewer_process_id' => array(
+					'type'        => 'string',
+					'description' => 'Required for translated content: stable identifier for the separate reviewer process/session. Must differ from the writer process.',
+				),
 				'reviewer' => array(
 					'type'        => 'string',
 					'description' => 'Reviewer name.',
@@ -9655,7 +9681,7 @@ final class Devenia_AI_Translations {
 	private static function upsert_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'source_id', 'language', 'localized_slug', 'title' ),
+			'required'             => array( 'source_id', 'language', 'localized_slug', 'title', 'step_token' ),
 			'properties'           => array(
 				'source_id'         => array( 'type' => 'integer' ),
 				'language'          => array( 'type' => 'string' ),
@@ -9795,9 +9821,21 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
 				),
+				'step_token'        => array(
+					'type'        => 'string',
+					'description' => 'Required step-specific approval token for the draft_write step. Must be different from review and publish tokens.',
+				),
 				'allow_update_published' => array(
 					'type'    => 'boolean',
 					'default' => false,
+				),
+				'writer_process_id' => array(
+					'type'        => 'string',
+					'description' => 'Stable identifier for the process/session that authored this translation draft. Reviewer processes must be different.',
+				),
+				'writer_actor' => array(
+					'type'        => 'string',
+					'description' => 'Optional human/operator label for the writer process.',
 				),
 			),
 			'additionalProperties' => false,
@@ -10096,9 +10134,17 @@ final class Devenia_AI_Translations {
 	private static function publish_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'translation_id' ),
+			'required'             => array( 'translation_id', 'reviewer_process_id', 'step_token' ),
 			'properties'           => array(
 				'translation_id'       => array( 'type' => 'integer' ),
+				'reviewer_process_id'  => array(
+					'type'        => 'string',
+					'description' => 'Stable identifier for the separate reviewer process/session. Must differ from the writer process.',
+				),
+				'step_token'           => array(
+					'type'        => 'string',
+					'description' => 'Required step-specific approval token for the publish step. Must be different from draft and review tokens.',
+				),
 				'claim_token'          => array(
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
@@ -10155,9 +10201,17 @@ final class Devenia_AI_Translations {
 	private static function linguistic_review_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'translation_id' ),
+			'required'             => array( 'translation_id', 'reviewer_process_id', 'step_token' ),
 			'properties'           => array(
 				'translation_id' => array( 'type' => 'integer' ),
+				'reviewer_process_id' => array(
+					'type'        => 'string',
+					'description' => 'Stable identifier for the separate reviewer process/session. Must differ from the writer process.',
+				),
+				'step_token'    => array(
+					'type'        => 'string',
+					'description' => 'Required step-specific approval token for the linguistic_review step. Must be different from other workflow step tokens.',
+				),
 				'claim_token'    => array(
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
@@ -12156,6 +12210,10 @@ final class Devenia_AI_Translations {
 		if ( '' === $title ) {
 			return self::error( 'Title is required.' );
 		}
+		$step_token_gate = self::translation_step_token_gate( 'draft_write', $input );
+		if ( empty( $step_token_gate['success'] ) ) {
+			return $step_token_gate;
+		}
 
 		$source_design = array();
 		$inherit_source_design = array_key_exists( 'inherit_source_design', $input )
@@ -12195,6 +12253,9 @@ final class Devenia_AI_Translations {
 
 		$status             = self::sanitize_post_status( (string) ( $input['status'] ?? 'draft' ), 'draft' );
 		$translation_status = self::sanitize_translation_status( (string) ( $input['translation_status'] ?? 'needs_review' ) );
+		if ( in_array( $translation_status, array( 'reviewed', 'published' ), true ) || 'publish' === $status ) {
+			return self::error( 'Writer workflows may only save translated drafts or needs_review content. A separate reviewer process must review and publish translations.' );
+		}
 		$raw_slug           = (string) ( $input['localized_slug'] ?? '' );
 		$slug               = sanitize_title( $raw_slug );
 		if ( '' === $slug ) {
@@ -12349,6 +12410,7 @@ final class Devenia_AI_Translations {
 		}
 		$seo_meta = self::sync_translation_seo_meta( $translation_id, $input, $title, $excerpt, $content );
 		$lifecycle = self::apply_translation_lifecycle_meta( $translation_id, $source_id, $language, $translation_status, $source );
+		self::record_translation_writer_provenance( $translation_id, $input );
 		$review_invalidated = '' !== $previous_review_hash
 			? self::invalidate_translation_reviews_if_content_changed( $translation_id, 'upsert_translation', $previous_review_hash )
 			: false;
@@ -13122,14 +13184,7 @@ final class Devenia_AI_Translations {
 			return self::error( 'Use publish-translation to publish reviewed translations.' );
 		}
 		if ( 'reviewed' === $status ) {
-			$review_state = self::linguistic_review_state_for_post( $translation_id );
-			if ( empty( $review_state['passed'] ) ) {
-				return array(
-					'success'      => false,
-					'message'      => 'Current linguistic review evidence is required before marking the translation reviewed.',
-					'review_state' => $review_state,
-				);
-			}
+			return self::error( 'Legacy mark-reviewed cannot promote translations. Use mark-linguistic-reviewed with a separate reviewer process and step token.' );
 		}
 		update_post_meta( $translation_id, self::META_STATUS, $status );
 		if ( 'reviewed' === $status ) {
@@ -13869,6 +13924,7 @@ final class Devenia_AI_Translations {
 
 		$qa         = $gate['qa'];
 		$review_state = $gate['review_state'] ?? null;
+		$quality_review_state = $gate['quality_review_state'] ?? null;
 		$quality_verdict = $gate['quality_verdict'] ?? null;
 		$language   = (string) $gate['language'];
 		$source_id  = (int) $gate['source_id'];
@@ -13907,6 +13963,7 @@ final class Devenia_AI_Translations {
 					'translation'       => $translation,
 					'qa'                => $qa,
 					'review_state'      => $review_state,
+					'quality_review_state' => $quality_review_state,
 					'quality_verdict'   => $quality_verdict,
 					'menu'              => $menu,
 					'purge_urls'        => $purge_urls,
@@ -13922,6 +13979,7 @@ final class Devenia_AI_Translations {
 			'translation'       => $translation,
 			'qa'                => $qa,
 			'review_state'      => $review_state,
+			'quality_review_state' => $quality_review_state,
 			'quality_verdict'   => $quality_verdict,
 			'menu'              => $menu,
 			'purge_urls'        => $purge_urls,
@@ -14079,6 +14137,15 @@ final class Devenia_AI_Translations {
 	 * Validate publish prerequisites in one place.
 	 */
 	private static function translation_publish_gate( array $input, int $translation_id ): array {
+		$step_token_gate = self::translation_step_token_gate( 'publish', $input );
+		if ( empty( $step_token_gate['success'] ) ) {
+			return $step_token_gate;
+		}
+		$reviewer_gate = self::translation_reviewer_approval_gate( $translation_id, $input, 'publish' );
+		if ( empty( $reviewer_gate['success'] ) ) {
+			return $reviewer_gate;
+		}
+
 		$run_qa = array_key_exists( 'run_qa', $input ) ? (bool) $input['run_qa'] : true;
 		$qa     = null;
 		if ( $run_qa ) {
@@ -14127,20 +14194,36 @@ final class Devenia_AI_Translations {
 		if ( empty( $review_state['passed'] ) ) {
 			return array(
 				'success'      => false,
-				'message'      => 'Current linguistic review evidence is required before publishing.',
+				'message'      => 'Current linguistic review evidence from a separate reviewer process is required before publishing.',
 				'review_state' => $review_state,
 				'qa'           => $qa,
 			);
 		}
 
 		$translation_post = get_post( $translation_id );
+		$quality_state    = $translation_post instanceof WP_Post ? self::quality_review_readiness_for_post( $translation_post, $language ) : array(
+			'passed'        => false,
+			'state'         => 'missing_translation',
+			'stale_reasons' => array( 'missing_translation' ),
+		);
+		if ( empty( $quality_state['passed'] ) ) {
+			return array(
+				'success'              => false,
+				'message'              => 'Current quality review evidence from a separate reviewer process is required before publishing.',
+				'review_state'         => $review_state,
+				'quality_review_state' => $quality_state,
+				'qa'                   => $qa,
+			);
+		}
 		$quality_verdict  = $translation_post instanceof WP_Post ? self::quality_verdict_present_for_audience( self::quality_verdict_for_post( $translation_post, false, 'pre_publish' ), 'ai_operator' ) : null;
 
 		return array(
 			'success'         => true,
 			'qa'              => $qa,
 			'review_state'    => $review_state,
+			'quality_review_state' => $quality_state,
 			'quality_verdict' => $quality_verdict,
+			'reviewer'        => $reviewer_gate['reviewer'] ?? array(),
 			'source_id'       => $source_id,
 			'language'        => $language,
 		);
@@ -14264,6 +14347,14 @@ final class Devenia_AI_Translations {
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
+		$step_token_gate = self::translation_step_token_gate( 'linguistic_review', $input );
+		if ( empty( $step_token_gate['success'] ) ) {
+			return $step_token_gate;
+		}
+		$reviewer_gate = self::translation_reviewer_approval_gate( $translation_id, $input, 'linguistic_review' );
+		if ( empty( $reviewer_gate['success'] ) ) {
+			return $reviewer_gate;
+		}
 
 		if ( array_key_exists( 'run_qa', $input ) ? (bool) $input['run_qa'] : true ) {
 			$qa = self::qa_translation( $input );
@@ -14312,11 +14403,15 @@ final class Devenia_AI_Translations {
 
 		$reviewer = ! empty( $input['reviewer'] ) ? sanitize_text_field( (string) $input['reviewer'] ) : 'AI Translation Workflow';
 		$note     = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
+		$reviewer_provenance = isset( $reviewer_gate['reviewer'] ) && is_array( $reviewer_gate['reviewer'] ) ? $reviewer_gate['reviewer'] : self::reviewer_provenance_from_input( $input, $translation_id );
 
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWER, $reviewer );
+		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWER_PROCESS, (string) $reviewer_provenance['process_id'] );
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_CHECKS, wp_json_encode( $review_checks ) );
-		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_EVIDENCE, wp_json_encode( self::translation_review_evidence( $translation_id, $fitness ) ) );
+		$evidence = self::translation_review_evidence( $translation_id, $fitness );
+		$evidence['reviewer'] = $reviewer_provenance;
+		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_EVIDENCE, wp_json_encode( $evidence ) );
 		if ( '' !== $note ) {
 			update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_NOTE, $note );
 		} else {
@@ -14785,6 +14880,20 @@ final class Devenia_AI_Translations {
 			if ( $claim_gate ) {
 				return $claim_gate;
 			}
+			$step_token_gate = self::translation_step_token_gate( 'quality_review', $input );
+			if ( empty( $step_token_gate['success'] ) ) {
+				return $step_token_gate;
+			}
+			$reviewer_gate = self::translation_reviewer_approval_gate( $page_id, $input, 'quality_review' );
+			if ( empty( $reviewer_gate['success'] ) ) {
+				return $reviewer_gate;
+			}
+		} else {
+			$step_token_gate = self::translation_step_token_gate( 'quality_review', $input );
+			if ( empty( $step_token_gate['success'] ) ) {
+				return $step_token_gate;
+			}
+			$reviewer_gate = array();
 		}
 		$required_checks = self::required_quality_review_checks( $language );
 		$review_checks   = self::review_checks_from_input( $input, $required_checks );
@@ -14800,11 +14909,20 @@ final class Devenia_AI_Translations {
 
 		$reviewer = ! empty( $input['reviewer'] ) ? sanitize_text_field( (string) $input['reviewer'] ) : 'AI Translation Workflow';
 		$note     = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
+		$reviewer_provenance = isset( $reviewer_gate['reviewer'] ) && is_array( $reviewer_gate['reviewer'] ) ? $reviewer_gate['reviewer'] : array(
+			'process_id'  => '',
+			'actor'       => $reviewer,
+			'recorded_at' => gmdate( 'c' ),
+			'writer'      => array(),
+		);
 
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWER, $reviewer );
+		update_post_meta( $page_id, self::META_QUALITY_REVIEWER_PROCESS, (string) $reviewer_provenance['process_id'] );
 		update_post_meta( $page_id, self::META_QUALITY_REVIEW_CHECKS, wp_json_encode( $review_checks ) );
-		update_post_meta( $page_id, self::META_QUALITY_REVIEW_EVIDENCE, wp_json_encode( self::translation_review_evidence( $page_id ) ) );
+		$evidence = self::translation_review_evidence( $page_id );
+		$evidence['reviewer'] = $reviewer_provenance;
+		update_post_meta( $page_id, self::META_QUALITY_REVIEW_EVIDENCE, wp_json_encode( $evidence ) );
 		if ( '' !== $note ) {
 			update_post_meta( $page_id, self::META_QUALITY_REVIEW_NOTE, $note );
 		} else {
@@ -15641,6 +15759,237 @@ final class Devenia_AI_Translations {
 				'suggested_count'              => count( $internal_linking['opportunities'] ?? array() ),
 				'review_suggested'             => ! empty( $internal_linking['should_review'] ),
 			),
+			'writer'                => self::translation_writer_provenance( $translation_id ),
+		);
+	}
+
+	/**
+	 * Current WordPress/MCP actor label.
+	 */
+	private static function current_operator_label(): string {
+		$user = wp_get_current_user();
+		if ( $user && $user->exists() ) {
+			$label = trim( (string) $user->user_login );
+			if ( '' !== $label ) {
+				return 'wp_user:' . $label . '#' . (int) $user->ID;
+			}
+		}
+
+		return 'anonymous';
+	}
+
+	/**
+	 * Stable default writer process label for draft writes when caller does not provide one.
+	 */
+	private static function default_writer_process_id(): string {
+		return 'writer:' . self::current_operator_label();
+	}
+
+	/**
+	 * Normalize process identifiers used for writer/reviewer separation.
+	 */
+	private static function normalize_process_id( string $process_id ): string {
+		$process_id = sanitize_text_field( $process_id );
+		$process_id = preg_replace( '/\s+/', ' ', $process_id );
+		return trim( (string) $process_id );
+	}
+
+	/**
+	 * Map workflow steps to their independently configured token hashes.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function translation_step_token_hashes(): array {
+		$hashes = get_option( self::OPTION_STEP_TOKEN_HASHES, array() );
+		$hashes = is_array( $hashes ) ? $hashes : array();
+		$steps  = array(
+			'draft_write'       => 'DEVENIA_AI_TRANSLATIONS_DRAFT_WRITE_TOKEN_HASH',
+			'linguistic_review' => 'DEVENIA_AI_TRANSLATIONS_LINGUISTIC_REVIEW_TOKEN_HASH',
+			'quality_review'    => 'DEVENIA_AI_TRANSLATIONS_QUALITY_REVIEW_TOKEN_HASH',
+			'publish'           => 'DEVENIA_AI_TRANSLATIONS_PUBLISH_TOKEN_HASH',
+		);
+
+		$out = array();
+		foreach ( $steps as $step => $constant_name ) {
+			$hash = isset( $hashes[ $step ] ) ? sanitize_text_field( (string) $hashes[ $step ] ) : '';
+			if ( '' === $hash && defined( $constant_name ) ) {
+				$hash = sanitize_text_field( (string) constant( $constant_name ) );
+			}
+			$out[ $step ] = $hash;
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Check a raw step token against one configured hash.
+	 */
+	private static function translation_step_token_matches_hash( string $token, string $expected_hash ): bool {
+		if ( '' === $expected_hash ) {
+			return false;
+		}
+		if ( 0 === strpos( $expected_hash, 'sha256:' ) ) {
+			return hash_equals( substr( $expected_hash, 7 ), hash( 'sha256', $token ) );
+		}
+		if ( 0 === strpos( $expected_hash, 'hmac-sha256:' ) ) {
+			return hash_equals( substr( $expected_hash, 12 ), hash_hmac( 'sha256', $token, wp_salt( 'auth' ) ) );
+		}
+
+		return wp_check_password( $token, $expected_hash );
+	}
+
+	/**
+	 * Verify that a workflow step has its own token and that the caller knows it.
+	 */
+	private static function translation_step_token_gate( string $step, array $input ): array {
+		$step   = sanitize_key( $step );
+		$hashes = self::translation_step_token_hashes();
+		if ( empty( $hashes[ $step ] ) ) {
+			return array(
+				'success' => false,
+				'code'    => 'step_token_not_configured',
+				'message' => 'This translation workflow step has no configured token hash.',
+				'step'    => $step,
+			);
+		}
+
+		$token = (string) ( $input['step_token'] ?? '' );
+		if ( '' === $token ) {
+			return array(
+				'success' => false,
+				'code'    => 'step_token_required',
+				'message' => 'A step-specific token is required for this translation workflow step.',
+				'step'    => $step,
+			);
+		}
+
+		$expected_hash = (string) $hashes[ $step ];
+		$valid         = self::translation_step_token_matches_hash( $token, $expected_hash );
+
+		if ( ! $valid ) {
+			return array(
+				'success' => false,
+				'code'    => 'step_token_invalid',
+				'message' => 'The supplied token is not valid for this translation workflow step.',
+				'step'    => $step,
+			);
+		}
+		foreach ( $hashes as $other_step => $other_hash ) {
+			if ( $other_step === $step || '' === $other_hash ) {
+				continue;
+			}
+			if ( self::translation_step_token_matches_hash( $token, (string) $other_hash ) ) {
+				return array(
+					'success'      => false,
+					'code'         => 'step_token_not_unique',
+					'message'      => 'This token is valid for more than one workflow step. Configure separate tokens for each step.',
+					'step'         => $step,
+					'matched_step' => sanitize_key( (string) $other_step ),
+				);
+			}
+		}
+
+		return array(
+			'success' => true,
+			'step'    => $step,
+		);
+	}
+
+	/**
+	 * Store who authored the current translated content revision.
+	 */
+	private static function record_translation_writer_provenance( int $translation_id, array $input ): void {
+		$process_id = self::normalize_process_id( (string) ( $input['writer_process_id'] ?? '' ) );
+		if ( '' === $process_id ) {
+			$process_id = self::default_writer_process_id();
+		}
+		$actor = ! empty( $input['writer_actor'] ) ? sanitize_text_field( (string) $input['writer_actor'] ) : self::current_operator_label();
+
+		update_post_meta( $translation_id, self::META_WRITER_PROCESS, $process_id );
+		update_post_meta( $translation_id, self::META_WRITER_ACTOR, $actor );
+		update_post_meta( $translation_id, self::META_WRITER_RECORDED_AT, gmdate( 'c' ) );
+	}
+
+	/**
+	 * Load writer provenance for one translation.
+	 */
+	private static function translation_writer_provenance( int $translation_id ): array {
+		return array(
+			'process_id'  => (string) get_post_meta( $translation_id, self::META_WRITER_PROCESS, true ),
+			'actor'       => (string) get_post_meta( $translation_id, self::META_WRITER_ACTOR, true ),
+			'recorded_at' => (string) get_post_meta( $translation_id, self::META_WRITER_RECORDED_AT, true ),
+		);
+	}
+
+	/**
+	 * Build reviewer provenance from ability input.
+	 */
+	private static function reviewer_provenance_from_input( array $input, int $translation_id ): array {
+		$process_id = self::normalize_process_id( (string) ( $input['reviewer_process_id'] ?? '' ) );
+		$reviewer   = ! empty( $input['reviewer'] ) ? sanitize_text_field( (string) $input['reviewer'] ) : self::current_operator_label();
+
+		return array(
+			'process_id'  => $process_id,
+			'actor'       => $reviewer,
+			'recorded_at' => gmdate( 'c' ),
+			'writer'      => self::translation_writer_provenance( $translation_id ),
+		);
+	}
+
+	/**
+	 * Hard authorization and process-separation gate for translated public copy review.
+	 */
+	private static function translation_reviewer_approval_gate( int $translation_id, array $input, string $stage ): array {
+		$post = get_post( $translation_id );
+		if ( ! $post || ! self::is_translatable_post_type( (string) $post->post_type ) || ! self::is_translation_post( $translation_id ) ) {
+			return self::error( 'Translation content not found.' );
+		}
+
+		if ( ! current_user_can( 'devenia_approve_translation_quality' ) ) {
+			return array(
+				'success' => false,
+				'code'    => 'reviewer_capability_required',
+				'message' => 'A separate reviewer process with the devenia_approve_translation_quality capability is required.',
+				'stage'   => sanitize_key( $stage ),
+			);
+		}
+
+		$reviewer = self::reviewer_provenance_from_input( $input, $translation_id );
+		if ( '' === $reviewer['process_id'] ) {
+			return array(
+				'success' => false,
+				'code'    => 'reviewer_process_required',
+				'message' => 'Reviewer process ID is required and must identify the separate reviewer process.',
+				'stage'   => sanitize_key( $stage ),
+			);
+		}
+
+		$writer = $reviewer['writer'];
+		if ( ! empty( $writer['process_id'] ) && $writer['process_id'] === $reviewer['process_id'] ) {
+			return array(
+				'success'  => false,
+				'code'     => 'writer_reviewer_process_match',
+				'message'  => 'The process that authored the translation cannot review or publish it.',
+				'stage'    => sanitize_key( $stage ),
+				'writer'   => $writer,
+				'reviewer' => $reviewer,
+			);
+		}
+		if ( ! empty( $writer['actor'] ) && $writer['actor'] === $reviewer['actor'] ) {
+			return array(
+				'success'  => false,
+				'code'     => 'writer_reviewer_actor_match',
+				'message'  => 'The identity that authored the translation cannot review or publish it.',
+				'stage'    => sanitize_key( $stage ),
+				'writer'   => $writer,
+				'reviewer' => $reviewer,
+			);
+		}
+
+		return array(
+			'success'  => true,
+			'stage'    => sanitize_key( $stage ),
+			'reviewer' => $reviewer,
 		);
 	}
 
@@ -15703,8 +16052,49 @@ final class Devenia_AI_Translations {
 				'review_suggested'             => ! empty( $raw['internal_linking']['review_suggested'] ),
 			);
 		}
+		foreach ( array( 'writer', 'reviewer' ) as $party_key ) {
+			if ( isset( $raw[ $party_key ] ) && is_array( $raw[ $party_key ] ) ) {
+				$party = array(
+					'process_id'  => sanitize_text_field( (string) ( $raw[ $party_key ]['process_id'] ?? '' ) ),
+					'actor'       => sanitize_text_field( (string) ( $raw[ $party_key ]['actor'] ?? '' ) ),
+					'recorded_at' => sanitize_text_field( (string) ( $raw[ $party_key ]['recorded_at'] ?? '' ) ),
+				);
+				if ( 'reviewer' === $party_key && isset( $raw[ $party_key ]['writer'] ) && is_array( $raw[ $party_key ]['writer'] ) ) {
+					$party['writer'] = array(
+						'process_id'  => sanitize_text_field( (string) ( $raw[ $party_key ]['writer']['process_id'] ?? '' ) ),
+						'actor'       => sanitize_text_field( (string) ( $raw[ $party_key ]['writer']['actor'] ?? '' ) ),
+						'recorded_at' => sanitize_text_field( (string) ( $raw[ $party_key ]['writer']['recorded_at'] ?? '' ) ),
+					);
+				}
+				$evidence[ $party_key ] = $party;
+			}
+		}
 
 		return $evidence;
+	}
+
+	/**
+	 * Validate stored reviewer evidence against writer provenance.
+	 */
+	private static function review_evidence_has_separate_reviewer( array $evidence ): bool {
+		$reviewer = isset( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) ? $evidence['reviewer'] : array();
+		$writer   = isset( $reviewer['writer'] ) && is_array( $reviewer['writer'] ) ? $reviewer['writer'] : ( isset( $evidence['writer'] ) && is_array( $evidence['writer'] ) ? $evidence['writer'] : array() );
+		$reviewer_process = self::normalize_process_id( (string) ( $reviewer['process_id'] ?? '' ) );
+		$writer_process   = self::normalize_process_id( (string) ( $writer['process_id'] ?? '' ) );
+		$reviewer_actor   = sanitize_text_field( (string) ( $reviewer['actor'] ?? '' ) );
+		$writer_actor     = sanitize_text_field( (string) ( $writer['actor'] ?? '' ) );
+
+		if ( '' === $reviewer_process ) {
+			return false;
+		}
+		if ( '' !== $writer_process && $writer_process === $reviewer_process ) {
+			return false;
+		}
+		if ( '' !== $writer_actor && '' !== $reviewer_actor && $writer_actor === $reviewer_actor ) {
+			return false;
+		}
+
+		return true;
 	}
 
 	/**
@@ -15743,6 +16133,9 @@ final class Devenia_AI_Translations {
 		if ( empty( $evidence ) ) {
 			$stale_reasons[] = 'missing_review_evidence';
 		} else {
+			if ( ! self::review_evidence_has_separate_reviewer( $evidence ) ) {
+				$stale_reasons[] = 'missing_separate_reviewer';
+			}
 			if ( ! empty( $evidence['translation_hash'] ) && $evidence['translation_hash'] !== $current_translation_hash ) {
 				$stale_reasons[] = 'translation_changed_since_review';
 			}
@@ -15791,6 +16184,67 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Current whole-page quality review readiness for one content item.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function quality_review_readiness_for_post( WP_Post $post, string $language = '' ): array {
+		$post_id     = (int) $post->ID;
+		$language    = sanitize_key( $language );
+		$required    = self::required_quality_review_checks( $language );
+		$checks      = self::quality_review_checks_for_post( $post_id );
+		$missing     = self::missing_review_checks( $checks, $required );
+		$evidence    = self::quality_review_evidence_for_post( $post_id );
+		$reviewed_at = (string) get_post_meta( $post_id, self::META_QUALITY_REVIEWED_AT, true );
+		$source_id   = self::is_translation_post( $post_id ) ? absint( get_post_meta( $post_id, self::META_SOURCE_ID, true ) ) : 0;
+		$source      = $source_id ? get_post( $source_id ) : null;
+		$current_translation_hash = self::translation_review_content_hash( $post );
+		$current_source_hash      = $source ? self::source_hash( $source ) : '';
+		$stale_reasons = array();
+
+		if ( '' === $reviewed_at ) {
+			$stale_reasons[] = 'missing_quality_review';
+		}
+		if ( $missing ) {
+			$stale_reasons[] = 'missing_required_checks';
+		}
+		if ( self::open_copy_feedback_for_post( $post_id ) ) {
+			$stale_reasons[] = 'open_copy_feedback';
+		}
+		if ( empty( $evidence ) ) {
+			$stale_reasons[] = 'missing_review_evidence';
+		} else {
+			if ( self::is_translation_post( $post_id ) && ! self::review_evidence_has_separate_reviewer( $evidence ) ) {
+				$stale_reasons[] = 'missing_separate_reviewer';
+			}
+			if ( array_key_exists( 'fitness_passed', $evidence ) && empty( $evidence['fitness_passed'] ) ) {
+				$stale_reasons[] = 'fitness_failed_at_review';
+			}
+			if ( ! empty( $evidence['translation_hash'] ) && $evidence['translation_hash'] !== $current_translation_hash ) {
+				$stale_reasons[] = 'translation_changed_since_review';
+			}
+			if ( ! empty( $evidence['source_hash'] ) && '' !== $current_source_hash && $evidence['source_hash'] !== $current_source_hash ) {
+				$stale_reasons[] = 'source_changed_since_review';
+			}
+		}
+
+		$passed = empty( $stale_reasons );
+
+		return array(
+			'passed'                   => $passed,
+			'state'                    => $passed ? 'quality_review_current' : 'needs_quality_review',
+			'required_checks'          => $required,
+			'missing_checks'           => $missing,
+			'stale_reasons'            => array_values( array_unique( $stale_reasons ) ),
+			'checks'                   => $checks,
+			'evidence'                 => $evidence,
+			'current_translation_hash' => $current_translation_hash,
+			'current_source_hash'      => $current_source_hash,
+			'reviewed_at'              => $reviewed_at,
+		);
+	}
+
+	/**
 	 * Remove review markers when translated content is changed after review.
 	 */
 	private static function invalidate_translation_reviews_if_content_changed( int $translation_id, string $reason, string $previous_hash = '' ): bool {
@@ -15832,7 +16286,7 @@ final class Devenia_AI_Translations {
 	 * Delete linguistic review markers.
 	 */
 	private static function delete_linguistic_review_meta( int $translation_id ): void {
-		foreach ( array( self::META_LINGUISTIC_REVIEWED_AT, self::META_LINGUISTIC_REVIEWER, self::META_LINGUISTIC_REVIEW_NOTE, self::META_LINGUISTIC_REVIEW_CHECKS, self::META_LINGUISTIC_REVIEW_EVIDENCE ) as $meta_key ) {
+		foreach ( array( self::META_LINGUISTIC_REVIEWED_AT, self::META_LINGUISTIC_REVIEWER, self::META_LINGUISTIC_REVIEW_NOTE, self::META_LINGUISTIC_REVIEW_CHECKS, self::META_LINGUISTIC_REVIEW_EVIDENCE, self::META_LINGUISTIC_REVIEWER_PROCESS ) as $meta_key ) {
 			delete_post_meta( $translation_id, $meta_key );
 		}
 	}
@@ -15841,7 +16295,7 @@ final class Devenia_AI_Translations {
 	 * Delete whole-page quality review markers.
 	 */
 	private static function delete_quality_review_meta( int $post_id ): void {
-		foreach ( array( self::META_QUALITY_REVIEWED_AT, self::META_QUALITY_REVIEWER, self::META_QUALITY_REVIEW_NOTE, self::META_QUALITY_REVIEW_CHECKS, self::META_QUALITY_REVIEW_EVIDENCE ) as $meta_key ) {
+		foreach ( array( self::META_QUALITY_REVIEWED_AT, self::META_QUALITY_REVIEWER, self::META_QUALITY_REVIEW_NOTE, self::META_QUALITY_REVIEW_CHECKS, self::META_QUALITY_REVIEW_EVIDENCE, self::META_QUALITY_REVIEWER_PROCESS ) as $meta_key ) {
 			delete_post_meta( $post_id, $meta_key );
 		}
 	}
@@ -15938,6 +16392,9 @@ final class Devenia_AI_Translations {
 
 		$evidence = self::quality_review_evidence_for_post( $post_id );
 		if ( empty( $evidence ) ) {
+			return 'quality_review_stale';
+		}
+		if ( self::is_translation_post( $post_id ) && ! self::review_evidence_has_separate_reviewer( $evidence ) ) {
 			return 'quality_review_stale';
 		}
 		if ( array_key_exists( 'fitness_passed', $evidence ) && empty( $evidence['fitness_passed'] ) ) {
@@ -20391,6 +20848,7 @@ final class Devenia_AI_Translations {
 		$hash      = (string) get_post_meta( $post->ID, self::META_SOURCE_HASH, true );
 		$current   = $source ? self::source_hash( $source ) : '';
 		$linguistic_review_state = self::linguistic_review_state_for_post( (int) $post->ID );
+		$quality_review_state = self::quality_review_readiness_for_post( $post, sanitize_key( (string) get_post_meta( $post->ID, self::META_LANGUAGE, true ) ) );
 		$generated_source_id = absint( get_post_meta( $post->ID, self::META_GENERATED_SOURCE_ID, true ) );
 
 		return array(
@@ -20409,17 +20867,21 @@ final class Devenia_AI_Translations {
 			'current_source_hash'=> $current,
 			'is_stale'           => $hash && $current && $hash !== $current,
 			'reviewed_at'        => (string) get_post_meta( $post->ID, self::META_REVIEWED_AT, true ),
+			'writer_provenance'  => self::translation_writer_provenance( (int) $post->ID ),
 			'linguistic_reviewed_at' => (string) get_post_meta( $post->ID, self::META_LINGUISTIC_REVIEWED_AT, true ),
 			'linguistic_reviewer'    => (string) get_post_meta( $post->ID, self::META_LINGUISTIC_REVIEWER, true ),
+			'linguistic_reviewer_process' => (string) get_post_meta( $post->ID, self::META_LINGUISTIC_REVIEWER_PROCESS, true ),
 			'linguistic_review_note' => (string) get_post_meta( $post->ID, self::META_LINGUISTIC_REVIEW_NOTE, true ),
 			'linguistic_review_checks' => self::linguistic_review_checks_for_post( $post->ID ),
 			'linguistic_review_evidence' => self::linguistic_review_evidence_for_post( $post->ID ),
 			'linguistic_review_state' => $linguistic_review_state,
 			'quality_reviewed_at' => (string) get_post_meta( $post->ID, self::META_QUALITY_REVIEWED_AT, true ),
 			'quality_reviewer'    => (string) get_post_meta( $post->ID, self::META_QUALITY_REVIEWER, true ),
+			'quality_reviewer_process' => (string) get_post_meta( $post->ID, self::META_QUALITY_REVIEWER_PROCESS, true ),
 			'quality_review_note' => (string) get_post_meta( $post->ID, self::META_QUALITY_REVIEW_NOTE, true ),
 			'quality_review_checks' => self::quality_review_checks_for_post( $post->ID ),
 			'quality_review_evidence' => self::quality_review_evidence_for_post( $post->ID ),
+			'quality_review_state' => $quality_review_state,
 			'copy_feedback_open_count' => count( self::open_copy_feedback_for_post( (int) $post->ID ) ),
 			'copy_feedback' => self::copy_feedback_for_post( (int) $post->ID ),
 			'taxonomies'         => self::post_taxonomy_payload( $post ),

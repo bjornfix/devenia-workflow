@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.325
+**Stable tag:** 0.1.326
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -197,6 +197,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.326
+
+- Adds step-specific token gates for draft writes, linguistic review, quality review, and publishing, and rejects tokens that validate for more than one step.
+- Requires separate reviewer process provenance for translated linguistic and quality review evidence.
+- Stops the legacy status marker from promoting translations to reviewed or published.
 
 ### 0.1.325
 
