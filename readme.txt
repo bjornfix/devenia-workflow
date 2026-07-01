@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.328
+Stable tag: 0.1.329
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.329 =
+* Passes writer/reviewer process IDs to the external token-authority gate so confirmed session tokens can be bound to the approved process/session lease.
+* Updates token-gate descriptions to use authority-issued session tokens instead of external raw token sets.
 
 = 0.1.328 =
 * Adds a third independent final-review gate before publishing translations.

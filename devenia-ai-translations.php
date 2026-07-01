@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.328
+ * Version: 0.1.329
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.328';
+	const VERSION = '0.1.329';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -9633,11 +9633,11 @@ final class Devenia_AI_Translations {
 				),
 				'step_token' => array(
 					'type'        => 'string',
-					'description' => 'Required step-specific approval token for the quality_review step. Must be different from other workflow step tokens.',
+					'description' => 'Required session token issued by the translation token authority for the quality_review step.',
 				),
 				'step_token_label' => array(
 					'type'        => 'string',
-					'description' => 'Required token-set label chosen by the owner for this Codex/session, such as codex-a or reviewer-b.',
+					'description' => 'Required token label chosen and confirmed by the owner for this process/session.',
 				),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
@@ -9699,11 +9699,11 @@ final class Devenia_AI_Translations {
 				),
 				'step_token' => array(
 					'type'        => 'string',
-					'description' => 'Required step-specific approval token for the final_review step. Must be different from draft, review, and publish tokens.',
+					'description' => 'Required session token issued by the translation token authority for the final_review step.',
 				),
 				'step_token_label' => array(
 					'type'        => 'string',
-					'description' => 'Required token-set label chosen by the owner for this final-review process.',
+					'description' => 'Required token label chosen and confirmed by the owner for this final-review process/session.',
 				),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
@@ -9894,11 +9894,11 @@ final class Devenia_AI_Translations {
 				),
 				'step_token'        => array(
 					'type'        => 'string',
-					'description' => 'Required step-specific approval token for the draft_write step. Must be different from review and publish tokens.',
+					'description' => 'Required session token issued by the translation token authority for the draft_write step.',
 				),
 				'step_token_label'  => array(
 					'type'        => 'string',
-					'description' => 'Required token-set label chosen by the owner for this Codex/session, such as codex-a or reviewer-b.',
+					'description' => 'Required token label chosen and confirmed by the owner for this process/session.',
 				),
 				'allow_update_published' => array(
 					'type'    => 'boolean',
@@ -10218,11 +10218,11 @@ final class Devenia_AI_Translations {
 				),
 				'step_token'           => array(
 					'type'        => 'string',
-					'description' => 'Required step-specific approval token for the publish step. Must be different from draft and review tokens.',
+					'description' => 'Required session token issued by the translation token authority for the publish step.',
 				),
 				'step_token_label'     => array(
 					'type'        => 'string',
-					'description' => 'Required token-set label chosen by the owner for this Codex/session, such as codex-a or reviewer-b.',
+					'description' => 'Required token label chosen and confirmed by the owner for this process/session.',
 				),
 				'claim_token'          => array(
 					'type'        => 'string',
@@ -10289,11 +10289,11 @@ final class Devenia_AI_Translations {
 				),
 				'step_token'    => array(
 					'type'        => 'string',
-					'description' => 'Required step-specific approval token for the linguistic_review step. Must be different from other workflow step tokens.',
+					'description' => 'Required session token issued by the translation token authority for the linguistic_review step.',
 				),
 				'step_token_label' => array(
 					'type'        => 'string',
-					'description' => 'Required token-set label chosen by the owner for this Codex/session, such as codex-a or reviewer-b.',
+					'description' => 'Required token label chosen and confirmed by the owner for this process/session.',
 				),
 				'claim_token'    => array(
 					'type'        => 'string',
@@ -16045,7 +16045,7 @@ final class Devenia_AI_Translations {
 			return array(
 				'success' => false,
 				'code'    => 'step_token_required',
-				'message' => 'A step-specific token is required for this translation workflow step.',
+				'message' => 'A session token from the translation token authority is required for this translation workflow step.',
 				'step'    => $step,
 			);
 		}
@@ -16054,10 +16054,11 @@ final class Devenia_AI_Translations {
 			return array(
 				'success' => false,
 				'code'    => 'step_token_label_required',
-				'message' => 'A token-set label chosen for this Codex/session is required for this translation workflow step.',
+				'message' => 'A token label confirmed by the owner for this process/session is required for this translation workflow step.',
 				'step'    => $step,
 			);
 		}
+		$process_id = self::step_token_process_id( $step, $input );
 
 		$decision = apply_filters(
 			'devenia_translation_step_token_gate',
@@ -16067,6 +16068,7 @@ final class Devenia_AI_Translations {
 			array(
 				'input'       => $input,
 				'token_label' => $token_label,
+				'process_id'  => $process_id,
 				'actor'       => self::current_operator_label(),
 				'plugin'      => 'devenia-ai-translations',
 				'version'     => self::VERSION,
@@ -16091,8 +16093,21 @@ final class Devenia_AI_Translations {
 			'success' => true,
 			'step'    => $step,
 			'step_token_label' => $token_label,
+			'process_id' => $process_id,
 			'authority' => sanitize_text_field( (string) ( $decision['authority'] ?? 'external' ) ),
 		);
+	}
+
+	/**
+	 * Process/session ID that must match the active token-authority lease.
+	 */
+	private static function step_token_process_id( string $step, array $input ): string {
+		if ( 'draft_write' === $step ) {
+			$process_id = self::normalize_process_id( (string) ( $input['writer_process_id'] ?? '' ) );
+			return '' !== $process_id ? $process_id : self::default_writer_process_id();
+		}
+
+		return self::normalize_process_id( (string) ( $input['reviewer_process_id'] ?? '' ) );
 	}
 
 	/**
