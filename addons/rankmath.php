@@ -48,6 +48,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		add_filter( 'ai_translation_workflow_seo_meta_state', array( __CLASS__, 'seo_meta_state' ), 10, 2 );
 		add_filter( 'ai_translation_workflow_route_integrity_issues', array( __CLASS__, 'route_integrity_issues' ), 10, 4 );
 		add_filter( 'ai_translation_workflow_repair_translation_self_redirects', array( __CLASS__, 'repair_translation_self_redirects' ), 10, 3 );
+		add_filter( 'ai_translation_workflow_semantic_link_count_content', array( __CLASS__, 'filter_semantic_link_count_content' ), 10, 2 );
 	}
 
 	/**
@@ -59,6 +60,26 @@ final class AI_Translation_Workflow_RankMath_Addon {
 
 	public static function filter_translated_posts_page_opengraph_type( string $type ): string {
 		return Devenia_AI_Translations::is_translated_posts_page_request() ? 'website' : $type;
+	}
+
+	/**
+	 * Keep Rank Math FAQ block attributes from inflating semantic link-count parity.
+	 *
+	 * Rank Math stores FAQ question/answer data in the Gutenberg block comment.
+	 * The rendered FAQ HTML remains in post content, so only the JSON comment
+	 * needs to be neutralized before the generic workflow counts visible links.
+	 *
+	 * @param string                    $content Raw Gutenberg content.
+	 * @param array<int,array<string,mixed>> $blocks Parsed block tree.
+	 */
+	public static function filter_semantic_link_count_content( string $content, array $blocks = array() ): string {
+		unset( $blocks );
+
+		return (string) preg_replace(
+			'/<!--\s+wp:rank-math\/faq-block\s+.*?-->/s',
+			'<!-- wp:rank-math/faq-block -->',
+			$content
+		);
 	}
 
 	public static function filter_translated_posts_page_canonical( string $canonical ): string {

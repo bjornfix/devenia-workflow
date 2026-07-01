@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.321
+Stable tag: 0.1.325
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,8 +94,24 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 == Changelog ==
 
+= 0.1.325 =
+* Adds source-design inheritance so translated posts/pages can be built from localized text fragments projected into the source block tree.
+* Extracts and projects structured text attributes generically so FAQ/how-to style blocks are not tied to one SEO plugin.
+* Adds a source design-signature guardrail so translators cannot alter layout, classes, block attributes, or media while translating; only data-driven RTL mirroring may differ.
+
+= 0.1.324 =
+* Adds one shared localized presentation surface for singular content, archives, comments, language links, labels, actions, media, and runtime public text.
+* Keeps Gutenberg, GeneratePress, and template adapters out of the translation layer; presentation plugins consume this surface instead.
+
+= 0.1.323 =
+* Adds the Rank Math FAQ semantic link-count adapter.
+
+= 0.1.322 =
+* Adds an adapter seam so SEO add-ons can exclude non-content links from source/translation structure parity.
+* Narrows escaped-markup detection to visible `u003c`/`u003e` text instead of valid Gutenberg JSON escaping.
+
 = 0.1.321 =
-* Adds a Gutenberg guardrail that blocks escaped HTML markup literals such as u003c and \u003c before they can be saved as visible text.
+* Adds a Gutenberg guardrail that blocks escaped HTML markup literals such as visible u003c before they can be saved as page text.
 
 = 0.1.320 =
 * Fixes translated post/page creation after the translation-fitness interface consolidation by passing guardrail context through the current array-based signature.

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.321
+ * Version: 0.1.325
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.321';
+	const VERSION = '0.1.325';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -136,6 +136,9 @@ final class Devenia_AI_Translations {
 		add_action( 'shutdown', array( __CLASS__, 'record_slow_frontend_request' ), 0 );
 		add_action( 'wp_abilities_api_init', array( __CLASS__, 'register_abilities' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'render_missing_abilities_api_notice' ) );
+		add_action( 'admin_menu', array( __CLASS__, 'register_presentation_admin_page' ) );
+		add_action( 'admin_post_devenia_ai_translations_save_runtime_text', array( __CLASS__, 'handle_admin_runtime_text_save' ) );
+		add_action( 'admin_post_devenia_ai_translations_save_author_archive', array( __CLASS__, 'handle_admin_author_archive_save' ) );
 		add_filter( 'wp_insert_post_data', array( __CLASS__, 'normalize_invalid_translation_content_before_save' ), 5, 2 );
 		add_action( 'pre_post_update', array( __CLASS__, 'block_invalid_translation_content_save' ), 5, 2 );
 		add_action( 'post_updated', array( __CLASS__, 'capture_manual_reviewer_style_on_post_update' ), 30, 3 );
@@ -707,6 +710,12 @@ final class Devenia_AI_Translations {
 		$languages           = self::languages();
 		$context['language'] = $language;
 		$context['dir']      = isset( $languages[ $language ]['direction'] ) && 'rtl' === (string) $languages[ $language ]['direction'] ? 'rtl' : 'ltr';
+		$context['presentation'] = self::presentation_surface(
+			array(
+				'surface_type' => 'singular',
+				'post_id'      => (int) $post->ID,
+			)
+		);
 		$context['meta']     = self::site_presentation_single_post_meta_markup( $post, $language );
 
 		return $context;
@@ -716,36 +725,28 @@ final class Devenia_AI_Translations {
 	 * Build localized post hero metadata from runtime language data.
 	 */
 	private static function site_presentation_single_post_meta_markup( WP_Post $post, string $language ): string {
-		$language  = sanitize_key( $language );
-		$parts     = array();
-		$author_id = (int) $post->post_author;
-		$author    = trim( (string) get_the_author_meta( 'display_name', $author_id ) );
-		$author    = '' !== $author ? $author : trim( (string) get_the_author_meta( 'user_login', $author_id ) );
+		unset( $language );
 
-		if ( '' !== $author ) {
-			$author_name = self::localized_author_display_name( $author_id, $language, $author );
-			$author_url  = self::author_archive_url( $author_id, $language );
-			$parts[]     = '' !== $author_url
-				? sprintf( '<a href="%1$s">%2$s</a>', esc_url( $author_url ), esc_html( $author_name ) )
-				: esc_html( $author_name );
+		$presentation = self::presentation_surface(
+			array(
+				'surface_type' => 'singular',
+				'post_id'      => (int) $post->ID,
+			)
+		);
+		$parts        = array();
+		$author_link  = isset( $presentation['person']['author']['link_html'] ) ? (string) $presentation['person']['author']['link_html'] : '';
+		$updated      = isset( $presentation['dates']['modified'] ) && is_array( $presentation['dates']['modified'] ) ? $presentation['dates']['modified'] : array();
+		$updated_html = isset( $updated['html'] ) ? (string) $updated['html'] : '';
+		$updated_label = isset( $presentation['labels']['updated'] ) ? trim( (string) $presentation['labels']['updated'] ) : '';
+
+		if ( '' !== $author_link ) {
+			$parts[] = $author_link;
 		}
 
-		$modified_timestamp = absint( get_post_modified_time( 'U', false, $post ) );
-		if ( $modified_timestamp ) {
-			$date_label = trim( self::runtime_text_value( $language, 'blog_archive_text', 'updated_label', '' ) );
-			$date_text  = self::translated_posts_page_date_label( $modified_timestamp, $language );
-			$datetime   = get_post_modified_time( 'c', false, $post );
-			if ( '' === $date_text ) {
-				$date_text = get_the_modified_date( '', $post );
-			}
-			if ( '' !== $date_text ) {
-				$parts[] = sprintf(
-					'%1$s<time class="updated" datetime="%2$s" itemprop="dateModified">%3$s</time>',
-					'' !== $date_label ? '<span class="devenia-post-presentation__date-label">' . esc_html( $date_label ) . '</span> ' : '',
-					esc_attr( $datetime ),
-					esc_html( $date_text )
-				);
-			}
+		if ( '' !== $updated_html ) {
+			$parts[] = '' !== $updated_label
+				? '<span class="devenia-presentation__date-label">' . esc_html( $updated_label ) . '</span> ' . $updated_html
+				: $updated_html;
 		}
 
 		return implode( ' <span aria-hidden="true">/</span> ', $parts );
@@ -7211,6 +7212,354 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Register a human-editable WordPress admin surface for runtime presentation values.
+	 */
+	public static function register_presentation_admin_page(): void {
+		add_management_page(
+			__( 'AI Translation Presentation', 'devenia-ai-translations' ),
+			__( 'Translation Presentation', 'devenia-ai-translations' ),
+			'manage_options',
+			'devenia-ai-translations-presentation',
+			array( __CLASS__, 'render_presentation_admin_page' )
+		);
+	}
+
+	/**
+	 * Render the runtime presentation admin editor.
+	 */
+	public static function render_presentation_admin_page(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-ai-translations' ) );
+		}
+
+		self::maybe_seed_runtime_language_text_options();
+
+		$tab      = self::admin_current_tab();
+		$language = self::admin_current_language();
+		$section  = self::admin_current_runtime_section();
+		$author_id = self::admin_current_author_id();
+		$author_language = self::admin_current_author_language();
+		?>
+		<div class="wrap">
+			<h1><?php echo esc_html__( 'AI Translation Presentation', 'devenia-ai-translations' ); ?></h1>
+			<p><?php echo esc_html__( 'Edit runtime values that feed localized public presentation output. Page, post, term, media, comment, and user fields remain editable in their normal WordPress screens.', 'devenia-ai-translations' ); ?></p>
+
+			<h2 class="nav-tab-wrapper">
+				<a class="nav-tab <?php echo 'runtime_text' === $tab ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url( self::presentation_admin_url( array( 'tab' => 'runtime_text' ) ) ); ?>"><?php echo esc_html__( 'Runtime Text', 'devenia-ai-translations' ); ?></a>
+				<a class="nav-tab <?php echo 'author_archives' === $tab ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url( self::presentation_admin_url( array( 'tab' => 'author_archives' ) ) ); ?>"><?php echo esc_html__( 'Author Archives', 'devenia-ai-translations' ); ?></a>
+			</h2>
+
+			<?php self::render_presentation_admin_notice(); ?>
+
+			<?php if ( 'author_archives' === $tab ) : ?>
+				<?php self::render_author_archive_admin_editor( $author_id, $author_language ); ?>
+			<?php else : ?>
+				<?php self::render_runtime_text_admin_editor( $language, $section ); ?>
+			<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Save one runtime text section from the WordPress admin editor.
+	 */
+	public static function handle_admin_runtime_text_save(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-ai-translations' ) );
+		}
+		check_admin_referer( 'devenia_ai_translations_runtime_text' );
+
+		$language = sanitize_key( (string) filter_input( INPUT_POST, 'language', FILTER_UNSAFE_RAW ) );
+		$section  = sanitize_key( (string) filter_input( INPUT_POST, 'section', FILTER_UNSAFE_RAW ) );
+		$json     = (string) filter_input( INPUT_POST, 'runtime_text_json', FILTER_UNSAFE_RAW );
+
+		$status = 'saved';
+		if ( '' === $language || ! isset( self::default_languages()[ $language ] ) || ! in_array( $section, self::runtime_text_sections(), true ) ) {
+			$status = 'invalid';
+		} else {
+			$decoded = json_decode( $json, true );
+			if ( ! is_array( $decoded ) ) {
+				$status = 'invalid_json';
+			} else {
+				$languages = get_option( self::OPTION_LANGUAGES );
+				if ( ! is_array( $languages ) ) {
+					$languages = array();
+				}
+				if ( ! isset( $languages[ $language ] ) || ! is_array( $languages[ $language ] ) ) {
+					$languages[ $language ] = array();
+				}
+				$languages[ $language ][ $section ] = self::sanitize_public_text_tree( $decoded );
+				update_option( self::OPTION_LANGUAGES, $languages, false );
+				self::languages( true );
+			}
+		}
+
+		wp_safe_redirect(
+			self::presentation_admin_url(
+				array(
+					'tab'      => 'runtime_text',
+					'language' => $language,
+					'section'  => $section,
+					'status'   => $status,
+				)
+			)
+		);
+		exit;
+	}
+
+	/**
+	 * Save one author archive runtime record from the WordPress admin editor.
+	 */
+	public static function handle_admin_author_archive_save(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-ai-translations' ) );
+		}
+		check_admin_referer( 'devenia_ai_translations_author_archive' );
+
+		$author_id = absint( filter_input( INPUT_POST, 'author_id', FILTER_UNSAFE_RAW ) );
+		$language  = sanitize_key( (string) filter_input( INPUT_POST, 'language', FILTER_UNSAFE_RAW ) );
+		$json      = (string) filter_input( INPUT_POST, 'author_archive_json', FILTER_UNSAFE_RAW );
+		$delete    = (bool) filter_input( INPUT_POST, 'delete_record', FILTER_VALIDATE_BOOLEAN );
+		$status    = 'saved';
+
+		if ( ! $author_id || ! self::is_translation_language( $language ) ) {
+			$status = 'invalid';
+		} elseif ( $delete ) {
+			$result = self::update_author_archive_translation(
+				array(
+					'author_id' => $author_id,
+					'language'  => $language,
+					'delete'    => true,
+				)
+			);
+			$status = empty( $result['success'] ) ? 'invalid' : 'deleted';
+		} else {
+			$decoded = json_decode( $json, true );
+			if ( ! is_array( $decoded ) ) {
+				$status = 'invalid_json';
+			} else {
+				$decoded['author_id'] = $author_id;
+				$decoded['language']  = $language;
+				$result = self::update_author_archive_translation( $decoded );
+				$status = empty( $result['success'] ) ? 'invalid' : 'saved';
+			}
+		}
+
+		wp_safe_redirect(
+			self::presentation_admin_url(
+				array(
+					'tab'       => 'author_archives',
+					'author_id' => $author_id,
+					'language'  => $language,
+					'status'    => $status,
+				)
+			)
+		);
+		exit;
+	}
+
+	/**
+	 * Runtime text editor form.
+	 */
+	private static function render_runtime_text_admin_editor( string $language, string $section ): void {
+		$languages = self::languages();
+		$config    = $languages[ $language ][ $section ] ?? array();
+		$json      = wp_json_encode( $config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		?>
+		<form method="get" action="<?php echo esc_url( admin_url( 'tools.php' ) ); ?>">
+			<input type="hidden" name="page" value="devenia-ai-translations-presentation" />
+			<input type="hidden" name="tab" value="runtime_text" />
+			<label for="devenia-runtime-language"><?php echo esc_html__( 'Language', 'devenia-ai-translations' ); ?></label>
+			<select id="devenia-runtime-language" name="language">
+				<?php foreach ( $languages as $code => $language_config ) : ?>
+					<option value="<?php echo esc_attr( (string) $code ); ?>" <?php selected( $language, (string) $code ); ?>>
+						<?php echo esc_html( ( $language_config['flag'] ?? strtoupper( (string) $code ) ) . ' ' . ( $language_config['name'] ?? strtoupper( (string) $code ) ) ); ?>
+					</option>
+				<?php endforeach; ?>
+			</select>
+			<label for="devenia-runtime-section"><?php echo esc_html__( 'Section', 'devenia-ai-translations' ); ?></label>
+			<select id="devenia-runtime-section" name="section">
+				<?php foreach ( self::runtime_text_sections() as $section_name ) : ?>
+					<option value="<?php echo esc_attr( $section_name ); ?>" <?php selected( $section, $section_name ); ?>><?php echo esc_html( $section_name ); ?></option>
+				<?php endforeach; ?>
+			</select>
+			<?php submit_button( __( 'Load', 'devenia-ai-translations' ), 'secondary', '', false ); ?>
+		</form>
+
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<?php wp_nonce_field( 'devenia_ai_translations_runtime_text' ); ?>
+			<input type="hidden" name="action" value="devenia_ai_translations_save_runtime_text" />
+			<input type="hidden" name="language" value="<?php echo esc_attr( $language ); ?>" />
+			<input type="hidden" name="section" value="<?php echo esc_attr( $section ); ?>" />
+			<p><label for="devenia-runtime-text-json"><?php echo esc_html__( 'Runtime text JSON', 'devenia-ai-translations' ); ?></label></p>
+			<textarea id="devenia-runtime-text-json" name="runtime_text_json" rows="22" class="large-text code"><?php echo esc_textarea( is_string( $json ) ? $json : '{}' ); ?></textarea>
+			<?php submit_button( __( 'Save Runtime Text', 'devenia-ai-translations' ) ); ?>
+		</form>
+		<?php
+	}
+
+	/**
+	 * Author archive editor form.
+	 */
+	private static function render_author_archive_admin_editor( int $author_id, string $language ): void {
+		$authors = get_users(
+			array(
+				'has_published_posts' => array( 'post' ),
+				'number'              => 200,
+				'orderby'             => 'display_name',
+				'order'               => 'ASC',
+			)
+		);
+		if ( ! $author_id && ! empty( $authors[0] ) && $authors[0] instanceof WP_User ) {
+			$author_id = (int) $authors[0]->ID;
+		}
+
+		$registry = self::author_archive_registry();
+		$record   = $registry[ $author_id ][ $language ] ?? array(
+			'status'       => 'draft',
+			'path'         => self::default_author_archive_path( $author_id, $language ),
+			'name'         => '',
+			'description'  => '',
+			'kicker'       => '',
+			'title'        => '',
+			'button_label' => '',
+			'button_url'   => '',
+			'note'         => '',
+			'cta_kicker'   => '',
+			'cta_title'    => '',
+			'cta_text'     => '',
+			'cta_button_label' => '',
+			'cta_button_url' => '',
+		);
+		$json = wp_json_encode( $record, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		?>
+		<form method="get" action="<?php echo esc_url( admin_url( 'tools.php' ) ); ?>">
+			<input type="hidden" name="page" value="devenia-ai-translations-presentation" />
+			<input type="hidden" name="tab" value="author_archives" />
+			<label for="devenia-author-id"><?php echo esc_html__( 'Author', 'devenia-ai-translations' ); ?></label>
+			<select id="devenia-author-id" name="author_id">
+				<?php foreach ( $authors as $author ) : ?>
+					<?php if ( $author instanceof WP_User ) : ?>
+						<option value="<?php echo esc_attr( (string) $author->ID ); ?>" <?php selected( $author_id, (int) $author->ID ); ?>><?php echo esc_html( (string) $author->display_name ); ?></option>
+					<?php endif; ?>
+				<?php endforeach; ?>
+			</select>
+			<label for="devenia-author-language"><?php echo esc_html__( 'Language', 'devenia-ai-translations' ); ?></label>
+			<select id="devenia-author-language" name="language">
+				<?php foreach ( self::target_languages() as $code => $language_config ) : ?>
+					<option value="<?php echo esc_attr( (string) $code ); ?>" <?php selected( $language, (string) $code ); ?>>
+						<?php echo esc_html( ( $language_config['flag'] ?? strtoupper( (string) $code ) ) . ' ' . ( $language_config['name'] ?? strtoupper( (string) $code ) ) ); ?>
+					</option>
+				<?php endforeach; ?>
+			</select>
+			<?php submit_button( __( 'Load', 'devenia-ai-translations' ), 'secondary', '', false ); ?>
+		</form>
+
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<?php wp_nonce_field( 'devenia_ai_translations_author_archive' ); ?>
+			<input type="hidden" name="action" value="devenia_ai_translations_save_author_archive" />
+			<input type="hidden" name="author_id" value="<?php echo esc_attr( (string) $author_id ); ?>" />
+			<input type="hidden" name="language" value="<?php echo esc_attr( $language ); ?>" />
+			<p><label for="devenia-author-archive-json"><?php echo esc_html__( 'Author archive JSON', 'devenia-ai-translations' ); ?></label></p>
+			<textarea id="devenia-author-archive-json" name="author_archive_json" rows="22" class="large-text code"><?php echo esc_textarea( is_string( $json ) ? $json : '{}' ); ?></textarea>
+			<p><label><input type="checkbox" name="delete_record" value="1" /> <?php echo esc_html__( 'Delete this localized author archive record', 'devenia-ai-translations' ); ?></label></p>
+			<?php submit_button( __( 'Save Author Archive', 'devenia-ai-translations' ) ); ?>
+		</form>
+		<?php
+	}
+
+	/**
+	 * Admin page URL with query args.
+	 *
+	 * @param array<string,mixed> $args Query args.
+	 */
+	private static function presentation_admin_url( array $args = array() ): string {
+		return add_query_arg(
+			array_filter(
+				array_merge(
+					array( 'page' => 'devenia-ai-translations-presentation' ),
+					$args
+				),
+				static function ( $value ): bool {
+					return null !== $value && '' !== $value;
+				}
+			),
+			admin_url( 'tools.php' )
+		);
+	}
+
+	/**
+	 * Current admin tab.
+	 */
+	private static function admin_current_tab(): string {
+		$tab = sanitize_key( (string) filter_input( INPUT_GET, 'tab', FILTER_UNSAFE_RAW ) );
+		return in_array( $tab, array( 'runtime_text', 'author_archives' ), true ) ? $tab : 'runtime_text';
+	}
+
+	/**
+	 * Current runtime text language.
+	 */
+	private static function admin_current_language(): string {
+		$language = sanitize_key( (string) filter_input( INPUT_GET, 'language', FILTER_UNSAFE_RAW ) );
+		return isset( self::languages()[ $language ] ) ? $language : 'en';
+	}
+
+	/**
+	 * Current runtime text section.
+	 */
+	private static function admin_current_runtime_section(): string {
+		$section = sanitize_key( (string) filter_input( INPUT_GET, 'section', FILTER_UNSAFE_RAW ) );
+		return in_array( $section, self::runtime_text_sections(), true ) ? $section : 'blog_archive_text';
+	}
+
+	/**
+	 * Current admin author ID.
+	 */
+	private static function admin_current_author_id(): int {
+		return absint( filter_input( INPUT_GET, 'author_id', FILTER_UNSAFE_RAW ) );
+	}
+
+	/**
+	 * Current author archive language.
+	 */
+	private static function admin_current_author_language(): string {
+		$language = sanitize_key( (string) filter_input( INPUT_GET, 'language', FILTER_UNSAFE_RAW ) );
+		if ( self::is_translation_language( $language ) ) {
+			return $language;
+		}
+
+		$targets = array_keys( self::target_languages() );
+		return isset( $targets[0] ) ? (string) $targets[0] : 'nb';
+	}
+
+	/**
+	 * Render save status from admin redirects.
+	 */
+	private static function render_presentation_admin_notice(): void {
+		$status = sanitize_key( (string) filter_input( INPUT_GET, 'status', FILTER_UNSAFE_RAW ) );
+		if ( '' === $status ) {
+			return;
+		}
+
+		$messages = array(
+			'saved'        => __( 'Presentation data saved.', 'devenia-ai-translations' ),
+			'deleted'      => __( 'Presentation data deleted.', 'devenia-ai-translations' ),
+			'invalid'      => __( 'Could not save: invalid language, section, author, or status.', 'devenia-ai-translations' ),
+			'invalid_json' => __( 'Could not save: JSON is invalid.', 'devenia-ai-translations' ),
+		);
+		$message = $messages[ $status ] ?? '';
+		if ( '' === $message ) {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>',
+			in_array( $status, array( 'saved', 'deleted' ), true ) ? 'success' : 'error',
+			esc_html( $message )
+		);
+	}
+
+	/**
 	 * Execute a named translation workflow operation.
 	 *
 	 * @param string $operation Operation name.
@@ -7245,6 +7594,16 @@ final class Devenia_AI_Translations {
 				'success'        => empty( $missing ),
 				'language_files' => $status,
 				'missing'        => $missing,
+			);
+		case 'get_presentation_surface':
+			$presentation = self::presentation_surface( $input );
+			if ( empty( $presentation ) ) {
+				return self::error( 'Presentation surface not found.' );
+			}
+
+			return array(
+				'success'      => true,
+				'presentation' => $presentation,
 			);
 		case 'translation_fitness_status':
 			return self::translation_fitness_regression_status( $input );
@@ -7378,6 +7737,16 @@ final class Devenia_AI_Translations {
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input = array() ) {
 					return self::run_ability_operation( 'language_files_status', $input );
+				},
+				'meta'             => self::ability_meta( true, false, true ),
+			),
+			'ai-translations/get-presentation-surface' => array(
+				'label'            => 'Get Localized Presentation Surface',
+				'description'      => 'Returns one shared localized presentation payload for singular pages, posts, author archives, term archives, blog archives, or 404 surfaces.',
+				'input_schema'     => self::presentation_surface_input_schema(),
+				'output_schema'    => self::presentation_surface_output_schema(),
+				'execute_callback' => function ( $input = array() ) {
+					return self::run_ability_operation( 'get_presentation_surface', $input );
 				},
 				'meta'             => self::ability_meta( true, false, true ),
 			),
@@ -7733,7 +8102,7 @@ final class Devenia_AI_Translations {
 			),
 			'ai-translations/upsert-page' => array(
 				'label'            => 'Create or Update Translated Content',
-				'description'      => 'Creates or updates a translated WordPress page or post with localized slug/path, taxonomies, and translation metadata. The AI/client supplies translated Gutenberg content.',
+				'description'      => 'Creates or updates a translated WordPress page or post with localized slug/path, taxonomies, and translation metadata. Source design is inherited by default; the AI/client supplies localized text fragments, not a redesigned Gutenberg tree.',
 				'input_schema'     => self::upsert_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
@@ -7989,6 +8358,106 @@ final class Devenia_AI_Translations {
 				),
 			),
 			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for the shared localized presentation surface.
+	 */
+	private static function presentation_surface_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'surface_type' => array(
+					'type'        => 'string',
+					'enum'        => array( 'singular', 'blog_archive', 'author_archive', 'term_archive', 'not_found' ),
+					'description' => 'Public surface to present. When omitted, the current WordPress query is inferred.',
+				),
+				'post_id' => array(
+					'type'        => 'integer',
+					'minimum'     => 1,
+					'description' => 'Source or translated page/post ID for singular surfaces, or the posts page ID for blog archives.',
+				),
+				'language' => array(
+					'type'        => 'string',
+					'description' => 'Optional configured language code. Source and translated content use the same output shape.',
+				),
+				'author_id' => array(
+					'type'        => 'integer',
+					'minimum'     => 1,
+					'description' => 'Author ID for author_archive surfaces.',
+				),
+				'term_id' => array(
+					'type'        => 'integer',
+					'minimum'     => 1,
+					'description' => 'Term ID for term_archive surfaces.',
+				),
+				'taxonomy' => array(
+					'type'        => 'string',
+					'description' => 'Taxonomy for term_archive surfaces, normally category or post_tag.',
+				),
+				'include_items' => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Include archive item summaries where available.',
+				),
+				'per_page' => array(
+					'type'        => 'integer',
+					'minimum'     => 1,
+					'maximum'     => 100,
+					'default'     => 10,
+					'description' => 'Maximum archive items to include when include_items is true.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Output schema for the shared localized presentation surface.
+	 */
+	private static function presentation_surface_output_schema(): array {
+		$date_schema = array(
+			'type'       => 'object',
+			'properties' => array(
+				'timestamp' => array( 'type' => 'integer' ),
+				'iso'       => array( 'type' => 'string' ),
+				'display'   => array( 'type' => 'string' ),
+				'html'      => array( 'type' => 'string' ),
+			),
+		);
+
+		return array(
+			'type'       => 'object',
+			'properties' => array(
+				'success' => array( 'type' => 'boolean' ),
+				'message' => array( 'type' => 'string' ),
+				'presentation' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'surface_type' => array( 'type' => 'string' ),
+						'identity' => array( 'type' => 'object' ),
+						'language' => array( 'type' => 'object' ),
+						'text'     => array( 'type' => 'object' ),
+						'url'      => array( 'type' => 'object' ),
+						'labels'   => array( 'type' => 'object' ),
+						'actions'  => array( 'type' => 'object' ),
+						'person'   => array( 'type' => 'object' ),
+						'dates' => array(
+							'type'       => 'object',
+							'properties' => array(
+								'published' => $date_schema,
+								'modified'  => $date_schema,
+							),
+						),
+						'media'      => array( 'type' => 'object' ),
+						'archive'    => array( 'type' => 'object' ),
+						'comments'   => array( 'type' => 'object' ),
+						'navigation' => array( 'type' => 'object' ),
+						'localized_text' => array( 'type' => 'object' ),
+					),
+				),
+			),
 		);
 	}
 
@@ -9186,7 +9655,7 @@ final class Devenia_AI_Translations {
 	private static function upsert_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'source_id', 'language', 'localized_slug', 'title', 'content' ),
+			'required'             => array( 'source_id', 'language', 'localized_slug', 'title' ),
 			'properties'           => array(
 				'source_id'         => array( 'type' => 'integer' ),
 				'language'          => array( 'type' => 'string' ),
@@ -9236,7 +9705,43 @@ final class Devenia_AI_Translations {
 					'additionalProperties' => false,
 				),
 				'title'             => array( 'type' => 'string' ),
-				'content'           => array( 'type' => 'string' ),
+				'content'           => array(
+					'type'        => 'string',
+					'description' => 'Legacy escape hatch for already-projected Gutenberg content. Prefer inherit_source_design with localized_fragments so translators translate text instead of rebuilding design.',
+				),
+				'inherit_source_design' => array(
+					'type'        => 'boolean',
+					'default'     => true,
+					'description' => 'When true, the source block tree is the design source of truth and localized_fragments are projected into that tree.',
+				),
+				'localized_fragments' => array(
+					'type'        => 'array',
+					'description' => 'Localized text fragments keyed by the source design contract. Each item supports key plus text or html. The plugin projects these values into the source block tree.',
+					'items'       => array(
+						'type'                 => 'object',
+						'required'             => array( 'key' ),
+						'properties'           => array(
+							'key'  => array(
+								'type'        => 'string',
+								'description' => 'Stable fragment key from source_design.fragments[].key.',
+							),
+							'text' => array(
+								'type'        => 'string',
+								'description' => 'Plain localized text. Escaped before insertion.',
+							),
+							'html' => array(
+								'type'        => 'string',
+								'description' => 'Localized inline HTML when the source fragment needs inline markup such as links or strong text. Sanitized with wp_kses_post.',
+							),
+						),
+						'additionalProperties' => false,
+					),
+				),
+				'strict_source_design_fragments' => array(
+					'type'        => 'boolean',
+					'default'     => true,
+					'description' => 'When inheriting source design, fail if any source text fragment is missing a localized value.',
+				),
 				'excerpt'           => array( 'type' => 'string' ),
 					'seo'               => array(
 						'type'        => 'object',
@@ -9762,9 +10267,628 @@ final class Devenia_AI_Translations {
 			'success'      => true,
 			'source'       => self::post_payload( $post ),
 			'source_hash'  => self::source_hash( $post ),
+			'source_design'=> self::source_design_contract( $post ),
 			'runtime_readiness' => self::language_runtime_readiness_map( (string) $post->post_type ),
 			'translations' => self::translation_rows_for_source( $source_id ),
 		);
+	}
+
+	/**
+	 * Source design contract used by translation workers.
+	 *
+	 * The source block tree is the canonical design. Translators localize the
+	 * fragments returned here; they do not rebuild the tree per language.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function source_design_contract( WP_Post $source ): array {
+		$content   = self::normalize_gutenberg_content_for_storage( (string) $source->post_content );
+		$blocks    = parse_blocks( $content );
+		$fragments = array();
+		self::collect_source_design_fragments( $blocks, $fragments );
+
+		return array(
+			'schema_version' => 1,
+			'source_id'      => (int) $source->ID,
+			'design_hash'    => self::source_design_signature_hash( $content ),
+			'fragment_count' => count( $fragments ),
+			'fragments'      => $fragments,
+		);
+	}
+
+	/**
+	 * Project localized text into the source design tree.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>
+	 */
+	private static function inherited_source_design_content( WP_Post $source, array $input, string $language ): array {
+		$fragments = self::localized_fragment_map( $input['localized_fragments'] ?? array() );
+		if ( empty( $fragments ) ) {
+			return array(
+				'success' => false,
+				'message' => 'localized_fragments are required when inherit_source_design is enabled. Translators should supply text, not a redesigned Gutenberg tree.',
+				'code'    => 'localized_fragments_required',
+				'source_design' => self::source_design_contract( $source ),
+			);
+		}
+
+		$source_content = self::normalize_gutenberg_content_for_storage( (string) $source->post_content );
+		$blocks         = parse_blocks( $source_content );
+		if ( empty( $blocks ) && has_blocks( $source_content ) ) {
+			return self::error( 'Source Gutenberg content could not be parsed for design inheritance.' );
+		}
+
+		$contract = self::source_design_contract( $source );
+		$missing  = self::missing_localized_fragment_keys( $contract['fragments'], $fragments );
+		$strict   = ! array_key_exists( 'strict_source_design_fragments', $input ) || ! empty( $input['strict_source_design_fragments'] );
+		if ( $strict && $missing ) {
+			return array(
+				'success'        => false,
+				'message'        => 'Localized fragments are incomplete. Translate every source design fragment before saving.',
+				'code'           => 'localized_fragments_incomplete',
+				'missing_keys'   => $missing,
+				'missing_count'  => count( $missing ),
+				'source_design'  => $contract,
+			);
+		}
+
+		$stats = array(
+			'projected_count' => 0,
+			'provided_count'  => count( $fragments ),
+			'missing_count'   => count( $missing ),
+		);
+		self::project_source_design_blocks( $blocks, $fragments, $stats );
+
+		$content = serialize_blocks( $blocks );
+		$content = self::mirror_rtl_block_layout_from_source( $content, $source_content, $language );
+
+		return array(
+			'success'       => true,
+			'content'       => $content,
+			'source_design' => array_merge(
+				$contract,
+				array(
+					'projection' => $stats,
+				)
+			),
+		);
+	}
+
+	/**
+	 * Sanitize localized text fragments supplied by a translator.
+	 *
+	 * @param mixed $raw Raw fragment list.
+	 * @return array<string,string>
+	 */
+	private static function localized_fragment_map( $raw ): array {
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+
+		$map = array();
+		foreach ( $raw as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$key = self::source_design_fragment_key_from_input( (string) ( $row['key'] ?? '' ) );
+			if ( '' === $key ) {
+				continue;
+			}
+			if ( array_key_exists( 'html', $row ) && '' !== trim( (string) $row['html'] ) ) {
+				$map[ $key ] = wp_kses_post( (string) $row['html'] );
+				continue;
+			}
+			if ( array_key_exists( 'text', $row ) ) {
+				$map[ $key ] = esc_html( self::normalize_review_text( (string) $row['text'] ) );
+			}
+		}
+
+		return $map;
+	}
+
+	/**
+	 * Normalize a source design fragment key from ability input.
+	 */
+	private static function source_design_fragment_key_from_input( string $key ): string {
+		$key = trim( $key );
+		if ( '' === $key || strlen( $key ) > 180 ) {
+			return '';
+		}
+
+		return preg_match( '/^[a-z0-9:_\\-.]+$/i', $key ) ? $key : '';
+	}
+
+	/**
+	 * Missing source fragment keys for strict inherited-design saves.
+	 *
+	 * @param array<int,array<string,mixed>> $source_fragments Source contract fragments.
+	 * @param array<string,string>           $localized        Localized values by key.
+	 * @return array<int,string>
+	 */
+	private static function missing_localized_fragment_keys( array $source_fragments, array $localized ): array {
+		$missing = array();
+		foreach ( $source_fragments as $fragment ) {
+			$key = (string) ( $fragment['key'] ?? '' );
+			if ( '' !== $key && ! array_key_exists( $key, $localized ) ) {
+				$missing[] = $key;
+			}
+		}
+
+		return $missing;
+	}
+
+	/**
+	 * Collect text fragments from a source block tree with stable projection keys.
+	 *
+	 * @param array<int,array<string,mixed>> $blocks Parsed source blocks.
+	 * @param array<int,array<string,mixed>> $fragments Output fragments.
+	 */
+	private static function collect_source_design_fragments( array $blocks, array &$fragments, string $path = '' ): void {
+		foreach ( $blocks as $index => $block ) {
+			$current_path = '' === $path ? (string) $index : $path . '.' . $index;
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+			$name  = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
+			$attrs = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
+			$html  = isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '';
+
+			if ( in_array( $name, self::copy_quality_text_block_names(), true ) && '' !== trim( $html ) ) {
+				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $html ) ) );
+				if ( '' !== $text ) {
+					$fragments[] = array(
+						'key'       => self::source_design_fragment_key( $name, $attrs, $current_path, 'text' ),
+						'path'      => $current_path,
+						'block'     => $name,
+						'unique_id' => isset( $attrs['uniqueId'] ) ? (string) $attrs['uniqueId'] : '',
+						'format'    => 'inline_html',
+						'heading'   => self::is_heading_block( $name, $attrs ),
+						'text'      => $text,
+					);
+				}
+			}
+
+			foreach ( self::structured_text_attr_fragments( $name, $attrs ) as $attr_fragment ) {
+				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( (string) ( $attr_fragment['text'] ?? '' ) ) ) );
+				if ( '' === $text ) {
+					continue;
+				}
+				$fragments[] = array(
+					'key'       => self::structured_text_attr_fragment_key( $current_path, $name, $attr_fragment ),
+					'path'      => $current_path,
+					'block'     => $name . ':' . (string) ( $attr_fragment['field'] ?? '' ),
+					'attr_path' => (string) ( $attr_fragment['label_path'] ?? '' ),
+					'row_id'    => (string) ( $attr_fragment['row_id'] ?? '' ),
+					'role'      => (string) ( $attr_fragment['role'] ?? 'text' ),
+					'format'    => 'inline_html',
+					'heading'   => ! empty( $attr_fragment['heading'] ),
+					'text'      => $text,
+				);
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				self::collect_source_design_fragments( $block['innerBlocks'], $fragments, $current_path );
+			}
+		}
+	}
+
+	/**
+	 * Project localized fragments into a parsed source block tree.
+	 *
+	 * @param array<int,array<string,mixed>> $blocks Parsed blocks.
+	 * @param array<string,string>           $fragments Localized values by key.
+	 * @param array<string,int>              $stats Projection stats.
+	 */
+	private static function project_source_design_blocks( array &$blocks, array $fragments, array &$stats, string $path = '' ): void {
+		foreach ( $blocks as $index => &$block ) {
+			$current_path = '' === $path ? (string) $index : $path . '.' . $index;
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			$name  = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
+			$attrs = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
+			if ( in_array( $name, self::copy_quality_text_block_names(), true ) && isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
+				$key = self::source_design_fragment_key( $name, $attrs, $current_path, 'text' );
+				if ( array_key_exists( $key, $fragments ) ) {
+					$block['innerHTML']   = self::replace_source_design_text_html( (string) $block['innerHTML'], $fragments[ $key ] );
+					$block['innerContent'] = array( $block['innerHTML'] );
+					$stats['projected_count']++;
+				}
+			}
+
+			foreach ( self::structured_text_attr_fragments( $name, $attrs ) as $attr_fragment ) {
+				$key = self::structured_text_attr_fragment_key( $current_path, $name, $attr_fragment );
+				if ( ! array_key_exists( $key, $fragments ) ) {
+					continue;
+				}
+
+				$old_value = (string) ( $attr_fragment['text'] ?? '' );
+				$new_value = $fragments[ $key ];
+				self::set_nested_array_value( $block['attrs'], (array) ( $attr_fragment['attr_path'] ?? array() ), $new_value );
+				if ( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
+					$block['innerHTML'] = self::replace_source_design_structured_html_value( $block['innerHTML'], $old_value, $new_value );
+					if ( isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
+						$block['innerContent'] = self::replace_source_design_inner_content_value( $block['innerContent'], $old_value, $new_value );
+					} elseif ( empty( $block['innerBlocks'] ) ) {
+						$block['innerContent'] = array( $block['innerHTML'] );
+					}
+				}
+				$stats['projected_count']++;
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				self::project_source_design_blocks( $block['innerBlocks'], $fragments, $stats, $current_path );
+			}
+		}
+		unset( $block );
+	}
+
+	/**
+	 * Stable fragment key for text-bearing blocks.
+	 */
+	private static function source_design_fragment_key( string $block_name, array $attrs, string $path, string $part ): string {
+		$unique_id = isset( $attrs['uniqueId'] ) ? trim( (string) $attrs['uniqueId'] ) : '';
+		if ( '' !== $unique_id ) {
+			return 'uid:' . preg_replace( '/[^a-z0-9_\\-.]/i', '', $unique_id ) . ':' . sanitize_key( $part );
+		}
+
+		return 'path:' . preg_replace( '/[^0-9.]/', '', $path ) . ':' . sanitize_key( str_replace( '/', '_', $block_name ) ) . ':' . sanitize_key( $part );
+	}
+
+	/**
+	 * Replace text inside a block's existing wrapper while keeping wrapper design.
+	 */
+	private static function replace_source_design_text_html( string $html, string $localized_html ): string {
+		$localized_html = trim( $localized_html );
+		if ( '' === $localized_html ) {
+			return $html;
+		}
+		if ( preg_match( '/^(\\s*<([a-z][a-z0-9]*)\\b[^>]*>)(.*)(<\\/\\2>\\s*)$/is', $html, $matches ) ) {
+			return $matches[1] . $localized_html . $matches[4];
+		}
+
+		return $localized_html;
+	}
+
+	/**
+	 * Collect text fields stored in structured block attributes.
+	 *
+	 * This keeps design inheritance independent from the plugin that created the
+	 * block. FAQ, how-to, and similar data-bearing blocks usually store repeated
+	 * rows in semantic attribute collections such as questions or steps.
+	 *
+	 * @param array<string,mixed> $attrs Block attributes.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function structured_text_attr_fragments( string $block_name, array $attrs ): array {
+		$fragments = array();
+		foreach ( $attrs as $key => $value ) {
+			if ( ! is_array( $value ) || ! self::is_structured_text_collection_key( (string) $key ) ) {
+				continue;
+			}
+			self::collect_structured_text_attr_collection( $value, $fragments, array( $key ), array( $key ) );
+		}
+
+		$filtered = apply_filters( 'ai_translation_workflow_structured_text_attr_fragments', $fragments, $block_name, $attrs );
+		if ( ! is_array( $filtered ) ) {
+			return $fragments;
+		}
+
+		return array_values(
+			array_filter(
+				$filtered,
+				static function ( $fragment ): bool {
+					return is_array( $fragment ) && ! empty( $fragment['attr_path'] ) && array_key_exists( 'text', $fragment );
+				}
+			)
+		);
+	}
+
+	/**
+	 * @param array<int|string,mixed>        $collection Attribute row collection.
+	 * @param array<int,array<string,mixed>> $fragments Output fragments.
+	 * @param array<int,int|string>          $attr_path Current real attribute path.
+	 * @param array<int,string>              $label_path Stable label path used for keys.
+	 */
+	private static function collect_structured_text_attr_collection( array $collection, array &$fragments, array $attr_path, array $label_path ): void {
+		foreach ( $collection as $row_index => $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$row_id = self::structured_text_row_identifier( $row, $row_index );
+			foreach ( $row as $field => $value ) {
+				$field_name = (string) $field;
+				if ( is_string( $value ) && self::is_structured_text_field_key( $field_name ) ) {
+					$role        = self::structured_text_field_role( $field_name );
+					$fragments[] = array(
+						'attr_path'  => array_merge( $attr_path, array( $row_index, $field_name ) ),
+						'label_path' => self::structured_text_label_path( array_merge( $label_path, array( $row_id, $field_name ) ) ),
+						'row_id'     => $row_id,
+						'field'      => $field_name,
+						'role'       => $role,
+						'heading'    => in_array( $role, array( 'question', 'title', 'name' ), true ),
+						'text'       => $value,
+					);
+					continue;
+				}
+				if ( is_array( $value ) && self::is_structured_text_collection_key( $field_name ) ) {
+					self::collect_structured_text_attr_collection(
+						$value,
+						$fragments,
+						array_merge( $attr_path, array( $row_index, $field_name ) ),
+						array_merge( $label_path, array( $row_id, $field_name ) )
+					);
+				}
+			}
+		}
+	}
+
+	private static function is_structured_text_collection_key( string $key ): bool {
+		$key = strtolower( preg_replace( '/[^a-z0-9_\\-]/i', '', $key ) ?: '' );
+
+		return in_array( $key, array( 'question', 'questions', 'faq', 'faqs', 'step', 'steps', 'item', 'items' ), true );
+	}
+
+	private static function is_structured_text_field_key( string $key ): bool {
+		$key = strtolower( preg_replace( '/[^a-z0-9_\\-]/i', '', $key ) ?: '' );
+
+		return in_array(
+			$key,
+			array(
+				'title',
+				'content',
+				'question',
+				'answer',
+				'jsonquestion',
+				'jsonanswer',
+				'name',
+				'jsonname',
+				'text',
+				'jsontext',
+				'description',
+				'jsondescription',
+			),
+			true
+		);
+	}
+
+	private static function structured_text_field_role( string $key ): string {
+		$key = strtolower( preg_replace( '/[^a-z0-9_\\-]/i', '', $key ) ?: '' );
+		if ( false !== strpos( $key, 'question' ) ) {
+			return 'question';
+		}
+		if ( false !== strpos( $key, 'answer' ) || 'content' === $key || false !== strpos( $key, 'text' ) || false !== strpos( $key, 'description' ) ) {
+			return 'answer';
+		}
+		if ( false !== strpos( $key, 'name' ) ) {
+			return 'name';
+		}
+		if ( false !== strpos( $key, 'title' ) ) {
+			return 'title';
+		}
+
+		return 'text';
+	}
+
+	/**
+	 * @param array<string,mixed> $row Structured data row.
+	 * @param int|string         $row_index Fallback row position.
+	 */
+	private static function structured_text_row_identifier( array $row, $row_index ): string {
+		foreach ( array( 'id', 'uid', 'uniqueId', 'key' ) as $key ) {
+			if ( isset( $row[ $key ] ) && '' !== trim( (string) $row[ $key ] ) ) {
+				return self::structured_text_key_part( (string) $row[ $key ] );
+			}
+		}
+
+		return self::structured_text_key_part( (string) $row_index );
+	}
+
+	/**
+	 * @param array<int,string> $path Human-readable stable path parts.
+	 */
+	private static function structured_text_label_path( array $path ): string {
+		$parts = array_map( array( __CLASS__, 'structured_text_key_part' ), $path );
+
+		return implode( '.', array_filter( $parts, 'strlen' ) );
+	}
+
+	private static function structured_text_key_part( string $value ): string {
+		$value = strtolower( trim( $value ) );
+		$value = str_replace( array( '/', '\\', ':', ' ' ), '_', $value );
+		$value = preg_replace( '/[^a-z0-9_\\-.]/', '', $value );
+
+		return is_string( $value ) ? trim( $value, '._-' ) : '';
+	}
+
+	/**
+	 * Stable fragment key for structured block attribute fields.
+	 *
+	 * @param array<string,mixed> $fragment Attribute fragment descriptor.
+	 */
+	private static function structured_text_attr_fragment_key( string $path, string $block_name, array $fragment ): string {
+		$block = self::structured_text_key_part( str_replace( '/', '_', $block_name ) );
+		$label = self::structured_text_key_part( (string) ( $fragment['label_path'] ?? '' ) );
+
+		return 'attr:' . preg_replace( '/[^0-9.]/', '', $path ) . ':' . $block . ':' . $label;
+	}
+
+	/**
+	 * Set a nested array value by path when the path exists.
+	 *
+	 * @param array<string|int,mixed> $array Target array.
+	 * @param array<int,string|int>   $path Nested keys.
+	 * @param mixed                   $value New value.
+	 */
+	private static function set_nested_array_value( array &$array, array $path, $value ): void {
+		if ( empty( $path ) ) {
+			return;
+		}
+		$cursor =& $array;
+		foreach ( $path as $index => $key ) {
+			if ( ! is_array( $cursor ) || ! array_key_exists( $key, $cursor ) ) {
+				return;
+			}
+			if ( count( $path ) - 1 === $index ) {
+				$cursor[ $key ] = $value;
+				return;
+			}
+			$cursor =& $cursor[ $key ];
+		}
+	}
+
+	/**
+	 * Replace a structured old value inside saved block HTML.
+	 */
+	private static function replace_source_design_structured_html_value( string $html, string $old_value, string $new_value ): string {
+		$old_value = trim( $old_value );
+		if ( '' === $old_value ) {
+			return $html;
+		}
+
+		$plain = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $old_value ) ) );
+		$variants = array_unique(
+			array_filter(
+				array(
+					wp_kses_post( $old_value ),
+					esc_html( $plain ),
+					esc_html( $old_value ),
+					$old_value,
+				),
+				'strlen'
+			)
+		);
+
+		foreach ( $variants as $variant ) {
+			if ( false !== strpos( $html, $variant ) ) {
+				return str_replace( $variant, $new_value, $html );
+			}
+		}
+
+		return $html;
+	}
+
+	/**
+	 * @param array<int,mixed> $inner_content Parsed block innerContent.
+	 * @return array<int,mixed>
+	 */
+	private static function replace_source_design_inner_content_value( array $inner_content, string $old_value, string $new_value ): array {
+		foreach ( $inner_content as &$part ) {
+			if ( is_string( $part ) ) {
+				$part = self::replace_source_design_structured_html_value( $part, $old_value, $new_value );
+			}
+		}
+		unset( $part );
+
+		return $inner_content;
+	}
+
+	/**
+	 * Hash the non-text design signature of a Gutenberg block tree.
+	 */
+	private static function source_design_signature_hash( string $content ): string {
+		return hash( 'sha256', wp_json_encode( self::source_design_signature( parse_blocks( $content ) ) ) ?: '' );
+	}
+
+	/**
+	 * Expected design signature for a target language.
+	 *
+	 * LTR translations must match the source design exactly. RTL translations may
+	 * differ only by deterministic source-derived RTL mirroring from language
+	 * direction data.
+	 */
+	private static function expected_source_design_signature_hash( string $source_content, string $language ): string {
+		$source_content = self::normalize_gutenberg_content_for_storage( $source_content );
+		if ( self::is_rtl_language( $language ) ) {
+			$source_content = self::mirror_rtl_block_layout_from_source( $source_content, $source_content, $language );
+		}
+
+		return self::source_design_signature_hash( $source_content );
+	}
+
+	/**
+	 * Build a text-independent design signature for guardrails.
+	 *
+	 * @param array<int,array<string,mixed>> $blocks Parsed blocks.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function source_design_signature( array $blocks, string $path = '' ): array {
+		$signature = array();
+		foreach ( $blocks as $index => $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+			$current_path = '' === $path ? (string) $index : $path . '.' . $index;
+			$name         = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
+			$attrs        = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
+			$html         = isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '';
+			$signature[]  = array(
+				'path'       => $current_path,
+				'block'      => $name,
+				'attrs'      => self::source_design_signature_attrs( $name, $attrs ),
+				'html_shell' => self::source_design_html_shell( $name, $attrs, $html ),
+				'children'   => ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? self::source_design_signature( $block['innerBlocks'], $current_path ) : array(),
+			);
+		}
+
+		return $signature;
+	}
+
+	/**
+	 * Remove translatable text fields from block attrs before design comparison.
+	 *
+	 * @param array<string,mixed> $attrs Block attrs.
+	 * @return array<string,mixed>
+	 */
+	private static function source_design_signature_attrs( string $block_name, array $attrs ): array {
+		foreach ( self::structured_text_attr_fragments( $block_name, $attrs ) as $attr_fragment ) {
+			self::set_nested_array_value( $attrs, (array) ( $attr_fragment['attr_path'] ?? array() ), '{{text}}' );
+		}
+
+		return self::recursive_ksort_array( $attrs );
+	}
+
+	/**
+	 * Preserve wrapper class/tag design while ignoring text content.
+	 */
+	private static function source_design_html_shell( string $block_name, array $attrs, string $html ): string {
+		if ( '' === trim( $html ) ) {
+			return '';
+		}
+		if ( in_array( $block_name, self::copy_quality_text_block_names(), true ) && preg_match( '/^(\\s*<([a-z][a-z0-9]*)\\b[^>]*>)(.*)(<\\/\\2>\\s*)$/is', $html, $matches ) ) {
+			return trim( $matches[1] . '{{text}}' . $matches[4] );
+		}
+
+		$shell = $html;
+		foreach ( self::structured_text_attr_fragments( $block_name, $attrs ) as $attr_fragment ) {
+			$shell = self::replace_source_design_structured_html_value( $shell, (string) ( $attr_fragment['text'] ?? '' ), '{{text}}' );
+		}
+		if ( $shell !== $html ) {
+			return trim( $shell );
+		}
+
+		return '';
+	}
+
+	/**
+	 * Recursively sort associative arrays so signature hashes are stable.
+	 *
+	 * @param mixed $value Value to normalize.
+	 * @return mixed
+	 */
+	private static function recursive_ksort_array( $value ) {
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+		foreach ( $value as &$child ) {
+			$child = self::recursive_ksort_array( $child );
+		}
+		unset( $child );
+		ksort( $value );
+
+		return $value;
 	}
 
 	/**
@@ -11033,11 +12157,24 @@ final class Devenia_AI_Translations {
 			return self::error( 'Title is required.' );
 		}
 
-		$content = (string) ( $input['content'] ?? '' );
-		if ( '' === trim( $content ) ) {
-			return self::error( 'Content is required.' );
+		$source_design = array();
+		$inherit_source_design = array_key_exists( 'inherit_source_design', $input )
+			? ! empty( $input['inherit_source_design'] )
+			: ! empty( $input['localized_fragments'] );
+		if ( $inherit_source_design ) {
+			$projection = self::inherited_source_design_content( $source, $input, $language );
+			if ( empty( $projection['success'] ) ) {
+				return $projection;
+			}
+			$content       = (string) $projection['content'];
+			$source_design = isset( $projection['source_design'] ) && is_array( $projection['source_design'] ) ? $projection['source_design'] : array();
+		} else {
+			$content = (string) ( $input['content'] ?? '' );
+			if ( '' === trim( $content ) ) {
+				return self::error( 'Content is required. Prefer localized_fragments with inherit_source_design=true so translators translate text instead of rebuilding design.' );
+			}
+			$content = self::mirror_rtl_block_layout_from_source( $content, (string) $source->post_content, $language );
 		}
-		$content    = self::mirror_rtl_block_layout_from_source( $content, (string) $source->post_content, $language );
 		$content    = self::localize_internal_links_in_content( $content, $language );
 		$content    = self::normalize_gutenberg_content_for_storage( $content );
 		$excerpt    = isset( $input['excerpt'] ) ? sanitize_textarea_field( (string) $input['excerpt'] ) : '';
@@ -11229,6 +12366,7 @@ final class Devenia_AI_Translations {
 			'taxonomies'         => isset( $term_result ) ? $term_result : null,
 			'seo_meta'           => $seo_meta,
 			'presentation'       => $lifecycle['presentation'] ?? array(),
+			'source_design'      => $source_design,
 		);
 	}
 
@@ -11370,6 +12508,11 @@ final class Devenia_AI_Translations {
 				}
 
 				$term_data = $input_terms[ (int) $source_term->term_id ] ?? array();
+				$existing_term_id = self::find_translated_term_id( (int) $source_term->term_id, $language, (string) $taxonomy );
+				$term_issue = self::translated_taxonomy_term_guardrail( $source_term, $language, $term_data, $existing_term_id );
+				if ( $term_issue ) {
+					return $term_issue;
+				}
 				$term_id = self::ensure_translated_term( $source_term, $language, $term_data );
 				if ( ! $term_id ) {
 					continue;
@@ -11519,12 +12662,91 @@ final class Devenia_AI_Translations {
 		if ( isset( $term_data['name'] ) && '' !== trim( (string) $term_data['name'] ) ) {
 			$args['name'] = trim( (string) $term_data['name'] );
 		}
+		if ( isset( $term_data['slug'] ) && '' !== trim( (string) $term_data['slug'] ) ) {
+			$args['slug'] = sanitize_title( (string) $term_data['slug'] );
+		}
 		if ( isset( $term_data['description'] ) ) {
 			$args['description'] = (string) $term_data['description'];
 		}
 		if ( ! empty( $args ) ) {
 			wp_update_term( $term_id, (string) $source_term->taxonomy, $args );
 		}
+	}
+
+	/**
+	 * Block untranslated or source-prefixed category/tag data before terms are created.
+	 *
+	 * @param array{name?:string,slug?:string,description?:string} $term_data Client-provided localized term data.
+	 */
+	private static function translated_taxonomy_term_guardrail( WP_Term $source_term, string $language, array $term_data, int $existing_term_id = 0 ): array {
+		$source_name = trim( wp_strip_all_tags( (string) $source_term->name ) );
+		$source_slug = sanitize_title( (string) $source_term->slug );
+		$name        = isset( $term_data['name'] ) ? trim( wp_strip_all_tags( (string) $term_data['name'] ) ) : '';
+		$slug        = isset( $term_data['slug'] ) ? sanitize_title( (string) $term_data['slug'] ) : '';
+
+		if ( ! $existing_term_id && ( '' === $name || '' === $slug ) ) {
+			return array(
+				'success'        => false,
+				'message'        => 'Localized taxonomy term name and slug are required before creating a new translated category or tag.',
+				'code'           => 'localized_taxonomy_required',
+				'language'       => sanitize_key( $language ),
+				'taxonomy'       => (string) $source_term->taxonomy,
+				'source_term_id' => (int) $source_term->term_id,
+				'source_name'    => $source_name,
+				'source_slug'    => $source_slug,
+			);
+		}
+
+		if ( '' !== $slug && self::translated_taxonomy_slug_copies_source( $slug, $source_slug, $language ) ) {
+			return array(
+				'success'        => false,
+				'message'        => 'Localized taxonomy slug must not copy the source slug or only prefix it with the language code.',
+				'code'           => 'localized_taxonomy_slug_copied_from_source',
+				'language'       => sanitize_key( $language ),
+				'taxonomy'       => (string) $source_term->taxonomy,
+				'source_term_id' => (int) $source_term->term_id,
+				'source_slug'    => $source_slug,
+				'localized_slug' => $slug,
+			);
+		}
+
+		if ( '' !== $name && self::translated_taxonomy_name_copies_source( $name, $source_name ) ) {
+			return array(
+				'success'        => false,
+				'message'        => 'Localized taxonomy name must be translated unless it is a short brand, acronym, or protected technical term.',
+				'code'           => 'localized_taxonomy_name_copied_from_source',
+				'language'       => sanitize_key( $language ),
+				'taxonomy'       => (string) $source_term->taxonomy,
+				'source_term_id' => (int) $source_term->term_id,
+				'source_name'    => $source_name,
+				'localized_name' => $name,
+			);
+		}
+
+		return array();
+	}
+
+	private static function translated_taxonomy_slug_copies_source( string $slug, string $source_slug, string $language ): bool {
+		if ( '' === $slug || '' === $source_slug ) {
+			return false;
+		}
+
+		$language = sanitize_key( $language );
+		return $slug === $source_slug || $slug === sanitize_title( $language . '-' . $source_slug );
+	}
+
+	private static function translated_taxonomy_name_copies_source( string $name, string $source_name ): bool {
+		$name        = self::normalize_review_text( $name );
+		$source_name = self::normalize_review_text( $source_name );
+		if ( '' === $name || '' === $source_name || 0 !== strcasecmp( $name, $source_name ) ) {
+			return false;
+		}
+
+		if ( preg_match( '/^[A-Z0-9][A-Z0-9 +.#_-]{1,12}$/', $source_name ) ) {
+			return false;
+		}
+
+		return true;
 	}
 
 	/**
@@ -18681,8 +19903,7 @@ final class Devenia_AI_Translations {
 		}
 
 		$language = '' !== $language ? sanitize_key( $language ) : self::frontend_language();
-
-		$locale   = self::wordpress_locale_for_context( (int) get_queried_object_id() );
+		$locale   = self::wordpress_locale_for_language( $language );
 		$switched = '' !== $locale && function_exists( 'switch_to_locale' ) && switch_to_locale( $locale );
 		try {
 			return self::localized_short_date_label( $timestamp, $language, $locale );
@@ -18691,6 +19912,21 @@ final class Devenia_AI_Translations {
 				restore_previous_locale();
 			}
 		}
+	}
+
+	/**
+	 * WordPress locale configured for one workflow language.
+	 */
+	private static function wordpress_locale_for_language( string $language ): string {
+		$language = sanitize_key( $language );
+		$config   = self::languages()[ $language ] ?? array();
+		$locale   = isset( $config['locale'] ) ? (string) $config['locale'] : 'en_GB';
+
+		if ( isset( $config['wordpress_locale'] ) && '' !== (string) $config['wordpress_locale'] ) {
+			$locale = (string) $config['wordpress_locale'];
+		}
+
+		return '' !== $locale ? $locale : 'en_GB';
 	}
 
 	/**
@@ -22393,28 +23629,17 @@ final class Devenia_AI_Translations {
 				}
 			}
 
-			if ( 'rank-math/faq-block' === $name && ! empty( $attrs['questions'] ) && is_array( $attrs['questions'] ) ) {
-				foreach ( $attrs['questions'] as $question ) {
-					if ( ! is_array( $question ) ) {
-						continue;
-					}
-					$question_id = isset( $question['id'] ) ? (string) $question['id'] : '';
-					foreach ( array( 'title', 'content' ) as $key ) {
-						if ( empty( $question[ $key ] ) || ! is_string( $question[ $key ] ) ) {
-							continue;
-						}
-						$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $question[ $key ] ) ) );
-						if ( '' === $text ) {
-							continue;
-						}
-						$fragments[] = array(
-							'text'      => $text,
-							'block'     => $name . ':' . $key,
-							'unique_id' => $question_id,
-							'heading'   => 'title' === $key,
-						);
-					}
+			foreach ( self::structured_text_attr_fragments( $name, $attrs ) as $attr_fragment ) {
+				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( (string) ( $attr_fragment['text'] ?? '' ) ) ) );
+				if ( '' === $text ) {
+					continue;
 				}
+				$fragments[] = array(
+					'text'      => $text,
+					'block'     => $name . ':' . (string) ( $attr_fragment['field'] ?? '' ),
+					'unique_id' => (string) ( $attr_fragment['row_id'] ?? '' ),
+					'heading'   => ! empty( $attr_fragment['heading'] ),
+				);
 			}
 
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
@@ -22491,6 +23716,20 @@ final class Devenia_AI_Translations {
 					'source'                  => $source,
 					'translation'             => $target,
 				),
+			);
+		}
+
+		$source_design_hash = self::expected_source_design_signature_hash( $source_content, $language );
+		$target_design_hash = self::source_design_signature_hash( $content );
+		if ( $source_design_hash !== $target_design_hash ) {
+			$issues[] = self::qa_item(
+				'source_design_signature_mismatch',
+				'Translated content must inherit the source design tree. Translate text; do not alter layout, block attributes, classes, or media. The only allowed design delta is data-driven RTL mirroring.',
+				array(
+					'expected_design_hash'    => $source_design_hash,
+					'translation_design_hash' => $target_design_hash,
+					'rtl_expected'            => self::is_rtl_language( $language ),
+				)
 			);
 		}
 
@@ -22666,7 +23905,9 @@ final class Devenia_AI_Translations {
 		);
 
 		self::collect_semantic_structure( $blocks, $summary );
-		if ( preg_match_all( '/\bhref=([\"\'])([^\"\']+)\1/i', $content, $matches ) ) {
+		$link_count_content = apply_filters( 'ai_translation_workflow_semantic_link_count_content', $content, $blocks );
+		$link_count_content = is_string( $link_count_content ) ? $link_count_content : $content;
+		if ( preg_match_all( '/\bhref=([\"\'])([^\"\']+)\1/i', $link_count_content, $matches ) ) {
 			$summary['link_count'] = count( $matches[2] );
 		}
 
@@ -23197,11 +24438,104 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Deep module for frontend language context.
+	 * Deep module for every localized public presentation surface.
 	 *
-	 * Hooks consume this one surface instead of recomputing language, locale,
-	 * source page, and alternate links independently.
+	 * Design templates consume this one Interface and do not need to know whether
+	 * the surface is source content, a translation, an archive, comments,
+	 * language navigation, media, or runtime-localized text.
+	 *
+	 * @param array<string,mixed> $input Presentation request.
+	 * @return array<string,mixed>
 	 */
+	public static function presentation_surface( array $input = array() ): array {
+		$surface_type = self::presentation_surface_type( $input );
+
+		switch ( $surface_type ) {
+		case 'singular':
+			$post_id = absint( $input['post_id'] ?? 0 );
+			if ( ! $post_id ) {
+				$post_id = self::frontend_surface_post_id();
+			}
+			return $post_id ? self::singular_presentation_surface( $post_id, (string) ( $input['language'] ?? '' ) ) : array();
+		case 'blog_archive':
+			return self::blog_archive_presentation_surface( $input );
+		case 'author_archive':
+			return self::author_archive_presentation_surface( $input );
+		case 'term_archive':
+			return self::term_archive_presentation_surface( $input );
+		case 'not_found':
+			return self::not_found_presentation_surface( (string) ( $input['language'] ?? '' ) );
+		default:
+			return array();
+		}
+	}
+
+	/**
+	 * Resolve the requested or current public surface type.
+	 *
+	 * @param array<string,mixed> $input Presentation request.
+	 */
+	private static function presentation_surface_type( array $input ): string {
+		$type = sanitize_key( (string) ( $input['surface_type'] ?? '' ) );
+		if ( in_array( $type, array( 'singular', 'blog_archive', 'author_archive', 'term_archive', 'not_found' ), true ) ) {
+			return $type;
+		}
+
+		if ( is_404() ) {
+			return 'not_found';
+		}
+		if ( is_author() ) {
+			return 'author_archive';
+		}
+		if ( is_category() || is_tag() ) {
+			return 'term_archive';
+		}
+		if ( is_home() ) {
+			return 'blog_archive';
+		}
+
+		return 'singular';
+	}
+
+	/**
+	 * Resolve language, locale, and direction for a presentation surface.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function presentation_language_context( string $language = '', int $post_id = 0 ): array {
+		$language = sanitize_key( $language );
+		if ( '' === $language && $post_id ) {
+			$language = self::language_for_context( $post_id );
+		}
+		if ( '' === $language && self::is_frontend_runtime_request() ) {
+			$surface  = self::frontend_surface( $post_id );
+			$language = isset( $surface['language'] ) ? sanitize_key( (string) $surface['language'] ) : '';
+		}
+
+		$languages = self::languages();
+		if ( '' === $language || ! isset( $languages[ $language ] ) ) {
+			$language = 'en';
+		}
+
+		$config           = $languages[ $language ] ?? array();
+		$locale           = isset( $config['locale'] ) ? (string) $config['locale'] : 'en_GB';
+		$wordpress_locale = isset( $config['wordpress_locale'] ) && '' !== (string) $config['wordpress_locale'] ? (string) $config['wordpress_locale'] : $locale;
+		$direction        = isset( $config['direction'] ) && 'rtl' === (string) $config['direction'] ? 'rtl' : 'ltr';
+		$name             = isset( $config['name'] ) ? (string) $config['name'] : strtoupper( $language );
+
+		return array(
+			'code'             => $language,
+			'locale'           => '' !== $locale ? $locale : 'en_GB',
+			'wordpress_locale' => '' !== $wordpress_locale ? $wordpress_locale : 'en_GB',
+			'html_lang'        => self::html_lang_for_language( $language ),
+			'direction'        => $direction,
+			'name'             => $name,
+			'native_name'      => self::language_menu_native_name( $language, $config, $name ),
+			'flag'             => isset( $config['flag'] ) ? (string) $config['flag'] : strtoupper( $language ),
+			'home_url'         => self::localized_home_url_for_language( $language ),
+		);
+	}
+
 	private static function frontend_surface( int $post_id = 0 ): array {
 		static $cache = array();
 
@@ -23269,6 +24603,987 @@ final class Devenia_AI_Translations {
 		);
 
 		return $cache[ $key ];
+	}
+
+	/**
+	 * Build one localized singular presentation surface for source and translations.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function singular_presentation_surface( int $post_id, string $requested_language = '' ): array {
+		$post = get_post( $post_id );
+		if ( ! $post instanceof WP_Post ) {
+			return array();
+		}
+
+		$language_context = self::presentation_language_context( $requested_language, $post_id );
+		$language         = (string) $language_context['code'];
+		$source_id        = self::source_id_for_context( $post_id );
+		$author_id        = (int) $post->post_author;
+		$modified_ts      = absint( get_post_modified_time( 'U', false, $post ) );
+		$published_ts     = absint( get_post_time( 'U', false, $post ) );
+
+		$surface = self::presentation_base( 'singular', $language_context );
+		$surface['identity'] = array(
+			'post_id'        => (int) $post->ID,
+			'source_id'      => $source_id,
+			'post_type'      => (string) $post->post_type,
+			'status'         => (string) $post->post_status,
+			'is_translation' => self::is_translation_post( (int) $post->ID ),
+		);
+		$surface['text'] = array(
+			'title'            => get_the_title( $post ),
+			'excerpt'          => self::presentation_excerpt( $post ),
+			'description'      => self::presentation_excerpt( $post ),
+			'meta_description' => self::singular_meta_description( $post ),
+			'seo_title'        => self::singular_seo_title( $post ),
+		);
+		$surface['url'] = array_merge(
+			$surface['url'],
+			array(
+				'permalink' => get_permalink( $post ) ?: '',
+				'canonical' => get_permalink( $post ) ?: '',
+			)
+		);
+		$surface['person']['author'] = $author_id > 0 ? self::author_presentation_payload( $author_id, $language ) : array();
+		$surface['media']['featured_image'] = self::featured_image_presentation_payload( $post );
+		$surface['comments'] = self::comments_presentation_payload( (int) $post->ID, $language );
+		$surface['navigation']['language_links'] = self::language_links_presentation_payload( self::language_links_for_post( (int) $post->ID ), $language );
+		$surface['taxonomy'] = self::post_taxonomy_payload( $post );
+		$surface['dates'] = array(
+			'published' => self::presentation_date_payload( $published_ts, $post, 'date', $language ),
+			'modified'  => self::presentation_date_payload( $modified_ts, $post, 'modified', $language ),
+		);
+
+		return apply_filters( 'ai_translation_workflow_presentation_surface', $surface, array( 'post' => $post ) );
+	}
+
+	/**
+	 * Blog archive presentation, including translated local-first archive items.
+	 *
+	 * @param array<string,mixed> $input Presentation request.
+	 * @return array<string,mixed>
+	 */
+	private static function blog_archive_presentation_surface( array $input ): array {
+		$post_id = absint( $input['post_id'] ?? 0 );
+		if ( ! $post_id ) {
+			$post_id = absint( get_option( 'page_for_posts' ) );
+		}
+
+		$language_context = self::presentation_language_context( (string) ( $input['language'] ?? '' ), $post_id );
+		$language         = (string) $language_context['code'];
+		$display_post_id  = $post_id;
+		if ( $post_id && 'en' !== $language ) {
+			$translation_id = self::find_translation_id( $post_id, $language, array( 'publish' ) );
+			if ( $translation_id ) {
+				$display_post_id = $translation_id;
+			}
+		}
+
+		$post = $display_post_id ? get_post( $display_post_id ) : null;
+		$title = $post instanceof WP_Post ? get_the_title( $post ) : '';
+		$runtime_title = self::presentation_label( $language, 'archive_title', '' );
+		if ( '' !== $runtime_title ) {
+			$title = $runtime_title;
+		}
+
+		$url = $display_post_id ? (string) get_permalink( $display_post_id ) : '';
+		if ( '' === $url ) {
+			$path = self::localized_blog_base_path( $language );
+			$url  = '' !== $path ? home_url( '/' . trim( $path, '/' ) . '/' ) : self::localized_home_url_for_language( $language );
+		}
+
+		$surface = self::presentation_base( 'blog_archive', $language_context );
+		$surface['identity'] = array(
+			'post_id'        => $display_post_id,
+			'source_id'      => $post_id,
+			'post_type'      => 'post',
+			'archive_type'   => 'blog',
+			'is_translation' => $display_post_id > 0 && self::is_translation_post( $display_post_id ),
+		);
+		$surface['text'] = array(
+			'title'            => $title,
+			'excerpt'          => '',
+			'description'      => self::translated_posts_page_meta_description( $language ),
+			'meta_description' => self::translated_posts_page_meta_description( $language ),
+			'seo_title'        => $title,
+		);
+		$surface['url'] = array_merge(
+			$surface['url'],
+			array(
+				'permalink' => $url,
+				'canonical' => $url,
+			)
+		);
+		$surface['archive'] = array(
+			'type'  => 'blog',
+			'items' => ! empty( $input['include_items'] ) ? self::blog_archive_item_payloads( $language, absint( $input['per_page'] ?? 10 ) ) : array(),
+		);
+		$surface['navigation']['language_links'] = self::language_links_presentation_payload( self::language_links_for_blog_archive(), $language );
+
+		return apply_filters( 'ai_translation_workflow_presentation_surface', $surface, array( 'post' => $post ) );
+	}
+
+	/**
+	 * Author archive presentation with localized runtime author data.
+	 *
+	 * @param array<string,mixed> $input Presentation request.
+	 * @return array<string,mixed>
+	 */
+	private static function author_archive_presentation_surface( array $input ): array {
+		$author_id = absint( $input['author_id'] ?? 0 );
+		if ( ! $author_id ) {
+			$author = get_queried_object();
+			if ( $author instanceof WP_User ) {
+				$author_id = (int) $author->ID;
+			}
+		}
+		if ( ! $author_id ) {
+			$author_id = absint( get_query_var( 'author' ) );
+		}
+		if ( ! $author_id ) {
+			$author_id = absint( get_query_var( 'devenia_author_archive_author_id' ) );
+		}
+
+		$author = $author_id ? get_user_by( 'id', $author_id ) : null;
+		if ( ! $author instanceof WP_User ) {
+			return array();
+		}
+
+		$language_context = self::presentation_language_context( (string) ( $input['language'] ?? '' ), 0 );
+		$language         = (string) $language_context['code'];
+		$record           = self::author_archive_record( $author_id, $language );
+		$author_payload   = self::author_presentation_payload( $author_id, $language );
+		$name             = (string) ( $author_payload['name'] ?? '' );
+		$kicker           = trim( (string) ( $record['kicker'] ?? '' ) );
+		$title            = trim( (string) ( $record['title'] ?? '' ) );
+		if ( '' === $title ) {
+			$title = $name;
+		}
+		$description = trim( wp_strip_all_tags( (string) ( $record['description'] ?? '' ) ) );
+		if ( '' === $description ) {
+			$description = trim( wp_strip_all_tags( (string) get_the_author_meta( 'description', $author_id ) ) );
+		}
+		$url = self::author_archive_url( $author_id, $language );
+
+		$surface = self::presentation_base( 'author_archive', $language_context );
+		$surface['identity'] = array(
+			'author_id'    => $author_id,
+			'archive_type' => 'author',
+		);
+		$surface['text'] = array(
+			'title'            => $title,
+			'kicker'           => $kicker,
+			'excerpt'          => $description,
+			'description'      => $description,
+			'meta_description' => self::trim_meta_description( $description ),
+			'seo_title'        => self::author_archive_seo_title( $author_id, $language, false ),
+			'note'             => trim( (string) ( $record['note'] ?? '' ) ),
+		);
+		$surface['url'] = array_merge(
+			$surface['url'],
+			array(
+				'permalink' => $url,
+				'canonical' => $url,
+			)
+		);
+		$surface['person']['author'] = $author_payload;
+		$surface['media']['featured_image'] = array(
+			'id'   => 0,
+			'url'  => (string) ( $author_payload['avatar']['url'] ?? '' ),
+			'alt'  => $name,
+			'html' => (string) ( $author_payload['avatar']['html'] ?? '' ),
+		);
+		$surface['actions']['primary'] = self::author_archive_primary_action( $record );
+		$surface['archive'] = array(
+			'type'      => 'author',
+			'author_id' => $author_id,
+			'items'     => ! empty( $input['include_items'] ) ? self::author_archive_item_payloads( $author_id, $language, absint( $input['per_page'] ?? 10 ) ) : array(),
+		);
+		$surface['navigation']['language_links'] = self::language_links_presentation_payload( self::language_links_for_author_id( $author_id ), $language );
+
+		return apply_filters( 'ai_translation_workflow_presentation_surface', $surface, array( 'author' => $author ) );
+	}
+
+	/**
+	 * Category/tag archive presentation.
+	 *
+	 * @param array<string,mixed> $input Presentation request.
+	 * @return array<string,mixed>
+	 */
+	private static function term_archive_presentation_surface( array $input ): array {
+		$term_id  = absint( $input['term_id'] ?? 0 );
+		$taxonomy = sanitize_key( (string) ( $input['taxonomy'] ?? '' ) );
+		if ( ! $term_id ) {
+			$term = get_queried_object();
+			if ( $term instanceof WP_Term ) {
+				$term_id  = (int) $term->term_id;
+				$taxonomy = (string) $term->taxonomy;
+			}
+		}
+		if ( ! $term_id ) {
+			return array();
+		}
+
+		$term = get_term( $term_id, $taxonomy ?: '' );
+		if ( ! $term instanceof WP_Term || is_wp_error( $term ) ) {
+			return array();
+		}
+
+		$requested_language = sanitize_key( (string) ( $input['language'] ?? '' ) );
+		if ( '' === $requested_language ) {
+			$requested_language = sanitize_key( (string) get_term_meta( (int) $term->term_id, self::TERM_META_LANGUAGE, true ) );
+		}
+		$language_context = self::presentation_language_context( $requested_language, 0 );
+		$language         = (string) $language_context['code'];
+		$term             = self::term_for_presentation_language( $term, $language );
+		$source_term_id   = self::source_term_id_for_presentation( $term );
+		$url              = get_term_link( $term );
+		$url              = is_wp_error( $url ) ? '' : (string) $url;
+		$description      = trim( wp_strip_all_tags( (string) term_description( (int) $term->term_id ) ) );
+
+		$surface = self::presentation_base( 'term_archive', $language_context );
+		$surface['identity'] = array(
+			'term_id'        => (int) $term->term_id,
+			'source_term_id' => $source_term_id,
+			'taxonomy'       => (string) $term->taxonomy,
+			'archive_type'   => 'term',
+			'is_translation' => $source_term_id !== (int) $term->term_id,
+		);
+		$surface['text'] = array(
+			'title'            => (string) $term->name,
+			'excerpt'          => $description,
+			'description'      => $description,
+			'meta_description' => self::trim_meta_description( $description ),
+			'seo_title'        => (string) $term->name,
+		);
+		$surface['url'] = array_merge(
+			$surface['url'],
+			array(
+				'permalink' => $url,
+				'canonical' => $url,
+			)
+		);
+		$surface['archive'] = array(
+			'type'           => 'term',
+			'taxonomy'       => (string) $term->taxonomy,
+			'term_id'        => (int) $term->term_id,
+			'source_term_id' => $source_term_id,
+			'items'          => ! empty( $input['include_items'] ) ? self::term_archive_item_payloads( $term, $language, absint( $input['per_page'] ?? 10 ) ) : array(),
+		);
+		$surface['navigation']['language_links'] = self::language_links_presentation_payload( self::language_links_for_term_id( (int) $term->term_id, (string) $term->taxonomy ), $language );
+
+		return apply_filters( 'ai_translation_workflow_presentation_surface', $surface, array( 'term' => $term ) );
+	}
+
+	/**
+	 * Localized 404 presentation.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function not_found_presentation_surface( string $requested_language = '' ): array {
+		$language_context = self::presentation_language_context( $requested_language, 0 );
+		$language         = (string) $language_context['code'];
+		$config           = self::languages()[ $language ] ?? array();
+		$text             = isset( $config['not_found_text'] ) && is_array( $config['not_found_text'] ) ? $config['not_found_text'] : array();
+		$title            = trim( (string) ( $text['title'] ?? $text['Page not found'] ?? __( 'Page not found', 'devenia-ai-translations' ) ) );
+		$description      = trim( (string) ( $text['description'] ?? $text['The page you requested could not be found.'] ?? '' ) );
+
+		$surface = self::presentation_base( 'not_found', $language_context );
+		$surface['identity'] = array(
+			'archive_type' => 'not_found',
+		);
+		$surface['text'] = array(
+			'title'            => $title,
+			'excerpt'          => $description,
+			'description'      => $description,
+			'meta_description' => self::trim_meta_description( $description ),
+			'seo_title'        => $title,
+		);
+		$surface['navigation']['language_links'] = self::language_links_presentation_payload( self::language_links_for_not_found(), $language );
+		$surface['archive'] = array(
+			'type'   => 'not_found',
+			'routes' => isset( $config['not_found_routes'] ) && is_array( $config['not_found_routes'] ) ? array_values( array_map( 'strval', $config['not_found_routes'] ) ) : array(),
+		);
+
+		return apply_filters( 'ai_translation_workflow_presentation_surface', $surface, array() );
+	}
+
+	/**
+	 * Common presentation envelope used by every public surface.
+	 *
+	 * @param array<string,string> $language_context Resolved language context.
+	 * @return array<string,mixed>
+	 */
+	private static function presentation_base( string $surface_type, array $language_context ): array {
+		$language = (string) $language_context['code'];
+
+		return array(
+			'surface_type' => $surface_type,
+			'identity'     => array(),
+			'language'     => $language_context,
+			'text'         => array(),
+			'url'          => array(
+				'home' => self::localized_home_url_for_language( $language ),
+			),
+			'labels'       => self::presentation_labels( $language ),
+			'actions'      => self::presentation_actions( $language ),
+			'person'       => array(),
+			'dates'        => array(
+				'published' => self::empty_presentation_date_payload(),
+				'modified'  => self::empty_presentation_date_payload(),
+			),
+			'media'        => array(
+				'featured_image' => array(
+					'id'   => 0,
+					'url'  => '',
+					'alt'  => '',
+					'html' => '',
+				),
+			),
+			'archive'      => array(),
+			'comments'     => self::comments_presentation_payload( 0, $language ),
+			'navigation'   => array(
+				'language_links' => array(),
+				'pagination'     => array(
+					'previous_label' => self::presentation_label( $language, 'previous_label', __( 'Previous', 'devenia-ai-translations' ) ),
+					'next_label'     => self::presentation_label( $language, 'next_label', __( 'Next', 'devenia-ai-translations' ) ),
+				),
+			),
+			'localized_text' => self::localized_public_text_payload( $language ),
+		);
+	}
+
+	/**
+	 * Labels every template can consume without knowing the surface type.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function presentation_labels( string $language ): array {
+		$taxonomy_labels = self::frontend_taxonomy_screen_reader_labels( $language );
+		$comments        = self::comment_form_strings( $language );
+
+		return array(
+			'author'         => self::presentation_label( $language, 'author_by_label', __( 'By', 'devenia-ai-translations' ) ),
+			'published'      => self::presentation_label( $language, 'published_label', __( 'Published', 'devenia-ai-translations' ) ),
+			'updated'        => self::presentation_label( $language, 'updated_label', __( 'Updated', 'devenia-ai-translations' ) ),
+			'read_more'      => self::presentation_label( $language, 'read_more_label', __( 'Read more', 'devenia-ai-translations' ) ),
+			'category'       => isset( $taxonomy_labels['Categories'] ) ? (string) $taxonomy_labels['Categories'] : __( 'Categories', 'devenia-ai-translations' ),
+			'tag'            => isset( $taxonomy_labels['Tags'] ) ? (string) $taxonomy_labels['Tags'] : __( 'Tags', 'devenia-ai-translations' ),
+			'comments'       => __( 'Comments', 'devenia-ai-translations' ),
+			'comment_submit' => (string) ( $comments['label_submit'] ?? __( 'Post Comment', 'devenia-ai-translations' ) ),
+		);
+	}
+
+	/**
+	 * Common actions every template can inspect.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function presentation_actions( string $language ): array {
+		$comments = self::comment_form_strings( $language );
+
+		return array(
+			'read_more' => array(
+				'label' => self::presentation_label( $language, 'read_more_label', __( 'Read more', 'devenia-ai-translations' ) ),
+				'url'   => '',
+			),
+			'comment_submit' => array(
+				'label' => (string) ( $comments['label_submit'] ?? __( 'Post Comment', 'devenia-ai-translations' ) ),
+			),
+		);
+	}
+
+	/**
+	 * Localized label used by presentation templates.
+	 */
+	private static function presentation_label( string $language, string $key, string $fallback ): string {
+		$value = trim( self::runtime_text_value( $language, 'blog_archive_text', $key, '' ) );
+		if ( '' !== $value ) {
+			return $value;
+		}
+
+		$config = self::languages()[ sanitize_key( $language ) ] ?? array();
+		if ( isset( $config['blog_archive_text'] ) && is_array( $config['blog_archive_text'] ) && isset( $config['blog_archive_text'][ $key ] ) ) {
+			$value = trim( wp_strip_all_tags( (string) $config['blog_archive_text'][ $key ] ) );
+			if ( '' !== $value ) {
+				return $value;
+			}
+		}
+
+		return $fallback;
+	}
+
+	/**
+	 * Public runtime text grouped for templates that need secondary UI strings.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function localized_public_text_payload( string $language ): array {
+		$config = self::languages()[ sanitize_key( $language ) ] ?? array();
+		$out    = array();
+		foreach ( self::runtime_text_sections() as $section ) {
+			if ( isset( $config[ $section ] ) && is_array( $config[ $section ] ) ) {
+				$out[ $section ] = self::sanitize_public_text_tree( $config[ $section ] );
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Sanitize public text tree without changing the configured value shape.
+	 *
+	 * @param mixed $value Runtime text value.
+	 * @return mixed
+	 */
+	private static function sanitize_public_text_tree( $value ) {
+		if ( is_array( $value ) ) {
+			$out = array();
+			foreach ( $value as $key => $child ) {
+				$out[ is_int( $key ) ? $key : sanitize_text_field( (string) $key ) ] = self::sanitize_public_text_tree( $child );
+			}
+			return $out;
+		}
+
+		return is_scalar( $value ) ? (string) $value : '';
+	}
+
+	/**
+	 * Author payload shared by bylines and author archives.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function author_presentation_payload( int $author_id, string $language ): array {
+		$author = get_user_by( 'id', $author_id );
+		if ( ! $author instanceof WP_User ) {
+			return array();
+		}
+
+		$fallback_name = trim( (string) $author->display_name );
+		if ( '' === $fallback_name ) {
+			$fallback_name = trim( (string) $author->user_login );
+		}
+		$name        = self::localized_author_display_name( $author_id, $language, $fallback_name );
+		$url         = self::author_archive_url( $author_id, $language );
+		$description = trim( wp_strip_all_tags( (string) get_the_author_meta( 'description', $author_id ) ) );
+		$record      = self::author_archive_record( $author_id, $language );
+		if ( ! empty( $record['description'] ) ) {
+			$description = trim( wp_strip_all_tags( (string) $record['description'] ) );
+		}
+
+		$avatar_url = (string) get_avatar_url( $author_id, array( 'size' => 512 ) );
+
+		return array(
+			'id'          => $author_id,
+			'name'        => $name,
+			'slug'        => (string) $author->user_nicename,
+			'description' => $description,
+			'url'         => $url,
+			'link_html'   => '' !== $url && '' !== $name ? sprintf( '<a href="%1$s" rel="author">%2$s</a>', esc_url( $url ), esc_html( $name ) ) : esc_html( $name ),
+			'avatar'      => array(
+				'url'  => $avatar_url,
+				'html' => get_avatar( $author_id, 512, '', $name ),
+			),
+		);
+	}
+
+	/**
+	 * Runtime author archive record for one language.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function author_archive_record( int $author_id, string $language ): array {
+		if ( 'en' === sanitize_key( $language ) ) {
+			return array();
+		}
+
+		$record = self::author_archive_registry()[ $author_id ][ sanitize_key( $language ) ] ?? array();
+		if ( empty( $record ) || 'published' !== (string) ( $record['status'] ?? '' ) ) {
+			return array();
+		}
+
+		return $record;
+	}
+
+	/**
+	 * Primary action for an author archive when runtime text provides one.
+	 *
+	 * @param array<string,mixed> $record Author archive runtime record.
+	 * @return array<string,string>
+	 */
+	private static function author_archive_primary_action( array $record ): array {
+		return array(
+			'label' => trim( (string) ( $record['button_label'] ?? '' ) ),
+			'url'   => trim( (string) ( $record['button_url'] ?? '' ) ),
+		);
+	}
+
+	/**
+	 * SEO title for one author archive independent of the current request.
+	 */
+	private static function author_archive_seo_title( int $author_id, string $language, bool $include_site_name = true ): string {
+		$author = get_user_by( 'id', $author_id );
+		if ( ! $author instanceof WP_User ) {
+			return '';
+		}
+
+		$record = self::author_archive_record( $author_id, $language );
+		$name   = trim( (string) ( $record['name'] ?? $author->display_name ) );
+		$title  = trim( (string) ( $record['title'] ?? '' ) );
+		$kicker = trim( (string) ( $record['kicker'] ?? '' ) );
+		if ( '' === $title ) {
+			$title = $name;
+		}
+
+		$base = $title;
+		if ( '' !== $name && 0 === strcasecmp( $title, $name ) && '' !== $kicker ) {
+			$base = trim( $kicker . ' ' . $name );
+		}
+		$base = trim( wp_strip_all_tags( $base ) );
+		if ( '' === $base || ! $include_site_name ) {
+			return $base;
+		}
+
+		$template_option = (string) apply_filters( 'ai_translation_workflow_title_template_option_name', '', 'author_archive_title' );
+		return self::title_from_template_option(
+			$template_option,
+			'author_archive_title',
+			array(
+				'name'  => $base,
+				'title' => $base,
+			),
+			$base
+		);
+	}
+
+	/**
+	 * Featured image payload.
+	 *
+	 * @param int|WP_Post $post Post ID or object.
+	 * @return array<string,mixed>
+	 */
+	private static function featured_image_presentation_payload( $post ): array {
+		$post_id      = $post instanceof WP_Post ? (int) $post->ID : absint( $post );
+		$thumbnail_id = self::featured_image_id_for_post( $post_id );
+		$url          = $thumbnail_id ? (string) wp_get_attachment_image_url( $thumbnail_id, 'full' ) : '';
+		$alt          = $thumbnail_id ? trim( (string) get_post_meta( $thumbnail_id, '_wp_attachment_image_alt', true ) ) : '';
+		if ( '' === $alt && $post_id ) {
+			$alt = get_the_title( $post_id );
+		}
+
+		return array(
+			'id'   => $thumbnail_id,
+			'url'  => $url,
+			'alt'  => $alt,
+			'html' => $thumbnail_id ? wp_get_attachment_image( $thumbnail_id, 'full', false, array( 'alt' => $alt ) ) : '',
+		);
+	}
+
+	/**
+	 * Comment and comment-form payload for every surface.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function comments_presentation_payload( int $post_id, string $language ): array {
+		$strings = self::comment_form_strings( $language );
+
+		return array(
+			'open'   => $post_id > 0 ? comments_open( $post_id ) : false,
+			'count'  => $post_id > 0 ? (int) get_comments_number( $post_id ) : 0,
+			'form'   => $strings,
+			'labels' => array(
+				'title_reply'       => (string) ( $strings['title_reply'] ?? '' ),
+				'cancel_reply_link' => (string) ( $strings['cancel_reply_link'] ?? '' ),
+				'comment'           => (string) ( $strings['comment'] ?? '' ),
+				'name'              => (string) ( $strings['name'] ?? '' ),
+				'email'             => (string) ( $strings['email'] ?? '' ),
+				'website'           => (string) ( $strings['website'] ?? '' ),
+				'label_submit'      => (string) ( $strings['label_submit'] ?? '' ),
+			),
+		);
+	}
+
+	/**
+	 * Present language links with labels, flags, direction, and hreflang.
+	 *
+	 * @param array<string,array<string,mixed>> $links Raw language links.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function language_links_presentation_payload( array $links, string $current_language ): array {
+		$links     = self::sort_language_menu_links( $links );
+		$languages = self::languages();
+		$out       = array();
+
+		foreach ( $links as $language => $link ) {
+			if ( empty( $link['url'] ) ) {
+				continue;
+			}
+			$language = sanitize_key( (string) $language );
+			$config   = $languages[ $language ] ?? array();
+			$name     = isset( $config['name'] ) ? (string) $config['name'] : strtoupper( $language );
+			$out[]    = array(
+				'language'    => $language,
+				'name'        => $name,
+				'native_name' => self::language_menu_native_name( $language, $config, $name ),
+				'flag'        => isset( $config['flag'] ) ? (string) $config['flag'] : strtoupper( $language ),
+				'hreflang'    => self::hreflang_for_language( $language ),
+				'direction'   => self::language_direction_for_language( $language ),
+				'url'         => (string) $link['url'],
+				'id'          => absint( $link['id'] ?? 0 ),
+				'current'     => $language === sanitize_key( $current_language ),
+			);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Language links for blog archives by configured blog base path.
+	 *
+	 * @return array<string,array<string,mixed>>
+	 */
+	private static function language_links_for_blog_archive(): array {
+		$links = array();
+		foreach ( self::languages() as $language => $config ) {
+			$path = self::localized_blog_base_path( (string) $language );
+			if ( '' === $path ) {
+				continue;
+			}
+			$links[ $language ] = array(
+				'id'  => 'en' === $language ? absint( get_option( 'page_for_posts' ) ) : 0,
+				'url' => home_url( '/' . trim( $path, '/' ) . '/' ),
+			);
+		}
+
+		return $links;
+	}
+
+	/**
+	 * Language links for one author archive independent of the current request.
+	 *
+	 * @return array<string,array<string,mixed>>
+	 */
+	private static function language_links_for_author_id( int $author_id ): array {
+		$links = array(
+			'en' => array(
+				'id'  => $author_id,
+				'url' => get_author_posts_url( $author_id ),
+			),
+		);
+
+		$registry = self::author_archive_registry();
+		foreach ( self::target_languages() as $language => $config ) {
+			if ( empty( $registry[ $author_id ][ $language ] ) ) {
+				continue;
+			}
+			$record = $registry[ $author_id ][ $language ];
+			if ( 'published' !== (string) ( $record['status'] ?? '' ) || empty( $record['path'] ) ) {
+				continue;
+			}
+			$links[ $language ] = array(
+				'id'  => $author_id,
+				'url' => home_url( '/' . trim( (string) $record['path'], '/' ) . '/' ),
+			);
+		}
+
+		return $links;
+	}
+
+	/**
+	 * Language links for one term archive independent of the current request.
+	 *
+	 * @return array<string,array<string,mixed>>
+	 */
+	private static function language_links_for_term_id( int $term_id, string $taxonomy ): array {
+		$term = get_term( $term_id, $taxonomy );
+		if ( ! $term instanceof WP_Term || is_wp_error( $term ) ) {
+			return array();
+		}
+
+		$source_term_id = self::source_term_id_for_presentation( $term );
+		$source_term    = get_term( $source_term_id, (string) $term->taxonomy );
+		if ( ! $source_term instanceof WP_Term || is_wp_error( $source_term ) ) {
+			return array();
+		}
+
+		$source_url = get_term_link( $source_term );
+		$links      = is_wp_error( $source_url ) ? array() : array(
+			'en' => array(
+				'id'  => (int) $source_term->term_id,
+				'url' => (string) $source_url,
+			),
+		);
+
+		foreach ( self::target_languages() as $language => $config ) {
+			$translated_id = self::find_translated_term_id( (int) $source_term->term_id, (string) $language, (string) $term->taxonomy );
+			if ( ! $translated_id ) {
+				continue;
+			}
+			$translated = get_term( $translated_id, (string) $term->taxonomy );
+			if ( ! $translated instanceof WP_Term || is_wp_error( $translated ) ) {
+				continue;
+			}
+			$url = get_term_link( $translated );
+			if ( is_wp_error( $url ) ) {
+				continue;
+			}
+			$links[ $language ] = array(
+				'id'  => (int) $translated->term_id,
+				'url' => (string) $url,
+			);
+		}
+
+		return $links;
+	}
+
+	/**
+	 * Term variant for the requested presentation language.
+	 */
+	private static function term_for_presentation_language( WP_Term $term, string $language ): WP_Term {
+		if ( 'en' === sanitize_key( $language ) ) {
+			$source_term_id = self::source_term_id_for_presentation( $term );
+			$source         = get_term( $source_term_id, (string) $term->taxonomy );
+			return $source instanceof WP_Term && ! is_wp_error( $source ) ? $source : $term;
+		}
+
+		$source_term_id = self::source_term_id_for_presentation( $term );
+		$translated_id  = self::find_translated_term_id( $source_term_id, $language, (string) $term->taxonomy );
+		if ( ! $translated_id ) {
+			return $term;
+		}
+
+		$translated = get_term( $translated_id, (string) $term->taxonomy );
+		return $translated instanceof WP_Term && ! is_wp_error( $translated ) ? $translated : $term;
+	}
+
+	/**
+	 * Source term ID for source or translated term variants.
+	 */
+	private static function source_term_id_for_presentation( WP_Term $term ): int {
+		$source_id = absint( get_term_meta( (int) $term->term_id, self::TERM_META_SOURCE_ID, true ) );
+		return $source_id ?: (int) $term->term_id;
+	}
+
+	/**
+	 * Blog archive item summaries.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function blog_archive_item_payloads( string $language, int $per_page ): array {
+		$per_page = max( 1, min( 100, $per_page ) );
+		$ids      = array();
+		$modes    = array();
+
+		if ( 'en' === sanitize_key( $language ) ) {
+			$query = new WP_Query(
+				array(
+					'post_type'              => 'post',
+					'post_status'            => 'publish',
+					'posts_per_page'         => $per_page,
+					'fields'                 => 'ids',
+					'no_found_rows'          => true,
+					'ignore_sticky_posts'    => false,
+					'orderby'                => 'modified',
+					'order'                  => 'DESC',
+					'update_post_meta_cache' => false,
+					'update_post_term_cache' => false,
+					'meta_query'             => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Source archive excludes translation posts.
+						array(
+							'key'     => self::META_SOURCE_ID,
+							'compare' => 'NOT EXISTS',
+						),
+					),
+				)
+			);
+			$ids = array_map( 'absint', $query->posts );
+		} else {
+			foreach ( array_slice( self::translated_posts_page_archive_items( $language ), 0, $per_page ) as $item ) {
+				$post_id = absint( $item['display_id'] ?? 0 );
+				if ( $post_id ) {
+					$ids[] = $post_id;
+					$modes[ $post_id ] = (string) ( $item['mode'] ?? '' );
+				}
+			}
+		}
+
+		return self::archive_item_payloads_from_post_ids( $ids, $language, $modes );
+	}
+
+	/**
+	 * Author archive item summaries.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function author_archive_item_payloads( int $author_id, string $language, int $per_page ): array {
+		$per_page = max( 1, min( 100, $per_page ) );
+		if ( 'en' === sanitize_key( $language ) ) {
+			$query = new WP_Query(
+				array(
+					'post_type'              => 'post',
+					'post_status'            => 'publish',
+					'author'                 => $author_id,
+					'posts_per_page'         => $per_page,
+					'fields'                 => 'ids',
+					'no_found_rows'          => true,
+					'ignore_sticky_posts'    => true,
+					'orderby'                => 'date',
+					'order'                  => 'DESC',
+					'update_post_meta_cache' => false,
+					'update_post_term_cache' => false,
+					'meta_query'             => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Source archive excludes translation posts.
+						array(
+							'key'     => self::META_SOURCE_ID,
+							'compare' => 'NOT EXISTS',
+						),
+					),
+				)
+			);
+			return self::archive_item_payloads_from_post_ids( array_map( 'absint', $query->posts ), $language );
+		}
+
+		$ids = array_slice( self::localized_author_archive_post_ids( $author_id, $language ), 0, $per_page );
+		return self::archive_item_payloads_from_post_ids( array_map( 'absint', $ids ), $language );
+	}
+
+	/**
+	 * Term archive item summaries.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function term_archive_item_payloads( WP_Term $term, string $language, int $per_page ): array {
+		$per_page = max( 1, min( 100, $per_page ) );
+		$args     = array(
+			'post_type'              => 'post',
+			'post_status'            => 'publish',
+			'posts_per_page'         => $per_page,
+			'fields'                 => 'ids',
+			'no_found_rows'          => true,
+			'ignore_sticky_posts'    => true,
+			'orderby'                => 'date',
+			'order'                  => 'DESC',
+			'update_post_meta_cache' => false,
+			'update_post_term_cache' => false,
+			'tax_query'              => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query -- Term archive payload mirrors the public term query.
+				array(
+					'taxonomy' => (string) $term->taxonomy,
+					'field'    => 'term_id',
+					'terms'    => array( (int) $term->term_id ),
+				),
+			),
+		);
+
+		if ( 'en' === sanitize_key( $language ) ) {
+			$args['meta_query'] = array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Source archive excludes translation posts.
+				array(
+					'key'     => self::META_SOURCE_ID,
+					'compare' => 'NOT EXISTS',
+				),
+			);
+		}
+
+		$query = new WP_Query( $args );
+		return self::archive_item_payloads_from_post_ids( array_map( 'absint', $query->posts ), $language );
+	}
+
+	/**
+	 * Build compact archive item payloads from post IDs.
+	 *
+	 * @param array<int,int> $post_ids Post IDs.
+	 * @param array<int|string,string> $modes Optional item modes.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function archive_item_payloads_from_post_ids( array $post_ids, string $language, array $modes = array() ): array {
+		$out = array();
+		foreach ( $post_ids as $post_id ) {
+			$post_id = absint( $post_id );
+			$post    = $post_id ? get_post( $post_id ) : null;
+			if ( ! $post instanceof WP_Post ) {
+				continue;
+			}
+			$out[] = array(
+				'id'        => (int) $post->ID,
+				'source_id' => self::source_id_for_context( (int) $post->ID ),
+				'mode'      => (string) ( $modes[ $post_id ] ?? '' ),
+				'title'     => get_the_title( $post ),
+				'excerpt'   => self::presentation_excerpt( $post ),
+				'url'       => get_permalink( $post ) ?: '',
+				'author'    => self::author_presentation_payload( (int) $post->post_author, $language ),
+				'dates'     => array(
+					'published' => self::presentation_date_payload( absint( get_post_time( 'U', false, $post ) ), $post, 'date', $language ),
+					'modified'  => self::presentation_date_payload( absint( get_post_modified_time( 'U', false, $post ) ), $post, 'modified', $language ),
+				),
+				'media'     => array(
+					'featured_image' => self::featured_image_presentation_payload( $post ),
+				),
+			);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Singular SEO title from core content; SEO add-ons can enrich via filter.
+	 */
+	private static function singular_seo_title( WP_Post $post ): string {
+		return get_the_title( $post );
+	}
+
+	/**
+	 * Singular meta description from excerpt or content.
+	 */
+	private static function singular_meta_description( WP_Post $post ): string {
+		return self::trim_meta_description( self::presentation_excerpt( $post ) );
+	}
+
+	/**
+	 * Presentation-safe excerpt for templates.
+	 */
+	private static function presentation_excerpt( WP_Post $post ): string {
+		$excerpt = trim( (string) $post->post_excerpt );
+		if ( '' !== $excerpt ) {
+			return wp_strip_all_tags( $excerpt );
+		}
+
+		return wp_trim_words( wp_strip_all_tags( strip_shortcodes( (string) $post->post_content ) ), 34, '' );
+	}
+
+	/**
+	 * Localized date payload for presentation templates.
+	 *
+	 * @return array<string,string|int>
+	 */
+	private static function presentation_date_payload( int $timestamp, WP_Post $post, string $type, string $language ): array {
+		if ( $timestamp <= 0 ) {
+			return self::empty_presentation_date_payload();
+		}
+
+		$iso     = 'modified' === $type ? get_post_modified_time( 'c', false, $post ) : get_post_time( 'c', false, $post );
+		$display = self::translated_posts_page_date_label( $timestamp, $language );
+		if ( '' === $display ) {
+			$display = 'modified' === $type ? get_the_modified_date( '', $post ) : get_the_date( '', $post );
+		}
+
+		return array(
+			'timestamp' => $timestamp,
+			'iso'       => $iso,
+			'display'   => $display,
+			'html'      => '' !== $display ? sprintf( '<time datetime="%1$s">%2$s</time>', esc_attr( $iso ), esc_html( $display ) ) : '',
+		);
+	}
+
+	/**
+	 * Empty date payload with stable keys.
+	 *
+	 * @return array<string,string|int>
+	 */
+	private static function empty_presentation_date_payload(): array {
+		return array(
+			'timestamp' => 0,
+			'iso'       => '',
+			'display'   => '',
+			'html'      => '',
+		);
 	}
 
 	/**
@@ -23487,10 +25802,10 @@ final class Devenia_AI_Translations {
 		if ( false !== strpos( $content, '&amp;amp;' ) ) {
 			$issues[] = self::qa_item( 'double_escaped_html_entity', 'Content contains double-escaped HTML entities such as &amp;amp;.', array( 'entity' => '&amp;amp;' ) );
 		}
-		if ( preg_match( '/(?:\\\\u003c|\\\\u003e|(?<![A-Za-z0-9])u003c|(?<![A-Za-z0-9])u003e)/i', $content, $match ) ) {
+		if ( preg_match( '/(?<![A-Za-z0-9\\\\])u003[ce]/i', $content, $match ) ) {
 			$issues[] = self::qa_item(
 				'escaped_html_markup_literal',
-				'Content contains escaped HTML markup such as u003c or \\u003c. Decode it into real block markup or plain text before saving.',
+				'Content contains visible escaped HTML markup such as u003c or u003e. Remove the markup or turn it into valid block content before saving.',
 				array( 'token' => $match[0] )
 			);
 		}
