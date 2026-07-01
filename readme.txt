@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.327
+Stable tag: 0.1.328
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -26,7 +26,7 @@ It is designed for controlled translation workflows where an AI assistant, autom
 * Output hreflang data for mapped translations.
 * Keep language menus in sync with available translations.
 * Run QA checks for source-language carryover, terminology, structure, script issues, and link integrity.
-* Require linguistic and quality review evidence before publishing.
+* Require linguistic, quality, and final review evidence before publishing.
 * Integrate with Frontend Text Edit for supported rendered frontend text fixes.
 * Capture human edits and reviewer feedback as learning that can become style guidance or QA rules.
 * Support authored-original intake when content starts in a non-source language.
@@ -93,6 +93,11 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.328 =
+* Adds a third independent final-review gate before publishing translations.
+* Blocks the writer process, actor, or token label from reviewing or publishing its own translated content.
+* Adds the `final_review` step-token gate for owner-scoped token authorities.
 
 = 0.1.327 =
 * Moves translation workflow step-token verification behind an external token-authority filter so token storage and rotation live outside this workflow plugin.
