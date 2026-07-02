@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.346
+ * Version: 0.1.347
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.346';
+	const VERSION = '0.1.347';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -161,6 +161,7 @@ final class Devenia_AI_Translations {
 		add_action( 'admin_post_devenia_ai_translations_save_runtime_text', array( __CLASS__, 'handle_admin_runtime_text_save' ) );
 		add_action( 'admin_post_devenia_ai_translations_save_author_archive', array( __CLASS__, 'handle_admin_author_archive_save' ) );
 		add_filter( 'wp_insert_post_data', array( __CLASS__, 'normalize_invalid_translation_content_before_save' ), 5, 2 );
+		add_filter( 'wp_insert_post_data', array( __CLASS__, 'block_unready_source_post_publish_before_save' ), 9, 2 );
 		add_action( 'pre_post_update', array( __CLASS__, 'block_invalid_translation_content_save' ), 5, 2 );
 		add_action( 'post_updated', array( __CLASS__, 'capture_manual_reviewer_style_on_post_update' ), 30, 3 );
 		add_action( 'save_post', array( __CLASS__, 'mark_translations_stale_on_source_save' ), 20, 3 );
@@ -10521,6 +10522,11 @@ final class Devenia_AI_Translations {
 					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
 				),
 				'run_qa'               => array( 'type' => 'boolean', 'default' => true ),
+				'dry_run'              => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Run the full publish gate and return the QA/review/design evidence without changing post status, menus, caches, links, or live content.',
+				),
 				'sync_menu'            => array( 'type' => 'boolean', 'default' => true ),
 				'include_custom_links' => array( 'type' => 'boolean', 'default' => true ),
 				'allow_warnings'       => array( 'type' => 'boolean', 'default' => true ),
@@ -13098,6 +13104,10 @@ final class Devenia_AI_Translations {
 		$stage          = self::quality_verdict_stage( $stage, $post );
 		$source_id      = absint( $language_context['source_id'] ?? 0 );
 		$source         = $source_id ? get_post( $source_id ) : null;
+		if ( ! $is_translation ) {
+			$source_id = $post_id;
+			$source    = $post;
+		}
 		$language       = sanitize_key( (string) ( $language_context['target_language'] ?? '' ) );
 		$signals        = array();
 		$blockers       = array();
@@ -13138,7 +13148,7 @@ final class Devenia_AI_Translations {
 			$signals['linguistic_review'] = null;
 		}
 
-		if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) ) {
+		if ( $is_translation && ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) ) ) {
 			$blockers[] = self::quality_verdict_blocker( 'missing_source', 'block_publish', 'Source content is missing.' );
 		}
 
@@ -13151,31 +13161,31 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-			$seo_meta_state = self::seo_meta_state_for_post( $post );
-			if ( 'post_publish' === $stage && empty( $seo_meta_state['passed'] ) ) {
-				$blockers[] = self::quality_verdict_blocker(
-					'seo_meta_not_current',
-					'needs_work',
-					'Stored SEO metadata no longer matches the current visible title.',
-					array(
-						'state'        => (string) ( $seo_meta_state['state'] ?? '' ),
-						'stale_fields' => $seo_meta_state['stale_fields'] ?? array(),
-					)
-				);
-			}
+		$seo_meta_state = self::seo_meta_state_for_post( $post );
+		if ( 'post_publish' === $stage && empty( $seo_meta_state['passed'] ) ) {
+			$blockers[] = self::quality_verdict_blocker(
+				'seo_meta_not_current',
+				'needs_work',
+				'Stored SEO metadata no longer matches the current visible title.',
+				array(
+					'state'        => (string) ( $seo_meta_state['state'] ?? '' ),
+					'stale_fields' => $seo_meta_state['stale_fields'] ?? array(),
+				)
+			);
+		}
 
-			$publication_experience = self::publication_experience_readiness_for_post( $post, $language, $stage );
-			if ( empty( $publication_experience['passed'] ) ) {
-				$blockers[] = self::quality_verdict_blocker(
-					'publication_experience_not_ready',
-					'block_publish',
-					'Publication experience/design readiness is blocked.',
-					array(
-						'state'         => (string) ( $publication_experience['state'] ?? '' ),
-						'blocker_codes' => self::quality_verdict_blocker_codes( $publication_experience['blockers'] ?? array() ),
-					)
-				);
-			}
+		$publication_experience = self::publication_experience_readiness_for_post( $post, $language, $stage );
+		if ( empty( $publication_experience['passed'] ) ) {
+			$blockers[] = self::quality_verdict_blocker(
+				'publication_experience_not_ready',
+				'block_publish',
+				'Publication experience/design readiness is blocked.',
+				array(
+					'state'         => (string) ( $publication_experience['state'] ?? '' ),
+					'blocker_codes' => self::quality_verdict_blocker_codes( $publication_experience['blockers'] ?? array() ),
+				)
+			);
+		}
 
 		$reviewed_at      = (string) get_post_meta( $post_id, self::META_QUALITY_REVIEWED_AT, true );
 		$quality_state    = self::quality_review_state_for_post( $post, $reviewed_at, $language );
@@ -13538,6 +13548,7 @@ final class Devenia_AI_Translations {
 	private static function publish_translation( array $input ): array {
 		$translation_id = absint( $input['translation_id'] ?? 0 );
 		$post           = get_post( $translation_id );
+		$dry_run        = ! empty( $input['dry_run'] );
 		if ( ! $post || ! self::is_translatable_post_type( (string) $post->post_type ) ) {
 			return self::error( 'Translation content not found.' );
 		}
@@ -13550,14 +13561,44 @@ final class Devenia_AI_Translations {
 			return $gate;
 		}
 
-		$qa         = $gate['qa'];
-			$review_state = $gate['review_state'] ?? null;
-			$quality_review_state = $gate['quality_review_state'] ?? null;
-			$publication_experience = $gate['publication_experience'] ?? null;
-			$final_review_state = $gate['final_review_state'] ?? null;
-			$quality_verdict = $gate['quality_verdict'] ?? null;
-		$language   = (string) $gate['language'];
-		$source_id  = (int) $gate['source_id'];
+		$qa                     = $gate['qa'];
+		$review_state           = $gate['review_state'] ?? null;
+		$quality_review_state   = $gate['quality_review_state'] ?? null;
+		$publication_experience = $gate['publication_experience'] ?? null;
+		$final_review_state     = $gate['final_review_state'] ?? null;
+		$quality_verdict        = $gate['quality_verdict'] ?? null;
+		$language               = (string) $gate['language'];
+		$source_id              = (int) $gate['source_id'];
+		$translation            = self::translation_payload( $post );
+
+		if ( $dry_run ) {
+			return array(
+				'success'                => true,
+				'dry_run'                => true,
+				'would_publish'          => true,
+				'message'                => 'Dry run passed. Translation was not published.',
+				'translation'            => $translation,
+				'qa'                     => $qa,
+				'review_state'           => $review_state,
+				'quality_review_state'   => $quality_review_state,
+				'publication_experience' => $publication_experience,
+				'final_review_state'     => $final_review_state,
+				'quality_verdict'        => $quality_verdict,
+				'menu'                   => null,
+				'purge_urls'             => array(),
+				'link_repair'            => null,
+				'live_verification'      => null,
+				'side_effects_skipped'   => array(
+					'post_status_update',
+					'translation_lifecycle_meta',
+					'internal_link_repair',
+					'language_menu_sync',
+					'cache_purge',
+					'live_verification',
+				),
+			);
+		}
+
 		$transition = self::apply_translation_publish_transition( $translation_id, $language, $source_id );
 		if ( empty( $transition['success'] ) ) {
 			return $transition;
@@ -13569,14 +13610,14 @@ final class Devenia_AI_Translations {
 				array(
 					'language'             => $language,
 					'clear_existing'       => true,
-						'include_untranslated' => false,
-						'include_custom_links' => array_key_exists( 'include_custom_links', $input ) ? (bool) $input['include_custom_links'] : true,
+					'include_untranslated' => false,
+					'include_custom_links' => array_key_exists( 'include_custom_links', $input ) ? (bool) $input['include_custom_links'] : true,
 				)
 			);
 		}
 
-		$translation = self::translation_payload( get_post( $translation_id ) );
-		$purge_urls  = $transition['purge_urls'];
+		$translation       = self::translation_payload( get_post( $translation_id ) );
+		$purge_urls        = $transition['purge_urls'];
 		$live_verification = null;
 		if ( array_key_exists( 'verify_live', $input ) ? (bool) $input['verify_live'] : true ) {
 			$live_verification = self::verify_live_translation(
@@ -13592,11 +13633,11 @@ final class Devenia_AI_Translations {
 					'message'           => 'Translation was published, but live verification failed.',
 					'translation'       => $translation,
 					'qa'                => $qa,
-						'review_state'      => $review_state,
-						'quality_review_state' => $quality_review_state,
-						'publication_experience' => $publication_experience,
-						'final_review_state' => $final_review_state,
-						'quality_verdict'   => $quality_verdict,
+					'review_state'      => $review_state,
+					'quality_review_state' => $quality_review_state,
+					'publication_experience' => $publication_experience,
+					'final_review_state' => $final_review_state,
+					'quality_verdict'   => $quality_verdict,
 					'menu'              => $menu,
 					'purge_urls'        => $purge_urls,
 					'link_repair'       => $transition['link_repair'] ?? null,
@@ -13610,11 +13651,11 @@ final class Devenia_AI_Translations {
 			'message'           => 'Translation published.',
 			'translation'       => $translation,
 			'qa'                => $qa,
-				'review_state'      => $review_state,
-				'quality_review_state' => $quality_review_state,
-				'publication_experience' => $publication_experience,
-				'final_review_state' => $final_review_state,
-				'quality_verdict'   => $quality_verdict,
+			'review_state'      => $review_state,
+			'quality_review_state' => $quality_review_state,
+			'publication_experience' => $publication_experience,
+			'final_review_state' => $final_review_state,
+			'quality_verdict'   => $quality_verdict,
 			'menu'              => $menu,
 			'purge_urls'        => $purge_urls,
 			'link_repair'       => $transition['link_repair'] ?? null,
@@ -19799,6 +19840,125 @@ final class Devenia_AI_Translations {
 		}
 
 		return $data;
+	}
+
+	/**
+	 * Block manual/wp-admin source-post publishing when the canonical design
+	 * surface does not pass the shared editorial source design gate.
+	 *
+	 * @param array<string,mixed> $data    Sanitized post data about to be stored.
+	 * @param array<string,mixed> $postarr Raw post array for the save request.
+	 * @return array<string,mixed>
+	 */
+	public static function block_unready_source_post_publish_before_save( array $data, array $postarr ): array {
+		$post_id = absint( $postarr['ID'] ?? 0 );
+		if ( $post_id > 0 && wp_is_post_revision( $post_id ) ) {
+			return $data;
+		}
+		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+			return $data;
+		}
+
+		$post_type = isset( $data['post_type'] ) ? sanitize_key( (string) $data['post_type'] ) : '';
+		if ( '' === $post_type && $post_id > 0 ) {
+			$existing = get_post( $post_id );
+			$post_type = $existing instanceof WP_Post ? (string) $existing->post_type : '';
+		}
+		if ( 'post' !== $post_type ) {
+			return $data;
+		}
+		if ( 'publish' !== (string) ( $data['post_status'] ?? '' ) ) {
+			return $data;
+		}
+		if ( $post_id > 0 && self::is_translation_post( $post_id ) ) {
+			return $data;
+		}
+
+		$content = self::normalize_gutenberg_content_for_storage( (string) ( $data['post_content'] ?? '' ) );
+		if ( '' === $content && $post_id > 0 ) {
+			$content = self::normalize_gutenberg_content_for_storage( (string) get_post_field( 'post_content', $post_id ) );
+		}
+
+		$guard_post = self::source_publish_guard_post_object( $data, $postarr, $content );
+		$validation = self::source_editorial_design_validation( $guard_post, $content );
+		if ( ! empty( $validation['passed'] ) ) {
+			if ( (int) $guard_post->ID > 0 ) {
+				delete_post_meta( (int) $guard_post->ID, '_devenia_source_publish_design_blocked' );
+			}
+			return $data;
+		}
+
+		self::reject_source_publish_save( (int) $guard_post->ID, $validation );
+		return $data;
+	}
+
+	/**
+	 * Build a WP_Post-like object from pending save data so design validators
+	 * inspect the content that is about to become public, not stale database
+	 * content from before the save.
+	 *
+	 * @param array<string,mixed> $data    Sanitized post data about to be stored.
+	 * @param array<string,mixed> $postarr Raw post array for the save request.
+	 */
+	private static function source_publish_guard_post_object( array $data, array $postarr, string $content ): WP_Post {
+		$post_id = absint( $postarr['ID'] ?? 0 );
+		$post    = $post_id > 0 ? get_post( $post_id ) : null;
+		$fields  = $post instanceof WP_Post ? get_object_vars( $post ) : array();
+
+		$fields['ID']           = $post_id;
+		$fields['post_type']    = isset( $data['post_type'] ) ? sanitize_key( (string) $data['post_type'] ) : (string) ( $fields['post_type'] ?? 'post' );
+		$fields['post_status']  = (string) ( $data['post_status'] ?? ( $fields['post_status'] ?? 'publish' ) );
+		$fields['post_content'] = $content;
+		$fields['post_title']   = isset( $data['post_title'] ) ? (string) $data['post_title'] : (string) ( $fields['post_title'] ?? '' );
+		$fields['post_excerpt'] = isset( $data['post_excerpt'] ) ? (string) $data['post_excerpt'] : (string) ( $fields['post_excerpt'] ?? '' );
+		$fields['post_name']    = isset( $data['post_name'] ) ? (string) $data['post_name'] : (string) ( $fields['post_name'] ?? '' );
+
+		$guard_post = get_post( (object) $fields );
+		if ( $guard_post instanceof WP_Post ) {
+			return $guard_post;
+		}
+
+		return new WP_Post( (object) $fields );
+	}
+
+	/**
+	 * Persist source publish rejection evidence and stop the unsafe publish.
+	 *
+	 * @param array<string,mixed> $validation Shared editorial source validation.
+	 */
+	private static function reject_source_publish_save( int $post_id, array $validation ): void {
+		if ( $post_id > 0 ) {
+			update_post_meta(
+				$post_id,
+				'_devenia_source_publish_design_blocked',
+				wp_json_encode(
+					array(
+						'rejected_at' => gmdate( 'c' ),
+						'validation'  => $validation,
+					)
+				)
+			);
+		}
+
+		$issue_codes = isset( $validation['issue_codes'] ) && is_array( $validation['issue_codes'] )
+			? array_values( array_filter( array_map( 'sanitize_key', $validation['issue_codes'] ) ) )
+			: array();
+		$reason      = ! empty( $validation['available'] )
+			? __( 'Source post publish blocked: the article does not pass the Devenia editorial design gate.', 'devenia-ai-translations' )
+			: __( 'Source post publish blocked: Devenia editorial design validation is unavailable.', 'devenia-ai-translations' );
+		if ( $issue_codes ) {
+			$reason .= ' ' . sprintf(
+				/* translators: %s is a comma-separated list of validation issue codes. */
+				__( 'Issue codes: %s', 'devenia-ai-translations' ),
+				implode( ', ', $issue_codes )
+			);
+		}
+
+		wp_die(
+			esc_html( $reason ),
+			esc_html__( 'Source design gate failed', 'devenia-ai-translations' ),
+			array( 'response' => 400 )
+		);
 	}
 
 	/**

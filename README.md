@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.346
+**Stable tag:** 0.1.347
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -204,6 +204,15 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.347
+
+- Adds a dry-run mode to `ai-translations/publish-translation` so the full
+  publish gate can be tested without changing live content.
+- Blocks manual WordPress source-post publishing when the shared Devenia
+  editorial design gate fails or is unavailable.
+- Fixes source-post quality verdicts so source content is not incorrectly
+  blocked as missing its own source.
 
 ### 0.1.346
 
