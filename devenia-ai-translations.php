@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.350
+ * Version: 0.1.351
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.350';
+	const VERSION = '0.1.351';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -13985,12 +13985,20 @@ final class Devenia_AI_Translations {
 			};
 			add_filter( 'wp_insert_post_data', $preserve_modified_filter, 10, 2 );
 		}
-		$result = wp_update_post(
-			wp_slash( $postarr ),
-			true
-		);
-		if ( $preserve_modified_filter ) {
-			remove_filter( 'wp_insert_post_data', $preserve_modified_filter, 10 );
+		$result = null;
+		try {
+			self::with_direct_save_storage_guardrails_suspended(
+				static function () use ( &$result, $postarr ): void {
+					$result = wp_update_post(
+						wp_slash( $postarr ),
+						true
+					);
+				}
+			);
+		} finally {
+			if ( $preserve_modified_filter ) {
+				remove_filter( 'wp_insert_post_data', $preserve_modified_filter, 10 );
+			}
 		}
 		if ( is_wp_error( $result ) ) {
 			return self::error( $result->get_error_message() );
