@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.353
+Stable tag: 0.1.354
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.354 =
+* Adds a narrow integration seam for validated Site Presentation contract stamping on translated posts without weakening generic manual-save design guardrails.
 
 = 0.1.353 =
 * Clarifies the protected workflow schema so authority-issued session tokens are described as reusable session credentials that are validated per requested workflow step.
