@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.337
+ * Version: 0.1.338
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.337';
+	const VERSION = '0.1.338';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -9658,6 +9658,38 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Short review note.',
 				),
+				'visible_page_url' => array(
+					'type'        => 'string',
+					'description' => 'Required: live page URL used for the visible-page review.',
+				),
+				'headings_checked' => array(
+					'type'        => 'array',
+					'items'       => array( 'type' => 'string' ),
+					'description' => 'Required: at least two rendered headings checked.',
+				),
+				'links_checked' => array(
+					'type'        => 'array',
+					'items'       => array( 'type' => 'string' ),
+					'description' => 'Required: rendered links/actions checked; use concrete link labels or URLs.',
+				),
+				'article_quality_notes' => array(
+					'type'        => 'string',
+					'description' => 'Required: concrete assessment of usefulness, readability, structure, and customer-visible copy quality.',
+				),
+				'review_findings' => array(
+					'type'        => 'array',
+					'items'       => array( 'type' => 'string' ),
+					'description' => 'Required: concrete findings from the visible-page review. Findings may say no change is needed when they explain what was checked and why it is already good.',
+				),
+				'issues_found' => array(
+					'type'        => 'array',
+					'items'       => array( 'type' => 'string' ),
+					'description' => 'Deprecated alias for review_findings. Do not invent issues when the copy is already good.',
+				),
+				'reviewer_statement' => array(
+					'type'        => 'string',
+					'description' => 'Required: explicit statement that the reviewer actually read the rendered page and takes responsibility for the review.',
+				),
 				'full_page_reviewed' => array(
 					'type'        => 'boolean',
 					'description' => 'The whole visible page was reviewed, not only a single phrase.',
@@ -9718,6 +9750,23 @@ final class Devenia_AI_Translations {
 				),
 				'reviewer' => array( 'type' => 'string' ),
 				'note' => array( 'type' => 'string' ),
+				'prior_review_summary' => array(
+					'type'        => 'string',
+					'description' => 'Required: concrete summary of linguistic and quality evidence checked before final approval.',
+				),
+				'publication_readiness_notes' => array(
+					'type'        => 'string',
+					'description' => 'Required: concrete notes about remaining risks, article quality, public readiness, and why this can or cannot be published.',
+				),
+				'seo_url_notes' => array(
+					'type'        => 'string',
+					'description' => 'Required: concrete notes about localized URL, title, excerpt, search-visible wording, and route safety.',
+				),
+				'final_decision' => array(
+					'type'        => 'string',
+					'enum'        => array( 'approve_publish', 'request_changes' ),
+					'description' => 'Required: approve_publish only when the reviewer has actually checked prior evidence and public page readiness.',
+				),
 				'prior_reviews_checked' => array(
 					'type'        => 'boolean',
 					'description' => 'Required true: linguistic and quality review evidence was checked and is current.',
@@ -10308,6 +10357,28 @@ final class Devenia_AI_Translations {
 				),
 				'reviewer'       => array( 'type' => 'string' ),
 				'note'           => array( 'type' => 'string' ),
+				'reviewed_sections' => array(
+					'type'        => 'array',
+					'items'       => array( 'type' => 'string' ),
+					'description' => 'Required: at least three concrete page sections/headings reviewed in the target language.',
+				),
+				'sampled_passages' => array(
+					'type'        => 'array',
+					'items'       => array( 'type' => 'string' ),
+					'description' => 'Required: at least two target-language passages actually read during review.',
+				),
+				'language_quality_notes' => array(
+					'type'        => 'string',
+					'description' => 'Required: concrete notes about naturalness, idiom, rhythm, and whether the article reads like target-language copy.',
+				),
+				'source_fidelity_notes' => array(
+					'type'        => 'string',
+					'description' => 'Required: concrete notes comparing source meaning, claims, structure, and omissions/additions.',
+				),
+				'terminology_notes' => array(
+					'type'        => 'string',
+					'description' => 'Required: concrete notes about terminology, brand/product terms, and local-language word choices.',
+				),
 				'natural_language_reviewed' => array(
 					'type'        => 'boolean',
 					'description' => 'Required true: text reads naturally in the target language, not as translated English.',
@@ -13569,6 +13640,11 @@ final class Devenia_AI_Translations {
 				'qa'              => $qa,
 			);
 		}
+		$review_contract = self::validate_review_contract( 'linguistic_review', $input );
+		if ( empty( $review_contract['success'] ) ) {
+			$review_contract['qa'] = $qa;
+			return $review_contract;
+		}
 
 		$note     = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$reviewer_provenance = $reviewer_gate['reviewer'];
@@ -13580,6 +13656,7 @@ final class Devenia_AI_Translations {
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_CHECKS, wp_json_encode( $review_checks ) );
 		$evidence = self::translation_review_evidence( $translation_id, $fitness );
 		$evidence['reviewer'] = $reviewer_provenance;
+		$evidence['review_contract'] = $review_contract['evidence'];
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_EVIDENCE, wp_json_encode( $evidence ) );
 		if ( '' !== $note ) {
 			update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_NOTE, $note );
@@ -14075,6 +14152,10 @@ final class Devenia_AI_Translations {
 				'required_checks' => $required_checks,
 			);
 		}
+		$review_contract = self::validate_review_contract( 'quality_review', $input );
+		if ( empty( $review_contract['success'] ) ) {
+			return $review_contract;
+		}
 
 		$note     = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$reviewer_provenance = isset( $reviewer_gate['reviewer'] ) && is_array( $reviewer_gate['reviewer'] ) ? $reviewer_gate['reviewer'] : array(
@@ -14091,6 +14172,7 @@ final class Devenia_AI_Translations {
 		update_post_meta( $page_id, self::META_QUALITY_REVIEW_CHECKS, wp_json_encode( $review_checks ) );
 		$evidence = self::translation_review_evidence( $page_id );
 		$evidence['reviewer'] = $reviewer_provenance;
+		$evidence['review_contract'] = $review_contract['evidence'];
 		update_post_meta( $page_id, self::META_QUALITY_REVIEW_EVIDENCE, wp_json_encode( $evidence ) );
 		if ( '' !== $note ) {
 			update_post_meta( $page_id, self::META_QUALITY_REVIEW_NOTE, $note );
@@ -14179,6 +14261,11 @@ final class Devenia_AI_Translations {
 				'required_checks' => $required_checks,
 			);
 		}
+		$review_contract = self::validate_review_contract( 'final_review', $input );
+		if ( empty( $review_contract['success'] ) ) {
+			$review_contract['qa'] = $qa;
+			return $review_contract;
+		}
 
 		$note = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'AI Translation Workflow' ) );
@@ -14187,6 +14274,7 @@ final class Devenia_AI_Translations {
 			'linguistic_reviewed_at' => (string) get_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, true ),
 			'quality_reviewed_at'    => (string) get_post_meta( $translation_id, self::META_QUALITY_REVIEWED_AT, true ),
 		);
+		$evidence['review_contract'] = $review_contract['evidence'];
 
 		update_post_meta( $translation_id, self::META_FINAL_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $translation_id, self::META_FINAL_REVIEWER, $reviewer );
@@ -15001,6 +15089,187 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Validate concrete human/agent evidence before accepting a review marker.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function validate_review_contract( string $stage, array $input ): array {
+		$stage = sanitize_key( $stage );
+		$errors = array();
+
+		if ( 'linguistic_review' === $stage ) {
+			self::require_review_list( $input, 'reviewed_sections', 3, 12, $errors );
+			self::require_review_list( $input, 'sampled_passages', 2, 35, $errors );
+			self::require_review_text( $input, 'language_quality_notes', 120, $errors );
+			self::require_review_text( $input, 'source_fidelity_notes', 100, $errors );
+			self::require_review_text( $input, 'terminology_notes', 80, $errors );
+		} elseif ( 'quality_review' === $stage ) {
+			$visible_page_url = trim( (string) ( $input['visible_page_url'] ?? '' ) );
+			if ( '' === $visible_page_url || ! wp_http_validate_url( $visible_page_url ) ) {
+				$errors[] = 'visible_page_url must be the public HTTP(S) URL that was actually reviewed.';
+			}
+			self::require_review_list( $input, 'headings_checked', 2, 12, $errors );
+			self::require_review_list( $input, 'links_checked', 1, 8, $errors );
+			self::require_review_text( $input, 'article_quality_notes', 140, $errors );
+			$findings_input = ! empty( $input['review_findings'] ) ? array( 'review_findings' => $input['review_findings'] ) : array( 'review_findings' => ( $input['issues_found'] ?? array() ) );
+			self::require_review_list( $findings_input, 'review_findings', 1, 24, $errors );
+			self::require_review_text( $input, 'reviewer_statement', 100, $errors );
+		} elseif ( 'final_review' === $stage ) {
+			self::require_review_text( $input, 'prior_review_summary', 140, $errors );
+			self::require_review_text( $input, 'publication_readiness_notes', 120, $errors );
+			self::require_review_text( $input, 'seo_url_notes', 90, $errors );
+			$decision = sanitize_key( (string) ( $input['final_decision'] ?? '' ) );
+			if ( 'approve_publish' !== $decision ) {
+				$errors[] = 'final_decision must be approve_publish before final review can be marked complete.';
+			}
+		}
+
+		if ( $errors ) {
+			return array(
+				'success' => false,
+				'message' => 'Review evidence is incomplete. Do the actual review and submit concrete evidence, not only boolean confirmations.',
+				'stage'   => $stage,
+				'errors'  => $errors,
+				'required_evidence' => self::review_contract_requirements( $stage ),
+			);
+		}
+
+		return array(
+			'success' => true,
+			'stage'   => $stage,
+			'evidence'=> self::sanitize_review_contract_evidence( $stage, $input ),
+		);
+	}
+
+	private static function require_review_text( array $input, string $key, int $min_length, array &$errors ): void {
+		$value = trim( wp_strip_all_tags( (string) ( $input[ $key ] ?? '' ) ) );
+		if ( strlen( $value ) < $min_length || self::is_generic_review_evidence( $value ) ) {
+			$errors[] = sprintf( '%s must contain concrete review notes of at least %d characters.', $key, $min_length );
+		}
+	}
+
+	private static function require_review_list( array $input, string $key, int $min_items, int $min_item_length, array &$errors ): void {
+		$items = self::review_contract_string_list( $input[ $key ] ?? array() );
+		$items = array_values(
+			array_filter(
+				$items,
+				static function ( string $item ) use ( $min_item_length ): bool {
+					return strlen( $item ) >= $min_item_length && ! self::is_generic_review_evidence( $item );
+				}
+			)
+		);
+		if ( count( $items ) < $min_items ) {
+			$errors[] = sprintf( '%s must include at least %d concrete item(s).', $key, $min_items );
+		}
+	}
+
+	private static function is_generic_review_evidence( string $value ): bool {
+		$normalized = strtolower( trim( preg_replace( '/\s+/', ' ', $value ) ?: '' ) );
+		if ( strlen( $normalized ) < 8 ) {
+			return true;
+		}
+
+		return in_array(
+			$normalized,
+			array(
+				'ok',
+				'looks good',
+				'all good',
+				'checked',
+				'reviewed',
+				'approved',
+				'no issues',
+				'n/a',
+				'not applicable',
+				'everything looks good',
+			),
+			true
+		);
+	}
+
+	/**
+	 * @return array<int,string>
+	 */
+	private static function review_contract_string_list( $raw ): array {
+		if ( is_string( $raw ) ) {
+			$raw = array( $raw );
+		}
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+
+		$items = array();
+		foreach ( $raw as $item ) {
+			$item = trim( sanitize_textarea_field( (string) $item ) );
+			if ( '' !== $item ) {
+				$items[] = $item;
+			}
+		}
+
+		return array_values( array_unique( $items ) );
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	private static function sanitize_review_contract_evidence( string $stage, array $input ): array {
+		$stage = sanitize_key( $stage );
+		$text_keys = array(
+			'linguistic_review' => array( 'language_quality_notes', 'source_fidelity_notes', 'terminology_notes' ),
+			'quality_review'    => array( 'visible_page_url', 'article_quality_notes', 'reviewer_statement' ),
+			'final_review'      => array( 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'final_decision' ),
+		);
+		$list_keys = array(
+			'linguistic_review' => array( 'reviewed_sections', 'sampled_passages' ),
+			'quality_review'    => array( 'headings_checked', 'links_checked', 'review_findings', 'issues_found' ),
+			'final_review'      => array(),
+		);
+
+		$evidence = array(
+			'stage'      => $stage,
+			'version'    => 1,
+			'recorded_at'=> gmdate( 'c' ),
+		);
+		foreach ( $text_keys[ $stage ] ?? array() as $key ) {
+			$evidence[ $key ] = sanitize_textarea_field( (string) ( $input[ $key ] ?? '' ) );
+		}
+		foreach ( $list_keys[ $stage ] ?? array() as $key ) {
+			$evidence[ $key ] = self::review_contract_string_list( $input[ $key ] ?? array() );
+		}
+
+		return $evidence;
+	}
+
+	/**
+	 * @return array<int,string>
+	 */
+	private static function review_contract_requirements( string $stage ): array {
+		$requirements = array(
+			'linguistic_review' => array(
+				'List at least three concrete reviewed sections/headings.',
+				'Quote or summarize at least two target-language passages actually read.',
+				'Write concrete naturalness, source-fidelity, and terminology notes.',
+			),
+			'quality_review' => array(
+				'Provide the live page URL, at least two rendered headings, and checked links/actions.',
+				'Write concrete article-quality notes and review findings. Findings may approve unchanged copy when they explain what was checked and why no change is needed.',
+				'Include a reviewer statement that the rendered page was actually read.',
+			),
+			'final_review' => array(
+				'Summarize current linguistic and quality evidence.',
+				'Document public readiness, remaining risks, URL/SEO checks, and final_decision=approve_publish.',
+			),
+		);
+
+		return $requirements[ sanitize_key( $stage ) ] ?? array();
+	}
+
+	private static function review_evidence_has_contract( array $evidence, string $stage ): bool {
+		$contract = isset( $evidence['review_contract'] ) && is_array( $evidence['review_contract'] ) ? $evidence['review_contract'] : array();
+		return sanitize_key( (string) ( $contract['stage'] ?? '' ) ) === sanitize_key( $stage ) && ! empty( $contract['version'] );
+	}
+
+	/**
 	 * Stable hash for reviewable translated content.
 	 */
 	private static function translation_review_content_hash( WP_Post $post ): string {
@@ -15416,6 +15685,24 @@ final class Devenia_AI_Translations {
 				'review_suggested'             => ! empty( $raw['internal_linking']['review_suggested'] ),
 			);
 		}
+		if ( isset( $raw['review_contract'] ) && is_array( $raw['review_contract'] ) ) {
+			$contract = array(
+				'stage'       => sanitize_key( (string) ( $raw['review_contract']['stage'] ?? '' ) ),
+				'version'     => absint( $raw['review_contract']['version'] ?? 0 ),
+				'recorded_at' => sanitize_text_field( (string) ( $raw['review_contract']['recorded_at'] ?? '' ) ),
+			);
+			foreach ( array( 'language_quality_notes', 'source_fidelity_notes', 'terminology_notes', 'visible_page_url', 'article_quality_notes', 'reviewer_statement', 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'final_decision' ) as $key ) {
+				if ( isset( $raw['review_contract'][ $key ] ) ) {
+					$contract[ $key ] = sanitize_textarea_field( (string) $raw['review_contract'][ $key ] );
+				}
+			}
+			foreach ( array( 'reviewed_sections', 'sampled_passages', 'headings_checked', 'links_checked', 'issues_found' ) as $key ) {
+				if ( isset( $raw['review_contract'][ $key ] ) ) {
+					$contract[ $key ] = self::review_contract_string_list( $raw['review_contract'][ $key ] );
+				}
+			}
+			$evidence['review_contract'] = $contract;
+		}
 		foreach ( array( 'writer', 'reviewer' ) as $party_key ) {
 			if ( isset( $raw[ $party_key ] ) && is_array( $raw[ $party_key ] ) ) {
 				$party = array(
@@ -15506,6 +15793,9 @@ final class Devenia_AI_Translations {
 		if ( empty( $evidence ) ) {
 			$stale_reasons[] = 'missing_review_evidence';
 		} else {
+			if ( ! self::review_evidence_has_contract( $evidence, 'linguistic_review' ) ) {
+				$stale_reasons[] = 'missing_review_contract';
+			}
 			if ( ! self::review_evidence_has_separate_reviewer( $evidence ) ) {
 				$stale_reasons[] = 'missing_separate_reviewer';
 			}
@@ -15587,6 +15877,9 @@ final class Devenia_AI_Translations {
 		if ( empty( $evidence ) ) {
 			$stale_reasons[] = 'missing_review_evidence';
 		} else {
+			if ( ! self::review_evidence_has_contract( $evidence, 'quality_review' ) ) {
+				$stale_reasons[] = 'missing_review_contract';
+			}
 			if ( self::is_translation_post( $post_id ) && ! self::review_evidence_has_separate_reviewer( $evidence ) ) {
 				$stale_reasons[] = 'missing_separate_reviewer';
 			}
@@ -15645,6 +15938,9 @@ final class Devenia_AI_Translations {
 		if ( empty( $evidence ) ) {
 			$stale_reasons[] = 'missing_review_evidence';
 		} else {
+			if ( ! self::review_evidence_has_contract( $evidence, 'final_review' ) ) {
+				$stale_reasons[] = 'missing_review_contract';
+			}
 			if ( ! self::review_evidence_has_separate_reviewer( $evidence ) ) {
 				$stale_reasons[] = 'missing_separate_reviewer';
 			}
@@ -15852,6 +16148,9 @@ final class Devenia_AI_Translations {
 
 		$evidence = self::quality_review_evidence_for_post( $post_id );
 		if ( empty( $evidence ) ) {
+			return 'quality_review_stale';
+		}
+		if ( ! self::review_evidence_has_contract( $evidence, 'quality_review' ) ) {
 			return 'quality_review_stale';
 		}
 		if ( self::is_translation_post( $post_id ) && ! self::review_evidence_has_separate_reviewer( $evidence ) ) {
