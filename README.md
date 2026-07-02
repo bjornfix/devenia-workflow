@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.330
+**Stable tag:** 0.1.331
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -197,6 +197,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.331
+
+- Enforces the language-prefix taxonomy slug standard, such as `it-marketing` and `nl-marketing`, so translated category and tag URLs stay consistent across languages.
+- Moves source-design inheritance and taxonomy-localization workflow logic into dedicated include modules to reduce the main plugin file size and improve locality.
 
 ### 0.1.330
 
