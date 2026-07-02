@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.331
+**Stable tag:** 0.1.332
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -197,6 +197,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.332
+
+- Blocks source and localized taxonomy slugs that contain WordPress duplicate suffixes such as `-2`, reports the blocking term when one exists, and removes numeric fallback slugs from the translation workflow.
+- Ensures existing translated taxonomy terms are realigned to the current `language-source-slug` standard when a source term slug is repaired.
 
 ### 0.1.331
 

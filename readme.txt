@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.331
+Stable tag: 0.1.332
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.332 =
+* Blocks source and localized taxonomy slugs that contain WordPress duplicate suffixes such as `-2`, reports the blocking term when one exists, and removes numeric fallback slugs from the translation workflow.
+* Ensures existing translated taxonomy terms are realigned to the current `language-source-slug` standard when a source term slug is repaired.
 
 = 0.1.331 =
 * Enforces the language-prefix taxonomy slug standard, such as `it-marketing` and `nl-marketing`, so translated category and tag URLs stay consistent across languages.

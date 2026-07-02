@@ -45,7 +45,16 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 				}
 				$term_id = self::ensure_translated_term( $source_term, $language, $term_data );
 				if ( ! $term_id ) {
-					continue;
+					return array(
+						'success'        => false,
+						'message'        => 'Could not create or update the translated taxonomy term. Resolve the term slug collision before saving; WordPress duplicate suffixes such as -2 are not allowed.',
+						'code'           => 'localized_taxonomy_term_sync_failed',
+						'language'       => sanitize_key( $language ),
+						'taxonomy'       => (string) $source_term->taxonomy,
+						'source_term_id' => (int) $source_term->term_id,
+						'source_slug'    => sanitize_title( (string) $source_term->slug ),
+						'expected_slug'  => sanitize_title( sanitize_key( $language ) . '-' . (string) $source_term->slug ),
+					);
 				}
 				$target_term_ids[] = $term_id;
 			}
@@ -112,6 +121,9 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 	private static function ensure_translated_term( WP_Term $source_term, string $language, array $term_data ): int {
 		$existing_id = self::find_translated_term_id( (int) $source_term->term_id, $language, (string) $source_term->taxonomy );
 		if ( $existing_id ) {
+			if ( empty( $term_data['slug'] ) ) {
+				$term_data['slug'] = sanitize_title( $language . '-' . (string) $source_term->slug );
+			}
 			self::update_translated_term_details( $existing_id, $source_term, $term_data );
 			return $existing_id;
 		}
@@ -124,7 +136,7 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 			: sanitize_title( $language . '-' . (string) $source_term->slug );
 
 		if ( self::language_requires_transliterated_urls( $language ) && ! preg_match( '/^[A-Za-z0-9_-]+$/', $slug ) ) {
-			$slug = sanitize_title( $language . '-' . (int) $source_term->term_id );
+			return 0;
 		}
 
 		$args = array( 'slug' => $slug );
@@ -145,23 +157,7 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 				? absint( $term_exists_data['term_id'] ?? 0 )
 				: absint( $term_exists_data );
 			if ( $term_id === (int) $source_term->term_id || ! self::term_is_translation_of( $term_id, (int) $source_term->term_id, $language ) ) {
-				$fallback_slug = sanitize_title( $language . '-' . (string) $source_term->slug );
-				if ( $fallback_slug === $slug ) {
-					$fallback_slug = sanitize_title( $language . '-' . (int) $source_term->term_id );
-				}
-
-				$args['slug'] = $fallback_slug;
-				$created      = wp_insert_term( $name, (string) $source_term->taxonomy, $args );
-				if ( is_wp_error( $created ) && 'term_exists' === $created->get_error_code() ) {
-					$term_exists_data = $created->get_error_data();
-					$term_id          = is_array( $term_exists_data )
-						? absint( $term_exists_data['term_id'] ?? 0 )
-						: absint( $term_exists_data );
-				} elseif ( is_wp_error( $created ) ) {
-					return 0;
-				} else {
-					$term_id = absint( $created['term_id'] ?? 0 );
-				}
+				return 0;
 			}
 		} elseif ( is_wp_error( $created ) ) {
 			return 0;
@@ -229,6 +225,58 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 			);
 		}
 
+		if ( self::has_wordpress_duplicate_slug_suffix( $source_slug ) ) {
+			$intended_slug = preg_replace( '/-(?:[2-9]|[1-9]\d|[1-9]\d{2})$/', '', $source_slug );
+			$intended_slug = is_string( $intended_slug ) ? sanitize_title( $intended_slug ) : '';
+			return array(
+				'success'           => false,
+				'message'           => 'Source taxonomy slug uses a WordPress duplicate suffix such as -2. Fix the source term collision before creating localized terms.',
+				'code'              => 'source_taxonomy_slug_duplicate_suffix',
+				'language'          => $language,
+				'taxonomy'          => (string) $source_term->taxonomy,
+				'source_term_id'    => (int) $source_term->term_id,
+				'source_name'       => $source_name,
+				'source_slug'       => $source_slug,
+				'intended_slug'     => $intended_slug,
+				'conflicting_terms' => self::taxonomy_slug_conflicts( $intended_slug, (string) $source_term->taxonomy, (int) $source_term->term_id ),
+				'tried'             => array(
+					'detected_source_duplicate_suffix',
+					'derived_intended_base_slug',
+					'looked_for_terms_blocking_base_slug',
+				),
+				'not_tried'         => array(
+					'creating_language_prefixed_terms_from_duplicate_source_slug',
+					'using_numeric_suffix_fallback',
+				),
+			);
+		}
+
+		if ( '' !== $slug && self::has_wordpress_duplicate_slug_suffix( $slug ) ) {
+			$intended_slug = preg_replace( '/-(?:[2-9]|[1-9]\d|[1-9]\d{2})$/', '', $slug );
+			$intended_slug = is_string( $intended_slug ) ? sanitize_title( $intended_slug ) : '';
+			return array(
+				'success'           => false,
+				'message'           => 'Localized taxonomy slug uses a WordPress duplicate suffix such as -2. Resolve the term collision before saving; duplicate URLs are not allowed.',
+				'code'              => 'localized_taxonomy_slug_duplicate_suffix',
+				'language'          => $language,
+				'taxonomy'          => (string) $source_term->taxonomy,
+				'source_term_id'    => (int) $source_term->term_id,
+				'source_slug'       => $source_slug,
+				'localized_slug'    => $slug,
+				'intended_slug'     => $intended_slug,
+				'conflicting_terms' => self::taxonomy_slug_conflicts( $intended_slug, (string) $source_term->taxonomy, $existing_term_id ),
+				'tried'             => array(
+					'detected_localized_duplicate_suffix',
+					'derived_intended_base_slug',
+					'looked_for_terms_blocking_base_slug',
+				),
+				'not_tried'         => array(
+					'accepting_or_publishing_duplicate_slug',
+					'using_numeric_suffix_fallback',
+				),
+			);
+		}
+
 		if ( '' !== $slug && $slug !== $expected_slug ) {
 			return array(
 				'success'        => false,
@@ -240,6 +288,30 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 				'source_slug'    => $source_slug,
 				'localized_slug' => $slug,
 				'expected_slug'  => $expected_slug,
+			);
+		}
+
+		$slug_conflicts = self::taxonomy_slug_conflicts( $expected_slug, (string) $source_term->taxonomy, $existing_term_id );
+		if ( $slug_conflicts ) {
+			return array(
+				'success'           => false,
+				'message'           => 'Localized taxonomy slug is blocked by another term. Resolve or rename the collision before saving; WordPress duplicate suffixes such as -2 are not allowed.',
+				'code'              => 'localized_taxonomy_slug_collision',
+				'language'          => $language,
+				'taxonomy'          => (string) $source_term->taxonomy,
+				'source_term_id'    => (int) $source_term->term_id,
+				'source_slug'       => $source_slug,
+				'expected_slug'     => $expected_slug,
+				'existing_term_id'  => $existing_term_id,
+				'conflicting_terms' => $slug_conflicts,
+				'tried'             => array(
+					'checked_language_prefix_source_slug_standard',
+					'looked_for_terms_blocking_expected_slug',
+				),
+				'not_tried'         => array(
+					'using_numeric_suffix_fallback',
+					'accepting_wordpress_duplicate_slug',
+				),
 			);
 		}
 
@@ -283,6 +355,35 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 
 		return $source_term_id === absint( get_term_meta( $term_id, self::TERM_META_SOURCE_ID, true ) )
 			&& sanitize_key( $language ) === sanitize_key( (string) get_term_meta( $term_id, self::TERM_META_LANGUAGE, true ) );
+	}
+
+	/**
+	 * Find taxonomy terms blocking a requested slug.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function taxonomy_slug_conflicts( string $slug, string $taxonomy, int $exclude_term_id = 0 ): array {
+		$slug = sanitize_title( $slug );
+		if ( '' === $slug || ! taxonomy_exists( $taxonomy ) ) {
+			return array();
+		}
+
+		$term = get_term_by( 'slug', $slug, $taxonomy );
+		if ( ! $term instanceof WP_Term || ( $exclude_term_id && (int) $term->term_id === $exclude_term_id ) ) {
+			return array();
+		}
+
+		return array(
+			array(
+				'id'             => (int) $term->term_id,
+				'name'           => (string) $term->name,
+				'slug'           => (string) $term->slug,
+				'taxonomy'       => (string) $term->taxonomy,
+				'count'          => (int) $term->count,
+				'source_term_id' => absint( get_term_meta( (int) $term->term_id, self::TERM_META_SOURCE_ID, true ) ),
+				'language'       => sanitize_key( (string) get_term_meta( (int) $term->term_id, self::TERM_META_LANGUAGE, true ) ),
+			),
+		);
 	}
 
 	/**
