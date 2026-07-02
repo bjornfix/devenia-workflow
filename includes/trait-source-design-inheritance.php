@@ -526,6 +526,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	 * Hash the non-text design signature of a Gutenberg block tree.
 	 */
 	private static function source_design_signature_hash( string $content ): string {
+		$content = self::normalize_gutenberg_content_for_storage( $content );
 		return hash( 'sha256', wp_json_encode( self::source_design_signature( parse_blocks( $content ) ) ) ?: '' );
 	}
 
@@ -561,12 +562,17 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			$name         = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
 			$attrs        = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
 			$html         = isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '';
+			$children     = ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? self::source_design_signature( $block['innerBlocks'], $current_path ) : array();
+			$html_shell   = self::source_design_html_shell( $name, $attrs, $html );
+			if ( '' === $name && empty( $attrs ) && '' === $html_shell && empty( $children ) ) {
+				continue;
+			}
 			$signature[]  = array(
 				'path'       => $current_path,
 				'block'      => $name,
 				'attrs'      => self::source_design_signature_attrs( $name, $attrs ),
-				'html_shell' => self::source_design_html_shell( $name, $attrs, $html ),
-				'children'   => ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? self::source_design_signature( $block['innerBlocks'], $current_path ) : array(),
+				'html_shell' => $html_shell,
+				'children'   => $children,
 			);
 		}
 

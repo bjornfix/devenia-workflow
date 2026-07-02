@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.332
+**Stable tag:** 0.1.335
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -197,6 +197,18 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.335
+
+- Stores and validates stable reviewer actor identities from the token authority, making self-review denial independent of process IDs or token-label naming.
+
+### 0.1.334
+
+- Ignores inert Gutenberg parser whitespace blocks in the source-design QA signature, so unchanged layouts are not blocked by trailing freeform serialization noise.
+
+### 0.1.333
+
+- Normalizes translated Gutenberg content before computing the source-design QA signature, avoiding false source-design mismatches after storage-format refreshes when the block tree is unchanged.
 
 ### 0.1.332
 

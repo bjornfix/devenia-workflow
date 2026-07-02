@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.332
+ * Version: 0.1.335
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.332';
+	const VERSION = '0.1.335';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -63,6 +63,7 @@ final class Devenia_AI_Translations {
 	const META_FINAL_REVIEW_EVIDENCE = '_devenia_translation_final_review_evidence';
 	const META_FINAL_REVIEWER_PROCESS = '_devenia_translation_final_reviewer_process';
 	const META_WRITER_ACTOR = '_devenia_translation_writer_actor';
+	const META_WRITER_ACTOR_ID = '_devenia_translation_writer_actor_id';
 	const META_WRITER_PROCESS = '_devenia_translation_writer_process';
 	const META_WRITER_TOKEN_LABEL = '_devenia_translation_writer_token_label';
 	const META_WRITER_RECORDED_AT = '_devenia_translation_writer_recorded_at';
@@ -15167,6 +15168,7 @@ final class Devenia_AI_Translations {
 			'step_token_label' => $verified_token_label,
 			'process_id' => $verified_process_id,
 			'actor' => sanitize_text_field( (string) ( $decision['actor'] ?? ( 'token_label:' . $verified_token_label ) ) ),
+			'actor_id' => sanitize_key( (string) ( $decision['actor_id'] ?? '' ) ),
 			'authority' => sanitize_text_field( (string) ( $decision['authority'] ?? 'external' ) ),
 		);
 	}
@@ -15189,16 +15191,21 @@ final class Devenia_AI_Translations {
 	private static function record_translation_writer_provenance( int $translation_id, array $verified_identity ): void {
 		$process_id = self::normalize_process_id( (string) ( $verified_identity['process_id'] ?? '' ) );
 		$actor = sanitize_text_field( (string) ( $verified_identity['actor'] ?? '' ) );
+		$actor_id = sanitize_key( (string) ( $verified_identity['actor_id'] ?? '' ) );
 		$token_label = sanitize_key( (string) ( $verified_identity['step_token_label'] ?? '' ) );
 		if ( '' === $process_id || '' === $token_label ) {
 			return;
 		}
+		if ( '' === $actor_id ) {
+			$actor_id = $token_label;
+		}
 		if ( '' === $actor ) {
-			$actor = 'token_label:' . $token_label;
+			$actor = 'actor:' . $actor_id;
 		}
 
 		update_post_meta( $translation_id, self::META_WRITER_PROCESS, $process_id );
 		update_post_meta( $translation_id, self::META_WRITER_ACTOR, $actor );
+		update_post_meta( $translation_id, self::META_WRITER_ACTOR_ID, $actor_id );
 		update_post_meta( $translation_id, self::META_WRITER_TOKEN_LABEL, $token_label );
 		update_post_meta( $translation_id, self::META_WRITER_RECORDED_AT, gmdate( 'c' ) );
 	}
@@ -15210,6 +15217,7 @@ final class Devenia_AI_Translations {
 		return array(
 			'process_id'  => (string) get_post_meta( $translation_id, self::META_WRITER_PROCESS, true ),
 			'actor'       => (string) get_post_meta( $translation_id, self::META_WRITER_ACTOR, true ),
+			'actor_id'    => (string) get_post_meta( $translation_id, self::META_WRITER_ACTOR_ID, true ),
 			'token_label' => (string) get_post_meta( $translation_id, self::META_WRITER_TOKEN_LABEL, true ),
 			'recorded_at' => (string) get_post_meta( $translation_id, self::META_WRITER_RECORDED_AT, true ),
 		);
@@ -15221,14 +15229,19 @@ final class Devenia_AI_Translations {
 	private static function reviewer_provenance_from_verified_identity( array $verified_identity, int $translation_id ): array {
 		$process_id = self::normalize_process_id( (string) ( $verified_identity['process_id'] ?? '' ) );
 		$token_label = sanitize_key( (string) ( $verified_identity['step_token_label'] ?? '' ) );
+		$actor_id = sanitize_key( (string) ( $verified_identity['actor_id'] ?? '' ) );
+		if ( '' === $actor_id ) {
+			$actor_id = $token_label;
+		}
 		$reviewer = sanitize_text_field( (string) ( $verified_identity['actor'] ?? '' ) );
-		if ( '' === $reviewer && '' !== $token_label ) {
-			$reviewer = 'token_label:' . $token_label;
+		if ( '' === $reviewer && '' !== $actor_id ) {
+			$reviewer = 'actor:' . $actor_id;
 		}
 
 		return array(
 			'process_id'  => $process_id,
 			'actor'       => $reviewer,
+			'actor_id'    => $actor_id,
 			'token_label' => $token_label,
 			'recorded_at' => gmdate( 'c' ),
 			'writer'      => self::translation_writer_provenance( $translation_id ),
@@ -15289,6 +15302,16 @@ final class Devenia_AI_Translations {
 				'success'  => false,
 				'code'     => 'writer_reviewer_actor_match',
 				'message'  => 'The identity that authored the translation cannot review or publish it.',
+				'stage'    => sanitize_key( $stage ),
+				'writer'   => $writer,
+				'reviewer' => $reviewer,
+			);
+		}
+		if ( ! empty( $writer['actor_id'] ) && ! empty( $reviewer['actor_id'] ) && $writer['actor_id'] === $reviewer['actor_id'] ) {
+			return array(
+				'success'  => false,
+				'code'     => 'writer_reviewer_actor_id_match',
+				'message'  => 'The actor identity that authored the translation cannot review or publish it.',
 				'stage'    => sanitize_key( $stage ),
 				'writer'   => $writer,
 				'reviewer' => $reviewer,
@@ -15375,6 +15398,7 @@ final class Devenia_AI_Translations {
 				$party = array(
 					'process_id'  => sanitize_text_field( (string) ( $raw[ $party_key ]['process_id'] ?? '' ) ),
 					'actor'       => sanitize_text_field( (string) ( $raw[ $party_key ]['actor'] ?? '' ) ),
+					'actor_id'    => sanitize_key( (string) ( $raw[ $party_key ]['actor_id'] ?? '' ) ),
 					'token_label' => sanitize_key( (string) ( $raw[ $party_key ]['token_label'] ?? '' ) ),
 					'recorded_at' => sanitize_text_field( (string) ( $raw[ $party_key ]['recorded_at'] ?? '' ) ),
 				);
@@ -15382,6 +15406,7 @@ final class Devenia_AI_Translations {
 					$party['writer'] = array(
 						'process_id'  => sanitize_text_field( (string) ( $raw[ $party_key ]['writer']['process_id'] ?? '' ) ),
 						'actor'       => sanitize_text_field( (string) ( $raw[ $party_key ]['writer']['actor'] ?? '' ) ),
+						'actor_id'    => sanitize_key( (string) ( $raw[ $party_key ]['writer']['actor_id'] ?? '' ) ),
 						'token_label' => sanitize_key( (string) ( $raw[ $party_key ]['writer']['token_label'] ?? '' ) ),
 						'recorded_at' => sanitize_text_field( (string) ( $raw[ $party_key ]['writer']['recorded_at'] ?? '' ) ),
 					);
@@ -15403,6 +15428,8 @@ final class Devenia_AI_Translations {
 		$writer_process   = self::normalize_process_id( (string) ( $writer['process_id'] ?? '' ) );
 		$reviewer_actor   = sanitize_text_field( (string) ( $reviewer['actor'] ?? '' ) );
 		$writer_actor     = sanitize_text_field( (string) ( $writer['actor'] ?? '' ) );
+		$reviewer_actor_id = sanitize_key( (string) ( $reviewer['actor_id'] ?? '' ) );
+		$writer_actor_id   = sanitize_key( (string) ( $writer['actor_id'] ?? '' ) );
 
 		if ( '' === $reviewer_process ) {
 			return false;
@@ -15411,6 +15438,9 @@ final class Devenia_AI_Translations {
 			return false;
 		}
 		if ( '' !== $writer_actor && '' !== $reviewer_actor && $writer_actor === $reviewer_actor ) {
+			return false;
+		}
+		if ( '' !== $writer_actor_id && '' !== $reviewer_actor_id && $writer_actor_id === $reviewer_actor_id ) {
 			return false;
 		}
 

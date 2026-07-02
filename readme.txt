@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.332
+Stable tag: 0.1.335
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,15 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.335 =
+* Stores and validates stable reviewer actor identities from the token authority, making self-review denial independent of process IDs or token-label naming.
+
+= 0.1.334 =
+* Ignores inert Gutenberg parser whitespace blocks in the source-design QA signature, so unchanged layouts are not blocked by trailing freeform serialization noise.
+
+= 0.1.333 =
+* Normalizes translated Gutenberg content before computing the source-design QA signature, avoiding false source-design mismatches after storage-format refreshes when the block tree is unchanged.
 
 = 0.1.332 =
 * Blocks source and localized taxonomy slugs that contain WordPress duplicate suffixes such as `-2`, reports the blocking term when one exists, and removes numeric fallback slugs from the translation workflow.
