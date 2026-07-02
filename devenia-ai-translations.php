@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.348
+ * Version: 0.1.349
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.348';
+	const VERSION = '0.1.349';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -12147,14 +12147,18 @@ final class Devenia_AI_Translations {
 		}
 
 		$result = 0;
-		self::with_reviewer_style_capture_suspended(
+		self::with_direct_save_storage_guardrails_suspended(
 			static function () use ( &$result, $translation_id, $postarr ): void {
-				if ( $translation_id ) {
-					$postarr['ID'] = $translation_id;
-					$result        = wp_update_post( wp_slash( $postarr ), true );
-				} else {
-					$result = wp_insert_post( wp_slash( $postarr ), true );
-				}
+				self::with_reviewer_style_capture_suspended(
+					static function () use ( &$result, $translation_id, $postarr ): void {
+						if ( $translation_id ) {
+							$postarr['ID'] = $translation_id;
+							$result        = wp_update_post( wp_slash( $postarr ), true );
+						} else {
+							$result = wp_insert_post( wp_slash( $postarr ), true );
+						}
+					}
+				);
 			}
 		);
 
