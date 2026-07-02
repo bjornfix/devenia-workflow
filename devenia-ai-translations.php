@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.329
+ * Version: 0.1.330
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Devenia_AI_Translations {
-	const VERSION = '0.1.329';
+	const VERSION = '0.1.330';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -12493,7 +12493,7 @@ final class Devenia_AI_Translations {
 		}
 		$seo_meta = self::sync_translation_seo_meta( $translation_id, $input, $title, $excerpt, $content );
 		$lifecycle = self::apply_translation_lifecycle_meta( $translation_id, $source_id, $language, $translation_status, $source );
-		self::record_translation_writer_provenance( $translation_id, $input );
+		self::record_translation_writer_provenance( $translation_id, $step_token_gate );
 		$review_invalidated = '' !== $previous_review_hash
 			? self::invalidate_translation_reviews_if_content_changed( $translation_id, 'upsert_translation', $previous_review_hash )
 			: false;
@@ -14227,7 +14227,7 @@ final class Devenia_AI_Translations {
 		if ( empty( $step_token_gate['success'] ) ) {
 			return $step_token_gate;
 		}
-		$reviewer_gate = self::translation_reviewer_approval_gate( $translation_id, $input, 'publish' );
+		$reviewer_gate = self::translation_reviewer_approval_gate( $translation_id, $input, 'publish', $step_token_gate );
 		if ( empty( $reviewer_gate['success'] ) ) {
 			return $reviewer_gate;
 		}
@@ -14453,7 +14453,7 @@ final class Devenia_AI_Translations {
 		if ( empty( $step_token_gate['success'] ) ) {
 			return $step_token_gate;
 		}
-		$reviewer_gate = self::translation_reviewer_approval_gate( $translation_id, $input, 'linguistic_review' );
+		$reviewer_gate = self::translation_reviewer_approval_gate( $translation_id, $input, 'linguistic_review', $step_token_gate );
 		if ( empty( $reviewer_gate['success'] ) ) {
 			return $reviewer_gate;
 		}
@@ -14503,9 +14503,9 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		$reviewer = ! empty( $input['reviewer'] ) ? sanitize_text_field( (string) $input['reviewer'] ) : 'AI Translation Workflow';
 		$note     = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
-		$reviewer_provenance = isset( $reviewer_gate['reviewer'] ) && is_array( $reviewer_gate['reviewer'] ) ? $reviewer_gate['reviewer'] : self::reviewer_provenance_from_input( $input, $translation_id );
+		$reviewer_provenance = $reviewer_gate['reviewer'];
+		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'AI Translation Workflow' ) );
 
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWER, $reviewer );
@@ -14986,7 +14986,7 @@ final class Devenia_AI_Translations {
 			if ( empty( $step_token_gate['success'] ) ) {
 				return $step_token_gate;
 			}
-			$reviewer_gate = self::translation_reviewer_approval_gate( $page_id, $input, 'quality_review' );
+			$reviewer_gate = self::translation_reviewer_approval_gate( $page_id, $input, 'quality_review', $step_token_gate );
 			if ( empty( $reviewer_gate['success'] ) ) {
 				return $reviewer_gate;
 			}
@@ -15009,14 +15009,14 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		$reviewer = ! empty( $input['reviewer'] ) ? sanitize_text_field( (string) $input['reviewer'] ) : 'AI Translation Workflow';
 		$note     = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$reviewer_provenance = isset( $reviewer_gate['reviewer'] ) && is_array( $reviewer_gate['reviewer'] ) ? $reviewer_gate['reviewer'] : array(
 			'process_id'  => '',
-			'actor'       => $reviewer,
+			'actor'       => 'AI Translation Workflow',
 			'recorded_at' => gmdate( 'c' ),
 			'writer'      => array(),
 		);
+		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'AI Translation Workflow' ) );
 
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWER, $reviewer );
@@ -15062,7 +15062,7 @@ final class Devenia_AI_Translations {
 		if ( empty( $step_token_gate['success'] ) ) {
 			return $step_token_gate;
 		}
-		$reviewer_gate = self::translation_reviewer_approval_gate( $translation_id, $input, 'final_review' );
+		$reviewer_gate = self::translation_reviewer_approval_gate( $translation_id, $input, 'final_review', $step_token_gate );
 		if ( empty( $reviewer_gate['success'] ) ) {
 			return $reviewer_gate;
 		}
@@ -15085,7 +15085,7 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		$reviewer_provenance = isset( $reviewer_gate['reviewer'] ) && is_array( $reviewer_gate['reviewer'] ) ? $reviewer_gate['reviewer'] : self::reviewer_provenance_from_input( $input, $translation_id );
+		$reviewer_provenance = $reviewer_gate['reviewer'];
 		$candidate_evidence = self::translation_review_evidence( $translation_id );
 		$candidate_evidence['reviewer'] = $reviewer_provenance;
 		if ( array_key_exists( 'run_qa', $input ) ? (bool) $input['run_qa'] : true ) {
@@ -15113,8 +15113,8 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		$reviewer = ! empty( $input['reviewer'] ) ? sanitize_text_field( (string) $input['reviewer'] ) : 'AI Translation Workflow';
 		$note = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
+		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'AI Translation Workflow' ) );
 		$evidence = $candidate_evidence;
 		$evidence['prior_reviews'] = array(
 			'linguistic_reviewed_at' => (string) get_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, true ),
@@ -16089,11 +16089,41 @@ final class Devenia_AI_Translations {
 			return $decision;
 		}
 
+		$verified_process_id = self::normalize_process_id( (string) ( $decision['process_id'] ?? '' ) );
+		if ( '' === $verified_process_id ) {
+			return array(
+				'success' => false,
+				'code'    => 'verified_process_id_required',
+				'message' => 'The token authority must return the verified lease process ID for this workflow step.',
+				'step'    => $step,
+			);
+		}
+		$verified_token_label = sanitize_key( (string) ( $decision['step_token_label'] ?? $token_label ) );
+		if ( $verified_token_label !== $token_label ) {
+			return array(
+				'success' => false,
+				'code'    => 'verified_token_label_mismatch',
+				'message' => 'The token authority returned a different token label than the requested workflow step label.',
+				'step'    => $step,
+			);
+		}
+		$verified_step = sanitize_key( (string) ( $decision['workflow_step'] ?? $decision['step'] ?? '' ) );
+		if ( $verified_step !== $step ) {
+			return array(
+				'success' => false,
+				'code'    => 'verified_workflow_step_mismatch',
+				'message' => 'The token authority returned a different workflow step than the requested operation.',
+				'step'    => $step,
+				'verified_step' => $verified_step,
+			);
+		}
+
 		return array(
 			'success' => true,
 			'step'    => $step,
-			'step_token_label' => $token_label,
-			'process_id' => $process_id,
+			'step_token_label' => $verified_token_label,
+			'process_id' => $verified_process_id,
+			'actor' => sanitize_text_field( (string) ( $decision['actor'] ?? ( 'token_label:' . $verified_token_label ) ) ),
 			'authority' => sanitize_text_field( (string) ( $decision['authority'] ?? 'external' ) ),
 		);
 	}
@@ -16113,13 +16143,16 @@ final class Devenia_AI_Translations {
 	/**
 	 * Store who authored the current translated content revision.
 	 */
-	private static function record_translation_writer_provenance( int $translation_id, array $input ): void {
-		$process_id = self::normalize_process_id( (string) ( $input['writer_process_id'] ?? '' ) );
-		if ( '' === $process_id ) {
-			$process_id = self::default_writer_process_id();
+	private static function record_translation_writer_provenance( int $translation_id, array $verified_identity ): void {
+		$process_id = self::normalize_process_id( (string) ( $verified_identity['process_id'] ?? '' ) );
+		$actor = sanitize_text_field( (string) ( $verified_identity['actor'] ?? '' ) );
+		$token_label = sanitize_key( (string) ( $verified_identity['step_token_label'] ?? '' ) );
+		if ( '' === $process_id || '' === $token_label ) {
+			return;
 		}
-		$actor = ! empty( $input['writer_actor'] ) ? sanitize_text_field( (string) $input['writer_actor'] ) : self::current_operator_label();
-		$token_label = sanitize_key( (string) ( $input['step_token_label'] ?? '' ) );
+		if ( '' === $actor ) {
+			$actor = 'token_label:' . $token_label;
+		}
 
 		update_post_meta( $translation_id, self::META_WRITER_PROCESS, $process_id );
 		update_post_meta( $translation_id, self::META_WRITER_ACTOR, $actor );
@@ -16142,14 +16175,18 @@ final class Devenia_AI_Translations {
 	/**
 	 * Build reviewer provenance from ability input.
 	 */
-	private static function reviewer_provenance_from_input( array $input, int $translation_id ): array {
-		$process_id = self::normalize_process_id( (string) ( $input['reviewer_process_id'] ?? '' ) );
-		$reviewer   = ! empty( $input['reviewer'] ) ? sanitize_text_field( (string) $input['reviewer'] ) : self::current_operator_label();
+	private static function reviewer_provenance_from_verified_identity( array $verified_identity, int $translation_id ): array {
+		$process_id = self::normalize_process_id( (string) ( $verified_identity['process_id'] ?? '' ) );
+		$token_label = sanitize_key( (string) ( $verified_identity['step_token_label'] ?? '' ) );
+		$reviewer = sanitize_text_field( (string) ( $verified_identity['actor'] ?? '' ) );
+		if ( '' === $reviewer && '' !== $token_label ) {
+			$reviewer = 'token_label:' . $token_label;
+		}
 
 		return array(
 			'process_id'  => $process_id,
 			'actor'       => $reviewer,
-			'token_label' => sanitize_key( (string) ( $input['step_token_label'] ?? '' ) ),
+			'token_label' => $token_label,
 			'recorded_at' => gmdate( 'c' ),
 			'writer'      => self::translation_writer_provenance( $translation_id ),
 		);
@@ -16158,7 +16195,7 @@ final class Devenia_AI_Translations {
 	/**
 	 * Hard authorization and process-separation gate for translated public copy review.
 	 */
-	private static function translation_reviewer_approval_gate( int $translation_id, array $input, string $stage ): array {
+	private static function translation_reviewer_approval_gate( int $translation_id, array $input, string $stage, array $verified_identity ): array {
 		$post = get_post( $translation_id );
 		if ( ! $post || ! self::is_translatable_post_type( (string) $post->post_type ) || ! self::is_translation_post( $translation_id ) ) {
 			return self::error( 'Translation content not found.' );
@@ -16173,7 +16210,7 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		$reviewer = self::reviewer_provenance_from_input( $input, $translation_id );
+		$reviewer = self::reviewer_provenance_from_verified_identity( $verified_identity, $translation_id );
 		if ( '' === $reviewer['process_id'] ) {
 			return array(
 				'success' => false,
