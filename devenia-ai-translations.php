@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.338
+ * Version: 0.1.341
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.338';
+	const VERSION = '0.1.341';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -4145,7 +4145,7 @@ final class Devenia_AI_Translations {
 
 		$items = self::sanitize_copy_feedback_items( $items );
 		if ( $items ) {
-			update_post_meta( $content_id, self::META_COPY_FEEDBACK, wp_json_encode( $items ) );
+			self::update_json_post_meta( $content_id, self::META_COPY_FEEDBACK, $items );
 		} else {
 			delete_post_meta( $content_id, self::META_COPY_FEEDBACK );
 		}
@@ -5779,7 +5779,7 @@ final class Devenia_AI_Translations {
 		if ( empty( $options ) ) {
 			delete_post_meta( $source_id, self::META_QA_OPTIONS );
 		} else {
-			update_post_meta( $source_id, self::META_QA_OPTIONS, wp_json_encode( $options ) );
+			self::update_json_post_meta( $source_id, self::META_QA_OPTIONS, $options );
 		}
 
 		return array(
@@ -7714,6 +7714,10 @@ final class Devenia_AI_Translations {
 			return self::verify_live_translation( $input );
 		case 'workflow_status':
 			return self::workflow_status( (int) ( $input['source_id'] ?? 0 ) );
+		case 'workflow_obligations':
+			return self::workflow_obligations( $input );
+		case 'production_flow':
+			return self::production_flow( $input );
 		case 'queue':
 			return self::translation_queue( $input );
 		case 'review_queue':
@@ -8241,6 +8245,68 @@ final class Devenia_AI_Translations {
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
 					return self::run_ability_operation( 'workflow_status', $input );
+				},
+				'meta'             => self::ability_meta( true, false, true ),
+			),
+			'ai-translations/workflow-obligations' => array(
+				'label'            => 'Get Translation Workflow Obligations',
+				'description'      => 'Reports open translation review and publish obligations without blocking new draft/write production work. Publishing remains blocked until each specific translation has current review evidence.',
+				'input_schema'     => array(
+					'type'                 => 'object',
+					'properties'           => array(
+						'source_id' => array(
+							'type'        => 'integer',
+							'description' => 'Optional source post/page ID. When omitted, newest source content is scanned up to limit.',
+						),
+						'limit' => array(
+							'type'        => 'integer',
+							'default'     => 100,
+							'minimum'     => 1,
+							'maximum'     => 500,
+							'description' => 'Maximum source posts/pages to scan when source_id is omitted.',
+						),
+						'include_items' => array(
+							'type'        => 'boolean',
+							'default'     => true,
+							'description' => 'Include compact per-translation obligation items in addition to totals.',
+						),
+					),
+					'additionalProperties' => false,
+				),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'workflow_obligations', $input );
+				},
+				'meta'             => self::ability_meta( true, false, true ),
+			),
+			'ai-translations/production-flow' => array(
+				'label'            => 'Get Translation Production Flow',
+				'description'      => 'Returns one read-only production workflow view: what can keep moving, which reviews remain visible, and which translations are ready or blocked for publish.',
+				'input_schema'     => array(
+					'type'                 => 'object',
+					'properties'           => array(
+						'source_id' => array(
+							'type'        => 'integer',
+							'description' => 'Optional source post/page ID. When omitted, newest source content is scanned up to limit.',
+						),
+						'limit' => array(
+							'type'        => 'integer',
+							'default'     => 100,
+							'minimum'     => 1,
+							'maximum'     => 500,
+							'description' => 'Maximum source posts/pages to scan when source_id is omitted.',
+						),
+						'include_items' => array(
+							'type'        => 'boolean',
+							'default'     => true,
+							'description' => 'Include compact per-translation items.',
+						),
+					),
+					'additionalProperties' => false,
+				),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'production_flow', $input );
 				},
 				'meta'             => self::ability_meta( true, false, true ),
 			),
@@ -9660,7 +9726,16 @@ final class Devenia_AI_Translations {
 				),
 				'visible_page_url' => array(
 					'type'        => 'string',
-					'description' => 'Required: live page URL used for the visible-page review.',
+					'description' => 'Required when review_surface is public_url: live page URL used for the visible-page review.',
+				),
+				'review_surface' => array(
+					'type'        => 'string',
+					'enum'        => array( 'public_url', 'presentation_surface' ),
+					'description' => 'Surface actually used for quality review. Use public_url for published frontend pages, or presentation_surface for WordPress draft translations reviewed through ai-translations/get-presentation-surface.',
+				),
+				'presentation_surface_post_id' => array(
+					'type'        => 'integer',
+					'description' => 'Required when review_surface is presentation_surface: post ID reviewed through ai-translations/get-presentation-surface.',
 				),
 				'headings_checked' => array(
 					'type'        => 'array',
@@ -10696,7 +10771,7 @@ final class Devenia_AI_Translations {
 			update_post_meta( $post_id, self::META_SOURCE_GENERATION_REVIEWED_AT, gmdate( 'c' ) );
 			update_post_meta( $post_id, self::META_SOURCE_GENERATION_REVIEWER, $reviewer );
 			update_post_meta( $post_id, self::META_SOURCE_GENERATION_NOTE, $note );
-			update_post_meta( $post_id, self::META_SOURCE_GENERATION_EVIDENCE, wp_json_encode( $evidence ) );
+			self::update_json_post_meta( $post_id, self::META_SOURCE_GENERATION_EVIDENCE, $evidence );
 			update_post_meta( $post_id, self::META_GENERATED_SOURCE_FROM_HASH, $authored_hash );
 		}
 		update_post_meta( $authored_id, self::META_SOURCE_HASH, $source_hash );
@@ -13653,11 +13728,11 @@ final class Devenia_AI_Translations {
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWER, $reviewer );
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWER_PROCESS, (string) $reviewer_provenance['process_id'] );
-		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_CHECKS, wp_json_encode( $review_checks ) );
+		self::update_json_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_CHECKS, $review_checks );
 		$evidence = self::translation_review_evidence( $translation_id, $fitness );
 		$evidence['reviewer'] = $reviewer_provenance;
 		$evidence['review_contract'] = $review_contract['evidence'];
-		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_EVIDENCE, wp_json_encode( $evidence ) );
+		self::update_json_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_EVIDENCE, $evidence );
 		if ( '' !== $note ) {
 			update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEW_NOTE, $note );
 		} else {
@@ -13719,6 +13794,168 @@ final class Devenia_AI_Translations {
 			'source'      => self::post_payload( $source ),
 			'source_hash' => self::source_hash( $source ),
 			'languages'   => $rows,
+		);
+	}
+
+	/**
+	 * Report review and publish obligations without turning them into a global
+	 * stop sign for ongoing source/draft production.
+	 */
+	private static function workflow_obligations( array $input ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		$limit = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 100;
+		$include_items = array_key_exists( 'include_items', $input ) ? (bool) $input['include_items'] : true;
+		$sources = array();
+
+		if ( $source_id ) {
+			$source = get_post( $source_id );
+			if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
+				return self::error( 'Source content not found.' );
+			}
+			$sources[] = $source;
+		} else {
+			$query = self::source_page_query(
+				array(
+					'post_status'    => self::translation_workflow_post_statuses( false ),
+					'posts_per_page' => $limit,
+					'orderby'        => 'modified',
+					'order'          => 'DESC',
+				)
+			);
+			foreach ( $query->posts as $candidate ) {
+				if ( ! self::is_translation_post( (int) $candidate->ID ) ) {
+					$sources[] = $candidate;
+				}
+			}
+		}
+
+		$totals = array(
+			'sources_scanned'          => count( $sources ),
+			'translations_seen'        => 0,
+			'needs_linguistic_review' => 0,
+			'needs_quality_review'    => 0,
+			'needs_final_review'      => 0,
+			'ready_to_publish'        => 0,
+			'published'               => 0,
+			'blocked_from_publish'    => 0,
+		);
+		$items = array();
+
+		foreach ( $sources as $source ) {
+			foreach ( self::translation_rows_for_source( (int) $source->ID ) as $translation ) {
+				$translation_id = absint( $translation['id'] ?? 0 );
+				if ( ! $translation_id ) {
+					continue;
+				}
+				++$totals['translations_seen'];
+				$linguistic_state = sanitize_key( (string) ( $translation['linguistic_review_state']['state'] ?? 'needs_linguistic_review' ) );
+				$quality_state = sanitize_key( (string) ( $translation['quality_review_state']['state'] ?? 'needs_quality_review' ) );
+				$final_state = sanitize_key( (string) ( $translation['final_review_state']['state'] ?? 'needs_final_review' ) );
+				$post_status = sanitize_key( (string) ( $translation['status'] ?? '' ) );
+				$obligations = array();
+
+				if ( 'reviewed_current' !== $linguistic_state ) {
+					++$totals['needs_linguistic_review'];
+					$obligations[] = 'linguistic_review';
+				}
+				if ( 'quality_review_current' !== $quality_state ) {
+					++$totals['needs_quality_review'];
+					$obligations[] = 'quality_review';
+				}
+				if ( 'final_review_current' !== $final_state ) {
+					++$totals['needs_final_review'];
+					$obligations[] = 'final_review';
+				}
+				if ( 'publish' === $post_status ) {
+					++$totals['published'];
+				} elseif ( empty( $obligations ) ) {
+					++$totals['ready_to_publish'];
+					$obligations[] = 'publish';
+				} else {
+					++$totals['blocked_from_publish'];
+				}
+
+				if ( $include_items && $obligations ) {
+					$items[] = array(
+						'source_id' => (int) $source->ID,
+						'source_title' => get_the_title( $source ),
+						'translation_id' => $translation_id,
+						'language' => sanitize_key( (string) ( $translation['language'] ?? '' ) ),
+						'post_status' => $post_status,
+						'writer_token_label' => sanitize_key( (string) ( $translation['writer_provenance']['token_label'] ?? '' ) ),
+						'obligations' => $obligations,
+						'linguistic' => $linguistic_state,
+						'quality' => $quality_state,
+						'final' => $final_state,
+					);
+				}
+			}
+		}
+
+		return array(
+			'success' => true,
+			'flow_policy' => array(
+				'default_workflow_step' => 'draft_write',
+				'open_reviews_must_be_visible' => true,
+				'open_reviews_block_new_draft_work' => false,
+				'publish_requires_current_reviews' => true,
+				'purpose' => 'produce_source_content_translate_review_publish_when_quality_is_high_enough',
+			),
+			'totals' => $totals,
+			'items' => $include_items ? $items : array(),
+		);
+	}
+
+	/**
+	 * One compact workflow dashboard for agents: production keeps moving, review
+	 * debt stays visible, and publish is gated per translation.
+	 */
+	private static function production_flow( array $input ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		$limit = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 100;
+		$include_items = array_key_exists( 'include_items', $input ) ? (bool) $input['include_items'] : true;
+		$params = array(
+			'limit' => $limit,
+			'include_items' => $include_items,
+		);
+		if ( $source_id ) {
+			$params['source_id'] = $source_id;
+		}
+
+		$obligations = self::workflow_obligations( $params );
+		if ( empty( $obligations['success'] ) ) {
+			return $obligations;
+		}
+		$totals = $obligations['totals'] ?? array();
+		$review_backlog = absint( $totals['needs_linguistic_review'] ?? 0 ) + absint( $totals['needs_quality_review'] ?? 0 ) + absint( $totals['needs_final_review'] ?? 0 );
+		$ready_to_publish = absint( $totals['ready_to_publish'] ?? 0 );
+		$blocked_from_publish = absint( $totals['blocked_from_publish'] ?? 0 );
+
+		return array(
+			'success' => true,
+			'flow_policy' => $obligations['flow_policy'],
+			'lanes' => array(
+				'production' => array(
+					'default_workflow_step' => 'draft_write',
+					'can_continue_new_draft_work' => true,
+					'blocking_reason' => null,
+					'next_action' => 'claim_draft_write_when_writing_new_source_or_translation_draft',
+				),
+				'review' => array(
+					'open_review_obligation_count' => $review_backlog,
+					'must_remain_visible' => $review_backlog > 0,
+					'blocks_new_draft_work' => false,
+					'next_action' => $review_backlog > 0 ? 'schedule_or_claim_separate_reviewer_work' : null,
+				),
+				'publish' => array(
+					'ready_to_publish_count' => $ready_to_publish,
+					'blocked_from_publish_count' => $blocked_from_publish,
+					'publish_gate' => 'specific_translation_requires_current_linguistic_quality_and_final_review',
+					'next_action' => $ready_to_publish > 0 ? 'claim_publish_when_explicitly_instructed' : null,
+				),
+			),
+			'totals' => $totals,
+			'items' => $include_items ? ( $obligations['items'] ?? array() ) : array(),
 		);
 	}
 
@@ -14169,11 +14406,11 @@ final class Devenia_AI_Translations {
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWER, $reviewer );
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWER_PROCESS, (string) $reviewer_provenance['process_id'] );
-		update_post_meta( $page_id, self::META_QUALITY_REVIEW_CHECKS, wp_json_encode( $review_checks ) );
+		self::update_json_post_meta( $page_id, self::META_QUALITY_REVIEW_CHECKS, $review_checks );
 		$evidence = self::translation_review_evidence( $page_id );
 		$evidence['reviewer'] = $reviewer_provenance;
 		$evidence['review_contract'] = $review_contract['evidence'];
-		update_post_meta( $page_id, self::META_QUALITY_REVIEW_EVIDENCE, wp_json_encode( $evidence ) );
+		self::update_json_post_meta( $page_id, self::META_QUALITY_REVIEW_EVIDENCE, $evidence );
 		if ( '' !== $note ) {
 			update_post_meta( $page_id, self::META_QUALITY_REVIEW_NOTE, $note );
 		} else {
@@ -14279,8 +14516,8 @@ final class Devenia_AI_Translations {
 		update_post_meta( $translation_id, self::META_FINAL_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $translation_id, self::META_FINAL_REVIEWER, $reviewer );
 		update_post_meta( $translation_id, self::META_FINAL_REVIEWER_PROCESS, (string) $reviewer_provenance['process_id'] );
-		update_post_meta( $translation_id, self::META_FINAL_REVIEW_CHECKS, wp_json_encode( $review_checks ) );
-		update_post_meta( $translation_id, self::META_FINAL_REVIEW_EVIDENCE, wp_json_encode( $evidence ) );
+		self::update_json_post_meta( $translation_id, self::META_FINAL_REVIEW_CHECKS, $review_checks );
+		self::update_json_post_meta( $translation_id, self::META_FINAL_REVIEW_EVIDENCE, $evidence );
 		if ( '' !== $note ) {
 			update_post_meta( $translation_id, self::META_FINAL_REVIEW_NOTE, $note );
 		} else {
@@ -15104,9 +15341,27 @@ final class Devenia_AI_Translations {
 			self::require_review_text( $input, 'source_fidelity_notes', 100, $errors );
 			self::require_review_text( $input, 'terminology_notes', 80, $errors );
 		} elseif ( 'quality_review' === $stage ) {
+			$review_surface = sanitize_key( (string) ( $input['review_surface'] ?? 'public_url' ) );
+			if ( '' === $review_surface ) {
+				$review_surface = 'public_url';
+			}
+			if ( ! in_array( $review_surface, array( 'public_url', 'presentation_surface' ), true ) ) {
+				$errors[] = 'review_surface must be public_url or presentation_surface.';
+			}
 			$visible_page_url = trim( (string) ( $input['visible_page_url'] ?? '' ) );
-			if ( '' === $visible_page_url || ! wp_http_validate_url( $visible_page_url ) ) {
+			if ( 'public_url' === $review_surface && ( '' === $visible_page_url || ! wp_http_validate_url( $visible_page_url ) ) ) {
 				$errors[] = 'visible_page_url must be the public HTTP(S) URL that was actually reviewed.';
+			}
+			if ( 'presentation_surface' === $review_surface ) {
+				$presentation_surface_post_id = absint( $input['presentation_surface_post_id'] ?? ( $input['content_id'] ?? ( $input['page_id'] ?? 0 ) ) );
+				if ( ! $presentation_surface_post_id ) {
+					$errors[] = 'presentation_surface_post_id must identify the draft post reviewed through ai-translations/get-presentation-surface.';
+				} else {
+					$presentation_post = get_post( $presentation_surface_post_id );
+					if ( ! $presentation_post || ! self::is_translatable_post_type( (string) $presentation_post->post_type ) ) {
+						$errors[] = 'presentation_surface_post_id must be a valid translatable post.';
+					}
+				}
 			}
 			self::require_review_list( $input, 'headings_checked', 2, 12, $errors );
 			self::require_review_list( $input, 'links_checked', 1, 8, $errors );
@@ -15216,7 +15471,7 @@ final class Devenia_AI_Translations {
 		$stage = sanitize_key( $stage );
 		$text_keys = array(
 			'linguistic_review' => array( 'language_quality_notes', 'source_fidelity_notes', 'terminology_notes' ),
-			'quality_review'    => array( 'visible_page_url', 'article_quality_notes', 'reviewer_statement' ),
+			'quality_review'    => array( 'review_surface', 'visible_page_url', 'article_quality_notes', 'reviewer_statement' ),
 			'final_review'      => array( 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'final_decision' ),
 		);
 		$list_keys = array(
@@ -15236,6 +15491,9 @@ final class Devenia_AI_Translations {
 		foreach ( $list_keys[ $stage ] ?? array() as $key ) {
 			$evidence[ $key ] = self::review_contract_string_list( $input[ $key ] ?? array() );
 		}
+		if ( 'quality_review' === $stage ) {
+			$evidence['presentation_surface_post_id'] = absint( $input['presentation_surface_post_id'] ?? ( $input['content_id'] ?? ( $input['page_id'] ?? 0 ) ) );
+		}
 
 		return $evidence;
 	}
@@ -15251,7 +15509,8 @@ final class Devenia_AI_Translations {
 				'Write concrete naturalness, source-fidelity, and terminology notes.',
 			),
 			'quality_review' => array(
-				'Provide the live page URL, at least two rendered headings, and checked links/actions.',
+				'Provide the live page URL for published pages, or review_surface=presentation_surface plus presentation_surface_post_id for draft translations reviewed through ai-translations/get-presentation-surface.',
+				'Provide at least two rendered headings and checked links/actions from the reviewed surface.',
 				'Write concrete article-quality notes and review findings. Findings may approve unchanged copy when they explain what was checked and why no change is needed.',
 				'Include a reviewer statement that the rendered page was actually read.',
 			),
@@ -15262,6 +15521,14 @@ final class Devenia_AI_Translations {
 		);
 
 		return $requirements[ sanitize_key( $stage ) ] ?? array();
+	}
+
+	/**
+	 * Encode JSON for post meta writes. WordPress unslashes meta input before
+	 * storage, so JSON strings with escaped quotes must be slashed first.
+	 */
+	private static function update_json_post_meta( int $post_id, string $meta_key, array $value ): void {
+		update_post_meta( $post_id, $meta_key, wp_slash( wp_json_encode( $value ) ) );
 	}
 
 	private static function review_evidence_has_contract( array $evidence, string $stage ): bool {

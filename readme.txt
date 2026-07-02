@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.338
+Stable tag: 0.1.341
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,14 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 == Changelog ==
 
+= 0.1.341 =
+* Adds `ai-translations/workflow-obligations`, a read-only queue summary that keeps open linguistic, quality, final-review, and publish obligations visible without blocking new draft/write production work.
+* Adds `ai-translations/production-flow`, a read-only workflow dashboard that separates production, review, and publish lanes for agents.
+* Clarifies the workflow policy in machine-readable output: open reviews must not be overlooked, but only publishing the specific translation is blocked until current review evidence exists.
+
+= 0.1.340 =
+* Stores JSON post meta with WordPress slashing so review evidence containing quoted text remains valid JSON when read back for workflow readiness.
+
 = 0.1.338 =
 * Requires concrete review evidence for linguistic, quality, and final review gates so checkbox-only or generic approvals cannot publish translations.
 * Allows reviewers to approve already-good copy without unnecessary edits when they document what was checked and why no change is needed.
@@ -116,6 +124,9 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 = 0.1.332 =
 * Blocks source and localized taxonomy slugs that contain WordPress duplicate suffixes such as `-2`, reports the blocking term when one exists, and removes numeric fallback slugs from the translation workflow.
 * Ensures existing translated taxonomy terms are realigned to the current `language-source-slug` standard when a source term slug is repaired.
+
+= 0.1.339 =
+* Allows translation quality reviews to document a draft review surface by using `review_surface=presentation_surface` with `presentation_surface_post_id`, while keeping public URL evidence for published frontend reviews.
 
 = 0.1.331 =
 * Enforces the language-prefix taxonomy slug standard, such as `it-marketing` and `nl-marketing`, so translated category and tag URLs stay consistent across languages.

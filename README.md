@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.338
+**Stable tag:** 0.1.341
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -197,6 +197,20 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.341
+
+- Adds `ai-translations/workflow-obligations`, a read-only queue summary that keeps open linguistic, quality, final-review, and publish obligations visible without blocking new draft/write production work.
+- Adds `ai-translations/production-flow`, a read-only workflow dashboard that separates production, review, and publish lanes for agents.
+- Clarifies the workflow policy in machine-readable output: open reviews must not be overlooked, but only publishing the specific translation is blocked until current review evidence exists.
+
+### 0.1.340
+
+- Stores JSON post meta with WordPress slashing so review evidence containing quoted text remains valid JSON when read back for workflow readiness.
+
+### 0.1.339
+
+- Allows translation quality reviews to document a draft review surface by using `review_surface=presentation_surface` with `presentation_surface_post_id`, while keeping public URL evidence for published frontend reviews.
 
 ### 0.1.335
 
