@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.341
+**Stable tag:** 0.1.342
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -197,6 +197,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.342
+
+- Extends `ai-translations/production-flow` with read-only proposed source update impact analysis so agents can see when a source rewrite would require translation reprojection before it is safe to apply.
+- Adds a dedicated reprojection lane to keep source-design inheritance work visible without turning open reviews into a global production stop.
 
 ### 0.1.341
 

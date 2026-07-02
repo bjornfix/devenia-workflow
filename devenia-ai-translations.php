@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.341
+ * Version: 0.1.342
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.341';
+	const VERSION = '0.1.342';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -8301,6 +8301,18 @@ final class Devenia_AI_Translations {
 							'default'     => true,
 							'description' => 'Include compact per-translation items.',
 						),
+						'proposed_source_title' => array(
+							'type'        => 'string',
+							'description' => 'Optional proposed source title for a not-yet-applied source update. Used only for read-only impact analysis.',
+						),
+						'proposed_source_excerpt' => array(
+							'type'        => 'string',
+							'description' => 'Optional proposed source excerpt for a not-yet-applied source update. Defaults to the current source excerpt.',
+						),
+						'proposed_source_content' => array(
+							'type'        => 'string',
+							'description' => 'Optional proposed source Gutenberg content for a not-yet-applied source update. The dashboard reports which translations would need reprojection before the source update is safe.',
+						),
 					),
 					'additionalProperties' => false,
 				),
@@ -13899,10 +13911,90 @@ final class Devenia_AI_Translations {
 				'open_reviews_must_be_visible' => true,
 				'open_reviews_block_new_draft_work' => false,
 				'publish_requires_current_reviews' => true,
+				'source_updates_with_existing_translations_require_reprojection' => true,
 				'purpose' => 'produce_source_content_translate_review_publish_when_quality_is_high_enough',
 			),
 			'totals' => $totals,
 			'items' => $include_items ? $items : array(),
+		);
+	}
+
+	/**
+	 * Report whether a proposed source rewrite would create translation drift.
+	 *
+	 * This is intentionally read-only. It lets production agents see that source
+	 * design/copy work can continue as preparation while the actual live source
+	 * update needs a translation reprojection plan first.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @param array<string,mixed> $obligation_items Compact translation rows.
+	 * @return array<string,mixed>
+	 */
+	private static function proposed_source_update_impact( array $input, array $obligation_items ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		if ( ! $source_id || ! array_key_exists( 'proposed_source_content', $input ) ) {
+			return array(
+				'checked' => false,
+				'reason'  => 'provide_source_id_and_proposed_source_content_to_check_before_applying_a_source_update',
+			);
+		}
+
+		$source = get_post( $source_id );
+		if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
+			return array(
+				'checked' => false,
+				'reason'  => 'source_content_not_found',
+			);
+		}
+
+		$proposed_title   = array_key_exists( 'proposed_source_title', $input ) ? (string) $input['proposed_source_title'] : (string) $source->post_title;
+		$proposed_excerpt = array_key_exists( 'proposed_source_excerpt', $input ) ? (string) $input['proposed_source_excerpt'] : (string) $source->post_excerpt;
+		$proposed_content = self::normalize_gutenberg_content_for_storage( (string) $input['proposed_source_content'] );
+		$current_hash     = self::source_hash( $source );
+		$proposed_hash    = self::source_hash_from_values( $proposed_title, $proposed_excerpt, $proposed_content );
+		$source_changes   = $proposed_hash !== $current_hash;
+		$translations     = self::translation_rows_for_source( $source_id );
+		$requires         = array();
+		$published_count  = 0;
+
+		foreach ( $translations as $translation ) {
+			$translation_id = absint( $translation['id'] ?? 0 );
+			if ( ! $translation_id ) {
+				continue;
+			}
+			$post_status = sanitize_key( (string) ( $translation['status'] ?? '' ) );
+			if ( 'publish' === $post_status ) {
+				++$published_count;
+			}
+			$stored_hash = (string) ( $translation['source_hash'] ?? '' );
+			if ( $source_changes && $stored_hash !== $proposed_hash ) {
+				$requires[] = array(
+					'source_id' => $source_id,
+					'source_title' => get_the_title( $source ),
+					'translation_id' => $translation_id,
+					'language' => sanitize_key( (string) ( $translation['language'] ?? '' ) ),
+					'post_status' => $post_status,
+					'obligations' => array( 'source_reprojection' ),
+				);
+			}
+		}
+
+		return array(
+			'checked' => true,
+			'source_changes' => $source_changes,
+			'current_source_hash' => $current_hash,
+			'proposed_source_hash' => $proposed_hash,
+			'existing_translation_count' => count( $translations ),
+			'published_translation_count' => $published_count,
+			'requires_reprojection_count' => count( $requires ),
+			'safe_to_apply_source_update_now' => ! $source_changes || 0 === count( $requires ),
+			'blocking_reason' => ( $source_changes && $requires )
+				? 'proposed_source_update_would_make_existing_translations_stale'
+				: null,
+			'next_action' => ( $source_changes && $requires )
+				? 'prepare_localized_fragments_and_reproject_translations_before_or_with_source_update'
+				: null,
+			'items' => $obligation_items ? $requires : array(),
 		);
 	}
 
@@ -13930,6 +14022,8 @@ final class Devenia_AI_Translations {
 		$review_backlog = absint( $totals['needs_linguistic_review'] ?? 0 ) + absint( $totals['needs_quality_review'] ?? 0 ) + absint( $totals['needs_final_review'] ?? 0 );
 		$ready_to_publish = absint( $totals['ready_to_publish'] ?? 0 );
 		$blocked_from_publish = absint( $totals['blocked_from_publish'] ?? 0 );
+		$source_update = self::proposed_source_update_impact( $input, $include_items ? ( $obligations['items'] ?? array() ) : array() );
+		$requires_reprojection = absint( $source_update['requires_reprojection_count'] ?? 0 );
 
 		return array(
 			'success' => true,
@@ -13938,8 +14032,18 @@ final class Devenia_AI_Translations {
 				'production' => array(
 					'default_workflow_step' => 'draft_write',
 					'can_continue_new_draft_work' => true,
-					'blocking_reason' => null,
-					'next_action' => 'claim_draft_write_when_writing_new_source_or_translation_draft',
+					'can_apply_proposed_source_update_now' => (bool) ( $source_update['safe_to_apply_source_update_now'] ?? true ),
+					'blocking_reason' => $source_update['blocking_reason'] ?? null,
+					'next_action' => $requires_reprojection > 0
+						? 'claim_draft_write_and_prepare_reprojection_before_applying_source_update'
+						: 'claim_draft_write_when_writing_new_source_or_translation_draft',
+				),
+				'reprojection' => array(
+					'requires_reprojection_count' => $requires_reprojection,
+					'published_translation_count' => absint( $source_update['published_translation_count'] ?? 0 ),
+					'blocks_new_draft_work' => false,
+					'blocks_applying_that_source_update' => $requires_reprojection > 0,
+					'next_action' => $source_update['next_action'] ?? null,
 				),
 				'review' => array(
 					'open_review_obligation_count' => $review_backlog,
@@ -13954,6 +14058,7 @@ final class Devenia_AI_Translations {
 					'next_action' => $ready_to_publish > 0 ? 'claim_publish_when_explicitly_instructed' : null,
 				),
 			),
+			'source_update' => $source_update,
 			'totals' => $totals,
 			'items' => $include_items ? ( $obligations['items'] ?? array() ) : array(),
 		);
