@@ -285,13 +285,15 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			$attrs = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
 			$html  = isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '';
 			if ( in_array( $name, self::copy_quality_text_block_names(), true ) && '' !== trim( $html ) ) {
-				$key = self::source_design_fragment_key( $name, $attrs, $current_path, 'text' );
-				$value = self::source_design_inner_html_value( $html );
-				if ( '' !== $key && '' !== trim( wp_strip_all_tags( $value ) ) ) {
-					$records[] = array(
-						'key'  => $key,
-						'html' => wp_kses_post( $value ),
-					);
+				if ( ! self::is_dynamic_presentation_surface_html( $html ) ) {
+					$key = self::source_design_fragment_key( $name, $attrs, $current_path, 'text' );
+					$value = self::source_design_inner_html_value( $html );
+					if ( '' !== $key && '' !== trim( wp_strip_all_tags( $value ) ) ) {
+						$records[] = array(
+							'key'  => $key,
+							'html' => wp_kses_post( $value ),
+						);
+					}
 				}
 			}
 
@@ -669,17 +671,19 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			$html  = isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '';
 
 			if ( in_array( $name, self::copy_quality_text_block_names(), true ) && '' !== trim( $html ) ) {
-				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $html ) ) );
-				if ( '' !== $text ) {
-					$fragments[] = array(
-						'key'       => self::source_design_fragment_key( $name, $attrs, $current_path, 'text' ),
-						'path'      => $current_path,
-						'block'     => $name,
-						'unique_id' => isset( $attrs['uniqueId'] ) ? (string) $attrs['uniqueId'] : '',
-						'format'    => 'inline_html',
-						'heading'   => self::is_heading_block( $name, $attrs ),
-						'text'      => $text,
-					);
+				if ( ! self::is_dynamic_presentation_surface_html( $html ) ) {
+					$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $html ) ) );
+					if ( '' !== $text ) {
+						$fragments[] = array(
+							'key'       => self::source_design_fragment_key( $name, $attrs, $current_path, 'text' ),
+							'path'      => $current_path,
+							'block'     => $name,
+							'unique_id' => isset( $attrs['uniqueId'] ) ? (string) $attrs['uniqueId'] : '',
+							'format'    => 'inline_html',
+							'heading'   => self::is_heading_block( $name, $attrs ),
+							'text'      => $text,
+						);
+					}
 				}
 			}
 
@@ -724,11 +728,13 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			$name  = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
 			$attrs = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
 			if ( in_array( $name, self::copy_quality_text_block_names(), true ) && isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
-				$key = self::source_design_fragment_key( $name, $attrs, $current_path, 'text' );
-				if ( array_key_exists( $key, $fragments ) ) {
-					$block['innerHTML']   = self::replace_source_design_text_html( (string) $block['innerHTML'], $fragments[ $key ] );
-					$block['innerContent'] = array( $block['innerHTML'] );
-					$stats['projected_count']++;
+				if ( ! self::is_dynamic_presentation_surface_html( (string) $block['innerHTML'] ) ) {
+					$key = self::source_design_fragment_key( $name, $attrs, $current_path, 'text' );
+					if ( array_key_exists( $key, $fragments ) ) {
+						$block['innerHTML']   = self::replace_source_design_text_html( (string) $block['innerHTML'], $fragments[ $key ] );
+						$block['innerContent'] = array( $block['innerHTML'] );
+						$stats['projected_count']++;
+					}
 				}
 			}
 
@@ -769,6 +775,13 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		return 'path:' . preg_replace( '/[^0-9.]/', '', $path ) . ':' . sanitize_key( str_replace( '/', '_', $block_name ) ) . ':' . sanitize_key( $part );
+	}
+
+	/**
+	 * Dynamic presentation shortcodes are source-owned structure, not translatable fragments.
+	 */
+	private static function is_dynamic_presentation_surface_html( string $html ): bool {
+		return false !== strpos( $html, '[devenia_presentation ' ) || false !== strpos( $html, '[devenia_presentation]' );
 	}
 
 	/**

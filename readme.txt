@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.354
+Stable tag: 0.1.355
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.355 =
+* Keeps dynamic `[devenia_presentation]` blocks source-owned during source-design reprojection so localized bylines, titles, excerpts, and author links render from the shared presentation surface instead of stale stored fragments.
 
 = 0.1.354 =
 * Adds a narrow integration seam for validated Site Presentation contract stamping on translated posts without weakening generic manual-save design guardrails.
