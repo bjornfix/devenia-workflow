@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.352
+ * Version: 0.1.353
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.352';
+	const VERSION = '0.1.353';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -9733,7 +9733,7 @@ final class Devenia_AI_Translations {
 				),
 				'step_token' => array(
 					'type'        => 'string',
-					'description' => 'Required session token issued by the translation token authority for the quality_review step.',
+						'description' => 'Required session token issued by the translation token authority. The authority validates that the token label may run this workflow step.',
 				),
 				'step_token_label' => array(
 					'type'        => 'string',
@@ -9897,7 +9897,7 @@ final class Devenia_AI_Translations {
 				),
 				'step_token' => array(
 					'type'        => 'string',
-					'description' => 'Required session token issued by the translation token authority for the final_review step.',
+						'description' => 'Required session token issued by the translation token authority. The authority validates that the token label may run this workflow step.',
 				),
 				'step_token_label' => array(
 					'type'        => 'string',
@@ -10125,7 +10125,7 @@ final class Devenia_AI_Translations {
 				),
 				'step_token'        => array(
 					'type'        => 'string',
-					'description' => 'Required session token issued by the translation token authority for the draft_write step.',
+						'description' => 'Required session token issued by the translation token authority. The authority validates that the token label may run this workflow step.',
 				),
 				'step_token_label'  => array(
 					'type'        => 'string',
@@ -10191,7 +10191,7 @@ final class Devenia_AI_Translations {
 				),
 				'step_token' => array(
 					'type'        => 'string',
-					'description' => 'Required when apply=true. Session token for the draft_write step.',
+						'description' => 'Required when apply=true. Session token issued by the translation token authority. The authority validates that the token label may run the write step.',
 				),
 				'step_token_label' => array(
 					'type'        => 'string',
@@ -10511,7 +10511,7 @@ final class Devenia_AI_Translations {
 				),
 				'step_token'           => array(
 					'type'        => 'string',
-					'description' => 'Required session token issued by the translation token authority for the publish step.',
+						'description' => 'Required session token issued by the translation token authority. The authority validates that the token label may run this workflow step.',
 				),
 				'step_token_label'     => array(
 					'type'        => 'string',
@@ -10587,7 +10587,7 @@ final class Devenia_AI_Translations {
 				),
 				'step_token'    => array(
 					'type'        => 'string',
-					'description' => 'Required session token issued by the translation token authority for the linguistic_review step.',
+						'description' => 'Required session token issued by the translation token authority. The authority validates that the token label may run this workflow step.',
 				),
 				'step_token_label' => array(
 					'type'        => 'string',
@@ -16204,7 +16204,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Canonical workflow step identifiers that require independent tokens.
+	 * Canonical workflow step identifiers protected by the external token authority.
 	 *
 	 * @return string[]
 	 */
@@ -16213,7 +16213,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Verify that a workflow step has its own token and that the caller knows it.
+	 * Verify that a session token is valid for the requested workflow step.
 	 */
 	private static function translation_step_token_gate( string $step, array $input ): array {
 		$step = sanitize_key( $step );

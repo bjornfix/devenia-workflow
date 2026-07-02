@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.352
+**Stable tag:** 0.1.353
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -204,6 +204,15 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.353
+
+- Clarifies the protected workflow schema so authority-issued session tokens
+  are described as reusable session credentials that are validated per requested
+  workflow step.
+- Keeps the external token-authority gate strict: the authority must still
+  return the exact requested workflow step, verified process ID, and token label
+  before protected writes, reviews, or publishing can proceed.
 
 ### 0.1.352
 
