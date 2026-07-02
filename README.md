@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.343
+**Stable tag:** 0.1.345
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -131,6 +131,12 @@ Use these surfaces instead:
 - `ai-translations/update-quality-profile` for language-wide glossary,
   terminology, review-pattern, and script-signal rules
 
+Source-language Gutenberg/GenerateBlocks content is the design source of truth.
+Translation workers provide localized fragments, and the plugin projects those
+fragments into the source block tree. When source design changes later, use
+`ai-translations/reproject-source-design` so translated posts/pages inherit the
+same design instead of being redesigned per language.
+
 ## Main Abilities
 
 - `ai-translations/get-source`
@@ -139,6 +145,7 @@ Use these surfaces instead:
 - `ai-translations/create-source-from-authored-original`
 - `ai-translations/mark-source-generation-reviewed`
 - `ai-translations/upsert-page`
+- `ai-translations/reproject-source-design`
 - `ai-translations/qa-translation`
 - `ai-translations/mark-linguistic-reviewed`
 - `ai-translations/mark-quality-reviewed`
@@ -197,6 +204,21 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.345
+
+- Blocks source-design inheritance and reprojection when the source post fails the shared Devenia editorial source-design validation.
+- Reports proposed source editorial validation in `ai-translations/production-flow` so agents see design-gate failures before writing.
+
+### 0.1.344
+
+- Stores localized source-design fragments during translated content upserts so
+  existing translations can inherit later source design changes.
+- Adds `ai-translations/reproject-source-design` to rebuild translations from
+  the current source Gutenberg block tree without redesigning each language
+  separately.
+- Reports design inheritance state on translation payloads and blocks direct
+  translated-content saves that would alter the source-owned design tree.
 
 ### 0.1.343
 

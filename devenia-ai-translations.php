@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.343
+ * Version: 0.1.345
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.343';
+	const VERSION = '0.1.345';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -40,6 +40,8 @@ final class Devenia_AI_Translations {
 	const META_SOURCE_ID      = '_devenia_translation_source_id';
 	const META_LANGUAGE       = '_devenia_translation_language';
 	const META_SOURCE_HASH    = '_devenia_translation_source_hash';
+	const META_SOURCE_DESIGN_HASH = '_devenia_translation_source_design_hash';
+	const META_LOCALIZED_FRAGMENTS = '_devenia_translation_localized_fragments';
 	const META_STATUS         = '_devenia_translation_status';
 	const META_LOCALIZED_PATH = '_devenia_translation_localized_path';
 	const META_LEGACY_SOURCE_REDIRECT_LANGUAGES = '_devenia_translation_block_legacy_source_routes';
@@ -7700,6 +7702,8 @@ final class Devenia_AI_Translations {
 			return self::list_translation_reservations( $input );
 		case 'upsert_page':
 			return self::upsert_translation( $input );
+		case 'reproject_source_design':
+			return self::reproject_source_design( $input );
 		case 'list_translations':
 			return self::list_translations( $input );
 		case 'mark_reviewed':
@@ -8146,6 +8150,16 @@ final class Devenia_AI_Translations {
 					return self::run_ability_operation( 'upsert_page', $input );
 				},
 				'meta'             => self::ability_meta( false, false, false ),
+			),
+			'ai-translations/reproject-source-design' => array(
+				'label'            => 'Reproject Source Design',
+				'description'      => 'Rebuilds existing translations from the current source Gutenberg block tree and their stored localized fragments. Use this after the source design changes; translations do not get redesigned per language.',
+				'input_schema'     => self::reproject_source_design_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'reproject_source_design', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
 			),
 			'ai-translations/list-translations' => array(
 				'label'            => 'List Content Translations',
@@ -10074,6 +10088,68 @@ final class Devenia_AI_Translations {
 				'writer_process_id' => array(
 					'type'        => 'string',
 					'description' => 'Stable identifier for the process/session that authored this translation draft. Reviewer processes must be different.',
+				),
+				'writer_actor' => array(
+					'type'        => 'string',
+					'description' => 'Optional human/operator label for the writer process.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for source-design reprojection.
+	 */
+	private static function reproject_source_design_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'source_id' ),
+			'properties'           => array(
+				'source_id' => array(
+					'type'        => 'integer',
+					'description' => 'Original WordPress page or post ID whose current Gutenberg design is canonical.',
+				),
+				'languages' => array(
+					'type'        => 'array',
+					'description' => 'Optional target languages to reproject. Defaults to every existing translation for the source.',
+					'items'       => array( 'type' => 'string' ),
+				),
+				'translation_ids' => array(
+					'type'        => 'array',
+					'description' => 'Optional exact translation IDs to reproject.',
+					'items'       => array( 'type' => 'integer' ),
+				),
+				'dry_run' => array(
+					'type'        => 'boolean',
+					'default'     => true,
+					'description' => 'When true, only report what would change.',
+				),
+				'apply' => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Required true to write the projected source design back to translations.',
+				),
+				'allow_update_published' => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Required true when applying changes to published translations.',
+				),
+				'claim_token' => array(
+					'type'        => 'string',
+					'description' => 'Optional reservation token from ai-translations/reserve-work.',
+				),
+				'step_token' => array(
+					'type'        => 'string',
+					'description' => 'Required when apply=true. Session token for the draft_write step.',
+				),
+				'step_token_label' => array(
+					'type'        => 'string',
+					'description' => 'Required when apply=true. Token label confirmed for this process/session.',
+				),
+				'writer_process_id' => array(
+					'type'        => 'string',
+					'description' => 'Stable identifier for the process/session doing the reprojection write.',
 				),
 				'writer_actor' => array(
 					'type'        => 'string',
@@ -12065,6 +12141,9 @@ final class Devenia_AI_Translations {
 		}
 		$seo_meta = self::sync_translation_seo_meta( $translation_id, $input, $title, $excerpt, $content );
 		$lifecycle = self::apply_translation_lifecycle_meta( $translation_id, $source_id, $language, $translation_status, $source );
+		if ( $inherit_source_design ) {
+			self::store_localized_source_design_fragments( $translation_id, $source, $language, $input['localized_fragments'] ?? array(), $source_design );
+		}
 		self::record_translation_writer_provenance( $translation_id, $step_token_gate );
 		$review_invalidated = '' !== $previous_review_hash
 			? self::invalidate_translation_reviews_if_content_changed( $translation_id, 'upsert_translation', $previous_review_hash )
@@ -13975,10 +14054,12 @@ final class Devenia_AI_Translations {
 
 		$proposed_title   = array_key_exists( 'proposed_source_title', $input ) ? (string) $input['proposed_source_title'] : (string) $source->post_title;
 		$proposed_excerpt = array_key_exists( 'proposed_source_excerpt', $input ) ? (string) $input['proposed_source_excerpt'] : (string) $source->post_excerpt;
-		$proposed_content = self::normalize_gutenberg_content_for_storage( (string) $input['proposed_source_content'] );
-		$current_hash     = self::source_hash( $source );
-		$proposed_hash    = self::source_hash_from_values( $proposed_title, $proposed_excerpt, $proposed_content );
-		$source_changes   = $proposed_hash !== $current_hash;
+			$proposed_content = self::normalize_gutenberg_content_for_storage( (string) $input['proposed_source_content'] );
+			$editorial_validation = self::source_editorial_design_validation( $source, $proposed_content );
+			$editorial_blocks = empty( $editorial_validation['passed'] );
+			$current_hash     = self::source_hash( $source );
+			$proposed_hash    = self::source_hash_from_values( $proposed_title, $proposed_excerpt, $proposed_content );
+			$source_changes   = $proposed_hash !== $current_hash;
 		$translations     = self::translation_rows_for_source( $source_id );
 		$requires         = array();
 		$published_count  = 0;
@@ -14011,18 +14092,23 @@ final class Devenia_AI_Translations {
 			'current_source_hash' => $current_hash,
 			'proposed_source_hash' => $proposed_hash,
 			'existing_translation_count' => count( $translations ),
-			'published_translation_count' => $published_count,
-			'requires_reprojection_count' => count( $requires ),
-			'safe_to_apply_source_update_now' => ! $source_changes || 0 === count( $requires ),
-			'blocking_reason' => ( $source_changes && $requires )
-				? 'proposed_source_update_would_make_existing_translations_stale'
-				: null,
-			'next_action' => ( $source_changes && $requires )
-				? 'prepare_localized_fragments_and_reproject_translations_before_or_with_source_update'
-				: null,
-			'items' => $obligation_items ? $requires : array(),
-		);
-	}
+				'published_translation_count' => $published_count,
+				'requires_reprojection_count' => count( $requires ),
+				'editorial_source_validation' => $editorial_validation,
+				'safe_to_apply_source_update_now' => ( ! $source_changes || 0 === count( $requires ) ) && ! $editorial_blocks,
+				'blocking_reason' => $editorial_blocks
+					? 'proposed_source_update_fails_devenia_editorial_design_gate'
+					: ( ( $source_changes && $requires )
+						? 'proposed_source_update_would_make_existing_translations_stale'
+						: null ),
+				'next_action' => $editorial_blocks
+					? 'fix_source_design_until_gutenberg_validate_devenia_editorial_post_passes'
+					: ( ( $source_changes && $requires )
+						? 'prepare_localized_fragments_and_reproject_translations_before_or_with_source_update'
+						: null ),
+				'items' => $obligation_items ? $requires : array(),
+			);
+		}
 
 	/**
 	 * One compact workflow dashboard for agents: production keeps moving, review
@@ -19454,6 +19540,7 @@ final class Devenia_AI_Translations {
 			$language = sanitize_key( (string) get_post_meta( $post_id, self::META_LANGUAGE, true ) );
 			$issues   = array_merge( $issues, self::translation_direct_save_route_issues( $post_id, $data ) );
 			$issues   = array_merge( $issues, self::hard_invalid_link_issues_for_content( $content, $language ) );
+			$issues   = array_merge( $issues, self::translation_direct_save_source_design_issues( $post_id, $content, $language ) );
 		}
 
 		$gutenberg_integrity = self::gutenberg_saved_markup_integrity( $content );
@@ -19510,6 +19597,44 @@ final class Devenia_AI_Translations {
 		}
 
 		return $issues;
+	}
+
+	/**
+	 * Guard translated content against direct saves that alter the source design tree.
+	 *
+	 * Text edits are allowed when they keep the same block design signature. Layout,
+	 * classes, block attributes, media placement, and non-RTL design drift must go
+	 * through the source post and source-design reprojection.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function translation_direct_save_source_design_issues( int $post_id, string $content, string $language ): array {
+		$source_id = absint( get_post_meta( $post_id, self::META_SOURCE_ID, true ) );
+		$source    = $source_id ? get_post( $source_id ) : null;
+		if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) ) {
+			return array();
+		}
+
+		$expected = self::expected_source_design_signature_hash( (string) $source->post_content, $language );
+		$actual   = self::source_design_signature_hash( $content );
+		if ( '' === $expected || $expected === $actual ) {
+			return array();
+		}
+
+		return array(
+			self::qa_item(
+				'source_design_signature_mismatch',
+				'Direct translated-content save would change the source-owned Gutenberg design tree. Edit source design, then run ai-translations/reproject-source-design; translated posts may only localize text, URLs, metadata, and taxonomy.',
+				array(
+					'source_id'               => $source_id,
+					'translation_id'          => $post_id,
+					'language'                => $language,
+					'expected_design_hash'    => $expected,
+					'translation_design_hash' => $actual,
+					'next_action'             => 'ai-translations/reproject-source-design',
+				)
+			),
+		);
 	}
 
 	/**
@@ -21032,6 +21157,7 @@ final class Devenia_AI_Translations {
 			'source_hash'        => $hash,
 			'current_source_hash'=> $current,
 			'is_stale'           => $hash && $current && $hash !== $current,
+			'design_inheritance_state' => self::translation_source_design_state( $post, $source ),
 			'reviewed_at'        => (string) get_post_meta( $post->ID, self::META_REVIEWED_AT, true ),
 			'writer_provenance'  => self::translation_writer_provenance( (int) $post->ID ),
 			'linguistic_reviewed_at' => (string) get_post_meta( $post->ID, self::META_LINGUISTIC_REVIEWED_AT, true ),

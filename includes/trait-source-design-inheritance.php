@@ -23,13 +23,80 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		$blocks    = parse_blocks( $content );
 		$fragments = array();
 		self::collect_source_design_fragments( $blocks, $fragments );
+		$editorial_validation = self::source_editorial_design_validation( $source, $content );
 
 		return array(
-			'schema_version' => 1,
-			'source_id'      => (int) $source->ID,
-			'design_hash'    => self::source_design_signature_hash( $content ),
-			'fragment_count' => count( $fragments ),
-			'fragments'      => $fragments,
+			'schema_version'               => 1,
+			'source_id'                    => (int) $source->ID,
+			'design_hash'                  => self::source_design_signature_hash( $content ),
+			'fragment_count'               => count( $fragments ),
+			'fragments'                    => $fragments,
+			'editorial_source_validation'  => $editorial_validation,
+		);
+	}
+
+	/**
+	 * Validate that a source post is good enough to be a canonical Devenia design tree.
+	 *
+	 * The Gutenberg/block-editor plugin owns the implementation behind this seam.
+	 * AI Translations only consumes the result so source inheritance cannot quietly
+	 * project a flat or unfinished source layout into every language.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function source_editorial_design_validation( WP_Post $source, string $content = '' ): array {
+		if ( 'post' !== (string) $source->post_type ) {
+			return array(
+				'available'      => true,
+				'passed'         => true,
+				'not_applicable' => true,
+				'reason'         => 'editorial_post_gate_applies_to_posts_only',
+			);
+		}
+
+		$content = '' !== $content ? $content : self::normalize_gutenberg_content_for_storage( (string) $source->post_content );
+		$result  = apply_filters(
+			'devenia_editorial_source_post_validation',
+			null,
+			$source,
+			$content,
+			array(
+				'caller'    => 'devenia-ai-translations',
+				'operation' => 'source_design_inheritance',
+			)
+		);
+
+		if ( ! is_array( $result ) || empty( $result['available'] ) ) {
+			return array(
+				'available' => false,
+				'passed'    => false,
+				'code'      => 'source_editorial_validation_unavailable',
+				'message'   => 'Devenia editorial source-post validation is unavailable. Activate the block-editor validation adapter before source design can be inherited.',
+			);
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Return an ability-style error when a source is not a valid design source.
+	 *
+	 * @return array<string,mixed>|null
+	 */
+	private static function source_editorial_design_gate_error( WP_Post $source, string $content = '' ): ?array {
+		$validation = self::source_editorial_design_validation( $source, $content );
+		if ( ! empty( $validation['passed'] ) ) {
+			return null;
+		}
+
+		return array(
+			'success'    => false,
+			'code'       => empty( $validation['available'] ) ? 'source_editorial_validation_unavailable' : 'source_editorial_design_gate_failed',
+			'message'    => empty( $validation['available'] )
+				? 'Source design inheritance is blocked because Devenia editorial source-post validation is unavailable.'
+				: 'Source design inheritance is blocked because the source post does not pass the Devenia editorial design gate.',
+			'source_id'  => (int) $source->ID,
+			'validation' => $validation,
 		);
 	}
 
@@ -51,6 +118,12 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		$source_content = self::normalize_gutenberg_content_for_storage( (string) $source->post_content );
+		$source_gate_error = self::source_editorial_design_gate_error( $source, $source_content );
+		if ( $source_gate_error ) {
+			$source_gate_error['source_design'] = self::source_design_contract( $source );
+			return $source_gate_error;
+		}
+
 		$blocks         = parse_blocks( $source_content );
 		if ( empty( $blocks ) && has_blocks( $source_content ) ) {
 			return self::error( 'Source Gutenberg content could not be parsed for design inheritance.' );
@@ -89,6 +162,430 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 					'projection' => $stats,
 				)
 			),
+		);
+	}
+
+	/**
+	 * Persist localized fragments as the reusable content-only input for future
+	 * source-design reprojection.
+	 *
+	 * @param mixed               $raw_fragments Raw localized fragment rows.
+	 * @param array<string,mixed> $source_design Source design contract/projection.
+	 */
+	private static function store_localized_source_design_fragments( int $translation_id, WP_Post $source, string $language, $raw_fragments, array $source_design = array() ): void {
+		$records = self::localized_fragment_records_for_storage( $raw_fragments );
+		if ( empty( $records ) ) {
+			return;
+		}
+
+		$design_hash = (string) ( $source_design['design_hash'] ?? '' );
+		if ( '' === $design_hash ) {
+			$design_hash = self::source_design_signature_hash( (string) $source->post_content );
+		}
+
+		self::update_json_post_meta(
+			$translation_id,
+			self::META_LOCALIZED_FRAGMENTS,
+			array(
+				'schema_version'     => 1,
+				'source_id'          => (int) $source->ID,
+				'language'           => sanitize_key( $language ),
+				'source_hash'        => self::source_hash( $source ),
+				'source_design_hash' => $design_hash,
+				'stored_at'          => gmdate( 'c' ),
+				'fragments'          => $records,
+			)
+		);
+		update_post_meta( $translation_id, self::META_SOURCE_DESIGN_HASH, $design_hash );
+	}
+
+	/**
+	 * Stored localized fragment records for one translation.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function stored_localized_source_design_fragments( int $translation_id ): array {
+		$raw = get_post_meta( $translation_id, self::META_LOCALIZED_FRAGMENTS, true );
+		if ( is_string( $raw ) && '' !== trim( $raw ) ) {
+			$decoded = json_decode( $raw, true );
+			if ( is_array( $decoded ) ) {
+				$raw = $decoded;
+			}
+		}
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+
+		$records = self::localized_fragment_records_for_storage( $raw['fragments'] ?? array() );
+		if ( empty( $records ) ) {
+			return array();
+		}
+
+		return array(
+			'schema_version'     => absint( $raw['schema_version'] ?? 1 ),
+			'source_id'          => absint( $raw['source_id'] ?? 0 ),
+			'language'           => sanitize_key( (string) ( $raw['language'] ?? '' ) ),
+			'source_hash'        => sanitize_text_field( (string) ( $raw['source_hash'] ?? '' ) ),
+			'source_design_hash' => sanitize_text_field( (string) ( $raw['source_design_hash'] ?? '' ) ),
+			'stored_at'          => sanitize_text_field( (string) ( $raw['stored_at'] ?? '' ) ),
+			'fragments'          => $records,
+		);
+	}
+
+	/**
+	 * Build sanitized fragment rows suitable for storage and later projection.
+	 *
+	 * @param mixed $raw Raw fragment list.
+	 * @return array<int,array{key:string,html:string}>
+	 */
+	private static function localized_fragment_records_for_storage( $raw ): array {
+		$map = self::localized_fragment_map( $raw );
+		$out = array();
+		foreach ( $map as $key => $html ) {
+			$out[] = array(
+				'key'  => $key,
+				'html' => wp_kses_post( (string) $html ),
+			);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Extract best-effort localized fragments from an existing translated block tree.
+	 *
+	 * This is a migration fallback for older translations that were created before
+	 * fragment persistence existed. It can only reproject safely when source keys
+	 * still match.
+	 *
+	 * @return array<int,array{key:string,html:string}>
+	 */
+	private static function localized_fragment_records_from_existing_content( string $content ): array {
+		$blocks    = parse_blocks( self::normalize_gutenberg_content_for_storage( $content ) );
+		$out = array();
+		self::collect_localized_fragment_records_from_blocks( $blocks, $out );
+
+		return $out;
+	}
+
+	/**
+	 * Collect localized projection rows from an existing translated block tree.
+	 *
+	 * @param array<int,array<string,mixed>> $blocks Parsed blocks.
+	 * @param array<int,array{key:string,html:string}> $records Output records.
+	 */
+	private static function collect_localized_fragment_records_from_blocks( array $blocks, array &$records, string $path = '' ): void {
+		foreach ( $blocks as $index => $block ) {
+			$current_path = '' === $path ? (string) $index : $path . '.' . $index;
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			$name  = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
+			$attrs = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
+			$html  = isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '';
+			if ( in_array( $name, self::copy_quality_text_block_names(), true ) && '' !== trim( $html ) ) {
+				$key = self::source_design_fragment_key( $name, $attrs, $current_path, 'text' );
+				$value = self::source_design_inner_html_value( $html );
+				if ( '' !== $key && '' !== trim( wp_strip_all_tags( $value ) ) ) {
+					$records[] = array(
+						'key'  => $key,
+						'html' => wp_kses_post( $value ),
+					);
+				}
+			}
+
+			foreach ( self::structured_text_attr_fragments( $name, $attrs ) as $attr_fragment ) {
+				$key = self::structured_text_attr_fragment_key( $current_path, $name, $attr_fragment );
+				$value = (string) ( $attr_fragment['text'] ?? '' );
+				if ( '' !== $key && '' !== trim( wp_strip_all_tags( $value ) ) ) {
+					$records[] = array(
+						'key'  => $key,
+						'html' => wp_kses_post( $value ),
+					);
+				}
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				self::collect_localized_fragment_records_from_blocks( $block['innerBlocks'], $records, $current_path );
+			}
+		}
+	}
+
+	/**
+	 * Extract the inner HTML from a saved text block wrapper.
+	 */
+	private static function source_design_inner_html_value( string $html ): string {
+		if ( preg_match( '/^\\s*<([a-z][a-z0-9]*)\\b[^>]*>(.*)<\\/\\1>\\s*$/is', $html, $matches ) ) {
+			return (string) $matches[2];
+		}
+
+		return $html;
+	}
+
+	/**
+	 * Current source-design state for a translation payload.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function translation_source_design_state( WP_Post $translation, ?WP_Post $source ): array {
+		$language = sanitize_key( (string) get_post_meta( (int) $translation->ID, self::META_LANGUAGE, true ) );
+		if ( ! $source || '' === $language ) {
+			return array(
+				'state' => 'missing_source',
+				'passed' => false,
+			);
+		}
+
+		$expected = self::expected_source_design_signature_hash( (string) $source->post_content, $language );
+		$actual   = self::source_design_signature_hash( (string) $translation->post_content );
+		$stored   = self::stored_localized_source_design_fragments( (int) $translation->ID );
+		$stored_design_hash = (string) ( $stored['source_design_hash'] ?? get_post_meta( (int) $translation->ID, self::META_SOURCE_DESIGN_HASH, true ) );
+		$fragment_count = isset( $stored['fragments'] ) && is_array( $stored['fragments'] ) ? count( $stored['fragments'] ) : 0;
+
+		$state = 'in_sync';
+		$next_action = '';
+		if ( $expected !== $actual ) {
+			$state = $fragment_count > 0 ? 'needs_reprojection' : 'manual_design_drift';
+			$next_action = $fragment_count > 0 ? 'ai-translations/reproject-source-design' : 'recreate_or_reextract_localized_fragments_before_reprojection';
+		} elseif ( '' !== $stored_design_hash && $stored_design_hash !== $expected ) {
+			$state = $fragment_count > 0 ? 'needs_reprojection' : 'missing_localized_fragments';
+			$next_action = $fragment_count > 0 ? 'ai-translations/reproject-source-design' : 'recreate_or_reextract_localized_fragments_before_reprojection';
+		} elseif ( 0 === $fragment_count ) {
+			$state = 'fragments_not_persisted';
+			$next_action = 'next_upsert_or_reprojection_will_store_localized_fragments';
+		}
+
+		return array(
+			'passed'                  => 'in_sync' === $state || 'fragments_not_persisted' === $state,
+			'state'                   => $state,
+			'expected_design_hash'    => $expected,
+			'translation_design_hash' => $actual,
+			'stored_source_design_hash' => $stored_design_hash,
+			'stored_fragment_count'   => $fragment_count,
+			'next_action'             => $next_action,
+		);
+	}
+
+	/**
+	 * Rebuild existing translations from the current source design tree.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>
+	 */
+	private static function reproject_source_design( array $input ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		$source    = get_post( $source_id );
+		if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
+			return self::error( 'Source content not found.' );
+		}
+
+		$apply   = ! empty( $input['apply'] ) && empty( $input['dry_run'] );
+		$dry_run = ! $apply;
+		if ( $apply ) {
+			$step_token_gate = self::translation_step_token_gate( 'draft_write', $input );
+			if ( empty( $step_token_gate['success'] ) ) {
+				return $step_token_gate;
+			}
+		} else {
+			$step_token_gate = array();
+		}
+
+		$language_filter = array();
+		if ( ! empty( $input['languages'] ) && is_array( $input['languages'] ) ) {
+			foreach ( $input['languages'] as $language ) {
+				$language = sanitize_key( (string) $language );
+				if ( self::is_translation_language( $language ) ) {
+					$language_filter[ $language ] = true;
+				}
+			}
+		}
+		$translation_filter = array();
+		if ( ! empty( $input['translation_ids'] ) && is_array( $input['translation_ids'] ) ) {
+			foreach ( $input['translation_ids'] as $translation_id ) {
+				$translation_id = absint( $translation_id );
+				if ( $translation_id ) {
+					$translation_filter[ $translation_id ] = true;
+				}
+			}
+		}
+
+		$items = array();
+		$totals = array(
+			'checked' => 0,
+			'ready' => 0,
+			'changed' => 0,
+			'applied' => 0,
+			'blocked' => 0,
+			'missing_fragments' => 0,
+		);
+
+		foreach ( self::translation_rows_for_source( $source_id ) as $row ) {
+			$translation_id = absint( $row['id'] ?? 0 );
+			$language = sanitize_key( (string) ( $row['language'] ?? '' ) );
+			if ( ! $translation_id || ( $language_filter && empty( $language_filter[ $language ] ) ) || ( $translation_filter && empty( $translation_filter[ $translation_id ] ) ) ) {
+				continue;
+			}
+
+			++$totals['checked'];
+			$item = self::reproject_one_translation_source_design( $source, $translation_id, $language, $input, $dry_run, $step_token_gate );
+			$items[] = $item;
+			if ( empty( $item['success'] ) ) {
+				++$totals['blocked'];
+				if ( 'localized_fragments_incomplete' === (string) ( $item['code'] ?? '' ) || 'localized_fragments_missing' === (string) ( $item['code'] ?? '' ) ) {
+					++$totals['missing_fragments'];
+				}
+				continue;
+			}
+			++$totals['ready'];
+			if ( ! empty( $item['changed'] ) ) {
+				++$totals['changed'];
+			}
+			if ( ! empty( $item['applied'] ) ) {
+				++$totals['applied'];
+			}
+		}
+
+		return array(
+			'success' => 0 === $totals['blocked'],
+			'message' => $dry_run ? 'Source-design reprojection checked.' : 'Source-design reprojection applied where possible.',
+			'dry_run' => $dry_run,
+			'source' => array(
+				'id' => (int) $source->ID,
+				'title' => get_the_title( $source ),
+				'source_hash' => self::source_hash( $source ),
+				'source_design' => self::source_design_contract( $source ),
+			),
+			'totals' => $totals,
+			'items' => $items,
+		);
+	}
+
+	/**
+	 * Reproject one translation from the current source design.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @param array<string,mixed> $verified_identity Step-token identity.
+	 * @return array<string,mixed>
+	 */
+	private static function reproject_one_translation_source_design( WP_Post $source, int $translation_id, string $language, array $input, bool $dry_run, array $verified_identity ): array {
+		$translation = get_post( $translation_id );
+		if ( ! $translation || ! self::is_translation_post( $translation_id ) ) {
+			return array(
+				'success' => false,
+				'code' => 'translation_not_found',
+				'translation_id' => $translation_id,
+			);
+		}
+		if ( 'publish' === (string) $translation->post_status && ! $dry_run && empty( $input['allow_update_published'] ) ) {
+			return array(
+				'success' => false,
+				'code' => 'published_update_requires_confirmation',
+				'message' => 'Published translations require allow_update_published=true before source-design reprojection can write.',
+				'translation_id' => $translation_id,
+				'language' => $language,
+			);
+		}
+		$claim_gate = self::translation_claim_write_gate( (int) $source->ID, $language, (string) ( $input['claim_token'] ?? '' ) );
+		if ( $claim_gate ) {
+			$claim_gate['translation_id'] = $translation_id;
+			return $claim_gate;
+		}
+
+		$stored = self::stored_localized_source_design_fragments( $translation_id );
+		$fragments = isset( $stored['fragments'] ) && is_array( $stored['fragments'] ) ? $stored['fragments'] : array();
+		$fragment_source = 'stored';
+		if ( empty( $fragments ) ) {
+			$fragments = self::localized_fragment_records_from_existing_content( (string) $translation->post_content );
+			$fragment_source = 'existing_translation_content';
+		}
+		if ( empty( $fragments ) ) {
+			return array(
+				'success' => false,
+				'code' => 'localized_fragments_missing',
+				'message' => 'No localized fragments are stored for this translation. Recreate localized fragments before source-design reprojection.',
+				'translation_id' => $translation_id,
+				'language' => $language,
+			);
+		}
+
+		$projection = self::inherited_source_design_content(
+			$source,
+			array(
+				'localized_fragments' => $fragments,
+				'strict_source_design_fragments' => true,
+			),
+			$language
+		);
+		if ( empty( $projection['success'] ) ) {
+			$projection['translation_id'] = $translation_id;
+			$projection['language'] = $language;
+			$projection['fragment_source'] = $fragment_source;
+			return $projection;
+		}
+
+		$content = self::localize_internal_links_in_content( (string) $projection['content'], $language );
+		$content = self::normalize_gutenberg_content_for_storage( $content );
+		$changed = $content !== self::normalize_gutenberg_content_for_storage( (string) $translation->post_content );
+		$previous_review_hash = self::translation_review_content_hash( $translation );
+		$review_invalidated = false;
+
+		if ( ! $dry_run && $changed ) {
+			$result = 0;
+			self::with_reviewer_style_capture_suspended(
+				static function () use ( &$result, $translation_id, $content ): void {
+					self::with_direct_save_storage_guardrails_suspended(
+						static function () use ( &$result, $translation_id, $content ): void {
+							$result = wp_update_post(
+								wp_slash(
+									array(
+										'ID' => $translation_id,
+										'post_content' => $content,
+									)
+								),
+								true
+							);
+						}
+					);
+				}
+			);
+			if ( is_wp_error( $result ) ) {
+				return array(
+					'success' => false,
+					'code' => 'reprojection_save_failed',
+					'message' => $result->get_error_message(),
+					'translation_id' => $translation_id,
+					'language' => $language,
+				);
+			}
+			$review_invalidated = self::invalidate_translation_reviews_if_content_changed( $translation_id, 'source_design_reprojection', $previous_review_hash );
+		}
+
+		if ( ! $dry_run ) {
+			$status = $changed ? 'needs_review' : self::sanitize_translation_status( (string) get_post_meta( $translation_id, self::META_STATUS, true ) );
+			update_post_meta( $translation_id, self::META_SOURCE_HASH, self::source_hash( $source ) );
+			update_post_meta( $translation_id, self::META_STATUS, $status );
+			self::store_localized_source_design_fragments( $translation_id, $source, $language, $fragments, isset( $projection['source_design'] ) && is_array( $projection['source_design'] ) ? $projection['source_design'] : array() );
+			self::sync_source_presentation_meta( $translation_id, $source );
+			if ( ! empty( $verified_identity ) ) {
+				self::record_translation_writer_provenance( $translation_id, $verified_identity );
+			}
+			self::sync_translation_index_row( $translation_id );
+		}
+
+		$state_post = $dry_run ? $translation : get_post( $translation_id );
+
+		return array(
+			'success' => true,
+			'translation_id' => $translation_id,
+			'language' => $language,
+			'post_status' => (string) $translation->post_status,
+			'changed' => $changed,
+			'applied' => ! $dry_run,
+			'fragment_source' => $fragment_source,
+			'review_invalidated' => $review_invalidated,
+			'source_design' => $projection['source_design'] ?? array(),
+			'design_inheritance_state' => $state_post instanceof WP_Post ? self::translation_source_design_state( $state_post, $source ) : array(),
 		);
 	}
 
