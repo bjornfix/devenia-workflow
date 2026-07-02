@@ -1,7 +1,0 @@
-.DS_Store
-.gitattributes
-.phpunit.result.cache
-.wp-env.json
-.wp-env.override.json
-node_modules/
-*.zip

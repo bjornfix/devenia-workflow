@@ -1114,8 +1114,13 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			return trim( $matches[1] . '{{text}}' . $matches[4] );
 		}
 
+		$structured_fragments = self::structured_text_attr_fragments( $block_name, $attrs );
+		if ( $structured_fragments ) {
+			return '';
+		}
+
 		$shell = $html;
-		foreach ( self::structured_text_attr_fragments( $block_name, $attrs ) as $attr_fragment ) {
+		foreach ( $structured_fragments as $attr_fragment ) {
 			$shell = self::replace_source_design_structured_html_value( $shell, (string) ( $attr_fragment['text'] ?? '' ), '{{text}}' );
 		}
 		if ( $shell !== $html ) {
