@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.349
+ * Version: 0.1.350
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.349';
+	const VERSION = '0.1.350';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -26253,7 +26253,7 @@ final class Devenia_AI_Translations {
 			'read_more'      => self::presentation_label( $language, 'read_more_label', __( 'Read more', 'devenia-ai-translations' ) ),
 			'category'       => isset( $taxonomy_labels['Categories'] ) ? (string) $taxonomy_labels['Categories'] : __( 'Categories', 'devenia-ai-translations' ),
 			'tag'            => isset( $taxonomy_labels['Tags'] ) ? (string) $taxonomy_labels['Tags'] : __( 'Tags', 'devenia-ai-translations' ),
-			'comments'       => __( 'Comments', 'devenia-ai-translations' ),
+			'comments'       => self::presentation_label( $language, 'comments_label', __( 'Comments', 'devenia-ai-translations' ) ),
 			'comment_submit' => (string) ( $comments['label_submit'] ?? __( 'Post Comment', 'devenia-ai-translations' ) ),
 		);
 	}
