@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.347
+ * Version: 0.1.348
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.347';
+	const VERSION = '0.1.348';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -22772,6 +22772,10 @@ final class Devenia_AI_Translations {
 	 * Resolve WordPress archive-like links that do not have a post ID.
 	 */
 	private static function internal_archive_link_resolves( string $clean_path ): bool {
+		if ( self::author_archive_link_resolves( $clean_path ) ) {
+			return true;
+		}
+
 		$posts_page_id = absint( get_option( 'page_for_posts' ) );
 		if ( $posts_page_id && trim( self::normalized_url_path( (string) get_permalink( $posts_page_id ) ), '/' ) === $clean_path ) {
 			return true;
@@ -22801,6 +22805,35 @@ final class Devenia_AI_Translations {
 				continue;
 			}
 			if ( get_term_by( 'slug', sanitize_title( $slug ), $taxonomy ) instanceof WP_Term ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Resolve source and localized author archive links, which are valid archives
+	 * even though url_to_postid() cannot map them to a singular content ID.
+	 */
+	private static function author_archive_link_resolves( string $clean_path ): bool {
+		$path = '/' . trim( $clean_path, '/' ) . '/';
+		if ( ! empty( self::translated_author_archive_request_for_path( $path ) ) ) {
+			return true;
+		}
+
+		if ( preg_match( '#^author/([^/]+)/?$#', $clean_path, $match ) ) {
+			return get_user_by( 'slug', sanitize_title( (string) $match[1] ) ) instanceof WP_User;
+		}
+
+		foreach ( self::target_languages() as $language => $config ) {
+			$prefix = self::language_prefix( (string) $language );
+			if ( '' === $prefix || 0 !== strpos( $clean_path, $prefix . '/author/' ) ) {
+				continue;
+			}
+
+			$slug = trim( substr( $clean_path, strlen( $prefix . '/author/' ) ), '/' );
+			if ( '' !== $slug && false === strpos( $slug, '/' ) && get_user_by( 'slug', sanitize_title( $slug ) ) instanceof WP_User ) {
 				return true;
 			}
 		}
