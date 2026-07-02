@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.351
+ * Version: 0.1.352
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.351';
+	const VERSION = '0.1.352';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -18836,7 +18836,7 @@ final class Devenia_AI_Translations {
 		$html = self::localize_author_byline_html( $html, $language );
 		$html = self::localize_read_more_html( $html, $language );
 		$html = self::localize_archive_entry_meta_labels_html( $html, $language );
-		$html = self::localize_scriptless_social_sharing_html( $html, $runtime );
+		$html = self::localize_scriptless_social_sharing_html( $html, $runtime, $language );
 		$html = self::localize_akismet_privacy_notice_html( $html, $runtime );
 
 		return self::rewrite_visible_text_segments(
@@ -19134,7 +19134,7 @@ final class Devenia_AI_Translations {
 	 *
 	 * @param array{search:array<int,string>,replace:array<int,string>,has_replacements:bool} $runtime Runtime replacement map.
 	 */
-	private static function localize_scriptless_social_sharing_html( string $html, array $runtime ): string {
+	private static function localize_scriptless_social_sharing_html( string $html, array $runtime, string $language ): string {
 		$html = (string) preg_replace_callback(
 			'/(<h[1-6]\b[^>]*class=(["\'])[^"\']*\bscriptlesssocialsharing__heading\b[^"\']*\2[^>]*>)(.*?)(<\/h[1-6]>)/isu',
 			static function ( array $match ) use ( $runtime ): string {
@@ -19149,7 +19149,7 @@ final class Devenia_AI_Translations {
 			$html
 		);
 
-		return (string) preg_replace_callback(
+		$html = (string) preg_replace_callback(
 			'/(<span\b[^>]*class=(["\'])[^"\']*\bscreen-reader-text\b[^"\']*\2[^>]*>)(.*?)(<\/span>)/isu',
 			static function ( array $match ) use ( $runtime ): string {
 				$text = html_entity_decode( wp_strip_all_tags( (string) $match[3] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
@@ -19162,6 +19162,81 @@ final class Devenia_AI_Translations {
 			},
 			$html
 		);
+
+		return self::localize_scriptless_email_share_href_html( $html, $language );
+	}
+
+	/**
+	 * Localize Scriptless email share hrefs using runtime text values.
+	 */
+	private static function localize_scriptless_email_share_href_html( string $html, string $language ): string {
+		if ( false === stripos( $html, 'mailto:?' ) || false === stripos( $html, 'button email' ) ) {
+			return $html;
+		}
+
+		$subject_prefix = trim( self::runtime_text_value( $language, 'share_text', 'scriptless_email_subject_prefix', '' ) );
+		$body_template  = trim( self::runtime_text_value( $language, 'share_text', 'scriptless_email_body', '' ) );
+		if ( '' === $subject_prefix && '' === $body_template ) {
+			return $html;
+		}
+
+		return (string) preg_replace_callback(
+			'/(<a\b[^>]*class=(["\'])[^"\']*\bbutton\b[^"\']*\bemail\b[^"\']*\2[^>]*\bhref=)(["\'])(mailto:\?[^"\']*)\3/isu',
+			static function ( array $match ) use ( $subject_prefix, $body_template ): string {
+				$href  = html_entity_decode( (string) $match[4], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$parts = wp_parse_url( $href );
+				$query = isset( $parts['query'] ) && is_string( $parts['query'] ) ? $parts['query'] : '';
+				if ( '' === $query ) {
+					return (string) $match[0];
+				}
+
+				$params = array();
+				wp_parse_str( $query, $params );
+				$existing_subject = isset( $params['subject'] ) && is_scalar( $params['subject'] ) ? (string) $params['subject'] : '';
+				$existing_body    = isset( $params['body'] ) && is_scalar( $params['body'] ) ? (string) $params['body'] : '';
+				$url              = self::extract_url_from_share_body( $existing_body );
+				$title            = self::extract_title_from_share_subject( $existing_subject );
+
+				if ( '' !== $subject_prefix ) {
+					$params['subject'] = trim( $subject_prefix . ( '' !== $title ? ' ' . $title : '' ) );
+				}
+				if ( '' !== $body_template ) {
+					$params['body'] = strtr(
+						$body_template,
+						array(
+							'{url}'   => $url,
+							'{title}' => $title,
+						)
+					);
+				}
+
+				$updated_href = 'mailto:?' . http_build_query( $params, '', '&', PHP_QUERY_RFC3986 );
+
+				return (string) $match[1] . (string) $match[3] . esc_url( $updated_href, array( 'mailto' ) ) . (string) $match[3];
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Extract the shared URL from Scriptless' default email body.
+	 */
+	private static function extract_url_from_share_body( string $body ): string {
+		if ( preg_match( '#https?://[^\s<>"\']+#i', $body, $match ) ) {
+			return (string) $match[0];
+		}
+
+		return '';
+	}
+
+	/**
+	 * Extract the shared title from Scriptless' default email subject.
+	 */
+	private static function extract_title_from_share_subject( string $subject ): string {
+		$title = preg_replace( '/^A post worth sharing:\s*/i', '', $subject );
+		$title = is_string( $title ) ? trim( $title ) : '';
+
+		return '' !== $title ? $title : trim( $subject );
 	}
 
 	/**
