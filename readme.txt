@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.345
+Stable tag: 0.1.346
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,11 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.346 =
+* Adds a shared publication-experience readiness gate for source and translated article design.
+* Requires quality reviewers to provide visual design, desktop, mobile, source-design, and visual-evidence review fields.
+* Requires final review and publish gates to honor the same publication-experience readiness, so a failed source design blocks all downstream translations.
 
 = 0.1.345 =
 * Blocks source-design inheritance and reprojection when the source post fails the shared Devenia editorial source-design validation.

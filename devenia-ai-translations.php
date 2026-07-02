@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.345
+ * Version: 0.1.346
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.345';
+	const VERSION = '0.1.346';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -9781,10 +9781,35 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required: concrete notes on who may rely on this page, what decision it may influence, and whether caveats/current facts are clear enough for a real reader.',
 				),
-				'currentness_context_notes' => array(
-					'type'        => 'string',
-					'description' => 'Required: concrete notes on current-state claims, stale facts, historical context, and whether dated material is clearly framed for present-day readers.',
-				),
+					'currentness_context_notes' => array(
+						'type'        => 'string',
+						'description' => 'Required: concrete notes on current-state claims, stale facts, historical context, and whether dated material is clearly framed for present-day readers.',
+					),
+					'design_reference_url' => array(
+						'type'        => 'string',
+						'description' => 'Required for article quality review: URL or canonical surface used as the visual/design reference.',
+					),
+					'visual_design_notes' => array(
+						'type'        => 'string',
+						'description' => 'Required: concrete notes on whether the rendered page feels like a designed Devenia article, including hero treatment, visual hierarchy, rhythm, media, and section/card treatment.',
+					),
+					'desktop_layout_notes' => array(
+						'type'        => 'string',
+						'description' => 'Required: concrete desktop viewport observations from the reviewed surface.',
+					),
+					'mobile_layout_notes' => array(
+						'type'        => 'string',
+						'description' => 'Required: concrete mobile viewport observations from the reviewed surface.',
+					),
+					'source_design_experience_notes' => array(
+						'type'        => 'string',
+						'description' => 'Required: concrete notes that the source design experience is valid enough to inherit into translations, not only that the block tree is technically valid.',
+					),
+					'visual_evidence' => array(
+						'type'        => 'array',
+						'items'       => array( 'type' => 'string' ),
+						'description' => 'Required: at least two concrete visual observations or screenshot/viewport identifiers from the actual review surface.',
+					),
 				'review_findings' => array(
 					'type'        => 'array',
 					'items'       => array( 'type' => 'string' ),
@@ -9823,10 +9848,26 @@ final class Devenia_AI_Translations {
 					'type'        => 'boolean',
 					'description' => 'The page was reviewed as information a real reader may use for a business, technical, buying, SEO, legal, commercial, or operational decision.',
 				),
-				'links_and_actions_reviewed' => array(
-					'type'        => 'boolean',
-					'description' => 'Links, internal-link opportunities, forms, share text, mailto subjects, and action wording were checked in moderation.',
-				),
+					'links_and_actions_reviewed' => array(
+						'type'        => 'boolean',
+						'description' => 'Links, internal-link opportunities, forms, share text, mailto subjects, and action wording were checked in moderation.',
+					),
+					'visual_design_reviewed' => array(
+						'type'        => 'boolean',
+						'description' => 'The page design, hero, section rhythm, cards, media, and visual hierarchy were reviewed as part of the publication experience.',
+					),
+					'desktop_layout_reviewed' => array(
+						'type'        => 'boolean',
+						'description' => 'The desktop rendered layout was reviewed, not inferred from block data alone.',
+					),
+					'mobile_layout_reviewed' => array(
+						'type'        => 'boolean',
+						'description' => 'The mobile rendered layout was reviewed, not inferred from block data alone.',
+					),
+					'source_design_experience_reviewed' => array(
+						'type'        => 'boolean',
+						'description' => 'The source article design experience was reviewed as a canonical design surface for translations.',
+					),
 				'agency_copy_reviewed' => array(
 					'type'        => 'boolean',
 					'description' => 'Required when agency-copy profile is enabled: buyer, promise, proof, objection risk, and action were reviewed as conversion copy.',
@@ -9879,10 +9920,14 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required: concrete notes about localized URL, title, excerpt, search-visible wording, and route safety.',
 				),
-				'reader_decision_safety_summary' => array(
-					'type'        => 'string',
-					'description' => 'Required: concrete final-review summary of reader decision impact, currentness/current-status handling, caveats, and historical context.',
-				),
+					'reader_decision_safety_summary' => array(
+						'type'        => 'string',
+						'description' => 'Required: concrete final-review summary of reader decision impact, currentness/current-status handling, caveats, and historical context.',
+					),
+					'publication_experience_summary' => array(
+						'type'        => 'string',
+						'description' => 'Required: concrete final-review summary of source/translation visual design readiness, desktop/mobile layout, and publication experience blockers or approval reason.',
+					),
 				'final_decision' => array(
 					'type'        => 'string',
 					'enum'        => array( 'approve_publish', 'request_changes' ),
@@ -9904,10 +9949,14 @@ final class Devenia_AI_Translations {
 					'type'        => 'boolean',
 					'description' => 'Required true: slug, localized path, title, excerpt, SEO-visible text, and route safety were checked.',
 				),
-				'reader_decision_safety_reviewed' => array(
-					'type'        => 'boolean',
-					'description' => 'Required true: prior review evidence proves the public page will not mislead real readers relying on it for decisions.',
-				),
+					'reader_decision_safety_reviewed' => array(
+						'type'        => 'boolean',
+						'description' => 'Required true: prior review evidence proves the public page will not mislead real readers relying on it for decisions.',
+					),
+					'publication_experience_reviewed' => array(
+						'type'        => 'boolean',
+						'description' => 'Required true: source design, translation design, and desktop/mobile visual readiness were checked before final approval.',
+					),
 				'run_qa' => array( 'type' => 'boolean', 'default' => true ),
 			),
 			'additionalProperties' => false,
@@ -13103,17 +13152,30 @@ final class Devenia_AI_Translations {
 		}
 
 			$seo_meta_state = self::seo_meta_state_for_post( $post );
-		if ( 'post_publish' === $stage && empty( $seo_meta_state['passed'] ) ) {
-			$blockers[] = self::quality_verdict_blocker(
-				'seo_meta_not_current',
-				'needs_work',
-				'Stored SEO metadata no longer matches the current visible title.',
-				array(
-					'state'        => (string) ( $seo_meta_state['state'] ?? '' ),
-					'stale_fields' => $seo_meta_state['stale_fields'] ?? array(),
-				)
-			);
-		}
+			if ( 'post_publish' === $stage && empty( $seo_meta_state['passed'] ) ) {
+				$blockers[] = self::quality_verdict_blocker(
+					'seo_meta_not_current',
+					'needs_work',
+					'Stored SEO metadata no longer matches the current visible title.',
+					array(
+						'state'        => (string) ( $seo_meta_state['state'] ?? '' ),
+						'stale_fields' => $seo_meta_state['stale_fields'] ?? array(),
+					)
+				);
+			}
+
+			$publication_experience = self::publication_experience_readiness_for_post( $post, $language, $stage );
+			if ( empty( $publication_experience['passed'] ) ) {
+				$blockers[] = self::quality_verdict_blocker(
+					'publication_experience_not_ready',
+					'block_publish',
+					'Publication experience/design readiness is blocked.',
+					array(
+						'state'         => (string) ( $publication_experience['state'] ?? '' ),
+						'blocker_codes' => self::quality_verdict_blocker_codes( $publication_experience['blockers'] ?? array() ),
+					)
+				);
+			}
 
 		$reviewed_at      = (string) get_post_meta( $post_id, self::META_QUALITY_REVIEWED_AT, true );
 		$quality_state    = self::quality_review_state_for_post( $post, $reviewed_at, $language );
@@ -13190,6 +13252,7 @@ final class Devenia_AI_Translations {
 						'open'       => $open_feedback,
 					),
 					'seo_meta' => $seo_meta_state,
+					'publication_experience' => $publication_experience,
 					'internal_linking' => $internal_linking,
 					'agency_copy' => $agency_copy,
 				)
@@ -13200,6 +13263,7 @@ final class Devenia_AI_Translations {
 				'source_id'        => $source_id,
 				'content_hash'     => self::translation_review_content_hash( $post ),
 				'source_hash'      => $source ? self::source_hash( $source ) : '',
+				'publication_experience_passed' => ! empty( $publication_experience['passed'] ),
 				'fitness_passed'   => is_array( $fitness ) ? ! empty( $fitness['passed'] ) : null,
 				'fitness_issue_codes' => is_array( $fitness ) ? self::qa_item_codes( $fitness['issues'] ?? array() ) : array(),
 			),
@@ -13223,6 +13287,24 @@ final class Devenia_AI_Translations {
 				'details'  => $details,
 			)
 		);
+	}
+
+	/**
+	 * @return array<int,string>
+	 */
+	private static function quality_verdict_blocker_codes( $blockers ): array {
+		if ( ! is_array( $blockers ) ) {
+			return array();
+		}
+
+		$codes = array();
+		foreach ( $blockers as $blocker ) {
+			if ( is_array( $blocker ) && isset( $blocker['code'] ) ) {
+				$codes[] = sanitize_key( (string) $blocker['code'] );
+			}
+		}
+
+		return array_values( array_unique( array_filter( $codes ) ) );
 	}
 
 	/**
@@ -13293,6 +13375,164 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Current publication-experience readiness for source and translated content.
+	 *
+	 * This is the shared Module behind review and publish gates. Callers should
+	 * not duplicate visual/design heuristics; they only consume this result.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function publication_experience_readiness_for_post( WP_Post $post, string $language = '', string $stage = 'post_publish' ): array {
+		$post_id          = (int) $post->ID;
+		$language_context = self::review_language_context_for_post( $post );
+		$is_translation   = ! empty( $language_context['is_translation'] );
+		$source_id        = $is_translation ? absint( $language_context['source_id'] ?? 0 ) : 0;
+		$source           = $source_id ? get_post( $source_id ) : null;
+		$language         = sanitize_key( '' !== $language ? $language : (string) ( $language_context['target_language'] ?? '' ) );
+		$blockers         = array();
+		$warnings         = array();
+		$subjects         = array(
+			'content' => self::publication_experience_subject_state( $post, $language, $stage ),
+		);
+
+		if ( $is_translation ) {
+			if ( $source instanceof WP_Post && self::is_translatable_post_type( (string) $source->post_type ) ) {
+				$subjects['source'] = self::publication_experience_subject_state( $source, self::source_language_code(), 'source_for_translation' );
+			} else {
+				$subjects['source'] = array(
+					'passed'   => false,
+					'state'    => 'missing_source',
+					'post_id'  => $source_id,
+					'blockers' => array(
+						self::quality_verdict_blocker( 'source_publication_experience_missing_source', 'block_publish', 'Source content is missing, so publication experience cannot be verified.' ),
+					),
+					'warnings' => array(),
+				);
+			}
+		}
+
+		foreach ( $subjects as $name => $subject ) {
+			foreach ( $subject['blockers'] ?? array() as $blocker ) {
+				$blocker['details'] = array_merge(
+					is_array( $blocker['details'] ?? null ) ? $blocker['details'] : array(),
+					array( 'subject' => $name )
+				);
+				$blockers[] = $blocker;
+			}
+			foreach ( $subject['warnings'] ?? array() as $warning ) {
+				$warnings[] = array_merge(
+					is_array( $warning ) ? $warning : array( 'message' => (string) $warning ),
+					array( 'subject' => $name )
+				);
+			}
+		}
+
+		$state = array(
+			'passed'           => empty( $blockers ),
+			'state'            => empty( $blockers ) ? 'publication_experience_ready' : 'publication_experience_blocked',
+			'post_id'          => $post_id,
+			'language'         => $language,
+			'stage'            => sanitize_key( $stage ),
+			'is_translation'   => $is_translation,
+			'source_id'        => $source_id,
+			'blockers'         => $blockers,
+			'warnings'         => $warnings,
+			'subjects'         => $subjects,
+			'content_hash'     => self::translation_review_content_hash( $post ),
+			'source_hash'      => $source instanceof WP_Post ? self::source_hash( $source ) : '',
+			'checked_at'       => gmdate( 'c' ),
+		);
+
+		$filtered = apply_filters(
+			'ai_translation_workflow_publication_experience_state',
+			$state,
+			$post,
+			$language,
+			array(
+				'caller'          => 'devenia-ai-translations',
+				'stage'           => sanitize_key( $stage ),
+				'is_translation'  => $is_translation,
+				'source_id'       => $source_id,
+			)
+		);
+
+		if ( is_array( $filtered ) ) {
+			$filtered_blockers = isset( $filtered['blockers'] ) && is_array( $filtered['blockers'] ) ? $filtered['blockers'] : array();
+			$filtered_warnings = isset( $filtered['warnings'] ) && is_array( $filtered['warnings'] ) ? $filtered['warnings'] : array();
+			$state = array_merge( $state, $filtered );
+			$state['blockers'] = array_values( array_unique( array_merge( $blockers, $filtered_blockers ), SORT_REGULAR ) );
+			$state['warnings'] = array_values( array_unique( array_merge( $warnings, $filtered_warnings ), SORT_REGULAR ) );
+		}
+
+		$state['passed'] = empty( $state['blockers'] ) && ! empty( $state['passed'] );
+		$state['state']  = $state['passed'] ? 'publication_experience_ready' : 'publication_experience_blocked';
+
+		return self::compact_quality_profile( $state );
+	}
+
+	/**
+	 * Readiness for one concrete source/translation post.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function publication_experience_subject_state( WP_Post $post, string $language, string $stage ): array {
+		$post_id   = (int) $post->ID;
+		$post_type = (string) $post->post_type;
+		$content   = self::normalize_gutenberg_content_for_storage( (string) $post->post_content );
+		$blockers  = array();
+		$warnings  = array();
+		$signals   = array(
+			'post_type'              => $post_type,
+			'post_status'            => (string) $post->post_status,
+		);
+
+		$editorial_validation = self::source_editorial_design_validation( $post, $content );
+		$signals['editorial_source_validation'] = $editorial_validation;
+		if ( empty( $editorial_validation['passed'] ) ) {
+			$blockers[] = self::quality_verdict_blocker(
+				empty( $editorial_validation['available'] ) ? 'publication_experience_editorial_adapter_unavailable' : 'publication_experience_editorial_design_failed',
+				'block_publish',
+				empty( $editorial_validation['available'] )
+					? 'Devenia editorial design validation is unavailable, so publication experience cannot be trusted.'
+					: 'The content does not pass the Devenia editorial design gate.',
+				array(
+					'post_id'    => $post_id,
+					'issue_codes'=> $editorial_validation['issue_codes'] ?? array(),
+				)
+			);
+		}
+
+		$state = array(
+			'passed'    => empty( $blockers ),
+			'state'     => empty( $blockers ) ? 'ready' : 'blocked',
+			'post_id'   => $post_id,
+			'language'  => sanitize_key( $language ),
+			'stage'     => sanitize_key( $stage ),
+			'blockers'  => $blockers,
+			'warnings'  => $warnings,
+			'signals'   => $signals,
+		);
+
+		$filtered = apply_filters(
+			'ai_translation_workflow_publication_experience_subject_state',
+			$state,
+			$post,
+			sanitize_key( $language ),
+			sanitize_key( $stage ),
+			$content
+		);
+
+		if ( is_array( $filtered ) ) {
+			$state = array_merge( $state, $filtered );
+		}
+		$state['blockers'] = isset( $state['blockers'] ) && is_array( $state['blockers'] ) ? $state['blockers'] : array();
+		$state['passed']   = empty( $state['blockers'] ) && ! empty( $state['passed'] );
+		$state['state']    = $state['passed'] ? 'ready' : 'blocked';
+
+		return $state;
+	}
+
+	/**
 	 * Publish a translation after optional QA.
 	 */
 	private static function publish_translation( array $input ): array {
@@ -13311,10 +13551,11 @@ final class Devenia_AI_Translations {
 		}
 
 		$qa         = $gate['qa'];
-		$review_state = $gate['review_state'] ?? null;
-		$quality_review_state = $gate['quality_review_state'] ?? null;
-		$final_review_state = $gate['final_review_state'] ?? null;
-		$quality_verdict = $gate['quality_verdict'] ?? null;
+			$review_state = $gate['review_state'] ?? null;
+			$quality_review_state = $gate['quality_review_state'] ?? null;
+			$publication_experience = $gate['publication_experience'] ?? null;
+			$final_review_state = $gate['final_review_state'] ?? null;
+			$quality_verdict = $gate['quality_verdict'] ?? null;
 		$language   = (string) $gate['language'];
 		$source_id  = (int) $gate['source_id'];
 		$transition = self::apply_translation_publish_transition( $translation_id, $language, $source_id );
@@ -13351,10 +13592,11 @@ final class Devenia_AI_Translations {
 					'message'           => 'Translation was published, but live verification failed.',
 					'translation'       => $translation,
 					'qa'                => $qa,
-					'review_state'      => $review_state,
-					'quality_review_state' => $quality_review_state,
-					'final_review_state' => $final_review_state,
-					'quality_verdict'   => $quality_verdict,
+						'review_state'      => $review_state,
+						'quality_review_state' => $quality_review_state,
+						'publication_experience' => $publication_experience,
+						'final_review_state' => $final_review_state,
+						'quality_verdict'   => $quality_verdict,
 					'menu'              => $menu,
 					'purge_urls'        => $purge_urls,
 					'link_repair'       => $transition['link_repair'] ?? null,
@@ -13368,10 +13610,11 @@ final class Devenia_AI_Translations {
 			'message'           => 'Translation published.',
 			'translation'       => $translation,
 			'qa'                => $qa,
-			'review_state'      => $review_state,
-			'quality_review_state' => $quality_review_state,
-			'final_review_state' => $final_review_state,
-			'quality_verdict'   => $quality_verdict,
+				'review_state'      => $review_state,
+				'quality_review_state' => $quality_review_state,
+				'publication_experience' => $publication_experience,
+				'final_review_state' => $final_review_state,
+				'quality_verdict'   => $quality_verdict,
 			'menu'              => $menu,
 			'purge_urls'        => $purge_urls,
 			'link_repair'       => $transition['link_repair'] ?? null,
@@ -13597,39 +13840,67 @@ final class Devenia_AI_Translations {
 			'state'         => 'missing_translation',
 			'stale_reasons' => array( 'missing_translation' ),
 		);
-		if ( empty( $quality_state['passed'] ) ) {
-			return array(
-				'success'              => false,
-				'message'              => 'Current quality review evidence from a separate reviewer process is required before publishing.',
-				'review_state'         => $review_state,
-				'quality_review_state' => $quality_state,
-				'qa'                   => $qa,
+			if ( empty( $quality_state['passed'] ) ) {
+				return array(
+					'success'              => false,
+					'message'              => 'Current quality review evidence from a separate reviewer process is required before publishing.',
+					'review_state'         => $review_state,
+					'quality_review_state' => $quality_state,
+					'qa'                   => $qa,
+				);
+			}
+			$publication_experience = $translation_post instanceof WP_Post ? self::publication_experience_readiness_for_post( $translation_post, $language, 'pre_publish' ) : array(
+				'passed'   => false,
+				'state'    => 'missing_translation',
+				'blockers' => array( 'missing_translation' ),
 			);
-		}
-		$quality_verdict  = $translation_post instanceof WP_Post ? self::quality_verdict_present_for_audience( self::quality_verdict_for_post( $translation_post, false, 'pre_publish' ), 'ai_operator' ) : null;
-		$final_state = $translation_post instanceof WP_Post ? self::final_review_readiness_for_post( $translation_post, $language ) : array(
-			'passed'        => false,
-			'state'         => 'missing_translation',
+			if ( empty( $publication_experience['passed'] ) ) {
+				return array(
+					'success'                => false,
+					'message'                => 'Publication experience/design readiness is required before publishing.',
+					'review_state'           => $review_state,
+					'quality_review_state'   => $quality_state,
+					'publication_experience' => $publication_experience,
+					'qa'                     => $qa,
+				);
+			}
+			$quality_verdict  = $translation_post instanceof WP_Post ? self::quality_verdict_present_for_audience( self::quality_verdict_for_post( $translation_post, false, 'pre_publish' ), 'ai_operator' ) : null;
+			if ( is_array( $quality_verdict ) && empty( $quality_verdict['publishable'] ) ) {
+				return array(
+					'success'                => false,
+					'message'                => 'Quality verdict is not publishable.',
+					'review_state'           => $review_state,
+					'quality_review_state'   => $quality_state,
+					'publication_experience' => $publication_experience,
+					'quality_verdict'        => $quality_verdict,
+					'qa'                     => $qa,
+				);
+			}
+			$final_state = $translation_post instanceof WP_Post ? self::final_review_readiness_for_post( $translation_post, $language ) : array(
+				'passed'        => false,
+				'state'         => 'missing_translation',
 			'stale_reasons' => array( 'missing_translation' ),
 		);
 		if ( empty( $final_state['passed'] ) ) {
 			return array(
 				'success'              => false,
-				'message'              => 'Current final review evidence from a third reviewer process is required before publishing.',
-				'review_state'         => $review_state,
-				'quality_review_state' => $quality_state,
-				'final_review_state'   => $final_state,
-				'qa'                   => $qa,
-			);
+					'message'              => 'Current final review evidence from a third reviewer process is required before publishing.',
+					'review_state'         => $review_state,
+					'quality_review_state' => $quality_state,
+					'publication_experience' => $publication_experience,
+					'final_review_state'   => $final_state,
+					'qa'                   => $qa,
+				);
 		}
 
 		return array(
 			'success'         => true,
 			'qa'              => $qa,
-			'review_state'    => $review_state,
-			'quality_review_state' => $quality_state,
-			'final_review_state' => $final_state,
-			'quality_verdict' => $quality_verdict,
+				'review_state'    => $review_state,
+				'quality_review_state' => $quality_state,
+				'publication_experience' => $publication_experience,
+				'final_review_state' => $final_state,
+				'quality_verdict' => $quality_verdict,
 			'reviewer'        => $reviewer_gate['reviewer'] ?? array(),
 			'source_id'       => $source_id,
 			'language'        => $language,
@@ -14598,18 +14869,26 @@ final class Devenia_AI_Translations {
 		$required_checks = self::required_quality_review_checks( $language );
 		$review_checks   = self::review_checks_from_input( $input, $required_checks );
 		$missing_checks  = self::missing_review_checks( $review_checks, $required_checks );
-		if ( $missing_checks ) {
-			return array(
-				'success'         => false,
-				'message'         => 'Quality review requires full-page, native-language, customer-visible-copy, factual-accuracy, currentness/context, real-reader decision-safety, and links/actions checks.',
-				'missing_checks'  => $missing_checks,
-				'required_checks' => $required_checks,
-			);
-		}
-		$review_contract = self::validate_review_contract( 'quality_review', $input );
-		if ( empty( $review_contract['success'] ) ) {
-			return $review_contract;
-		}
+			if ( $missing_checks ) {
+				return array(
+					'success'         => false,
+					'message'         => 'Quality review requires full-page, native-language, customer-visible-copy, factual-accuracy, currentness/context, real-reader decision-safety, links/actions, and visual design/layout checks.',
+					'missing_checks'  => $missing_checks,
+					'required_checks' => $required_checks,
+				);
+			}
+			$publication_experience = self::publication_experience_readiness_for_post( $post, $language, 'quality_review' );
+			if ( empty( $publication_experience['passed'] ) ) {
+				return array(
+					'success'                => false,
+					'message'                => 'Quality review cannot be marked complete while the publication experience/design gate is blocked.',
+					'publication_experience' => $publication_experience,
+				);
+			}
+			$review_contract = self::validate_review_contract( 'quality_review', $input );
+			if ( empty( $review_contract['success'] ) ) {
+				return $review_contract;
+			}
 
 		$note     = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$reviewer_provenance = isset( $reviewer_gate['reviewer'] ) && is_array( $reviewer_gate['reviewer'] ) ? $reviewer_gate['reviewer'] : array(
@@ -14624,10 +14903,11 @@ final class Devenia_AI_Translations {
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWER, $reviewer );
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWER_PROCESS, (string) $reviewer_provenance['process_id'] );
 		self::update_json_post_meta( $page_id, self::META_QUALITY_REVIEW_CHECKS, $review_checks );
-		$evidence = self::translation_review_evidence( $page_id );
-		$evidence['reviewer'] = $reviewer_provenance;
-		$evidence['review_contract'] = $review_contract['evidence'];
-		self::update_json_post_meta( $page_id, self::META_QUALITY_REVIEW_EVIDENCE, $evidence );
+			$evidence = self::translation_review_evidence( $page_id );
+			$evidence['reviewer'] = $reviewer_provenance;
+			$evidence['review_contract'] = $review_contract['evidence'];
+			$evidence['publication_experience'] = $publication_experience;
+			self::update_json_post_meta( $page_id, self::META_QUALITY_REVIEW_EVIDENCE, $evidence );
 		if ( '' !== $note ) {
 			update_post_meta( $page_id, self::META_QUALITY_REVIEW_NOTE, $note );
 		} else {
@@ -14678,15 +14958,25 @@ final class Devenia_AI_Translations {
 				'linguistic_review_state' => $linguistic_state,
 			);
 		}
-		$quality_state = self::quality_review_readiness_for_post( $post, $language );
-		if ( empty( $quality_state['passed'] ) ) {
-			return array(
-				'success' => false,
+			$quality_state = self::quality_review_readiness_for_post( $post, $language );
+			if ( empty( $quality_state['passed'] ) ) {
+				return array(
+					'success' => false,
 				'message' => 'Current quality review evidence is required before final review.',
 				'linguistic_review_state' => $linguistic_state,
-				'quality_review_state' => $quality_state,
-			);
-		}
+					'quality_review_state' => $quality_state,
+				);
+			}
+			$publication_experience = self::publication_experience_readiness_for_post( $post, $language, 'final_review' );
+			if ( empty( $publication_experience['passed'] ) ) {
+				return array(
+					'success' => false,
+					'message' => 'Publication experience/design readiness is required before final review.',
+					'linguistic_review_state' => $linguistic_state,
+					'quality_review_state' => $quality_state,
+					'publication_experience' => $publication_experience,
+				);
+			}
 
 		$reviewer_provenance = $reviewer_gate['reviewer'];
 		$candidate_evidence = self::translation_review_evidence( $translation_id );
@@ -14707,13 +14997,13 @@ final class Devenia_AI_Translations {
 		$required_checks = self::required_final_review_checks( $language );
 		$review_checks = self::review_checks_from_input( $input, $required_checks );
 		$missing_checks = self::missing_review_checks( $review_checks, $required_checks );
-		if ( $missing_checks ) {
-			return array(
-				'success' => false,
-				'message' => 'Final review requires prior-reviews, publication-readiness, separation, URL/SEO, and real-reader decision-safety checks.',
-				'missing_checks' => $missing_checks,
-				'required_checks' => $required_checks,
-			);
+			if ( $missing_checks ) {
+				return array(
+					'success' => false,
+					'message' => 'Final review requires prior-reviews, publication-readiness, separation, URL/SEO, real-reader decision-safety, and publication-experience checks.',
+					'missing_checks' => $missing_checks,
+					'required_checks' => $required_checks,
+				);
 		}
 		$review_contract = self::validate_review_contract( 'final_review', $input );
 		if ( empty( $review_contract['success'] ) ) {
@@ -14724,11 +15014,12 @@ final class Devenia_AI_Translations {
 		$note = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'AI Translation Workflow' ) );
 		$evidence = $candidate_evidence;
-		$evidence['prior_reviews'] = array(
-			'linguistic_reviewed_at' => (string) get_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, true ),
-			'quality_reviewed_at'    => (string) get_post_meta( $translation_id, self::META_QUALITY_REVIEWED_AT, true ),
-		);
-		$evidence['review_contract'] = $review_contract['evidence'];
+			$evidence['prior_reviews'] = array(
+				'linguistic_reviewed_at' => (string) get_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, true ),
+				'quality_reviewed_at'    => (string) get_post_meta( $translation_id, self::META_QUALITY_REVIEWED_AT, true ),
+			);
+			$evidence['review_contract'] = $review_contract['evidence'];
+			$evidence['publication_experience'] = $publication_experience;
 
 		update_post_meta( $translation_id, self::META_FINAL_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $translation_id, self::META_FINAL_REVIEWER, $reviewer );
@@ -14746,11 +15037,12 @@ final class Devenia_AI_Translations {
 			'success' => true,
 			'message' => 'Final review marked complete.',
 			'qa' => $qa,
-			'linguistic_review_state' => $linguistic_state,
-			'quality_review_state' => $quality_state,
-			'final_review_state' => self::final_review_readiness_for_post( get_post( $translation_id ), $language ),
-			'translation' => self::translation_payload( get_post( $translation_id ) ),
-		);
+				'linguistic_review_state' => $linguistic_state,
+				'quality_review_state' => $quality_state,
+				'publication_experience' => $publication_experience,
+				'final_review_state' => self::final_review_readiness_for_post( get_post( $translation_id ), $language ),
+				'translation' => self::translation_payload( get_post( $translation_id ) ),
+			);
 	}
 
 	/**
@@ -15475,15 +15767,19 @@ final class Devenia_AI_Translations {
 	 * @return array<int,string>
 	 */
 	private static function required_quality_review_checks( string $language = '' ): array {
-		$checks = array(
-			'full_page_reviewed',
-			'native_language_reviewed',
-			'customer_visible_copy_reviewed',
-			'factual_accuracy_reviewed',
-			'currentness_and_context_reviewed',
-			'real_reader_decision_safety_reviewed',
-			'links_and_actions_reviewed',
-		);
+			$checks = array(
+				'full_page_reviewed',
+				'native_language_reviewed',
+				'customer_visible_copy_reviewed',
+				'factual_accuracy_reviewed',
+				'currentness_and_context_reviewed',
+				'real_reader_decision_safety_reviewed',
+				'links_and_actions_reviewed',
+				'visual_design_reviewed',
+				'desktop_layout_reviewed',
+				'mobile_layout_reviewed',
+				'source_design_experience_reviewed',
+			);
 
 		if ( self::agency_copy_review_enabled( $language ) ) {
 			$checks[] = 'agency_copy_reviewed';
@@ -15501,13 +15797,14 @@ final class Devenia_AI_Translations {
 	private static function required_final_review_checks( string $language = '' ): array {
 		unset( $language );
 
-		return array(
-			'prior_reviews_checked',
-			'publication_ready_reviewed',
-			'separation_reviewed',
-			'url_and_seo_reviewed',
-			'reader_decision_safety_reviewed',
-		);
+			return array(
+				'prior_reviews_checked',
+				'publication_ready_reviewed',
+				'separation_reviewed',
+				'url_and_seo_reviewed',
+				'reader_decision_safety_reviewed',
+				'publication_experience_reviewed',
+			);
 	}
 
 	/**
@@ -15585,18 +15882,25 @@ final class Devenia_AI_Translations {
 			}
 			self::require_review_list( $input, 'headings_checked', 2, 12, $errors );
 			self::require_review_list( $input, 'links_checked', 1, 8, $errors );
-			self::require_review_text( $input, 'article_quality_notes', 140, $errors );
-			self::require_review_text( $input, 'reader_decision_safety_notes', 140, $errors );
-			self::require_review_text( $input, 'currentness_context_notes', 140, $errors );
-			$findings_input = ! empty( $input['review_findings'] ) ? array( 'review_findings' => $input['review_findings'] ) : array( 'review_findings' => ( $input['issues_found'] ?? array() ) );
-			self::require_review_list( $findings_input, 'review_findings', 1, 24, $errors );
-			self::require_review_text( $input, 'reviewer_statement', 100, $errors );
-		} elseif ( 'final_review' === $stage ) {
-			self::require_review_text( $input, 'prior_review_summary', 140, $errors );
-			self::require_review_text( $input, 'publication_readiness_notes', 120, $errors );
-			self::require_review_text( $input, 'seo_url_notes', 90, $errors );
-			self::require_review_text( $input, 'reader_decision_safety_summary', 140, $errors );
-			$decision = sanitize_key( (string) ( $input['final_decision'] ?? '' ) );
+				self::require_review_text( $input, 'article_quality_notes', 140, $errors );
+				self::require_review_text( $input, 'reader_decision_safety_notes', 140, $errors );
+				self::require_review_text( $input, 'currentness_context_notes', 140, $errors );
+				self::require_review_text( $input, 'design_reference_url', 12, $errors );
+				self::require_review_text( $input, 'visual_design_notes', 160, $errors );
+				self::require_review_text( $input, 'desktop_layout_notes', 100, $errors );
+				self::require_review_text( $input, 'mobile_layout_notes', 100, $errors );
+				self::require_review_text( $input, 'source_design_experience_notes', 140, $errors );
+				self::require_review_list( $input, 'visual_evidence', 2, 24, $errors );
+				$findings_input = ! empty( $input['review_findings'] ) ? array( 'review_findings' => $input['review_findings'] ) : array( 'review_findings' => ( $input['issues_found'] ?? array() ) );
+				self::require_review_list( $findings_input, 'review_findings', 1, 24, $errors );
+				self::require_review_text( $input, 'reviewer_statement', 100, $errors );
+			} elseif ( 'final_review' === $stage ) {
+				self::require_review_text( $input, 'prior_review_summary', 140, $errors );
+				self::require_review_text( $input, 'publication_readiness_notes', 120, $errors );
+				self::require_review_text( $input, 'seo_url_notes', 90, $errors );
+				self::require_review_text( $input, 'reader_decision_safety_summary', 140, $errors );
+				self::require_review_text( $input, 'publication_experience_summary', 140, $errors );
+				$decision = sanitize_key( (string) ( $input['final_decision'] ?? '' ) );
 			if ( 'approve_publish' !== $decision ) {
 				$errors[] = 'final_decision must be approve_publish before final review can be marked complete.';
 			}
@@ -15692,16 +15996,16 @@ final class Devenia_AI_Translations {
 	 */
 	private static function sanitize_review_contract_evidence( string $stage, array $input ): array {
 		$stage = sanitize_key( $stage );
-		$text_keys = array(
-			'linguistic_review' => array( 'language_quality_notes', 'source_fidelity_notes', 'terminology_notes' ),
-			'quality_review'    => array( 'review_surface', 'visible_page_url', 'article_quality_notes', 'reader_decision_safety_notes', 'currentness_context_notes', 'reviewer_statement' ),
-			'final_review'      => array( 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'reader_decision_safety_summary', 'final_decision' ),
-		);
-		$list_keys = array(
-			'linguistic_review' => array( 'reviewed_sections', 'sampled_passages' ),
-			'quality_review'    => array( 'headings_checked', 'links_checked', 'review_findings', 'issues_found' ),
-			'final_review'      => array(),
-		);
+			$text_keys = array(
+				'linguistic_review' => array( 'language_quality_notes', 'source_fidelity_notes', 'terminology_notes' ),
+				'quality_review'    => array( 'review_surface', 'visible_page_url', 'design_reference_url', 'article_quality_notes', 'reader_decision_safety_notes', 'currentness_context_notes', 'visual_design_notes', 'desktop_layout_notes', 'mobile_layout_notes', 'source_design_experience_notes', 'reviewer_statement' ),
+				'final_review'      => array( 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'reader_decision_safety_summary', 'publication_experience_summary', 'final_decision' ),
+			);
+			$list_keys = array(
+				'linguistic_review' => array( 'reviewed_sections', 'sampled_passages' ),
+				'quality_review'    => array( 'headings_checked', 'links_checked', 'visual_evidence', 'review_findings', 'issues_found' ),
+				'final_review'      => array(),
+			);
 
 		$evidence = array(
 			'stage'      => $stage,
@@ -15733,16 +16037,17 @@ final class Devenia_AI_Translations {
 			),
 			'quality_review' => array(
 				'Provide the live page URL for published pages, or review_surface=presentation_surface plus presentation_surface_post_id for draft translations reviewed through ai-translations/get-presentation-surface.',
-				'Provide at least two rendered headings and checked links/actions from the reviewed surface.',
-				'Write concrete article-quality notes and review findings. Findings may approve unchanged copy when they explain what was checked and why no change is needed.',
-				'Write concrete real-reader decision-safety notes: who may rely on the page, what decision it may influence, and whether caveats/current facts are clear enough.',
-				'Write concrete currentness/context notes: current-state claims verified or made evergreen, stale facts handled, and historical context preserved without hiding present-day status.',
-				'Include a reviewer statement that the rendered page was actually read.',
-			),
-			'final_review' => array(
-				'Summarize current linguistic and quality evidence.',
-				'Document public readiness, remaining risks, URL/SEO checks, reader decision-safety/currentness, and final_decision=approve_publish.',
-			),
+					'Provide at least two rendered headings and checked links/actions from the reviewed surface.',
+					'Provide visual evidence from the reviewed surface: design reference, desktop and mobile observations, hero/section/card/media hierarchy, and at least two concrete visual observations or screenshot/viewport identifiers.',
+					'Write concrete article-quality notes and review findings. Findings may approve unchanged copy when they explain what was checked and why no change is needed.',
+					'Write concrete real-reader decision-safety notes: who may rely on the page, what decision it may influence, and whether caveats/current facts are clear enough.',
+					'Write concrete currentness/context notes: current-state claims verified or made evergreen, stale facts handled, and historical context preserved without hiding present-day status.',
+					'Include a reviewer statement that the rendered page was actually read.',
+				),
+				'final_review' => array(
+					'Summarize current linguistic and quality evidence.',
+					'Document public readiness, remaining risks, URL/SEO checks, reader decision-safety/currentness, publication-experience readiness, and final_decision=approve_publish.',
+				),
 		);
 
 		return $requirements[ sanitize_key( $stage ) ] ?? array();
@@ -16183,18 +16488,21 @@ final class Devenia_AI_Translations {
 				'version'     => absint( $raw['review_contract']['version'] ?? 0 ),
 				'recorded_at' => sanitize_text_field( (string) ( $raw['review_contract']['recorded_at'] ?? '' ) ),
 			);
-			foreach ( array( 'language_quality_notes', 'source_fidelity_notes', 'terminology_notes', 'visible_page_url', 'article_quality_notes', 'reader_decision_safety_notes', 'currentness_context_notes', 'reviewer_statement', 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'reader_decision_safety_summary', 'final_decision' ) as $key ) {
-				if ( isset( $raw['review_contract'][ $key ] ) ) {
-					$contract[ $key ] = sanitize_textarea_field( (string) $raw['review_contract'][ $key ] );
+				foreach ( array( 'language_quality_notes', 'source_fidelity_notes', 'terminology_notes', 'visible_page_url', 'design_reference_url', 'article_quality_notes', 'reader_decision_safety_notes', 'currentness_context_notes', 'visual_design_notes', 'desktop_layout_notes', 'mobile_layout_notes', 'source_design_experience_notes', 'reviewer_statement', 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'reader_decision_safety_summary', 'publication_experience_summary', 'final_decision' ) as $key ) {
+					if ( isset( $raw['review_contract'][ $key ] ) ) {
+						$contract[ $key ] = sanitize_textarea_field( (string) $raw['review_contract'][ $key ] );
+					}
 				}
-			}
-			foreach ( array( 'reviewed_sections', 'sampled_passages', 'headings_checked', 'links_checked', 'issues_found' ) as $key ) {
-				if ( isset( $raw['review_contract'][ $key ] ) ) {
-					$contract[ $key ] = self::review_contract_string_list( $raw['review_contract'][ $key ] );
+				foreach ( array( 'reviewed_sections', 'sampled_passages', 'headings_checked', 'links_checked', 'visual_evidence', 'review_findings', 'issues_found' ) as $key ) {
+					if ( isset( $raw['review_contract'][ $key ] ) ) {
+						$contract[ $key ] = self::review_contract_string_list( $raw['review_contract'][ $key ] );
+					}
 				}
+				$evidence['review_contract'] = $contract;
 			}
-			$evidence['review_contract'] = $contract;
-		}
+			if ( isset( $raw['publication_experience'] ) && is_array( $raw['publication_experience'] ) ) {
+				$evidence['publication_experience'] = self::compact_quality_profile( $raw['publication_experience'] );
+			}
 		foreach ( array( 'writer', 'reviewer' ) as $party_key ) {
 			if ( isset( $raw[ $party_key ] ) && is_array( $raw[ $party_key ] ) ) {
 				$party = array(
@@ -16269,12 +16577,12 @@ final class Devenia_AI_Translations {
 		$checks   = self::linguistic_review_checks_for_post( $post_id );
 		$missing  = self::missing_review_checks( $checks, $required );
 		$evidence = self::linguistic_review_evidence_for_post( $post_id );
-		$reviewed_at = (string) get_post_meta( $post_id, self::META_LINGUISTIC_REVIEWED_AT, true );
-		$source_id   = absint( get_post_meta( $post_id, self::META_SOURCE_ID, true ) );
-		$source      = $source_id ? get_post( $source_id ) : null;
-		$current_translation_hash = self::translation_review_content_hash( $post );
-		$current_source_hash      = $source ? self::source_hash( $source ) : '';
-		$stale_reasons = array();
+			$reviewed_at = (string) get_post_meta( $post_id, self::META_LINGUISTIC_REVIEWED_AT, true );
+			$source_id   = absint( get_post_meta( $post_id, self::META_SOURCE_ID, true ) );
+			$source      = $source_id ? get_post( $source_id ) : null;
+			$current_translation_hash = self::translation_review_content_hash( $post );
+			$current_source_hash      = $source ? self::source_hash( $source ) : '';
+			$stale_reasons = array();
 
 		if ( '' === $reviewed_at ) {
 			$stale_reasons[] = 'missing_linguistic_review';
@@ -16353,9 +16661,10 @@ final class Devenia_AI_Translations {
 		$reviewed_at = (string) get_post_meta( $post_id, self::META_QUALITY_REVIEWED_AT, true );
 		$source_id   = self::is_translation_post( $post_id ) ? absint( get_post_meta( $post_id, self::META_SOURCE_ID, true ) ) : 0;
 		$source      = $source_id ? get_post( $source_id ) : null;
-		$current_translation_hash = self::translation_review_content_hash( $post );
-		$current_source_hash      = $source ? self::source_hash( $source ) : '';
-		$stale_reasons = array();
+			$current_translation_hash = self::translation_review_content_hash( $post );
+			$current_source_hash      = $source ? self::source_hash( $source ) : '';
+			$publication_experience   = self::publication_experience_readiness_for_post( $post, $language, 'quality_readiness' );
+			$stale_reasons = array();
 
 		if ( '' === $reviewed_at ) {
 			$stale_reasons[] = 'missing_quality_review';
@@ -16363,12 +16672,15 @@ final class Devenia_AI_Translations {
 		if ( $missing ) {
 			$stale_reasons[] = 'missing_required_checks';
 		}
-		if ( self::open_copy_feedback_for_post( $post_id ) ) {
-			$stale_reasons[] = 'open_copy_feedback';
-		}
-		if ( empty( $evidence ) ) {
-			$stale_reasons[] = 'missing_review_evidence';
-		} else {
+			if ( self::open_copy_feedback_for_post( $post_id ) ) {
+				$stale_reasons[] = 'open_copy_feedback';
+			}
+			if ( empty( $publication_experience['passed'] ) ) {
+				$stale_reasons[] = 'publication_experience_not_ready';
+			}
+			if ( empty( $evidence ) ) {
+				$stale_reasons[] = 'missing_review_evidence';
+			} else {
 			if ( ! self::review_evidence_has_contract( $evidence, 'quality_review' ) ) {
 				$stale_reasons[] = 'missing_review_contract';
 			}
@@ -16395,8 +16707,9 @@ final class Devenia_AI_Translations {
 			'missing_checks'           => $missing,
 			'stale_reasons'            => array_values( array_unique( $stale_reasons ) ),
 			'checks'                   => $checks,
-			'evidence'                 => $evidence,
-			'current_translation_hash' => $current_translation_hash,
+				'evidence'                 => $evidence,
+				'publication_experience'   => $publication_experience,
+				'current_translation_hash' => $current_translation_hash,
 			'current_source_hash'      => $current_source_hash,
 			'reviewed_at'              => $reviewed_at,
 		);
@@ -16414,22 +16727,26 @@ final class Devenia_AI_Translations {
 		$checks = self::final_review_checks_for_post( $post_id );
 		$missing = self::missing_review_checks( $checks, $required );
 		$evidence = self::final_review_evidence_for_post( $post_id );
-		$reviewed_at = (string) get_post_meta( $post_id, self::META_FINAL_REVIEWED_AT, true );
-		$source_id = self::is_translation_post( $post_id ) ? absint( get_post_meta( $post_id, self::META_SOURCE_ID, true ) ) : 0;
-		$source = $source_id ? get_post( $source_id ) : null;
-		$current_translation_hash = self::translation_review_content_hash( $post );
-		$current_source_hash = $source ? self::source_hash( $source ) : '';
-		$stale_reasons = array();
+			$reviewed_at = (string) get_post_meta( $post_id, self::META_FINAL_REVIEWED_AT, true );
+			$source_id = self::is_translation_post( $post_id ) ? absint( get_post_meta( $post_id, self::META_SOURCE_ID, true ) ) : 0;
+			$source = $source_id ? get_post( $source_id ) : null;
+			$current_translation_hash = self::translation_review_content_hash( $post );
+			$current_source_hash = $source ? self::source_hash( $source ) : '';
+			$publication_experience = self::publication_experience_readiness_for_post( $post, $language, 'final_readiness' );
+			$stale_reasons = array();
 
 		if ( '' === $reviewed_at ) {
 			$stale_reasons[] = 'missing_final_review';
 		}
-		if ( $missing ) {
-			$stale_reasons[] = 'missing_required_checks';
-		}
-		if ( empty( $evidence ) ) {
-			$stale_reasons[] = 'missing_review_evidence';
-		} else {
+			if ( $missing ) {
+				$stale_reasons[] = 'missing_required_checks';
+			}
+			if ( empty( $publication_experience['passed'] ) ) {
+				$stale_reasons[] = 'publication_experience_not_ready';
+			}
+			if ( empty( $evidence ) ) {
+				$stale_reasons[] = 'missing_review_evidence';
+			} else {
 			if ( ! self::review_evidence_has_contract( $evidence, 'final_review' ) ) {
 				$stale_reasons[] = 'missing_review_contract';
 			}
@@ -16453,8 +16770,9 @@ final class Devenia_AI_Translations {
 			'missing_checks'           => $missing,
 			'stale_reasons'            => array_values( array_unique( $stale_reasons ) ),
 			'checks'                   => $checks,
-			'evidence'                 => $evidence,
-			'current_translation_hash' => $current_translation_hash,
+				'evidence'                 => $evidence,
+				'publication_experience'   => $publication_experience,
+				'current_translation_hash' => $current_translation_hash,
 			'current_source_hash'      => $current_source_hash,
 			'reviewed_at'              => $reviewed_at,
 		);
@@ -16583,11 +16901,12 @@ final class Devenia_AI_Translations {
 		$state         = self::quality_review_state_for_post( $post, $reviewed_at, $language );
 		$required_checks = self::required_quality_review_checks( $language );
 		$quality_checks  = self::quality_review_checks_for_post( $post_id );
-		$missing_checks  = self::missing_review_checks( $quality_checks, $required_checks );
-		$copy_feedback   = self::copy_feedback_for_post( $post_id );
-		$open_feedback   = self::open_copy_feedback_for_post( $post_id );
+			$missing_checks  = self::missing_review_checks( $quality_checks, $required_checks );
+			$copy_feedback   = self::copy_feedback_for_post( $post_id );
+			$open_feedback   = self::open_copy_feedback_for_post( $post_id );
+			$publication_experience = self::publication_experience_readiness_for_post( $post, $language, 'quality_queue' );
 
-		return array(
+			return array(
 			'page' => array(
 				'id'           => $post_id,
 				'title'        => get_the_title( $post ),
@@ -16608,9 +16927,10 @@ final class Devenia_AI_Translations {
 			'quality_review_note' => (string) get_post_meta( $post_id, self::META_QUALITY_REVIEW_NOTE, true ),
 			'quality_required_checks' => $required_checks,
 			'quality_missing_checks' => $missing_checks,
-			'quality_review_checks' => $quality_checks,
-			'quality_review_evidence' => self::quality_review_evidence_for_post( $post_id ),
-			'quality_verdict' => self::quality_verdict_present_for_audience( self::quality_verdict_for_post( $post, false ), 'ai_operator' ),
+				'quality_review_checks' => $quality_checks,
+				'quality_review_evidence' => self::quality_review_evidence_for_post( $post_id ),
+				'publication_experience' => $publication_experience,
+				'quality_verdict' => self::quality_verdict_present_for_audience( self::quality_verdict_for_post( $post, false ), 'ai_operator' ),
 			'copy_feedback_open_count' => count( $open_feedback ),
 			'copy_feedback' => $copy_feedback,
 		);
@@ -16634,11 +16954,16 @@ final class Devenia_AI_Translations {
 			return 'quality_review_stale';
 		}
 
-		if ( self::open_copy_feedback_for_post( $post_id ) ) {
-			return 'quality_review_stale';
-		}
+			if ( self::open_copy_feedback_for_post( $post_id ) ) {
+				return 'quality_review_stale';
+			}
 
-		$evidence = self::quality_review_evidence_for_post( $post_id );
+			$publication_experience = self::publication_experience_readiness_for_post( $post, $language, 'quality_state' );
+			if ( empty( $publication_experience['passed'] ) ) {
+				return 'quality_review_stale';
+			}
+
+			$evidence = self::quality_review_evidence_for_post( $post_id );
 		if ( empty( $evidence ) ) {
 			return 'quality_review_stale';
 		}
@@ -18495,8 +18820,8 @@ final class Devenia_AI_Translations {
 					)
 				);
 			}
-		);
-	}
+			);
+		}
 
 	/**
 	 * Localize theme-provided read-more links.

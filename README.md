@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.345
+**Stable tag:** 0.1.346
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -204,6 +204,16 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.346
+
+- Adds a shared publication-experience readiness gate for source and translated
+  article design.
+- Requires quality reviewers to provide visual design, desktop, mobile,
+  source-design, and visual-evidence review fields.
+- Requires final review and publish gates to honor the same
+  publication-experience readiness, so a failed source design blocks all
+  downstream translations.
 
 ### 0.1.345
 
