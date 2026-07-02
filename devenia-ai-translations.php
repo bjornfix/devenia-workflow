@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.342
+ * Version: 0.1.343
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.342';
+	const VERSION = '0.1.343';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -9763,6 +9763,14 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required: concrete assessment of usefulness, readability, structure, and customer-visible copy quality.',
 				),
+				'reader_decision_safety_notes' => array(
+					'type'        => 'string',
+					'description' => 'Required: concrete notes on who may rely on this page, what decision it may influence, and whether caveats/current facts are clear enough for a real reader.',
+				),
+				'currentness_context_notes' => array(
+					'type'        => 'string',
+					'description' => 'Required: concrete notes on current-state claims, stale facts, historical context, and whether dated material is clearly framed for present-day readers.',
+				),
 				'review_findings' => array(
 					'type'        => 'array',
 					'items'       => array( 'type' => 'string' ),
@@ -9792,6 +9800,14 @@ final class Devenia_AI_Translations {
 				'factual_accuracy_reviewed' => array(
 					'type'        => 'boolean',
 					'description' => 'Facts, links, offers, names, and technical claims were preserved or corrected.',
+				),
+				'currentness_and_context_reviewed' => array(
+					'type'        => 'boolean',
+					'description' => 'Current-state claims were verified, rewritten evergreen, or explicitly framed as historical while preserving the original reason for dated posts.',
+				),
+				'real_reader_decision_safety_reviewed' => array(
+					'type'        => 'boolean',
+					'description' => 'The page was reviewed as information a real reader may use for a business, technical, buying, SEO, legal, commercial, or operational decision.',
 				),
 				'links_and_actions_reviewed' => array(
 					'type'        => 'boolean',
@@ -9849,6 +9865,10 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required: concrete notes about localized URL, title, excerpt, search-visible wording, and route safety.',
 				),
+				'reader_decision_safety_summary' => array(
+					'type'        => 'string',
+					'description' => 'Required: concrete final-review summary of reader decision impact, currentness/current-status handling, caveats, and historical context.',
+				),
 				'final_decision' => array(
 					'type'        => 'string',
 					'enum'        => array( 'approve_publish', 'request_changes' ),
@@ -9869,6 +9889,10 @@ final class Devenia_AI_Translations {
 				'url_and_seo_reviewed' => array(
 					'type'        => 'boolean',
 					'description' => 'Required true: slug, localized path, title, excerpt, SEO-visible text, and route safety were checked.',
+				),
+				'reader_decision_safety_reviewed' => array(
+					'type'        => 'boolean',
+					'description' => 'Required true: prior review evidence proves the public page will not mislead real readers relying on it for decisions.',
 				),
 				'run_qa' => array( 'type' => 'boolean', 'default' => true ),
 			),
@@ -13912,6 +13936,8 @@ final class Devenia_AI_Translations {
 				'open_reviews_block_new_draft_work' => false,
 				'publish_requires_current_reviews' => true,
 				'source_updates_with_existing_translations_require_reprojection' => true,
+				'real_reader_decision_safety_required' => true,
+				'currentness_and_historical_context_required' => true,
 				'purpose' => 'produce_source_content_translate_review_publish_when_quality_is_high_enough',
 			),
 			'totals' => $totals,
@@ -14489,7 +14515,7 @@ final class Devenia_AI_Translations {
 		if ( $missing_checks ) {
 			return array(
 				'success'         => false,
-				'message'         => 'Quality review requires full-page, native-language, customer-visible-copy, factual-accuracy, and links/actions checks.',
+				'message'         => 'Quality review requires full-page, native-language, customer-visible-copy, factual-accuracy, currentness/context, real-reader decision-safety, and links/actions checks.',
 				'missing_checks'  => $missing_checks,
 				'required_checks' => $required_checks,
 			);
@@ -14598,7 +14624,7 @@ final class Devenia_AI_Translations {
 		if ( $missing_checks ) {
 			return array(
 				'success' => false,
-				'message' => 'Final review requires prior-reviews, publication-readiness, separation, and URL/SEO checks.',
+				'message' => 'Final review requires prior-reviews, publication-readiness, separation, URL/SEO, and real-reader decision-safety checks.',
 				'missing_checks' => $missing_checks,
 				'required_checks' => $required_checks,
 			);
@@ -15368,6 +15394,8 @@ final class Devenia_AI_Translations {
 			'native_language_reviewed',
 			'customer_visible_copy_reviewed',
 			'factual_accuracy_reviewed',
+			'currentness_and_context_reviewed',
+			'real_reader_decision_safety_reviewed',
 			'links_and_actions_reviewed',
 		);
 
@@ -15392,6 +15420,7 @@ final class Devenia_AI_Translations {
 			'publication_ready_reviewed',
 			'separation_reviewed',
 			'url_and_seo_reviewed',
+			'reader_decision_safety_reviewed',
 		);
 	}
 
@@ -15471,6 +15500,8 @@ final class Devenia_AI_Translations {
 			self::require_review_list( $input, 'headings_checked', 2, 12, $errors );
 			self::require_review_list( $input, 'links_checked', 1, 8, $errors );
 			self::require_review_text( $input, 'article_quality_notes', 140, $errors );
+			self::require_review_text( $input, 'reader_decision_safety_notes', 140, $errors );
+			self::require_review_text( $input, 'currentness_context_notes', 140, $errors );
 			$findings_input = ! empty( $input['review_findings'] ) ? array( 'review_findings' => $input['review_findings'] ) : array( 'review_findings' => ( $input['issues_found'] ?? array() ) );
 			self::require_review_list( $findings_input, 'review_findings', 1, 24, $errors );
 			self::require_review_text( $input, 'reviewer_statement', 100, $errors );
@@ -15478,6 +15509,7 @@ final class Devenia_AI_Translations {
 			self::require_review_text( $input, 'prior_review_summary', 140, $errors );
 			self::require_review_text( $input, 'publication_readiness_notes', 120, $errors );
 			self::require_review_text( $input, 'seo_url_notes', 90, $errors );
+			self::require_review_text( $input, 'reader_decision_safety_summary', 140, $errors );
 			$decision = sanitize_key( (string) ( $input['final_decision'] ?? '' ) );
 			if ( 'approve_publish' !== $decision ) {
 				$errors[] = 'final_decision must be approve_publish before final review can be marked complete.';
@@ -15576,8 +15608,8 @@ final class Devenia_AI_Translations {
 		$stage = sanitize_key( $stage );
 		$text_keys = array(
 			'linguistic_review' => array( 'language_quality_notes', 'source_fidelity_notes', 'terminology_notes' ),
-			'quality_review'    => array( 'review_surface', 'visible_page_url', 'article_quality_notes', 'reviewer_statement' ),
-			'final_review'      => array( 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'final_decision' ),
+			'quality_review'    => array( 'review_surface', 'visible_page_url', 'article_quality_notes', 'reader_decision_safety_notes', 'currentness_context_notes', 'reviewer_statement' ),
+			'final_review'      => array( 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'reader_decision_safety_summary', 'final_decision' ),
 		);
 		$list_keys = array(
 			'linguistic_review' => array( 'reviewed_sections', 'sampled_passages' ),
@@ -15617,11 +15649,13 @@ final class Devenia_AI_Translations {
 				'Provide the live page URL for published pages, or review_surface=presentation_surface plus presentation_surface_post_id for draft translations reviewed through ai-translations/get-presentation-surface.',
 				'Provide at least two rendered headings and checked links/actions from the reviewed surface.',
 				'Write concrete article-quality notes and review findings. Findings may approve unchanged copy when they explain what was checked and why no change is needed.',
+				'Write concrete real-reader decision-safety notes: who may rely on the page, what decision it may influence, and whether caveats/current facts are clear enough.',
+				'Write concrete currentness/context notes: current-state claims verified or made evergreen, stale facts handled, and historical context preserved without hiding present-day status.',
 				'Include a reviewer statement that the rendered page was actually read.',
 			),
 			'final_review' => array(
 				'Summarize current linguistic and quality evidence.',
-				'Document public readiness, remaining risks, URL/SEO checks, and final_decision=approve_publish.',
+				'Document public readiness, remaining risks, URL/SEO checks, reader decision-safety/currentness, and final_decision=approve_publish.',
 			),
 		);
 
@@ -16063,7 +16097,7 @@ final class Devenia_AI_Translations {
 				'version'     => absint( $raw['review_contract']['version'] ?? 0 ),
 				'recorded_at' => sanitize_text_field( (string) ( $raw['review_contract']['recorded_at'] ?? '' ) ),
 			);
-			foreach ( array( 'language_quality_notes', 'source_fidelity_notes', 'terminology_notes', 'visible_page_url', 'article_quality_notes', 'reviewer_statement', 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'final_decision' ) as $key ) {
+			foreach ( array( 'language_quality_notes', 'source_fidelity_notes', 'terminology_notes', 'visible_page_url', 'article_quality_notes', 'reader_decision_safety_notes', 'currentness_context_notes', 'reviewer_statement', 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'reader_decision_safety_summary', 'final_decision' ) as $key ) {
 				if ( isset( $raw['review_contract'][ $key ] ) ) {
 					$contract[ $key ] = sanitize_textarea_field( (string) $raw['review_contract'][ $key ] );
 				}

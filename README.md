@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.342
+**Stable tag:** 0.1.343
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -197,6 +197,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.343
+
+- Requires quality reviewers to document real-reader decision safety, current-state claims, and historical context handling before a page can pass quality review.
+- Requires final reviewers to confirm reader decision-safety evidence before publishing.
+- Exposes the decision-safety/currentness requirement in workflow policy output.
 
 ### 0.1.342
 

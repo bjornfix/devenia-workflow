@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.342
+Stable tag: 0.1.343
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,11 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.343 =
+* Requires quality reviewers to document real-reader decision safety, current-state claims, and historical context handling before a page can pass quality review.
+* Requires final reviewers to confirm reader decision-safety evidence before publishing.
+* Exposes the decision-safety/currentness requirement in workflow policy output.
 
 = 0.1.342 =
 * Extends `ai-translations/production-flow` with read-only proposed source update impact analysis so agents can see when a source rewrite would require translation reprojection before it is safe to apply.
