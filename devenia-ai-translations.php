@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.335
+ * Version: 0.1.337
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.335';
+	const VERSION = '0.1.337';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -13380,18 +13380,41 @@ final class Devenia_AI_Translations {
 	 */
 	private static function apply_translation_publish_transition( int $translation_id, string $language, int $source_id ): array {
 		$source = $source_id ? get_post( $source_id ) : null;
+		$translation = get_post( $translation_id );
+		$previous_modified = $translation instanceof WP_Post ? (string) $translation->post_modified : '';
+		$previous_modified_gmt = $translation instanceof WP_Post ? (string) $translation->post_modified_gmt : '';
 		$postarr = array(
 			'ID'          => $translation_id,
 			'post_status' => 'publish',
 		);
+		if ( $translation instanceof WP_Post ) {
+			$postarr['post_modified']     = (string) $translation->post_modified;
+			$postarr['post_modified_gmt'] = (string) $translation->post_modified_gmt;
+			$postarr['edit_date']         = true;
+		}
 		if ( $source && 'post' === get_post_type( $translation_id ) && 'post' === (string) $source->post_type ) {
 			$postarr = array_merge( $postarr, self::source_publication_date_fields( $source ) );
 		}
 
+		$preserve_modified_filter = null;
+		if ( $previous_modified && $previous_modified_gmt ) {
+			$preserve_modified_filter = static function ( array $data, array $postarr ) use ( $translation_id, $previous_modified, $previous_modified_gmt ): array {
+				if ( $translation_id === absint( $postarr['ID'] ?? 0 ) ) {
+					$data['post_modified']     = $previous_modified;
+					$data['post_modified_gmt'] = $previous_modified_gmt;
+				}
+
+				return $data;
+			};
+			add_filter( 'wp_insert_post_data', $preserve_modified_filter, 10, 2 );
+		}
 		$result = wp_update_post(
 			wp_slash( $postarr ),
 			true
 		);
+		if ( $preserve_modified_filter ) {
+			remove_filter( 'wp_insert_post_data', $preserve_modified_filter, 10 );
+		}
 		if ( is_wp_error( $result ) ) {
 			return self::error( $result->get_error_message() );
 		}
