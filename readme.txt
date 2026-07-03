@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.370
+Stable tag: 0.1.371
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.371 =
+* Allows signed independent reviewers to review legacy translations that have usable writer process, actor, or token-label provenance even when those rows predate signed writer control scopes.
+* Keeps empty writer provenance and matching writer/reviewer identities blocked so agents still cannot review their own work.
 
 = 0.1.370 =
 * Paginates quality-review queue candidate scans so compact queues can be used directly without loading large candidate sets up front.

@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.370
+**Stable tag:** 0.1.371
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,14 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.371
+
+- Allows signed independent reviewers to review legacy translations that have
+  usable writer process, actor, or token-label provenance even when those rows
+  predate signed writer control scopes.
+- Keeps empty writer provenance and matching writer/reviewer identities blocked
+  so agents still cannot review their own work.
 
 ### 0.1.370
 

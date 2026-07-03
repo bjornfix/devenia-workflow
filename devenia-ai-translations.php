@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.370
+ * Version: 0.1.371
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.370';
+	const VERSION = '0.1.371';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -16740,18 +16740,18 @@ final class Devenia_AI_Translations {
 
 		$writer = $reviewer['writer'];
 		$writer_control_scope_id = self::normalize_control_scope_id( (string) ( $writer['control_scope_id'] ?? '' ) );
-		if ( '' === $writer_control_scope_id ) {
+		if ( '' === $writer_control_scope_id && ! self::writer_provenance_has_reviewable_legacy_identity( $writer ) ) {
 			return array(
 				'success'  => false,
 				'code'     => 'writer_control_scope_required',
-				'message'  => 'The current translation writer provenance is missing a signed control scope. Re-save the translation through a current draft_write token before review or publish.',
+				'message'  => 'The current translation writer provenance is missing a signed control scope or usable legacy writer identity. Re-save the translation through a current draft_write token before review or publish.',
 				'operator_warning' => self::self_review_override_warning(),
 				'stage'    => sanitize_key( $stage ),
 				'writer'   => $writer,
 				'reviewer' => $reviewer,
 			);
 		}
-		if ( $writer_control_scope_id === $reviewer['control_scope_id'] ) {
+		if ( '' !== $writer_control_scope_id && $writer_control_scope_id === $reviewer['control_scope_id'] ) {
 			return array(
 				'success'  => false,
 				'code'     => 'writer_reviewer_control_scope_match',
@@ -16813,6 +16813,21 @@ final class Devenia_AI_Translations {
 			'reviewer' => $reviewer,
 			);
 		}
+
+	/**
+	 * Older translations may predate signed writer control scopes. They can only
+	 * be reviewed when there is still a concrete writer identity to compare with
+	 * the signed reviewer identity.
+	 */
+	private static function writer_provenance_has_reviewable_legacy_identity( array $writer ): bool {
+		foreach ( array( 'process_id', 'actor', 'actor_id', 'token_label' ) as $key ) {
+			if ( '' !== trim( (string) ( $writer[ $key ] ?? '' ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
 
 		private static function self_review_override_warning(): string {
 			return 'Core rule: nobody may review their own work. Do not weaken, bypass, relabel, compatibility-fix around, or locally override this rule. Subagents, personality switches, actor-label changes, token-label changes, and process-label changes do not create independence when the same parent session or control chain produced or directed the work. Any attempt must be reverted to this intent: review and publish fail closed unless independence is proven by a genuinely separate control chain.';
@@ -16959,13 +16974,16 @@ final class Devenia_AI_Translations {
 		if ( '' === $reviewer_process ) {
 			return false;
 		}
-		if ( '' === $reviewer_control_scope || '' === $writer_control_scope ) {
+		if ( '' === $reviewer_control_scope ) {
 			return false;
 		}
 		if ( 'independent_session' !== $reviewer_session_origin ) {
 			return false;
 		}
-		if ( $writer_control_scope === $reviewer_control_scope ) {
+		if ( '' === $writer_control_scope && ! self::writer_provenance_has_reviewable_legacy_identity( $writer ) ) {
+			return false;
+		}
+		if ( '' !== $writer_control_scope && $writer_control_scope === $reviewer_control_scope ) {
 			return false;
 		}
 		if ( '' !== $writer_process && $writer_process === $reviewer_process ) {
