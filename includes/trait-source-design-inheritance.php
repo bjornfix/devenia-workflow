@@ -595,7 +595,8 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		$migration = self::source_design_fragment_migration_records(
 			$contract,
 			(string) $translation->post_content,
-			! array_key_exists( 'use_order_fallback', $input ) || ! empty( $input['use_order_fallback'] )
+			! array_key_exists( 'use_order_fallback', $input ) || ! empty( $input['use_order_fallback'] ),
+			self::localized_fragment_records_for_storage( $input['supplemental_fragments'] ?? array() )
 		);
 		$records = $migration['records'];
 		$missing = $migration['missing_keys'];
@@ -695,10 +696,11 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	 * @param array<string,mixed> $contract Source design contract.
 	 * @return array{records:array<int,array{key:string,html:string}>,missing_keys:array<int,string>,mapping:array<string,mixed>}
 	 */
-	private static function source_design_fragment_migration_records( array $contract, string $legacy_content, bool $use_order_fallback ): array {
+	private static function source_design_fragment_migration_records( array $contract, string $legacy_content, bool $use_order_fallback, array $supplemental_records = array() ): array {
 		$source_fragments = isset( $contract['fragments'] ) && is_array( $contract['fragments'] ) ? $contract['fragments'] : array();
 		$legacy_records = self::localized_fragment_records_from_existing_content( $legacy_content );
 		$legacy_by_key = self::localized_fragment_map( $legacy_records );
+		$supplemental_by_key = self::localized_fragment_map( $supplemental_records );
 		$legacy_values = array_values(
 			array_filter(
 				array_map(
@@ -715,6 +717,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		$records_by_key = array();
 		$order_index = 0;
 		$exact_count = 0;
+		$supplemental_count = 0;
 		$order_count = 0;
 		foreach ( $source_fragments as $fragment ) {
 			$key = self::source_design_fragment_key_from_input( (string) ( $fragment['key'] ?? '' ) );
@@ -723,7 +726,10 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			}
 
 			$html = '';
-			if ( array_key_exists( $key, $legacy_by_key ) && '' !== trim( (string) $legacy_by_key[ $key ] ) ) {
+			if ( array_key_exists( $key, $supplemental_by_key ) && '' !== trim( (string) $supplemental_by_key[ $key ] ) ) {
+				$html = (string) $supplemental_by_key[ $key ];
+				++$supplemental_count;
+			} elseif ( array_key_exists( $key, $legacy_by_key ) && '' !== trim( (string) $legacy_by_key[ $key ] ) ) {
 				$html = (string) $legacy_by_key[ $key ];
 				++$exact_count;
 			} elseif ( $use_order_fallback && array_key_exists( $order_index, $legacy_values ) ) {
@@ -756,8 +762,10 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'mapping' => array(
 				'source_fragment_count' => count( $source_fragments ),
 				'legacy_fragment_count' => count( $legacy_records ),
+				'supplemental_fragment_count' => count( $supplemental_by_key ),
 				'migrated_fragment_count' => count( $records ),
 				'exact_key_count' => $exact_count,
+				'supplemental_key_count' => $supplemental_count,
 				'order_fallback_count' => $order_count,
 				'order_fallback_used' => $order_count > 0,
 				'complete' => empty( $missing ),

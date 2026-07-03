@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.367
+ * Version: 0.1.368
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.367';
+	const VERSION = '0.1.368';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -10314,6 +10314,29 @@ final class Devenia_AI_Translations {
 					'type'        => 'boolean',
 					'default'     => true,
 					'description' => 'When exact fragment keys are missing, map legacy localized text to current source fragments by visible text order for dry-run planning. Apply is blocked unless allow_order_fallback_apply is also true.',
+				),
+				'supplemental_fragments' => array(
+					'type'        => 'array',
+					'description' => 'Localized text fragments keyed by the current source design contract. Use this to fill gaps found in legacy translations before applying migration.',
+					'items'       => array(
+						'type'                 => 'object',
+						'required'             => array( 'key' ),
+						'properties'           => array(
+							'key'  => array(
+								'type'        => 'string',
+								'description' => 'Stable fragment key from source_design.fragments[].key.',
+							),
+							'text' => array(
+								'type'        => 'string',
+								'description' => 'Plain localized text. Escaped before insertion.',
+							),
+							'html' => array(
+								'type'        => 'string',
+								'description' => 'Localized inline HTML. Sanitized with wp_kses_post.',
+							),
+						),
+						'additionalProperties' => false,
+					),
 				),
 				'allow_order_fallback_apply' => array(
 					'type'        => 'boolean',
