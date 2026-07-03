@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.357
+Stable tag: 0.1.358
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.358 =
+* Makes Frontend Text Edit REST request detection robust across normal HTTP and CLI-based smoke tests.
 
 = 0.1.357 =
 * Restores authenticated Frontend Text Edit saves by treating its text-only REST endpoint as a copy-edit surface instead of a generic source-design save.

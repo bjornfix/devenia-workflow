@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.357
+ * Version: 0.1.358
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.357';
+	const VERSION = '0.1.358';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -20262,14 +20262,21 @@ final class Devenia_AI_Translations {
 	 * plugin load order.
 	 */
 	private static function is_frontend_text_edit_rest_request(): bool {
-		$method = filter_input( INPUT_SERVER, 'REQUEST_METHOD', FILTER_SANITIZE_FULL_SPECIAL_CHARS );
+		$method = isset( $_SERVER['REQUEST_METHOD'] )
+			? sanitize_text_field( wp_unslash( (string) $_SERVER['REQUEST_METHOD'] ) )
+			: '';
+		if ( '' === $method ) {
+			$method = filter_input( INPUT_SERVER, 'REQUEST_METHOD', FILTER_SANITIZE_FULL_SPECIAL_CHARS );
+		}
 		if ( 'POST' !== strtoupper( is_string( $method ) ? $method : '' ) ) {
 			return false;
 		}
 
-		$request_uri = filter_input( INPUT_SERVER, 'REQUEST_URI', FILTER_SANITIZE_URL );
-		if ( ! is_string( $request_uri ) || '' === $request_uri ) {
-			$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_url( wp_unslash( (string) $_SERVER['REQUEST_URI'] ) ) : '';
+		$request_uri = isset( $_SERVER['REQUEST_URI'] )
+			? sanitize_url( wp_unslash( (string) $_SERVER['REQUEST_URI'] ) )
+			: '';
+		if ( '' === $request_uri ) {
+			$request_uri = filter_input( INPUT_SERVER, 'REQUEST_URI', FILTER_SANITIZE_URL );
 		}
 		$request_uri = rawurldecode( $request_uri );
 
