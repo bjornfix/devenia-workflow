@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.361
+**Stable tag:** 0.1.362
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -204,6 +204,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.362
+
+- Adds a localized term archive self-redirect repair ability so SEO plugin
+  redirects cannot mask translated category and tag archive URLs.
 
 ### 0.1.361
 

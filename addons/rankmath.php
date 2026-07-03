@@ -48,6 +48,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		add_filter( 'ai_translation_workflow_seo_meta_state', array( __CLASS__, 'seo_meta_state' ), 10, 2 );
 		add_filter( 'ai_translation_workflow_route_integrity_issues', array( __CLASS__, 'route_integrity_issues' ), 10, 4 );
 		add_filter( 'ai_translation_workflow_repair_translation_self_redirects', array( __CLASS__, 'repair_translation_self_redirects' ), 10, 3 );
+		add_filter( 'ai_translation_workflow_repair_term_archive_self_redirects', array( __CLASS__, 'repair_term_archive_self_redirects' ), 10, 4 );
 		add_filter( 'ai_translation_workflow_semantic_link_count_content', array( __CLASS__, 'filter_semantic_link_count_content' ), 10, 2 );
 	}
 
@@ -289,30 +290,47 @@ final class AI_Translation_Workflow_RankMath_Addon {
 			return $result;
 		}
 
-		global $wpdb;
-		$table = $wpdb->prefix . 'rank_math_redirections';
-		$ids   = array_values( array_filter( array_unique( array_map( 'absint', wp_list_pluck( $conflicts, 'id' ) ) ) ) );
-		if ( empty( $ids ) || ! self::redirections_table_exists( $table ) ) {
-			$result['success'] = false;
-			$result['message'] = 'Rank Math self-redirect conflicts were detected, but no removable redirection IDs were available.';
-			return $result;
-		}
-
-		$deleted = 0;
-		foreach ( $ids as $id ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-			$delete_result = $wpdb->query( $wpdb->prepare( 'DELETE FROM `' . esc_sql( $table ) . '` WHERE id = %d', $id ) );
-			if ( false === $delete_result ) {
-				$result['success'] = false;
-				$result['message'] = 'Failed to delete Rank Math self-redirect conflicts.';
-				return $result;
-			}
-			$deleted += (int) $delete_result;
+		$delete = self::delete_redirections( $conflicts );
+		if ( empty( $delete['success'] ) ) {
+			return array_merge( $result, $delete );
 		}
 
 		$result['success']       = true;
-		$result['changed']       = 0 < $deleted;
-		$result['deleted_count'] = $deleted;
+		$result['changed']       = ! empty( $delete['changed'] );
+		$result['deleted_count'] = absint( $delete['deleted_count'] ?? 0 );
+		$result['conflicts']     = $conflicts;
+		return $result;
+	}
+
+	/**
+	 * @param array<string,mixed> $result Current repair result.
+	 * @param array<string,mixed> $context Localized term archive context.
+	 * @return array<string,mixed>
+	 */
+	public static function repair_term_archive_self_redirects( array $result, string $url, array $context, bool $dry_run ): array {
+		unset( $context );
+
+		$conflicts = self::self_redirects_for_url( $url );
+		$result['adapters'] = self::append_adapter( $result['adapters'] ?? array() );
+		if ( empty( $conflicts ) ) {
+			return $result;
+		}
+		if ( $dry_run ) {
+			$result['success']   = true;
+			$result['changed']   = true;
+			$result['dry_run']   = true;
+			$result['conflicts'] = $conflicts;
+			return $result;
+		}
+
+		$delete = self::delete_redirections( $conflicts );
+		if ( empty( $delete['success'] ) ) {
+			return array_merge( $result, $delete );
+		}
+
+		$result['success']       = true;
+		$result['changed']       = ! empty( $delete['changed'] );
+		$result['deleted_count'] = absint( $delete['deleted_count'] ?? 0 );
 		$result['conflicts']     = $conflicts;
 		return $result;
 	}
@@ -363,6 +381,43 @@ final class AI_Translation_Workflow_RankMath_Addon {
 			}
 		}
 		return $conflicts;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $conflicts Self-redirect conflicts.
+	 * @return array<string,mixed>
+	 */
+	private static function delete_redirections( array $conflicts ): array {
+		global $wpdb;
+		$table = $wpdb->prefix . 'rank_math_redirections';
+		$ids   = array_values( array_filter( array_unique( array_map( 'absint', wp_list_pluck( $conflicts, 'id' ) ) ) ) );
+		if ( empty( $ids ) || ! self::redirections_table_exists( $table ) ) {
+			return array(
+				'success' => false,
+				'changed' => false,
+				'message' => 'Rank Math self-redirect conflicts were detected, but no removable redirection IDs were available.',
+			);
+		}
+
+		$deleted = 0;
+		foreach ( $ids as $id ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$delete_result = $wpdb->query( $wpdb->prepare( 'DELETE FROM `' . esc_sql( $table ) . '` WHERE id = %d', $id ) );
+			if ( false === $delete_result ) {
+				return array(
+					'success' => false,
+					'changed' => false,
+					'message' => 'Failed to delete Rank Math self-redirect conflicts.',
+				);
+			}
+			$deleted += (int) $delete_result;
+		}
+
+		return array(
+			'success'       => true,
+			'changed'       => 0 < $deleted,
+			'deleted_count' => $deleted,
+		);
 	}
 
 	/**

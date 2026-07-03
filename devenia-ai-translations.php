@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.361
+ * Version: 0.1.362
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.361';
+	const VERSION = '0.1.362';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -7692,6 +7692,8 @@ final class Devenia_AI_Translations {
 			return self::record_reviewer_style_edit( $input );
 		case 'update_blog_taxonomy_paths':
 			return self::update_blog_taxonomy_paths( $input );
+		case 'repair_term_archive_self_redirects':
+			return self::repair_term_archive_seo_self_redirects( $input );
 		case 'update_source_qa_options':
 			return self::update_source_qa_options( $input );
 		case 'authored_original_intake_queue':
@@ -8048,6 +8050,16 @@ final class Devenia_AI_Translations {
 					'output_schema'    => self::generic_output_schema(),
 					'execute_callback' => function ( $input ) {
 						return self::run_ability_operation( 'update_blog_taxonomy_paths', $input );
+					},
+					'meta'             => self::ability_meta( false, false, true ),
+				),
+				'ai-translations/repair-term-archive-self-redirects' => array(
+					'label'            => 'Repair Term Archive Self Redirects',
+					'description'      => 'Finds and optionally removes SEO-plugin self-redirects that mask localized category and tag archive URLs.',
+					'input_schema'     => self::repair_term_archive_self_redirects_input_schema(),
+					'output_schema'    => self::generic_output_schema(),
+					'execute_callback' => function ( $input = array() ) {
+						return self::run_ability_operation( 'repair_term_archive_self_redirects', $input );
 					},
 					'meta'             => self::ability_meta( false, false, true ),
 				),
@@ -9311,6 +9323,37 @@ final class Devenia_AI_Translations {
 					'type'        => 'boolean',
 					'default'     => false,
 					'description' => 'Remove the configured blog taxonomy path segments for this language.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for localized term archive SEO self-redirect repair.
+	 */
+	private static function repair_term_archive_self_redirects_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'language' => array(
+					'type'        => 'string',
+					'description' => 'Optional configured language code to inspect, for example nl or de. Omit to inspect all translated languages.',
+				),
+				'taxonomy' => array(
+					'type'        => 'string',
+					'enum'        => array( 'category', 'post_tag' ),
+					'description' => 'Optional taxonomy to inspect. Omit to inspect categories and tags.',
+				),
+				'term_id'  => array(
+					'type'        => 'integer',
+					'minimum'     => 1,
+					'description' => 'Optional specific translated term ID to inspect.',
+				),
+				'dry_run'  => array(
+					'type'        => 'boolean',
+					'default'     => true,
+					'description' => 'When true, report conflicts without deleting SEO-plugin redirects.',
 				),
 			),
 			'additionalProperties' => false,
@@ -23374,6 +23417,114 @@ final class Devenia_AI_Translations {
 			'success' => false,
 			'changed' => false,
 			'message' => 'SEO self-redirect adapter returned an invalid result.',
+		);
+	}
+
+	/**
+	 * Let SEO adapters repair self-redirects that would mask translated term archives.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>
+	 */
+	private static function repair_term_archive_seo_self_redirects( array $input ): array {
+		$language = sanitize_key( (string) ( $input['language'] ?? '' ) );
+		$taxonomy = sanitize_key( (string) ( $input['taxonomy'] ?? '' ) );
+		$term_id  = absint( $input['term_id'] ?? 0 );
+		$dry_run  = ! array_key_exists( 'dry_run', $input ) || ! empty( $input['dry_run'] );
+
+		if ( '' !== $language && ! self::is_translation_language( $language ) ) {
+			return self::error( 'Invalid translation language.' );
+		}
+		if ( '' !== $taxonomy && ! in_array( $taxonomy, array( 'category', 'post_tag' ), true ) ) {
+			return self::error( 'Invalid taxonomy.' );
+		}
+
+		$terms = array();
+		if ( $term_id ) {
+			$term = get_term( $term_id, $taxonomy ?: '' );
+			if ( ! $term instanceof WP_Term || is_wp_error( $term ) ) {
+				return self::error( 'Term not found.' );
+			}
+			$terms = array( $term );
+		} else {
+			$taxonomies = '' !== $taxonomy ? array( $taxonomy ) : array( 'category', 'post_tag' );
+			$query      = array(
+				'taxonomy'   => $taxonomies,
+				'hide_empty' => false,
+			);
+			$terms      = get_terms( $query );
+			if ( is_wp_error( $terms ) ) {
+				return self::error( $terms->get_error_message() );
+			}
+		}
+
+		$items         = array();
+		$changed_count = 0;
+		$success       = true;
+		foreach ( $terms as $term ) {
+			if ( ! $term instanceof WP_Term ) {
+				continue;
+			}
+			if ( ! in_array( (string) $term->taxonomy, array( 'category', 'post_tag' ), true ) ) {
+				continue;
+			}
+
+			$term_language = sanitize_key( (string) get_term_meta( (int) $term->term_id, self::TERM_META_LANGUAGE, true ) );
+			if ( ! self::is_translation_language( $term_language ) ) {
+				continue;
+			}
+			if ( '' !== $language && $term_language !== $language ) {
+				continue;
+			}
+
+			$url = get_term_link( $term );
+			if ( is_wp_error( $url ) || '' === (string) $url ) {
+				continue;
+			}
+
+			$context = array(
+				'term_id'  => (int) $term->term_id,
+				'taxonomy' => (string) $term->taxonomy,
+				'slug'     => (string) $term->slug,
+				'language' => $term_language,
+				'url'      => (string) $url,
+			);
+			$result  = apply_filters(
+				'ai_translation_workflow_repair_term_archive_self_redirects',
+				array(
+					'success' => true,
+					'changed' => false,
+					'adapters' => array(),
+				),
+				(string) $url,
+				$context,
+				$dry_run
+			);
+			if ( ! is_array( $result ) ) {
+				$result = array(
+					'success' => false,
+					'changed' => false,
+					'message' => 'SEO term self-redirect adapter returned an invalid result.',
+				);
+			}
+			if ( empty( $result['success'] ) ) {
+				$success = false;
+			}
+			if ( ! empty( $result['changed'] ) ) {
+				++$changed_count;
+			}
+
+			if ( ! empty( $result['changed'] ) || ! empty( $result['conflicts'] ) || empty( $result['success'] ) ) {
+				$items[] = array_merge( $context, array( 'repair' => $result ) );
+			}
+		}
+
+		return array(
+			'success'       => $success,
+			'changed'       => 0 < $changed_count,
+			'dry_run'       => $dry_run,
+			'changed_count' => $changed_count,
+			'items'         => $items,
 		);
 	}
 
