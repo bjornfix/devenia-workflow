@@ -464,6 +464,305 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	}
 
 	/**
+	 * Migrate legacy translated content into the current source design fragment contract.
+	 *
+	 * This is intentionally separate from reprojection. It prepares the localized
+	 * text contract first, then reproject_source_design can rebuild the content.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>
+	 */
+	private static function migrate_source_design_fragments( array $input ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		$source    = get_post( $source_id );
+		if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
+			return self::error( 'Source content not found.' );
+		}
+
+		$source_content = self::normalize_gutenberg_content_for_storage( (string) $source->post_content );
+		$source_gate_error = self::source_editorial_design_gate_error( $source, $source_content );
+		if ( $source_gate_error ) {
+			$source_gate_error['source_design'] = self::source_design_contract( $source );
+			return $source_gate_error;
+		}
+
+		$apply   = ! empty( $input['apply'] ) && empty( $input['dry_run'] );
+		$dry_run = ! $apply;
+		if ( $apply ) {
+			$step_token_gate = self::translation_step_token_gate( 'draft_write', $input );
+			if ( empty( $step_token_gate['success'] ) ) {
+				return $step_token_gate;
+			}
+		} else {
+			$step_token_gate = array();
+		}
+
+		$language_filter = self::source_design_language_filter( $input['languages'] ?? array() );
+		$translation_filter = self::source_design_translation_filter( $input['translation_ids'] ?? array() );
+		$contract = self::source_design_contract( $source );
+		$items = array();
+		$totals = array(
+			'checked' => 0,
+			'complete' => 0,
+			'applied' => 0,
+			'blocked' => 0,
+			'missing_fragments' => 0,
+			'order_fallback' => 0,
+		);
+
+		foreach ( self::translation_rows_for_source( $source_id ) as $row ) {
+			$translation_id = absint( $row['id'] ?? 0 );
+			$language = sanitize_key( (string) ( $row['language'] ?? '' ) );
+			if ( ! $translation_id || ( $language_filter && empty( $language_filter[ $language ] ) ) || ( $translation_filter && empty( $translation_filter[ $translation_id ] ) ) ) {
+				continue;
+			}
+
+			++$totals['checked'];
+			$item = self::migrate_one_translation_source_design_fragments( $source, $contract, $translation_id, $language, $input, $dry_run, $step_token_gate );
+			$items[] = $item;
+			if ( empty( $item['success'] ) ) {
+				++$totals['blocked'];
+			} else {
+				++$totals['complete'];
+			}
+			if ( ! empty( $item['applied'] ) ) {
+				++$totals['applied'];
+			}
+			if ( ! empty( $item['mapping']['order_fallback_used'] ) ) {
+				++$totals['order_fallback'];
+			}
+			$totals['missing_fragments'] += absint( $item['missing_count'] ?? 0 );
+		}
+
+		return array(
+			'success' => 0 === $totals['blocked'],
+			'message' => $dry_run ? 'Source-design fragment migration checked.' : 'Source-design fragment migration stored where complete.',
+			'dry_run' => $dry_run,
+			'source' => array(
+				'id' => (int) $source->ID,
+				'title' => get_the_title( $source ),
+				'source_hash' => self::source_hash( $source ),
+				'source_design' => $contract,
+			),
+			'policy' => array(
+				'stores_only_complete_fragment_contracts' => true,
+				'next_action_after_successful_apply' => 'ai-translations/reproject-source-design',
+				'order_fallback_requires_human_or_independent_review' => true,
+			),
+			'totals' => $totals,
+			'items' => $items,
+		);
+	}
+
+	/**
+	 * Migrate fragment records for one translation.
+	 *
+	 * @param array<string,mixed> $contract Source design contract.
+	 * @param array<string,mixed> $input Ability input.
+	 * @param array<string,mixed> $verified_identity Step-token identity.
+	 * @return array<string,mixed>
+	 */
+	private static function migrate_one_translation_source_design_fragments( WP_Post $source, array $contract, int $translation_id, string $language, array $input, bool $dry_run, array $verified_identity ): array {
+		$translation = get_post( $translation_id );
+		if ( ! $translation || ! self::is_translation_post( $translation_id ) ) {
+			return array(
+				'success' => false,
+				'code' => 'translation_not_found',
+				'translation_id' => $translation_id,
+			);
+		}
+		if ( 'publish' === (string) $translation->post_status && ! $dry_run && empty( $input['allow_update_published'] ) ) {
+			return array(
+				'success' => false,
+				'code' => 'published_update_requires_confirmation',
+				'message' => 'Published translations require allow_update_published=true before legacy source-design fragments can be migrated.',
+				'translation_id' => $translation_id,
+				'language' => $language,
+			);
+		}
+		$claim_gate = self::translation_claim_write_gate( (int) $source->ID, $language, (string) ( $input['claim_token'] ?? '' ) );
+		if ( $claim_gate ) {
+			$claim_gate['translation_id'] = $translation_id;
+			return $claim_gate;
+		}
+
+		$migration = self::source_design_fragment_migration_records(
+			$contract,
+			(string) $translation->post_content,
+			! array_key_exists( 'use_order_fallback', $input ) || ! empty( $input['use_order_fallback'] )
+		);
+		$records = $migration['records'];
+		$missing = $migration['missing_keys'];
+		if ( $missing ) {
+			return array(
+				'success' => false,
+				'code' => 'localized_fragments_incomplete',
+				'message' => 'Legacy translated content does not cover every current source-design fragment. Provide localized text for the missing keys before applying migration.',
+				'translation_id' => $translation_id,
+				'language' => $language,
+				'post_status' => (string) $translation->post_status,
+				'migrated_count' => count( $records ),
+				'missing_count' => count( $missing ),
+				'missing_keys' => $missing,
+				'mapping' => $migration['mapping'],
+				'fragment_preview' => array_slice( $records, 0, 12 ),
+			);
+		}
+
+		$projection = self::inherited_source_design_content(
+			$source,
+			array(
+				'localized_fragments' => $records,
+				'strict_source_design_fragments' => true,
+			),
+			$language
+		);
+		if ( empty( $projection['success'] ) ) {
+			$projection['translation_id'] = $translation_id;
+			$projection['language'] = $language;
+			$projection['mapping'] = $migration['mapping'];
+			return $projection;
+		}
+
+		if ( ! $dry_run ) {
+			self::store_localized_source_design_fragments( $translation_id, $source, $language, $records, isset( $projection['source_design'] ) && is_array( $projection['source_design'] ) ? $projection['source_design'] : array() );
+			if ( ! empty( $verified_identity ) ) {
+				self::record_translation_writer_provenance( $translation_id, $verified_identity );
+			}
+			self::sync_translation_index_row( $translation_id );
+		}
+
+		$state_post = $dry_run ? $translation : get_post( $translation_id );
+
+		return array(
+			'success' => true,
+			'translation_id' => $translation_id,
+			'language' => $language,
+			'post_status' => (string) $translation->post_status,
+			'migrated_count' => count( $records ),
+			'missing_count' => 0,
+			'applied' => ! $dry_run,
+			'mapping' => $migration['mapping'],
+			'fragment_preview' => array_slice( $records, 0, 12 ),
+			'design_inheritance_state' => $state_post instanceof WP_Post ? self::translation_source_design_state( $state_post, $source ) : array(),
+		);
+	}
+
+	/**
+	 * Build current-contract localized records from legacy translated content.
+	 *
+	 * @param array<string,mixed> $contract Source design contract.
+	 * @return array{records:array<int,array{key:string,html:string}>,missing_keys:array<int,string>,mapping:array<string,mixed>}
+	 */
+	private static function source_design_fragment_migration_records( array $contract, string $legacy_content, bool $use_order_fallback ): array {
+		$source_fragments = isset( $contract['fragments'] ) && is_array( $contract['fragments'] ) ? $contract['fragments'] : array();
+		$legacy_records = self::localized_fragment_records_from_existing_content( $legacy_content );
+		$legacy_by_key = self::localized_fragment_map( $legacy_records );
+		$legacy_values = array_values(
+			array_filter(
+				array_map(
+					static function ( array $record ): string {
+						return trim( (string) ( $record['html'] ?? '' ) );
+					},
+					$legacy_records
+				),
+				'strlen'
+			)
+		);
+
+		$records = array();
+		$records_by_key = array();
+		$order_index = 0;
+		$exact_count = 0;
+		$order_count = 0;
+		foreach ( $source_fragments as $fragment ) {
+			$key = self::source_design_fragment_key_from_input( (string) ( $fragment['key'] ?? '' ) );
+			if ( '' === $key ) {
+				continue;
+			}
+
+			$html = '';
+			if ( array_key_exists( $key, $legacy_by_key ) && '' !== trim( (string) $legacy_by_key[ $key ] ) ) {
+				$html = (string) $legacy_by_key[ $key ];
+				++$exact_count;
+			} elseif ( $use_order_fallback && array_key_exists( $order_index, $legacy_values ) ) {
+				$html = (string) $legacy_values[ $order_index ];
+				++$order_count;
+			}
+			++$order_index;
+
+			if ( '' === trim( $html ) ) {
+				continue;
+			}
+			$records_by_key[ $key ] = array(
+				'key' => $key,
+				'html' => wp_kses_post( $html ),
+			);
+		}
+
+		foreach ( $source_fragments as $fragment ) {
+			$key = self::source_design_fragment_key_from_input( (string) ( $fragment['key'] ?? '' ) );
+			if ( '' !== $key && isset( $records_by_key[ $key ] ) ) {
+				$records[] = $records_by_key[ $key ];
+			}
+		}
+
+		$missing = self::missing_localized_fragment_keys( $source_fragments, self::localized_fragment_map( $records ) );
+
+		return array(
+			'records' => $records,
+			'missing_keys' => $missing,
+			'mapping' => array(
+				'source_fragment_count' => count( $source_fragments ),
+				'legacy_fragment_count' => count( $legacy_records ),
+				'migrated_fragment_count' => count( $records ),
+				'exact_key_count' => $exact_count,
+				'order_fallback_count' => $order_count,
+				'order_fallback_used' => $order_count > 0,
+				'complete' => empty( $missing ),
+			),
+		);
+	}
+
+	/**
+	 * @param mixed $raw_languages Raw language filter input.
+	 * @return array<string,bool>
+	 */
+	private static function source_design_language_filter( $raw_languages ): array {
+		$filter = array();
+		if ( ! is_array( $raw_languages ) ) {
+			return $filter;
+		}
+		foreach ( $raw_languages as $language ) {
+			$language = sanitize_key( (string) $language );
+			if ( self::is_translation_language( $language ) ) {
+				$filter[ $language ] = true;
+			}
+		}
+
+		return $filter;
+	}
+
+	/**
+	 * @param mixed $raw_ids Raw translation ID filter input.
+	 * @return array<int,bool>
+	 */
+	private static function source_design_translation_filter( $raw_ids ): array {
+		$filter = array();
+		if ( ! is_array( $raw_ids ) ) {
+			return $filter;
+		}
+		foreach ( $raw_ids as $translation_id ) {
+			$translation_id = absint( $translation_id );
+			if ( $translation_id ) {
+				$filter[ $translation_id ] = true;
+			}
+		}
+
+		return $filter;
+	}
+
+	/**
 	 * Reproject one translation from the current source design.
 	 *
 	 * @param array<string,mixed> $input Ability input.

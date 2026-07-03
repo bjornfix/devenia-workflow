@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.362
+**Stable tag:** 0.1.365
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -145,6 +145,7 @@ same design instead of being redesigned per language.
 - `ai-translations/create-source-from-authored-original`
 - `ai-translations/mark-source-generation-reviewed`
 - `ai-translations/upsert-page`
+- `ai-translations/migrate-source-design-fragments`
 - `ai-translations/reproject-source-design`
 - `ai-translations/qa-translation`
 - `ai-translations/mark-linguistic-reviewed`
@@ -204,6 +205,23 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.365
+
+- Adds a dry-run-first source-design fragment migration ability for legacy
+  translations before reprojection.
+
+### 0.1.364
+
+- Adds explicit operator warnings to fail-closed self-review and
+  review-independence denials.
+
+### 0.1.363
+
+- Requires signed control-scope provenance for protected translation reviews and
+  publishing.
+- Marks review evidence invalid when writer and reviewer share the same control
+  chain or the reviewer is not an independent session.
 
 ### 0.1.362
 

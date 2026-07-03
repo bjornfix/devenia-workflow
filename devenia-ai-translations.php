@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.364
+ * Version: 0.1.365
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.364';
+	const VERSION = '0.1.365';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -7720,6 +7720,8 @@ final class Devenia_AI_Translations {
 			return self::upsert_translation( $input );
 		case 'reproject_source_design':
 			return self::reproject_source_design( $input );
+		case 'migrate_source_design_fragments':
+			return self::migrate_source_design_fragments( $input );
 		case 'list_translations':
 			return self::list_translations( $input );
 		case 'mark_reviewed':
@@ -8184,6 +8186,16 @@ final class Devenia_AI_Translations {
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
 					return self::run_ability_operation( 'reproject_source_design', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
+			),
+			'ai-translations/migrate-source-design-fragments' => array(
+				'label'            => 'Migrate Source Design Fragments',
+				'description'      => 'Extracts localized text from legacy translated Gutenberg content and stores it against the current source design fragment contract when coverage is complete. Use dry_run first, then reproject-source-design.',
+				'input_schema'     => self::migrate_source_design_fragments_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'migrate_source_design_fragments', $input );
 				},
 				'meta'             => self::ability_meta( false, false, true ),
 			),
@@ -10256,6 +10268,73 @@ final class Devenia_AI_Translations {
 				'writer_process_id' => array(
 					'type'        => 'string',
 					'description' => 'Stable identifier for the process/session doing the reprojection write.',
+				),
+				'writer_actor' => array(
+					'type'        => 'string',
+					'description' => 'Optional human/operator label for the writer process.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for legacy localized-fragment migration.
+	 */
+	private static function migrate_source_design_fragments_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'source_id', 'writer_process_id' ),
+			'properties'           => array(
+				'source_id' => array(
+					'type'        => 'integer',
+					'description' => 'Original WordPress page or post ID whose current source design contract should receive localized legacy fragments.',
+				),
+				'languages' => array(
+					'type'        => 'array',
+					'description' => 'Optional target languages to migrate. Defaults to every existing translation for the source.',
+					'items'       => array( 'type' => 'string' ),
+				),
+				'translation_ids' => array(
+					'type'        => 'array',
+					'description' => 'Optional exact translation IDs to migrate.',
+					'items'       => array( 'type' => 'integer' ),
+				),
+				'dry_run' => array(
+					'type'        => 'boolean',
+					'default'     => true,
+					'description' => 'When true, only report fragment coverage and migration blockers.',
+				),
+				'apply' => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Required true to store migrated fragment records. Apply is refused unless every source fragment has localized text.',
+				),
+				'use_order_fallback' => array(
+					'type'        => 'boolean',
+					'default'     => true,
+					'description' => 'When exact fragment keys are missing, map legacy localized text to current source fragments by visible text order. This is reported as order_fallback and still requires review.',
+				),
+				'allow_update_published' => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Required true when applying migrated fragment storage to published translations.',
+				),
+				'claim_token' => array(
+					'type'        => 'string',
+					'description' => 'Optional reservation token from ai-translations/reserve-work.',
+				),
+				'step_token' => array(
+					'type'        => 'string',
+					'description' => 'Required when apply=true. Session token issued by the translation token authority. The authority validates that the token label may run the write step.',
+				),
+				'step_token_label' => array(
+					'type'        => 'string',
+					'description' => 'Required when apply=true. Token label confirmed for this process/session.',
+				),
+				'writer_process_id' => array(
+					'type'        => 'string',
+					'description' => 'Stable identifier for the process/session doing the migration write.',
 				),
 				'writer_actor' => array(
 					'type'        => 'string',
