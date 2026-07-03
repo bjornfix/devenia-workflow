@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.372
+ * Version: 0.1.373
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.372';
+	const VERSION = '0.1.373';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -9815,14 +9815,6 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
 				),
-				'step_token' => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional session token issued by the translation token authority. Normal calls should use codex_thread_id instead of local token files.',
-				),
-				'step_token_label' => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional token label. Normal calls let the authority resolve the label from codex_thread_id.',
-				),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
 					'description' => 'Optional for translated content: stable identifier for the separate reviewer process/session. Defaults to codex_thread_id and must differ from the writer process.',
@@ -9982,14 +9974,6 @@ final class Devenia_AI_Translations {
 				'codex_thread_id' => array(
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
-				),
-				'step_token' => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional session token issued by the translation token authority. Normal calls should use codex_thread_id instead of local token files.',
-				),
-				'step_token_label' => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional token label. Normal calls let the authority resolve the label from codex_thread_id.',
 				),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
@@ -10215,14 +10199,6 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
 				),
-				'step_token'        => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional session token issued by the translation token authority. Normal calls should use codex_thread_id instead of local token files.',
-				),
-				'step_token_label'  => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional token label. Normal calls let the authority resolve the label from codex_thread_id.',
-				),
 				'allow_update_published' => array(
 					'type'    => 'boolean',
 					'default' => false,
@@ -10284,14 +10260,6 @@ final class Devenia_AI_Translations {
 				'codex_thread_id' => array(
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. Required when apply=true.',
-				),
-				'step_token' => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional session token issued by the translation token authority. Normal apply calls should use codex_thread_id instead of local token files.',
-				),
-				'step_token_label' => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional token label. Normal calls let the authority resolve the label from codex_thread_id.',
 				),
 				'writer_process_id' => array(
 					'type'        => 'string',
@@ -10393,14 +10361,6 @@ final class Devenia_AI_Translations {
 				'codex_thread_id' => array(
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. Required when apply=true.',
-				),
-				'step_token' => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional session token issued by the translation token authority. Normal apply calls should use codex_thread_id instead of local token files.',
-				),
-				'step_token_label' => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional token label. Normal calls let the authority resolve the label from codex_thread_id.',
 				),
 				'writer_process_id' => array(
 					'type'        => 'string',
@@ -10718,14 +10678,6 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
 				),
-				'step_token'           => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional session token issued by the translation token authority. Normal calls should use codex_thread_id instead of local token files.',
-				),
-				'step_token_label'     => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional token label. Normal calls let the authority resolve the label from codex_thread_id.',
-				),
 				'claim_token'          => array(
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
@@ -10797,14 +10749,6 @@ final class Devenia_AI_Translations {
 				'codex_thread_id' => array(
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
-				),
-				'step_token'    => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional session token issued by the translation token authority. Normal calls should use codex_thread_id instead of local token files.',
-				),
-				'step_token_label' => array(
-					'type'        => 'string',
-					'description' => 'Legacy optional token label. Normal calls let the authority resolve the label from codex_thread_id.',
 				),
 				'claim_token'    => array(
 					'type'        => 'string',
@@ -16523,24 +16467,15 @@ final class Devenia_AI_Translations {
 		}
 
 		$codex_thread_id = self::normalize_control_scope_id( (string) ( $input['codex_thread_id'] ?? '' ) );
-		$token = (string) ( $input['step_token'] ?? '' );
-		if ( '' === $token && '' === $codex_thread_id ) {
+		if ( '' === $codex_thread_id ) {
 			return array(
 				'success' => false,
 				'code'    => 'workflow_authority_identity_required',
-				'message' => 'Provide codex_thread_id from CODEX_THREAD_ID so the token authority can verify the server-side workflow lease. Legacy callers may still provide step_token.',
+				'message' => 'Provide codex_thread_id from CODEX_THREAD_ID so the token authority can verify the server-side workflow lease.',
 				'step'    => $step,
 			);
 		}
-			$token_label = sanitize_key( (string) ( $input['step_token_label'] ?? '' ) );
-			if ( '' === $token_label && '' === $codex_thread_id ) {
-				return array(
-				'success' => false,
-				'code'    => 'step_token_label_required',
-				'message' => 'A token label confirmed by the owner for this process/session is required for this translation workflow step.',
-				'step'    => $step,
-			);
-			}
+			$token_label = '';
 			$process_id = self::step_token_process_id( $step, $input );
 			if ( '' === $process_id ) {
 				return array(
@@ -16555,7 +16490,7 @@ final class Devenia_AI_Translations {
 			'devenia_translation_step_token_gate',
 			null,
 			$step,
-			$token,
+			'',
 			array(
 				'input'       => $input,
 				'token_label' => $token_label,
@@ -16591,14 +16526,6 @@ final class Devenia_AI_Translations {
 			);
 		}
 		$verified_token_label = sanitize_key( (string) ( $decision['step_token_label'] ?? $token_label ) );
-		if ( '' !== $token_label && $verified_token_label !== $token_label ) {
-			return array(
-				'success' => false,
-				'code'    => 'verified_token_label_mismatch',
-				'message' => 'The token authority returned a different token label than the requested workflow step label.',
-				'step'    => $step,
-			);
-		}
 		$verified_step = sanitize_key( (string) ( $decision['workflow_step'] ?? $decision['step'] ?? '' ) );
 		if ( $verified_step !== $step ) {
 			return array(
