@@ -546,7 +546,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 					'schema_version' => absint( $contract['schema_version'] ?? 1 ),
 					'design_hash' => (string) ( $contract['design_hash'] ?? '' ),
 					'fragment_count' => absint( $contract['fragment_count'] ?? 0 ),
-					'editorial_source_validation' => $contract['editorial_source_validation'] ?? array(),
+					'editorial_source_validation' => self::source_editorial_design_validation_summary( isset( $contract['editorial_source_validation'] ) && is_array( $contract['editorial_source_validation'] ) ? $contract['editorial_source_validation'] : array() ),
 				),
 				'source_design' => ! empty( $input['include_source_design'] ) ? $contract : null,
 			),
@@ -611,7 +611,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				'missing_count' => count( $missing ),
 				'missing_keys' => $missing,
 				'mapping' => $migration['mapping'],
-				'fragment_preview' => array_slice( $records, 0, 12 ),
+				'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, 0, 12 ) : array(),
 			);
 		}
 		if ( ! $dry_run && ! empty( $migration['mapping']['order_fallback_used'] ) && empty( $input['allow_order_fallback_apply'] ) ) {
@@ -625,7 +625,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				'migrated_count' => count( $records ),
 				'missing_count' => 0,
 				'mapping' => $migration['mapping'],
-				'fragment_preview' => array_slice( $records, 0, 12 ),
+				'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, 0, 12 ) : array(),
 			);
 		}
 
@@ -663,8 +663,29 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'missing_count' => 0,
 			'applied' => ! $dry_run,
 			'mapping' => $migration['mapping'],
-			'fragment_preview' => array_slice( $records, 0, 12 ),
+			'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, 0, 12 ) : array(),
 			'design_inheritance_state' => $state_post instanceof WP_Post ? self::translation_source_design_state( $state_post, $source ) : array(),
+		);
+	}
+
+	/**
+	 * Return a compact source-design validation summary for migration responses.
+	 *
+	 * @param array<string,mixed> $validation Full validation result.
+	 * @return array<string,mixed>
+	 */
+	private static function source_editorial_design_validation_summary( array $validation ): array {
+		return array(
+			'available' => ! empty( $validation['available'] ),
+			'passed' => ! empty( $validation['passed'] ),
+			'adapter' => sanitize_text_field( (string) ( $validation['adapter'] ?? '' ) ),
+			'template_id' => sanitize_text_field( (string) ( $validation['template_id'] ?? '' ) ),
+			'template_version' => sanitize_text_field( (string) ( $validation['template_version'] ?? '' ) ),
+			'issue_count' => absint( $validation['issue_count'] ?? 0 ),
+			'warning_count' => absint( $validation['warning_count'] ?? 0 ),
+			'issue_codes' => isset( $validation['issue_codes'] ) && is_array( $validation['issue_codes'] )
+				? array_values( array_map( 'sanitize_key', $validation['issue_codes'] ) )
+				: array(),
 		);
 	}
 
