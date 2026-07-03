@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.362
+ * Version: 0.1.363
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.362';
+	const VERSION = '0.1.363';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -67,6 +67,10 @@ final class Devenia_AI_Translations {
 	const META_WRITER_ACTOR = '_devenia_translation_writer_actor';
 	const META_WRITER_ACTOR_ID = '_devenia_translation_writer_actor_id';
 	const META_WRITER_PROCESS = '_devenia_translation_writer_process';
+	const META_WRITER_CONTROL_SCOPE = '_devenia_translation_writer_control_scope';
+	const META_WRITER_SESSION_ORIGIN = '_devenia_translation_writer_session_origin';
+	const META_WRITER_PARENT_PROCESS = '_devenia_translation_writer_parent_process';
+	const META_WRITER_CONTROLLER_PROCESS = '_devenia_translation_writer_controller_process';
 	const META_WRITER_TOKEN_LABEL = '_devenia_translation_writer_token_label';
 	const META_WRITER_RECORDED_AT = '_devenia_translation_writer_recorded_at';
 	const META_COPY_FEEDBACK = '_devenia_translation_copy_feedback';
@@ -16248,6 +16252,18 @@ final class Devenia_AI_Translations {
 		return trim( (string) $process_id );
 	}
 
+	private static function normalize_control_scope_id( string $control_scope_id ): string {
+		$control_scope_id = sanitize_text_field( $control_scope_id );
+		$control_scope_id = preg_replace( '/\s+/', '-', strtolower( $control_scope_id ) );
+		$control_scope_id = preg_replace( '/[^a-z0-9._:-]/', '', (string) $control_scope_id );
+		return trim( (string) $control_scope_id, '.:-_' );
+	}
+
+	private static function normalize_session_origin( string $session_origin ): string {
+		$session_origin = sanitize_key( $session_origin );
+		return in_array( $session_origin, array( 'independent_session', 'spawned_subagent', 'same_session', 'unknown' ), true ) ? $session_origin : '';
+	}
+
 	/**
 	 * Canonical workflow step identifiers protected by the external token authority.
 	 *
@@ -16362,6 +16378,10 @@ final class Devenia_AI_Translations {
 			'step'    => $step,
 			'step_token_label' => $verified_token_label,
 			'process_id' => $verified_process_id,
+			'control_scope_id' => self::normalize_control_scope_id( (string) ( $decision['control_scope_id'] ?? '' ) ),
+			'session_origin' => self::normalize_session_origin( (string) ( $decision['session_origin'] ?? '' ) ),
+			'parent_process_id' => self::normalize_process_id( (string) ( $decision['parent_process_id'] ?? '' ) ),
+			'controller_process_id' => self::normalize_process_id( (string) ( $decision['controller_process_id'] ?? '' ) ),
 			'actor' => sanitize_text_field( (string) ( $decision['actor'] ?? ( 'token_label:' . $verified_token_label ) ) ),
 			'actor_id' => sanitize_key( (string) ( $decision['actor_id'] ?? '' ) ),
 			'authority' => sanitize_text_field( (string) ( $decision['authority'] ?? 'external' ) ),
@@ -16385,6 +16405,10 @@ final class Devenia_AI_Translations {
 	 */
 	private static function record_translation_writer_provenance( int $translation_id, array $verified_identity ): void {
 		$process_id = self::normalize_process_id( (string) ( $verified_identity['process_id'] ?? '' ) );
+		$control_scope_id = self::normalize_control_scope_id( (string) ( $verified_identity['control_scope_id'] ?? '' ) );
+		$session_origin = self::normalize_session_origin( (string) ( $verified_identity['session_origin'] ?? '' ) );
+		$parent_process_id = self::normalize_process_id( (string) ( $verified_identity['parent_process_id'] ?? '' ) );
+		$controller_process_id = self::normalize_process_id( (string) ( $verified_identity['controller_process_id'] ?? '' ) );
 		$actor = sanitize_text_field( (string) ( $verified_identity['actor'] ?? '' ) );
 		$actor_id = sanitize_key( (string) ( $verified_identity['actor_id'] ?? '' ) );
 		$token_label = sanitize_key( (string) ( $verified_identity['step_token_label'] ?? '' ) );
@@ -16399,6 +16423,10 @@ final class Devenia_AI_Translations {
 		}
 
 		update_post_meta( $translation_id, self::META_WRITER_PROCESS, $process_id );
+		update_post_meta( $translation_id, self::META_WRITER_CONTROL_SCOPE, $control_scope_id );
+		update_post_meta( $translation_id, self::META_WRITER_SESSION_ORIGIN, $session_origin );
+		update_post_meta( $translation_id, self::META_WRITER_PARENT_PROCESS, $parent_process_id );
+		update_post_meta( $translation_id, self::META_WRITER_CONTROLLER_PROCESS, $controller_process_id );
 		update_post_meta( $translation_id, self::META_WRITER_ACTOR, $actor );
 		update_post_meta( $translation_id, self::META_WRITER_ACTOR_ID, $actor_id );
 		update_post_meta( $translation_id, self::META_WRITER_TOKEN_LABEL, $token_label );
@@ -16411,6 +16439,10 @@ final class Devenia_AI_Translations {
 	private static function translation_writer_provenance( int $translation_id ): array {
 		return array(
 			'process_id'  => (string) get_post_meta( $translation_id, self::META_WRITER_PROCESS, true ),
+			'control_scope_id' => self::normalize_control_scope_id( (string) get_post_meta( $translation_id, self::META_WRITER_CONTROL_SCOPE, true ) ),
+			'session_origin' => self::normalize_session_origin( (string) get_post_meta( $translation_id, self::META_WRITER_SESSION_ORIGIN, true ) ),
+			'parent_process_id' => self::normalize_process_id( (string) get_post_meta( $translation_id, self::META_WRITER_PARENT_PROCESS, true ) ),
+			'controller_process_id' => self::normalize_process_id( (string) get_post_meta( $translation_id, self::META_WRITER_CONTROLLER_PROCESS, true ) ),
 			'actor'       => (string) get_post_meta( $translation_id, self::META_WRITER_ACTOR, true ),
 			'actor_id'    => (string) get_post_meta( $translation_id, self::META_WRITER_ACTOR_ID, true ),
 			'token_label' => (string) get_post_meta( $translation_id, self::META_WRITER_TOKEN_LABEL, true ),
@@ -16423,6 +16455,10 @@ final class Devenia_AI_Translations {
 	 */
 	private static function reviewer_provenance_from_verified_identity( array $verified_identity, int $translation_id ): array {
 		$process_id = self::normalize_process_id( (string) ( $verified_identity['process_id'] ?? '' ) );
+		$control_scope_id = self::normalize_control_scope_id( (string) ( $verified_identity['control_scope_id'] ?? '' ) );
+		$session_origin = self::normalize_session_origin( (string) ( $verified_identity['session_origin'] ?? '' ) );
+		$parent_process_id = self::normalize_process_id( (string) ( $verified_identity['parent_process_id'] ?? '' ) );
+		$controller_process_id = self::normalize_process_id( (string) ( $verified_identity['controller_process_id'] ?? '' ) );
 		$token_label = sanitize_key( (string) ( $verified_identity['step_token_label'] ?? '' ) );
 		$actor_id = sanitize_key( (string) ( $verified_identity['actor_id'] ?? '' ) );
 		if ( '' === $actor_id ) {
@@ -16435,6 +16471,10 @@ final class Devenia_AI_Translations {
 
 		return array(
 			'process_id'  => $process_id,
+			'control_scope_id' => $control_scope_id,
+			'session_origin' => $session_origin,
+			'parent_process_id' => $parent_process_id,
+			'controller_process_id' => $controller_process_id,
 			'actor'       => $reviewer,
 			'actor_id'    => $actor_id,
 			'token_label' => $token_label,
@@ -16470,8 +16510,47 @@ final class Devenia_AI_Translations {
 				'stage'   => sanitize_key( $stage ),
 			);
 		}
+		if ( '' === $reviewer['control_scope_id'] ) {
+			return array(
+				'success' => false,
+				'code'    => 'reviewer_control_scope_required',
+				'message' => 'Reviewer control scope is required. A reviewer token must carry the Ydepi-signed independent execution context.',
+				'stage'   => sanitize_key( $stage ),
+				'reviewer' => $reviewer,
+			);
+		}
+		if ( 'independent_session' !== $reviewer['session_origin'] ) {
+			return array(
+				'success' => false,
+				'code'    => 'independent_reviewer_session_required',
+				'message' => 'Review and publish require a genuinely independent session. Parent-spawned subagents cannot review or publish work from their controller.',
+				'stage'   => sanitize_key( $stage ),
+				'reviewer' => $reviewer,
+			);
+		}
 
 		$writer = $reviewer['writer'];
+		$writer_control_scope_id = self::normalize_control_scope_id( (string) ( $writer['control_scope_id'] ?? '' ) );
+		if ( '' === $writer_control_scope_id ) {
+			return array(
+				'success'  => false,
+				'code'     => 'writer_control_scope_required',
+				'message'  => 'The current translation writer provenance is missing a signed control scope. Re-save the translation through a current draft_write token before review or publish.',
+				'stage'    => sanitize_key( $stage ),
+				'writer'   => $writer,
+				'reviewer' => $reviewer,
+			);
+		}
+		if ( $writer_control_scope_id === $reviewer['control_scope_id'] ) {
+			return array(
+				'success'  => false,
+				'code'     => 'writer_reviewer_control_scope_match',
+				'message'  => 'The control chain that authored the translation cannot review or publish it. Parent-spawned subagents are part of the same control chain.',
+				'stage'    => sanitize_key( $stage ),
+				'writer'   => $writer,
+				'reviewer' => $reviewer,
+			);
+		}
 		if ( ! empty( $writer['process_id'] ) && $writer['process_id'] === $reviewer['process_id'] ) {
 			return array(
 				'success'  => false,
@@ -16613,6 +16692,10 @@ final class Devenia_AI_Translations {
 			if ( isset( $raw[ $party_key ] ) && is_array( $raw[ $party_key ] ) ) {
 				$party = array(
 					'process_id'  => sanitize_text_field( (string) ( $raw[ $party_key ]['process_id'] ?? '' ) ),
+					'control_scope_id' => self::normalize_control_scope_id( (string) ( $raw[ $party_key ]['control_scope_id'] ?? '' ) ),
+					'session_origin' => self::normalize_session_origin( (string) ( $raw[ $party_key ]['session_origin'] ?? '' ) ),
+					'parent_process_id' => self::normalize_process_id( (string) ( $raw[ $party_key ]['parent_process_id'] ?? '' ) ),
+					'controller_process_id' => self::normalize_process_id( (string) ( $raw[ $party_key ]['controller_process_id'] ?? '' ) ),
 					'actor'       => sanitize_text_field( (string) ( $raw[ $party_key ]['actor'] ?? '' ) ),
 					'actor_id'    => sanitize_key( (string) ( $raw[ $party_key ]['actor_id'] ?? '' ) ),
 					'token_label' => sanitize_key( (string) ( $raw[ $party_key ]['token_label'] ?? '' ) ),
@@ -16621,6 +16704,10 @@ final class Devenia_AI_Translations {
 				if ( 'reviewer' === $party_key && isset( $raw[ $party_key ]['writer'] ) && is_array( $raw[ $party_key ]['writer'] ) ) {
 					$party['writer'] = array(
 						'process_id'  => sanitize_text_field( (string) ( $raw[ $party_key ]['writer']['process_id'] ?? '' ) ),
+						'control_scope_id' => self::normalize_control_scope_id( (string) ( $raw[ $party_key ]['writer']['control_scope_id'] ?? '' ) ),
+						'session_origin' => self::normalize_session_origin( (string) ( $raw[ $party_key ]['writer']['session_origin'] ?? '' ) ),
+						'parent_process_id' => self::normalize_process_id( (string) ( $raw[ $party_key ]['writer']['parent_process_id'] ?? '' ) ),
+						'controller_process_id' => self::normalize_process_id( (string) ( $raw[ $party_key ]['writer']['controller_process_id'] ?? '' ) ),
 						'actor'       => sanitize_text_field( (string) ( $raw[ $party_key ]['writer']['actor'] ?? '' ) ),
 						'actor_id'    => sanitize_key( (string) ( $raw[ $party_key ]['writer']['actor_id'] ?? '' ) ),
 						'token_label' => sanitize_key( (string) ( $raw[ $party_key ]['writer']['token_label'] ?? '' ) ),
@@ -16642,12 +16729,24 @@ final class Devenia_AI_Translations {
 		$writer   = isset( $reviewer['writer'] ) && is_array( $reviewer['writer'] ) ? $reviewer['writer'] : ( isset( $evidence['writer'] ) && is_array( $evidence['writer'] ) ? $evidence['writer'] : array() );
 		$reviewer_process = self::normalize_process_id( (string) ( $reviewer['process_id'] ?? '' ) );
 		$writer_process   = self::normalize_process_id( (string) ( $writer['process_id'] ?? '' ) );
+		$reviewer_control_scope = self::normalize_control_scope_id( (string) ( $reviewer['control_scope_id'] ?? '' ) );
+		$writer_control_scope   = self::normalize_control_scope_id( (string) ( $writer['control_scope_id'] ?? '' ) );
+		$reviewer_session_origin = self::normalize_session_origin( (string) ( $reviewer['session_origin'] ?? '' ) );
 		$reviewer_actor   = sanitize_text_field( (string) ( $reviewer['actor'] ?? '' ) );
 		$writer_actor     = sanitize_text_field( (string) ( $writer['actor'] ?? '' ) );
 		$reviewer_actor_id = sanitize_key( (string) ( $reviewer['actor_id'] ?? '' ) );
 		$writer_actor_id   = sanitize_key( (string) ( $writer['actor_id'] ?? '' ) );
 
 		if ( '' === $reviewer_process ) {
+			return false;
+		}
+		if ( '' === $reviewer_control_scope || '' === $writer_control_scope ) {
+			return false;
+		}
+		if ( 'independent_session' !== $reviewer_session_origin ) {
+			return false;
+		}
+		if ( $writer_control_scope === $reviewer_control_scope ) {
 			return false;
 		}
 		if ( '' !== $writer_process && $writer_process === $reviewer_process ) {
