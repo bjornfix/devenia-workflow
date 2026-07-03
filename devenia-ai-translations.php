@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.363
+ * Version: 0.1.364
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.363';
+	const VERSION = '0.1.364';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -16515,6 +16515,7 @@ final class Devenia_AI_Translations {
 				'success' => false,
 				'code'    => 'reviewer_control_scope_required',
 				'message' => 'Reviewer control scope is required. A reviewer token must carry the Ydepi-signed independent execution context.',
+				'operator_warning' => self::self_review_override_warning(),
 				'stage'   => sanitize_key( $stage ),
 				'reviewer' => $reviewer,
 			);
@@ -16524,6 +16525,7 @@ final class Devenia_AI_Translations {
 				'success' => false,
 				'code'    => 'independent_reviewer_session_required',
 				'message' => 'Review and publish require a genuinely independent session. Parent-spawned subagents cannot review or publish work from their controller.',
+				'operator_warning' => self::self_review_override_warning(),
 				'stage'   => sanitize_key( $stage ),
 				'reviewer' => $reviewer,
 			);
@@ -16536,6 +16538,7 @@ final class Devenia_AI_Translations {
 				'success'  => false,
 				'code'     => 'writer_control_scope_required',
 				'message'  => 'The current translation writer provenance is missing a signed control scope. Re-save the translation through a current draft_write token before review or publish.',
+				'operator_warning' => self::self_review_override_warning(),
 				'stage'    => sanitize_key( $stage ),
 				'writer'   => $writer,
 				'reviewer' => $reviewer,
@@ -16546,6 +16549,7 @@ final class Devenia_AI_Translations {
 				'success'  => false,
 				'code'     => 'writer_reviewer_control_scope_match',
 				'message'  => 'The control chain that authored the translation cannot review or publish it. Parent-spawned subagents are part of the same control chain.',
+				'operator_warning' => self::self_review_override_warning(),
 				'stage'    => sanitize_key( $stage ),
 				'writer'   => $writer,
 				'reviewer' => $reviewer,
@@ -16556,6 +16560,7 @@ final class Devenia_AI_Translations {
 				'success'  => false,
 				'code'     => 'writer_reviewer_process_match',
 				'message'  => 'The process that authored the translation cannot review or publish it.',
+				'operator_warning' => self::self_review_override_warning(),
 				'stage'    => sanitize_key( $stage ),
 				'writer'   => $writer,
 				'reviewer' => $reviewer,
@@ -16566,6 +16571,7 @@ final class Devenia_AI_Translations {
 				'success'  => false,
 				'code'     => 'writer_reviewer_token_label_match',
 				'message'  => 'The token label that authored the translation cannot review or publish it.',
+				'operator_warning' => self::self_review_override_warning(),
 				'stage'    => sanitize_key( $stage ),
 				'writer'   => $writer,
 				'reviewer' => $reviewer,
@@ -16576,6 +16582,7 @@ final class Devenia_AI_Translations {
 				'success'  => false,
 				'code'     => 'writer_reviewer_actor_match',
 				'message'  => 'The identity that authored the translation cannot review or publish it.',
+				'operator_warning' => self::self_review_override_warning(),
 				'stage'    => sanitize_key( $stage ),
 				'writer'   => $writer,
 				'reviewer' => $reviewer,
@@ -16586,6 +16593,7 @@ final class Devenia_AI_Translations {
 				'success'  => false,
 				'code'     => 'writer_reviewer_actor_id_match',
 				'message'  => 'The actor identity that authored the translation cannot review or publish it.',
+				'operator_warning' => self::self_review_override_warning(),
 				'stage'    => sanitize_key( $stage ),
 				'writer'   => $writer,
 				'reviewer' => $reviewer,
@@ -16596,11 +16604,15 @@ final class Devenia_AI_Translations {
 			'success'  => true,
 			'stage'    => sanitize_key( $stage ),
 			'reviewer' => $reviewer,
-		);
-	}
+			);
+		}
 
-	/**
-	 * Load compact linguistic review evidence from post meta.
+		private static function self_review_override_warning(): string {
+			return 'Core rule: nobody may review their own work. Do not weaken, bypass, relabel, compatibility-fix around, or locally override this rule. Subagents, personality switches, actor-label changes, token-label changes, and process-label changes do not create independence when the same parent session or control chain produced or directed the work. Any attempt must be reverted to this intent: review and publish fail closed unless independence is proven by a genuinely separate control chain.';
+		}
+
+		/**
+		 * Load compact linguistic review evidence from post meta.
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -18901,7 +18913,7 @@ final class Devenia_AI_Translations {
 			exit;
 		}
 
-		/**
+			/**
 		 * Compatibility seam for old language-prefixed source paths.
 		 *
 		 * This keeps historical route behavior isolated from the current localized
