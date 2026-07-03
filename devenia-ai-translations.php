@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.377
+ * Version: 0.1.378
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.377';
+	const VERSION = '0.1.378';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -7743,6 +7743,8 @@ final class Devenia_AI_Translations {
 			return self::production_flow( $input );
 		case 'next_heartbeat_action':
 			return self::next_heartbeat_action( $input );
+		case 'heartbeat_status':
+			return self::heartbeat_status( $input );
 		case 'queue':
 			return self::translation_queue( $input );
 		case 'review_queue':
@@ -8386,6 +8388,16 @@ final class Devenia_AI_Translations {
 					return self::run_ability_operation( 'next_heartbeat_action', $input );
 				},
 				'meta'             => self::ability_meta( false, false, true ),
+			),
+			'ai-translations/heartbeat-status' => array(
+				'label'            => 'Get Heartbeat Status',
+				'description'      => 'Returns read-only server-side heartbeat health for independent Codex sessions that have called next-heartbeat-action.',
+				'input_schema'     => self::heartbeat_status_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'heartbeat_status', $input );
+				},
+				'meta'             => self::ability_meta( true, false, true ),
 			),
 			'ai-translations/queue' => array(
 				'label'            => 'List Translation Queue',
@@ -9637,6 +9649,30 @@ final class Devenia_AI_Translations {
 				'note' => array(
 					'type'        => 'string',
 					'description' => 'Optional heartbeat note stored in health state and reservations.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for the read-only heartbeat health surface.
+	 */
+	private static function heartbeat_status_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'expected_actors' => array(
+					'type'        => 'array',
+					'description' => 'Optional actor IDs expected to have fresh independent heartbeat state, such as hilde, kari, and ola.',
+					'items'       => array( 'type' => 'string' ),
+				),
+				'max_age_seconds' => array(
+					'type'        => 'integer',
+					'default'     => 900,
+					'minimum'     => 1,
+					'maximum'     => 86400,
+					'description' => 'Maximum allowed age for a heartbeat to count as fresh.',
 				),
 			),
 			'additionalProperties' => false,
@@ -14969,6 +15005,166 @@ final class Devenia_AI_Translations {
 			'subagent_review' => 'forbidden_unless_session_origin_is_independent_session',
 			'watcher_role' => 'observe_only_no_review_or_publish_signature',
 			'backoff_on_wait_or_escalate' => true,
+		);
+	}
+
+	private static function heartbeat_status( array $input ): array {
+		$max_age_seconds = isset( $input['max_age_seconds'] )
+			? max( 1, min( 86400, absint( $input['max_age_seconds'] ) ) )
+			: 900;
+		$expected_actors = array();
+		if ( ! empty( $input['expected_actors'] ) && is_array( $input['expected_actors'] ) ) {
+			foreach ( $input['expected_actors'] as $actor ) {
+				$actor = sanitize_key( (string) $actor );
+				if ( '' !== $actor ) {
+					$expected_actors[] = $actor;
+				}
+			}
+		}
+		$expected_actors = array_values( array_unique( $expected_actors ) );
+		sort( $expected_actors );
+
+		$heartbeats = get_option( self::OPTION_HEARTBEATS, array() );
+		if ( ! is_array( $heartbeats ) ) {
+			$heartbeats = array();
+		}
+
+		$sessions = array();
+		$actor_threads = array();
+		$thread_actors = array();
+		$now = time();
+		foreach ( $heartbeats as $thread_id => $heartbeat ) {
+			if ( ! is_array( $heartbeat ) ) {
+				continue;
+			}
+			$codex_thread_id = self::normalize_control_scope_id( (string) ( $heartbeat['codex_thread_id'] ?? $thread_id ) );
+			if ( '' === $codex_thread_id ) {
+				continue;
+			}
+			$actor = sanitize_key( (string) ( $heartbeat['actor_id'] ?? $heartbeat['step_token_label'] ?? '' ) );
+			$last_seen_at = sanitize_text_field( (string) ( $heartbeat['last_seen_at'] ?? '' ) );
+			$last_seen_ts = $last_seen_at ? strtotime( $last_seen_at ) : 0;
+			$age_seconds = $last_seen_ts ? max( 0, $now - $last_seen_ts ) : null;
+			$fresh = null !== $age_seconds && $age_seconds <= $max_age_seconds;
+
+			if ( '' !== $actor ) {
+				$actor_threads[ $actor ][] = $codex_thread_id;
+			}
+			$thread_actors[ $codex_thread_id ][] = '' !== $actor ? $actor : '(unknown)';
+
+			$sessions[] = array(
+				'codex_thread_id' => $codex_thread_id,
+				'actor' => $actor,
+				'step_token_label' => sanitize_key( (string) ( $heartbeat['step_token_label'] ?? '' ) ),
+				'session_origin' => self::normalize_session_origin( (string) ( $heartbeat['session_origin'] ?? '' ) ),
+				'last_seen_at' => $last_seen_at,
+				'latest_age_seconds' => $age_seconds,
+				'fresh' => $fresh,
+				'last_action' => sanitize_key( (string) ( $heartbeat['last_action'] ?? '' ) ),
+				'last_source_id' => absint( $heartbeat['last_source_id'] ?? 0 ),
+				'last_translation_id' => absint( $heartbeat['last_translation_id'] ?? 0 ),
+				'last_language' => sanitize_key( (string) ( $heartbeat['last_language'] ?? '' ) ),
+				'last_reason' => sanitize_key( (string) ( $heartbeat['last_reason'] ?? '' ) ),
+				'note' => sanitize_textarea_field( (string) ( $heartbeat['note'] ?? '' ) ),
+			);
+		}
+
+		usort(
+			$sessions,
+			static function ( array $a, array $b ): int {
+				return strcmp( (string) ( $b['last_seen_at'] ?? '' ), (string) ( $a['last_seen_at'] ?? '' ) );
+			}
+		);
+
+		$actors_seen = array_values(
+			array_unique(
+				array_filter(
+					array_map(
+						static function ( array $session ): string {
+							return sanitize_key( (string) ( $session['actor'] ?? '' ) );
+						},
+						$sessions
+					)
+				)
+			)
+		);
+		sort( $actors_seen );
+
+		$actor_collisions = array();
+		foreach ( $actor_threads as $actor => $threads ) {
+			$threads = array_values( array_unique( array_map( 'strval', $threads ) ) );
+			if ( count( $threads ) > 1 ) {
+				sort( $threads );
+				$actor_collisions[] = array(
+					'actor' => sanitize_key( (string) $actor ),
+					'threads' => $threads,
+				);
+			}
+		}
+
+		$thread_collisions = array();
+		foreach ( $thread_actors as $thread_id => $actors ) {
+			$actors = array_values( array_unique( array_map( 'strval', $actors ) ) );
+			if ( count( $actors ) > 1 ) {
+				sort( $actors );
+				$thread_collisions[] = array(
+					'codex_thread_id' => self::normalize_control_scope_id( (string) $thread_id ),
+					'actors' => $actors,
+				);
+			}
+		}
+
+		$missing_actors = array_values( array_diff( $expected_actors, $actors_seen ) );
+		sort( $missing_actors );
+		$unexpected_actors = $expected_actors ? array_values( array_diff( $actors_seen, $expected_actors ) ) : array();
+		sort( $unexpected_actors );
+		$stale_sessions = array_values(
+			array_filter(
+				$sessions,
+				static function ( array $session ): bool {
+					return empty( $session['fresh'] );
+				}
+			)
+		);
+
+		$session_count_ok = ! $expected_actors || count( $sessions ) >= count( $expected_actors );
+		$actor_set_ok = ! $expected_actors || ( empty( $missing_actors ) && empty( $unexpected_actors ) );
+		$collisions_ok = empty( $actor_collisions ) && empty( $thread_collisions );
+		$freshness_ok = empty( $stale_sessions );
+		$healthy = $session_count_ok && $actor_set_ok && $collisions_ok && $freshness_ok;
+
+		return array(
+			'success' => true,
+			'healthy' => $healthy,
+			'max_age_seconds' => $max_age_seconds,
+			'expected_actors' => $expected_actors,
+			'actors_seen' => $actors_seen,
+			'missing_actors' => $missing_actors,
+			'unexpected_actors' => $unexpected_actors,
+			'session_count' => count( $sessions ),
+			'checks' => array(
+				'session_count_ok' => $session_count_ok,
+				'actor_set_ok' => $actor_set_ok,
+				'collisions_ok' => $collisions_ok,
+				'freshness_ok' => $freshness_ok,
+			),
+			'collisions' => array(
+				'actor' => $actor_collisions,
+				'thread' => $thread_collisions,
+			),
+			'stale_sessions' => array_map(
+				static function ( array $session ): array {
+					return array(
+						'codex_thread_id' => $session['codex_thread_id'],
+						'actor' => $session['actor'],
+						'last_seen_at' => $session['last_seen_at'],
+						'latest_age_seconds' => $session['latest_age_seconds'],
+					);
+				},
+				$stale_sessions
+			),
+			'sessions' => $sessions,
+			'policy' => self::heartbeat_policy(),
 		);
 	}
 
