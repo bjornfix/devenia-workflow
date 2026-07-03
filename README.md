@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.371
+**Stable tag:** 0.1.372
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,13 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.372
+
+- Lets protected write, review, and publish abilities use `codex_thread_id`
+  from `CODEX_THREAD_ID` as the normal server-side workflow authority identity.
+- Makes legacy `step_token` and `step_token_label` optional compatibility
+  inputs instead of required local bearer-token fields.
 
 ### 0.1.371
 
