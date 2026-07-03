@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.376
+ * Version: 0.1.377
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.376';
+	const VERSION = '0.1.377';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -30,6 +30,7 @@ final class Devenia_AI_Translations {
 	const OPTION_FRONTEND_SLOW_LOG = 'devenia_ai_translations_frontend_slow_log';
 	const OPTION_REVIEWER_STYLE_PROFILES = 'devenia_ai_translations_reviewer_style_profiles';
 	const OPTION_AUTHOR_ARCHIVES = 'devenia_ai_translations_author_archives';
+	const OPTION_HEARTBEATS = 'devenia_ai_translations_heartbeats';
 	const OPTION_TRANSLATION_CLAIM_PREFIX = 'devenia_ai_translation_claim_';
 	const DEFAULT_TRANSLATION_CLAIM_TTL = 1800;
 	const MAX_TRANSLATION_CLAIM_TTL = 14400;
@@ -7740,6 +7741,8 @@ final class Devenia_AI_Translations {
 			return self::workflow_obligations( $input );
 		case 'production_flow':
 			return self::production_flow( $input );
+		case 'next_heartbeat_action':
+			return self::next_heartbeat_action( $input );
 		case 'queue':
 			return self::translation_queue( $input );
 		case 'review_queue':
@@ -8373,6 +8376,16 @@ final class Devenia_AI_Translations {
 					return self::run_ability_operation( 'production_flow', $input );
 				},
 				'meta'             => self::ability_meta( true, false, true ),
+			),
+			'ai-translations/next-heartbeat-action' => array(
+				'label'            => 'Get Next Heartbeat Action',
+				'description'      => 'Returns one safe, server-selected next action for a real independent Codex heartbeat session. It observes by default and only reserves the item when claim=true.',
+				'input_schema'     => self::heartbeat_action_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'next_heartbeat_action', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
 			),
 			'ai-translations/queue' => array(
 				'label'            => 'List Translation Queue',
@@ -9584,6 +9597,46 @@ final class Devenia_AI_Translations {
 				'include_expired' => array(
 					'type'    => 'boolean',
 					'default' => false,
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for the conservative heartbeat work assignment surface.
+	 */
+	private static function heartbeat_action_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'codex_thread_id' ),
+			'properties'           => array(
+				'codex_thread_id' => array(
+					'type'        => 'string',
+					'description' => 'Required. Set this to the exact CODEX_THREAD_ID environment value for the real independent heartbeat session.',
+				),
+				'limit' => array(
+					'type'        => 'integer',
+					'default'     => 100,
+					'minimum'     => 1,
+					'maximum'     => 500,
+					'description' => 'Maximum source posts/pages to scan while choosing one action.',
+				),
+				'claim' => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'When true, reserve the selected source/language item. Default false only observes.',
+				),
+				'ttl_seconds' => array(
+					'type'        => 'integer',
+					'default'     => 600,
+					'minimum'     => 60,
+					'maximum'     => self::MAX_TRANSLATION_CLAIM_TTL,
+					'description' => 'Reservation TTL when claim=true.',
+				),
+				'note' => array(
+					'type'        => 'string',
+					'description' => 'Optional heartbeat note stored in health state and reservations.',
 				),
 			),
 			'additionalProperties' => false,
@@ -14664,6 +14717,292 @@ final class Devenia_AI_Translations {
 			'totals' => $totals,
 			'items' => $include_items ? ( $obligations['items'] ?? array() ) : array(),
 		);
+	}
+
+	/**
+	 * Return one safe next action for a real independent heartbeat session.
+	 *
+	 * This is intentionally conservative. It centralizes the work-selection
+	 * rules so heartbeat clients do not each reinterpret queue state, writer
+	 * provenance, reservations, and self-review constraints.
+	 */
+	private static function next_heartbeat_action( array $input ): array {
+		$limit = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 100;
+		$claim = ! empty( $input['claim'] );
+		$ttl_seconds = isset( $input['ttl_seconds'] )
+			? max( 60, min( self::MAX_TRANSLATION_CLAIM_TTL, absint( $input['ttl_seconds'] ) ) )
+			: 600;
+		$note = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
+
+		$identity = self::translation_step_token_gate( 'quality_review', $input );
+		if ( empty( $identity['success'] ) ) {
+			self::record_heartbeat_state(
+				$input,
+				array(
+					'action' => 'escalate',
+					'reason' => sanitize_key( (string) ( $identity['code'] ?? 'workflow_identity_not_confirmed' ) ),
+				),
+				is_array( $identity ) ? $identity : array()
+			);
+			return array(
+				'success' => false,
+				'action'  => 'escalate',
+				'code'    => sanitize_key( (string) ( $identity['code'] ?? 'workflow_identity_not_confirmed' ) ),
+				'message' => (string) ( $identity['message'] ?? 'Heartbeat identity is not confirmed by the token authority.' ),
+				'identity' => self::public_heartbeat_identity( is_array( $identity ) ? $identity : array() ),
+			);
+		}
+
+		$obligations = self::workflow_obligations(
+			array(
+				'limit' => $limit,
+				'include_items' => true,
+			)
+		);
+		if ( empty( $obligations['success'] ) ) {
+			self::record_heartbeat_state( $input, array( 'action' => 'escalate', 'reason' => 'workflow_obligations_failed' ), $identity );
+			return $obligations;
+		}
+
+		$skipped = array();
+		foreach ( $obligations['items'] ?? array() as $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
+			$translation_id = absint( $item['translation_id'] ?? 0 );
+			$source_id = absint( $item['source_id'] ?? 0 );
+			$language = sanitize_key( (string) ( $item['language'] ?? '' ) );
+			if ( ! $translation_id || ! $source_id || ! self::is_translation_language( $language ) ) {
+				continue;
+			}
+
+			$reservation = self::translation_reservation_for_language( $source_id, $language );
+			if ( $reservation ) {
+				$skipped[] = self::heartbeat_skip_summary( $item, 'reserved' );
+				continue;
+			}
+
+			$eligibility = self::heartbeat_translation_review_eligibility( $translation_id, $identity );
+			if ( empty( $eligibility['success'] ) ) {
+				$skipped[] = self::heartbeat_skip_summary( $item, sanitize_key( (string) ( $eligibility['code'] ?? 'not_eligible' ) ) );
+				continue;
+			}
+
+			$obligation = self::heartbeat_first_actionable_obligation( $item['obligations'] ?? array() );
+			if ( '' === $obligation ) {
+				continue;
+			}
+
+			$action = self::heartbeat_action_for_obligation( $obligation );
+			$selected = array(
+				'action' => $action['action'],
+				'workflow_step' => $action['workflow_step'],
+				'required_ability' => $action['required_ability'],
+				'source_id' => $source_id,
+				'source_title' => sanitize_text_field( (string) ( $item['source_title'] ?? '' ) ),
+				'translation_id' => $translation_id,
+				'language' => $language,
+				'post_status' => sanitize_key( (string) ( $item['post_status'] ?? '' ) ),
+				'obligation' => $obligation,
+				'instructions' => $action['instructions'],
+				'claim_required_for_writes' => true,
+			);
+
+			$claim_result = null;
+			if ( $claim ) {
+				$claim_result = self::reserve_translation_work(
+					array(
+						'source_id' => $source_id,
+						'language' => $language,
+						'owner' => 'heartbeat:' . (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? 'unknown' ),
+						'note' => '' !== $note ? $note : 'Reserved by next-heartbeat-action.',
+						'ttl_seconds' => $ttl_seconds,
+					)
+				);
+				if ( empty( $claim_result['success'] ) ) {
+					$skipped[] = self::heartbeat_skip_summary( $item, 'claim_conflict' );
+					continue;
+				}
+				$selected['claim_token'] = (string) ( $claim_result['claim_token'] ?? '' );
+				$selected['reservation'] = $claim_result['claims'][0] ?? null;
+			}
+
+			self::record_heartbeat_state( $input, $selected, $identity );
+			return array(
+				'success' => true,
+				'action' => $selected['action'],
+				'mode' => $claim ? 'claimed' : 'observe',
+				'identity' => self::public_heartbeat_identity( $identity ),
+				'selected' => $selected,
+				'totals' => $obligations['totals'] ?? array(),
+				'skipped_count' => count( $skipped ),
+				'skipped_sample' => array_slice( $skipped, 0, 10 ),
+				'heartbeat_policy' => self::heartbeat_policy(),
+			);
+		}
+
+		$wait = array(
+			'action' => 'wait',
+			'reason' => 'no_safe_action_for_this_actor',
+			'instructions' => 'No eligible unreserved action was found for this heartbeat. Wait, back off, or let another independent heartbeat handle the remaining work.',
+		);
+		self::record_heartbeat_state( $input, $wait, $identity );
+		return array(
+			'success' => true,
+			'action' => 'wait',
+			'mode' => 'observe',
+			'identity' => self::public_heartbeat_identity( $identity ),
+			'selected' => $wait,
+			'totals' => $obligations['totals'] ?? array(),
+			'skipped_count' => count( $skipped ),
+			'skipped_sample' => array_slice( $skipped, 0, 10 ),
+			'heartbeat_policy' => self::heartbeat_policy(),
+		);
+	}
+
+	private static function heartbeat_first_actionable_obligation( $obligations ): string {
+		if ( ! is_array( $obligations ) ) {
+			return '';
+		}
+		$allowed = array( 'linguistic_review', 'quality_review', 'final_review', 'publish' );
+		foreach ( $allowed as $obligation ) {
+			if ( in_array( $obligation, $obligations, true ) ) {
+				return $obligation;
+			}
+		}
+		return '';
+	}
+
+	private static function heartbeat_action_for_obligation( string $obligation ): array {
+		$map = array(
+			'linguistic_review' => array(
+				'action' => 'review_translation_linguistic',
+				'workflow_step' => 'linguistic_review',
+				'required_ability' => 'ai-translations/mark-linguistic-reviewed',
+				'instructions' => 'Run QA and a real language review. If copy is stiff or wrong, record/fix feedback; do not approve merely because the checkboxes can be filled.',
+			),
+			'quality_review' => array(
+				'action' => 'review_translation_quality',
+				'workflow_step' => 'quality_review',
+				'required_ability' => 'ai-translations/mark-quality-reviewed',
+				'instructions' => 'Review the visible public page, design, layout, links/actions, currentness, and reader decision safety before marking quality reviewed.',
+			),
+			'final_review' => array(
+				'action' => 'review_translation_final',
+				'workflow_step' => 'final_review',
+				'required_ability' => 'ai-translations/mark-final-reviewed',
+				'instructions' => 'Confirm prior reviews, SEO/URL readiness, publication experience, and final publish decision.',
+			),
+			'publish' => array(
+				'action' => 'publish_translation',
+				'workflow_step' => 'publish',
+				'required_ability' => 'ai-translations/publish-translation',
+				'instructions' => 'Publish only with current linguistic, quality, and final review evidence. Use live verification.',
+			),
+		);
+		return $map[ $obligation ] ?? array(
+			'action' => 'wait',
+			'workflow_step' => '',
+			'required_ability' => '',
+			'instructions' => 'No supported obligation selected.',
+		);
+	}
+
+	private static function heartbeat_translation_review_eligibility( int $translation_id, array $identity ): array {
+		$reviewer = self::reviewer_provenance_from_verified_identity( $identity, $translation_id );
+		if ( '' === $reviewer['control_scope_id'] ) {
+			return array( 'success' => false, 'code' => 'reviewer_control_scope_required' );
+		}
+		if ( 'independent_session' !== $reviewer['session_origin'] ) {
+			return array( 'success' => false, 'code' => 'independent_reviewer_session_required' );
+		}
+
+		$writer = $reviewer['writer'];
+		$writer_control_scope_id = self::normalize_control_scope_id( (string) ( $writer['control_scope_id'] ?? '' ) );
+		if ( '' === $writer_control_scope_id && ! self::writer_provenance_has_reviewable_legacy_identity( $writer ) ) {
+			return array( 'success' => false, 'code' => 'writer_control_scope_required' );
+		}
+		if ( '' !== $writer_control_scope_id && $writer_control_scope_id === $reviewer['control_scope_id'] ) {
+			return array( 'success' => false, 'code' => 'writer_reviewer_control_scope_match' );
+		}
+		if ( ! empty( $writer['process_id'] ) && $writer['process_id'] === $reviewer['process_id'] ) {
+			return array( 'success' => false, 'code' => 'writer_reviewer_process_match' );
+		}
+		if ( ! empty( $writer['token_label'] ) && ! empty( $reviewer['token_label'] ) && $writer['token_label'] === $reviewer['token_label'] ) {
+			return array( 'success' => false, 'code' => 'writer_reviewer_token_label_match' );
+		}
+		if ( ! empty( $writer['actor'] ) && $writer['actor'] === $reviewer['actor'] ) {
+			return array( 'success' => false, 'code' => 'writer_reviewer_actor_match' );
+		}
+		if ( ! empty( $writer['actor_id'] ) && ! empty( $reviewer['actor_id'] ) && $writer['actor_id'] === $reviewer['actor_id'] ) {
+			return array( 'success' => false, 'code' => 'writer_reviewer_actor_id_match' );
+		}
+
+		return array( 'success' => true );
+	}
+
+	private static function heartbeat_skip_summary( array $item, string $reason ): array {
+		return array(
+			'reason' => sanitize_key( $reason ),
+			'source_id' => absint( $item['source_id'] ?? 0 ),
+			'translation_id' => absint( $item['translation_id'] ?? 0 ),
+			'language' => sanitize_key( (string) ( $item['language'] ?? '' ) ),
+		);
+	}
+
+	private static function public_heartbeat_identity( array $identity ): array {
+		return array(
+			'actor_id' => sanitize_key( (string) ( $identity['actor_id'] ?? '' ) ),
+			'step_token_label' => sanitize_key( (string) ( $identity['step_token_label'] ?? '' ) ),
+			'process_id' => self::normalize_process_id( (string) ( $identity['process_id'] ?? '' ) ),
+			'control_scope_id' => self::normalize_control_scope_id( (string) ( $identity['control_scope_id'] ?? '' ) ),
+			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $identity['codex_thread_id'] ?? '' ) ),
+			'session_origin' => self::normalize_session_origin( (string) ( $identity['session_origin'] ?? '' ) ),
+		);
+	}
+
+	private static function heartbeat_policy(): array {
+		return array(
+			'mode' => 'one_safe_action_at_a_time',
+			'default_claim' => false,
+			'self_review' => 'forbidden_by_actor_process_token_and_control_scope',
+			'subagent_review' => 'forbidden_unless_session_origin_is_independent_session',
+			'watcher_role' => 'observe_only_no_review_or_publish_signature',
+			'backoff_on_wait_or_escalate' => true,
+		);
+	}
+
+	private static function record_heartbeat_state( array $input, array $selected, array $identity ): void {
+		$codex_thread_id = self::normalize_control_scope_id( (string) ( $input['codex_thread_id'] ?? $identity['codex_thread_id'] ?? '' ) );
+		if ( '' === $codex_thread_id ) {
+			return;
+		}
+		$heartbeats = get_option( self::OPTION_HEARTBEATS, array() );
+		if ( ! is_array( $heartbeats ) ) {
+			$heartbeats = array();
+		}
+		$heartbeats[ $codex_thread_id ] = array(
+			'codex_thread_id' => $codex_thread_id,
+			'actor_id' => sanitize_key( (string) ( $identity['actor_id'] ?? '' ) ),
+			'step_token_label' => sanitize_key( (string) ( $identity['step_token_label'] ?? '' ) ),
+			'session_origin' => self::normalize_session_origin( (string) ( $identity['session_origin'] ?? '' ) ),
+			'last_seen_at' => gmdate( 'c' ),
+			'last_action' => sanitize_key( (string) ( $selected['action'] ?? '' ) ),
+			'last_source_id' => absint( $selected['source_id'] ?? 0 ),
+			'last_translation_id' => absint( $selected['translation_id'] ?? 0 ),
+			'last_language' => sanitize_key( (string) ( $selected['language'] ?? '' ) ),
+			'last_reason' => sanitize_key( (string) ( $selected['reason'] ?? '' ) ),
+			'note' => ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '',
+		);
+
+		uasort(
+			$heartbeats,
+			static function ( $a, $b ): int {
+				return strcmp( (string) ( $b['last_seen_at'] ?? '' ), (string) ( $a['last_seen_at'] ?? '' ) );
+			}
+		);
+		$heartbeats = array_slice( $heartbeats, 0, 20, true );
+		update_option( self::OPTION_HEARTBEATS, $heartbeats, false );
 	}
 
 	/**
