@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.374
+ * Version: 0.1.375
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.374';
+	const VERSION = '0.1.375';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -12194,9 +12194,26 @@ final class Devenia_AI_Translations {
 			);
 		}
 
+		$translation_id = isset( $input['translation_id'] ) ? absint( $input['translation_id'] ) : 0;
+		if ( ! $translation_id ) {
+			$translation_id = self::find_translation_id( $source_id, $language );
+		}
+		$existing_translation = null;
+		if ( $translation_id ) {
+			$existing_translation = get_post( $translation_id );
+			if ( ! $existing_translation || $target_post_type !== $existing_translation->post_type ) {
+				return self::error( 'Translation ID does not match the source post type.' );
+			}
+		}
+
 		$status             = self::sanitize_post_status( (string) ( $input['status'] ?? 'draft' ), 'draft' );
 		$translation_status = self::sanitize_translation_status( (string) ( $input['translation_status'] ?? 'needs_review' ) );
-		if ( in_array( $translation_status, array( 'reviewed', 'published' ), true ) || 'publish' === $status ) {
+		$updating_published_needs_review_translation = $existing_translation
+			&& 'publish' === $existing_translation->post_status
+			&& 'publish' === $status
+			&& 'needs_review' === $translation_status
+			&& ! empty( $input['allow_update_published'] );
+		if ( in_array( $translation_status, array( 'reviewed', 'published' ), true ) || ( 'publish' === $status && ! $updating_published_needs_review_translation ) ) {
 			return self::error( 'Writer workflows may only save translated drafts or needs_review content. A separate reviewer process must review and publish translations.' );
 		}
 		$raw_slug           = (string) ( $input['localized_slug'] ?? '' );
@@ -12240,19 +12257,11 @@ final class Devenia_AI_Translations {
 			$parent_id = self::default_translation_parent_id( $source, $language );
 		}
 
-		$translation_id = isset( $input['translation_id'] ) ? absint( $input['translation_id'] ) : 0;
-		if ( ! $translation_id ) {
-			$translation_id = self::find_translation_id( $source_id, $language );
-		}
-
 		$previous_review_hash = '';
 		$new_review_hash      = hash( 'sha256', $title . "\n" . $excerpt . "\n" . $content );
 		$content_changed_after_review = false;
 		if ( $translation_id ) {
-			$existing = get_post( $translation_id );
-			if ( ! $existing || $target_post_type !== $existing->post_type ) {
-				return self::error( 'Translation ID does not match the source post type.' );
-			}
+			$existing = $existing_translation ?: get_post( $translation_id );
 			if ( 'publish' === $existing->post_status && empty( $input['allow_update_published'] ) ) {
 				return self::error( 'Refusing to update a published translation without allow_update_published=true.' );
 			}
