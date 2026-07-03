@@ -542,7 +542,13 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				'id' => (int) $source->ID,
 				'title' => get_the_title( $source ),
 				'source_hash' => self::source_hash( $source ),
-				'source_design' => $contract,
+				'source_design_summary' => array(
+					'schema_version' => absint( $contract['schema_version'] ?? 1 ),
+					'design_hash' => (string) ( $contract['design_hash'] ?? '' ),
+					'fragment_count' => absint( $contract['fragment_count'] ?? 0 ),
+					'editorial_source_validation' => $contract['editorial_source_validation'] ?? array(),
+				),
+				'source_design' => ! empty( $input['include_source_design'] ) ? $contract : null,
 			),
 			'policy' => array(
 				'stores_only_complete_fragment_contracts' => true,
@@ -604,6 +610,20 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				'migrated_count' => count( $records ),
 				'missing_count' => count( $missing ),
 				'missing_keys' => $missing,
+				'mapping' => $migration['mapping'],
+				'fragment_preview' => array_slice( $records, 0, 12 ),
+			);
+		}
+		if ( ! $dry_run && ! empty( $migration['mapping']['order_fallback_used'] ) && empty( $input['allow_order_fallback_apply'] ) ) {
+			return array(
+				'success' => false,
+				'code' => 'order_fallback_apply_requires_explicit_review',
+				'message' => 'Order-based legacy fragment mapping can misalign translated copy with the new source design. Review the mapping and set allow_order_fallback_apply=true before applying.',
+				'translation_id' => $translation_id,
+				'language' => $language,
+				'post_status' => (string) $translation->post_status,
+				'migrated_count' => count( $records ),
+				'missing_count' => 0,
 				'mapping' => $migration['mapping'],
 				'fragment_preview' => array_slice( $records, 0, 12 ),
 			);

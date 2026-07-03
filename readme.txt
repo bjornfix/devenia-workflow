@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.365
+Stable tag: 0.1.366
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.366 =
+* Keeps legacy fragment migration dry-run output compact and blocks order-fallback writes unless explicitly allowed after review.
 
 = 0.1.365 =
 * Adds a dry-run-first source-design fragment migration ability for legacy translations before reprojection.
