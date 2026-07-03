@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.359
+ * Version: 0.1.360
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.359';
+	const VERSION = '0.1.360';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -504,12 +504,14 @@ final class Devenia_AI_Translations {
 					'tag'                              => (string) $term_match['slug'],
 					'devenia_translated_term_language' => (string) $term_match['language'],
 					'devenia_translated_term_id'       => absint( $term_match['term_id'] ),
+					'paged'                            => absint( $term_match['paged'] ?? 1 ),
 				);
 			} else {
 				$wp->query_vars = array(
 					'category_name'                    => (string) $term_match['slug'],
 					'devenia_translated_term_language' => (string) $term_match['language'],
 					'devenia_translated_term_id'       => absint( $term_match['term_id'] ),
+					'paged'                            => absint( $term_match['paged'] ?? 1 ),
 				);
 			}
 			return;
@@ -535,7 +537,7 @@ final class Devenia_AI_Translations {
 	/**
 	 * Match a localized translated term archive path to a native WordPress term query.
 	 *
-	 * @return array{taxonomy:string,slug:string,term_id:int}|array<string,mixed>
+	 * @return array{taxonomy:string,slug:string,term_id:int,language:string,paged:int}|array<string,mixed>
 	 */
 	private static function translated_term_request_for_path( string $path ): array {
 		$clean_path = trim( $path, '/' );
@@ -555,12 +557,18 @@ final class Devenia_AI_Translations {
 					continue;
 				}
 
-				$slug = trim( substr( $clean_path, strlen( $base ) + 1 ), '/' );
-				if ( '' === $slug || false !== strpos( $slug, '/' ) ) {
+				$slug_path = trim( substr( $clean_path, strlen( $base ) + 1 ), '/' );
+				$paged     = 1;
+				if ( preg_match( '#^(.+)/page/([1-9][0-9]*)$#', $slug_path, $page_match ) ) {
+					$slug_path = trim( (string) $page_match[1], '/' );
+					$paged     = max( 1, absint( $page_match[2] ) );
+				}
+
+				if ( '' === $slug_path || false !== strpos( $slug_path, '/' ) ) {
 					continue;
 				}
 
-				$term = get_term_by( 'slug', sanitize_title( $slug ), $taxonomy );
+				$term = get_term_by( 'slug', sanitize_title( $slug_path ), $taxonomy );
 				if ( ! $term instanceof WP_Term ) {
 					continue;
 				}
@@ -575,6 +583,7 @@ final class Devenia_AI_Translations {
 					'slug'     => (string) $term->slug,
 					'term_id'  => (int) $term->term_id,
 					'language' => (string) $language,
+					'paged'    => $paged,
 				);
 			}
 		}
