@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.368
+**Stable tag:** 0.1.369
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,13 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.369
+
+- Keeps review and quality-review queue responses compact by default, with full
+  evidence payloads available through `detail_level=full`.
+- Stops quality-review queue scans early for modified-date queues once enough
+  actionable items are found.
 
 ### 0.1.368
 

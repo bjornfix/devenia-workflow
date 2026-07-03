@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.368
+ * Version: 0.1.369
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.368';
+	const VERSION = '0.1.369';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -9608,6 +9608,12 @@ final class Devenia_AI_Translations {
 					'maximum'     => 500,
 					'description' => 'Maximum number of source pages to inspect when source_id is omitted.',
 				),
+				'detail_level' => array(
+					'type'        => 'string',
+					'enum'        => array( 'compact', 'full' ),
+					'default'     => 'compact',
+					'description' => 'compact returns queue-ready rows only. full includes the heavier legacy translation payload for debugging.',
+				),
 			),
 			'additionalProperties' => false,
 		);
@@ -9725,6 +9731,12 @@ final class Devenia_AI_Translations {
 					'enum'        => array( 'modified_asc', 'modified_desc', 'title_asc' ),
 					'default'     => 'modified_asc',
 					'description' => 'Queue order. modified_asc surfaces the oldest unreviewed change first.',
+				),
+				'detail_level'     => array(
+					'type'        => 'string',
+					'enum'        => array( 'compact', 'full' ),
+					'default'     => 'compact',
+					'description' => 'compact returns queue-ready rows only. full includes publication experience, verdict, review evidence, and all feedback.',
 				),
 			),
 			'additionalProperties' => false,
@@ -14681,6 +14693,7 @@ final class Devenia_AI_Translations {
 		$limit            = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 50;
 		$include_complete = ! empty( $input['include_complete'] );
 		$status_filter    = self::queue_status_filter( $input['statuses'] ?? array() );
+		$detail_level     = self::queue_detail_level( $input );
 		$sources          = array();
 
 		if ( $source_id ) {
@@ -14722,7 +14735,7 @@ final class Devenia_AI_Translations {
 		);
 
 		foreach ( $sources as $source ) {
-			$item = self::queue_item_for_source( $source, $status_filter );
+			$item = self::queue_item_for_source( $source, $status_filter, $detail_level );
 			foreach ( $item['languages'] as $language_row ) {
 				if ( isset( $totals[ $language_row['state'] ] ) ) {
 					++$totals[ $language_row['state'] ];
@@ -14742,6 +14755,7 @@ final class Devenia_AI_Translations {
 			'totals'           => $totals,
 			'status_filter'    => array_values( $status_filter ),
 			'include_complete' => $include_complete,
+			'detail_level'     => $detail_level,
 		);
 	}
 
@@ -14753,6 +14767,7 @@ final class Devenia_AI_Translations {
 			'limit'            => isset( $input['limit'] ) ? absint( $input['limit'] ) : 100,
 			'include_complete' => false,
 			'statuses'         => array( 'needs_review', 'needs_linguistic_review', 'ready_to_publish' ),
+			'detail_level'     => self::queue_detail_level( $input ),
 		);
 
 		if ( ! empty( $input['source_id'] ) ) {
@@ -14945,6 +14960,7 @@ final class Devenia_AI_Translations {
 		$include_source   = ! empty( $input['include_source'] );
 		$requested_order  = (string) ( $input['order'] ?? 'modified_asc' );
 		$order            = in_array( $requested_order, array( 'modified_asc', 'modified_desc', 'title_asc' ), true ) ? $requested_order : 'modified_asc';
+		$detail_level     = self::queue_detail_level( $input );
 		$languages        = self::quality_review_language_filter( $input['languages'] ?? array(), $include_source );
 		$status_filter    = self::quality_review_status_filter( $input['statuses'] ?? array() );
 		$posts            = array();
@@ -15025,7 +15041,7 @@ final class Devenia_AI_Translations {
 		);
 
 		foreach ( $posts as $post ) {
-			$item = self::quality_review_queue_item( $post );
+			$item = self::quality_review_queue_item( $post, $detail_level );
 			if ( ! in_array( $item['language'], $languages, true ) ) {
 				continue;
 			}
@@ -15039,6 +15055,9 @@ final class Devenia_AI_Translations {
 				continue;
 			}
 			$items[] = $item;
+			if ( 'title_asc' !== $order && count( $items ) >= $limit ) {
+				break;
+			}
 		}
 
 		self::sort_quality_review_items( $items, $order );
@@ -15057,6 +15076,7 @@ final class Devenia_AI_Translations {
 			'include_reviewed' => $include_reviewed,
 			'include_source'   => $include_source,
 			'order'            => $order,
+			'detail_level'     => $detail_level,
 		);
 	}
 
@@ -15745,11 +15765,20 @@ final class Devenia_AI_Translations {
 	/**
 	 * Build one queue row for a source page.
 	 */
-	private static function queue_item_for_source( WP_Post $source, array $status_filter ): array {
+	private static function queue_item_for_source( WP_Post $source, array $status_filter, string $detail_level = 'compact' ): array {
 		$translations = array();
-		foreach ( self::translation_rows_for_source( (int) $source->ID ) as $row ) {
-			if ( ! empty( $row['language'] ) ) {
-				$translations[ $row['language'] ] = $row;
+		if ( 'full' === $detail_level ) {
+			foreach ( self::translation_rows_for_source( (int) $source->ID ) as $row ) {
+				if ( ! empty( $row['language'] ) ) {
+					$translations[ $row['language'] ] = $row;
+				}
+			}
+		} else {
+			foreach ( self::translation_posts_for_source( (int) $source->ID ) as $post ) {
+				$row = self::compact_translation_queue_payload( $post, $source );
+				if ( ! empty( $row['language'] ) ) {
+					$translations[ $row['language'] ] = $row;
+				}
 			}
 		}
 
@@ -15788,6 +15817,68 @@ final class Devenia_AI_Translations {
 			'source_hash' => self::source_hash( $source ),
 			'languages'   => $language_rows,
 			'action_count'=> $action_count,
+		);
+	}
+
+	/**
+	 * Compact translation row for queue listings.
+	 */
+	private static function compact_translation_queue_payload( WP_Post $post, ?WP_Post $source = null ): array {
+		$post_id   = (int) $post->ID;
+		$source_id = absint( get_post_meta( $post_id, self::META_SOURCE_ID, true ) );
+		if ( ! $source && $source_id ) {
+			$source = get_post( $source_id );
+		}
+		$language = sanitize_key( (string) get_post_meta( $post_id, self::META_LANGUAGE, true ) );
+		$hash     = (string) get_post_meta( $post_id, self::META_SOURCE_HASH, true );
+		$current  = $source ? self::source_hash( $source ) : '';
+		$linguistic_state = self::linguistic_review_state_for_post( $post_id );
+		$quality_reviewed_at = (string) get_post_meta( $post_id, self::META_QUALITY_REVIEWED_AT, true );
+		$quality_state       = self::quality_review_state_for_post( $post, $quality_reviewed_at, $language );
+		$final_reviewed_at   = (string) get_post_meta( $post_id, self::META_FINAL_REVIEWED_AT, true );
+		$open_feedback       = self::open_copy_feedback_for_post( $post_id );
+
+		return array(
+			'id'                 => $post_id,
+			'post_type'          => (string) $post->post_type,
+			'source_id'          => $source_id,
+			'language'           => $language,
+			'title'              => get_the_title( $post ),
+			'slug'               => $post->post_name,
+			'status'             => $post->post_status,
+			'translation_status' => (string) get_post_meta( $post_id, self::META_STATUS, true ),
+			'url'                => get_permalink( $post ),
+			'modified'           => $post->post_modified_gmt,
+			'localized_path'     => (string) get_post_meta( $post_id, self::META_LOCALIZED_PATH, true ),
+			'source_hash'        => $hash,
+			'current_source_hash'=> $current,
+			'is_stale'           => $hash && $current && $hash !== $current,
+			'writer_provenance'  => self::translation_writer_provenance( $post_id ),
+			'linguistic_review_state' => array(
+				'passed'        => ! empty( $linguistic_state['passed'] ),
+				'state'         => sanitize_key( (string) ( $linguistic_state['state'] ?? 'needs_linguistic_review' ) ),
+				'stale_reasons' => self::sanitize_qa_code_list( $linguistic_state['stale_reasons'] ?? array() ),
+				'reviewed_at'   => (string) ( $linguistic_state['reviewed_at'] ?? '' ),
+			),
+			'quality_review_state' => array(
+				'state'       => $quality_state,
+				'reviewed_at' => $quality_reviewed_at,
+			),
+			'final_review_state' => array(
+				'state'       => '' === $final_reviewed_at ? 'needs_final_review' : 'final_review_recorded',
+				'reviewed_at' => $final_reviewed_at,
+			),
+			'copy_feedback_open_count' => count( $open_feedback ),
+			'copy_feedback_open_ids'   => array_values(
+				array_filter(
+					array_map(
+						static function ( array $item ): string {
+							return sanitize_key( (string) ( $item['id'] ?? '' ) );
+						},
+						$open_feedback
+					)
+				)
+			),
 		);
 	}
 
@@ -17223,7 +17314,7 @@ final class Devenia_AI_Translations {
 	/**
 	 * Compact queue item for quality review.
 	 */
-	private static function quality_review_queue_item( WP_Post $post ): array {
+	private static function quality_review_queue_item( WP_Post $post, string $detail_level = 'compact' ): array {
 		$post_id       = (int) $post->ID;
 		$language_context = self::review_language_context_for_post( $post );
 		$is_translation = ! empty( $language_context['is_translation'] );
@@ -17236,11 +17327,11 @@ final class Devenia_AI_Translations {
 		$required_checks = self::required_quality_review_checks( $language );
 		$quality_checks  = self::quality_review_checks_for_post( $post_id );
 			$missing_checks  = self::missing_review_checks( $quality_checks, $required_checks );
-			$copy_feedback   = self::copy_feedback_for_post( $post_id );
 			$open_feedback   = self::open_copy_feedback_for_post( $post_id );
-			$publication_experience = self::publication_experience_readiness_for_post( $post, $language, 'quality_queue' );
+			$copy_feedback   = 'full' === $detail_level ? self::copy_feedback_for_post( $post_id ) : array();
+			$publication_experience = 'full' === $detail_level ? self::publication_experience_readiness_for_post( $post, $language, 'quality_queue' ) : null;
 
-			return array(
+			$item = array(
 			'page' => array(
 				'id'           => $post_id,
 				'title'        => get_the_title( $post ),
@@ -17262,12 +17353,26 @@ final class Devenia_AI_Translations {
 			'quality_required_checks' => $required_checks,
 			'quality_missing_checks' => $missing_checks,
 				'quality_review_checks' => $quality_checks,
-				'quality_review_evidence' => self::quality_review_evidence_for_post( $post_id ),
-				'publication_experience' => $publication_experience,
-				'quality_verdict' => self::quality_verdict_present_for_audience( self::quality_verdict_for_post( $post, false ), 'ai_operator' ),
 			'copy_feedback_open_count' => count( $open_feedback ),
-			'copy_feedback' => $copy_feedback,
+			'copy_feedback_open_ids' => array_values(
+				array_filter(
+					array_map(
+						static function ( array $feedback ): string {
+							return sanitize_key( (string) ( $feedback['id'] ?? '' ) );
+						},
+						$open_feedback
+					)
+				)
+			),
 		);
+		if ( 'full' === $detail_level ) {
+			$item['quality_review_evidence'] = self::quality_review_evidence_for_post( $post_id );
+			$item['publication_experience']  = $publication_experience;
+			$item['quality_verdict']         = self::quality_verdict_present_for_audience( self::quality_verdict_for_post( $post, false ), 'ai_operator' );
+			$item['copy_feedback']           = $copy_feedback;
+		}
+
+		return $item;
 	}
 
 	/**
@@ -18009,6 +18114,14 @@ final class Devenia_AI_Translations {
 		}
 
 		return array_values( array_unique( $clean ) );
+	}
+
+	/**
+	 * Normalize queue detail level.
+	 */
+	private static function queue_detail_level( array $input ): string {
+		$detail_level = sanitize_key( (string) ( $input['detail_level'] ?? 'compact' ) );
+		return in_array( $detail_level, array( 'compact', 'full' ), true ) ? $detail_level : 'compact';
 	}
 
 	/**
@@ -21787,25 +21900,39 @@ final class Devenia_AI_Translations {
 	 * Translation rows for a source page.
 	 */
 	private static function translation_rows_for_source( int $source_id, array $post_status = array() ): array {
+		$rows = array();
+		foreach ( self::translation_posts_for_source( $source_id, $post_status ) as $post ) {
+			$rows[] = self::translation_payload( $post );
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Translation post objects for a source page without expanding review payload.
+	 *
+	 * @return WP_Post[]
+	 */
+	private static function translation_posts_for_source( int $source_id, array $post_status = array() ): array {
 		static $cache = array();
 
 		$post_status = self::sanitize_translation_post_statuses( $post_status, false );
-		$status_key = implode( '|', array_map( 'sanitize_key', $post_status ) );
-		$cache_key  = $source_id . ':' . $status_key;
+		$status_key  = implode( '|', array_map( 'sanitize_key', $post_status ) );
+		$cache_key   = $source_id . ':' . $status_key;
 		if ( isset( $cache[ $cache_key ] ) ) {
 			return $cache[ $cache_key ];
 		}
 
+		$posts = array();
 		$translation_ids = self::translation_index_ids_for_source( $source_id, $post_status );
 		if ( ! empty( $translation_ids ) ) {
-			$rows = array();
 			foreach ( $translation_ids as $translation_id ) {
 				$post = get_post( $translation_id );
-				if ( $post ) {
-					$rows[] = self::translation_payload( $post );
+				if ( $post instanceof WP_Post ) {
+					$posts[] = $post;
 				}
 			}
-			$cache[ $cache_key ] = $rows;
+			$cache[ $cache_key ] = $posts;
 			return $cache[ $cache_key ];
 		}
 
@@ -21816,15 +21943,13 @@ final class Devenia_AI_Translations {
 			)
 		);
 
-		$rows = array();
 		foreach ( $query->posts as $post ) {
-			if ( $source_id !== absint( get_post_meta( $post->ID, self::META_SOURCE_ID, true ) ) ) {
-				continue;
+			if ( $post instanceof WP_Post && $source_id === absint( get_post_meta( $post->ID, self::META_SOURCE_ID, true ) ) ) {
+				$posts[] = $post;
 			}
-			$rows[] = self::translation_payload( $post );
 		}
 
-		$cache[ $cache_key ] = $rows;
+		$cache[ $cache_key ] = $posts;
 
 		return $cache[ $cache_key ];
 	}
