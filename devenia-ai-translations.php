@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.360
+ * Version: 0.1.361
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.360';
+	const VERSION = '0.1.361';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -20205,6 +20205,10 @@ final class Devenia_AI_Translations {
 		if ( '' === $expected || $expected === $actual ) {
 			return array();
 		}
+		$previous_actual = self::previous_translation_design_signature_hash( $post_id );
+		if ( '' !== $previous_actual && self::translation_direct_save_preserves_existing_design_signature( $previous_actual, $actual ) ) {
+			return array();
+		}
 		if ( self::allow_frontend_text_edit_direct_text_save( $post_id, array( 'post_content' => $content ) ) ) {
 			return array();
 		}
@@ -20217,6 +20221,7 @@ final class Devenia_AI_Translations {
 				'translation_id'          => $post_id,
 				'language'                => $language,
 				'expected_design_hash'    => $expected,
+				'previous_design_hash'    => $previous_actual,
 				'translation_design_hash' => $actual,
 				'content_hash'            => hash( 'sha256', $content ),
 				'guardrail'               => 'translation_direct_save_source_design',
@@ -20240,6 +20245,23 @@ final class Devenia_AI_Translations {
 				)
 			),
 		);
+	}
+
+	/**
+	 * Existing translations can be source-design-stale before a text or URL fix.
+	 * Direct saves may leave that stale design untouched, but must not create a
+	 * new design shape. Reprojection remains the only path back to source parity.
+	 */
+	private static function translation_direct_save_preserves_existing_design_signature( string $previous_design_hash, string $new_design_hash ): bool {
+		return '' !== $previous_design_hash && hash_equals( $previous_design_hash, $new_design_hash );
+	}
+
+	private static function previous_translation_design_signature_hash( int $post_id ): string {
+		if ( $post_id <= 0 ) {
+			return '';
+		}
+
+		return self::source_design_signature_hash( (string) get_post_field( 'post_content', $post_id ) );
 	}
 
 	/**
