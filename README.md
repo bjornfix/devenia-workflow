@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.356
+**Stable tag:** 0.1.357
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -204,6 +204,13 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.357
+
+- Restores authenticated Frontend Text Edit saves by treating its text-only REST
+  endpoint as a copy-edit surface instead of a generic source-design save.
+- Keeps hard Gutenberg storage and invalid-link guardrails active for frontend
+  text edits.
 
 ### 0.1.356
 

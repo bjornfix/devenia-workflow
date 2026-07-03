@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.356
+ * Version: 0.1.357
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.356';
+	const VERSION = '0.1.357';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -19960,6 +19960,9 @@ final class Devenia_AI_Translations {
 		if ( $post_id > 0 && self::is_translation_post( $post_id ) ) {
 			return $data;
 		}
+		if ( self::allow_frontend_text_edit_direct_text_save( $post_id, $data ) ) {
+			return $data;
+		}
 
 		$content = self::normalize_gutenberg_content_for_storage( (string) ( $data['post_content'] ?? '' ) );
 		if ( '' === $content && $post_id > 0 ) {
@@ -20192,6 +20195,9 @@ final class Devenia_AI_Translations {
 		if ( '' === $expected || $expected === $actual ) {
 			return array();
 		}
+		if ( self::allow_frontend_text_edit_direct_text_save( $post_id, array( 'post_content' => $content ) ) ) {
+			return array();
+		}
 
 		$allow_validated_contract_save = apply_filters(
 			'devenia_ai_translations_allow_translation_direct_save_source_design_mismatch',
@@ -20224,6 +20230,51 @@ final class Devenia_AI_Translations {
 				)
 			),
 		);
+	}
+
+	/**
+	 * Frontend Text Edit is an authenticated, text-only REST editor. Treat those
+	 * saves as copy edits, while still keeping hard link and Gutenberg integrity
+	 * guardrails active in the surrounding save pipeline.
+	 *
+	 * @param array<string,mixed> $data Sanitized post data about to be stored.
+	 */
+	private static function allow_frontend_text_edit_direct_text_save( int $post_id, array $data ): bool {
+		if ( $post_id <= 0 || ! array_key_exists( 'post_content', $data ) ) {
+			return false;
+		}
+		if ( ! self::is_frontend_text_edit_rest_request() || ! current_user_can( 'edit_post', $post_id ) ) {
+			return false;
+		}
+
+		return (bool) apply_filters(
+			'devenia_ai_translations_allow_frontend_text_edit_direct_text_save',
+			true,
+			array(
+				'post_id'      => $post_id,
+				'content_hash' => hash( 'sha256', (string) $data['post_content'] ),
+			)
+		);
+	}
+
+	/**
+	 * Detect the companion Frontend Text Edit REST endpoint without coupling to
+	 * plugin load order.
+	 */
+	private static function is_frontend_text_edit_rest_request(): bool {
+		$method = filter_input( INPUT_SERVER, 'REQUEST_METHOD', FILTER_SANITIZE_FULL_SPECIAL_CHARS );
+		if ( 'POST' !== strtoupper( is_string( $method ) ? $method : '' ) ) {
+			return false;
+		}
+
+		$request_uri = filter_input( INPUT_SERVER, 'REQUEST_URI', FILTER_SANITIZE_URL );
+		if ( ! is_string( $request_uri ) || '' === $request_uri ) {
+			$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_url( wp_unslash( (string) $_SERVER['REQUEST_URI'] ) ) : '';
+		}
+		$request_uri = rawurldecode( $request_uri );
+
+		return false !== strpos( $request_uri, '/wp-json/frontend-text-edit/v1/text' )
+			|| false !== strpos( $request_uri, 'rest_route=/frontend-text-edit/v1/text' );
 	}
 
 	/**
