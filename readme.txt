@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.369
+Stable tag: 0.1.370
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.370 =
+* Paginates quality-review queue candidate scans so compact queues can be used directly without loading large candidate sets up front.
+* Reports the actual inspected candidate count and candidate query page count for operator visibility.
 
 = 0.1.369 =
 * Keeps review and quality-review queue responses compact by default, with full evidence payloads available through `detail_level=full`.

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.369
+ * Version: 0.1.370
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.369';
+	const VERSION = '0.1.370';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -14964,6 +14964,10 @@ final class Devenia_AI_Translations {
 		$languages        = self::quality_review_language_filter( $input['languages'] ?? array(), $include_source );
 		$status_filter    = self::quality_review_status_filter( $input['statuses'] ?? array() );
 		$posts            = array();
+		$use_candidate_batches = false;
+		$target_language_filter = array();
+		$inspected_count = 0;
+		$query_page_count = 0;
 
 		if ( $page_id ) {
 			$post = get_post( $page_id );
@@ -14995,40 +14999,11 @@ final class Devenia_AI_Translations {
 				)
 			);
 
-			$query = self::translation_page_query(
-				array(
-					'post_status'    => array( 'publish' ),
-					'posts_per_page' => 1000,
-					'orderby'        => 'modified',
-					'order'          => 'modified_desc' === $order ? 'DESC' : 'ASC',
-				)
-			);
-			foreach ( $query->posts as $candidate ) {
-				$candidate_language = (string) get_post_meta( $candidate->ID, self::META_LANGUAGE, true );
-				if ( '' === $candidate_language ) {
-					continue;
-				}
-				if ( $target_language_filter && ! in_array( $candidate_language, $target_language_filter, true ) ) {
-					continue;
-				}
-				$posts[] = $candidate;
-			}
-
-			if ( $include_source ) {
-				$source_query = self::source_page_query(
-					array(
-						'post_status'    => array( 'publish' ),
-						'posts_per_page' => 1000,
-						'orderby'        => 'modified',
-						'order'          => 'modified_desc' === $order ? 'DESC' : 'ASC',
-					)
-				);
-				foreach ( $source_query->posts as $candidate ) {
-					if ( self::is_translation_post( (int) $candidate->ID ) ) {
-						continue;
-					}
-					$posts[] = $candidate;
-				}
+			if ( 'title_asc' === $order ) {
+				$posts = self::quality_review_candidate_posts( $order, $target_language_filter, $include_source, 1000, 1 );
+				$query_page_count = 1;
+			} else {
+				$use_candidate_batches = true;
 			}
 		}
 
@@ -15040,23 +15015,46 @@ final class Devenia_AI_Translations {
 			'not_published'        => 0,
 		);
 
-		foreach ( $posts as $post ) {
+		$process_post = function ( WP_Post $post ) use ( &$items, &$totals, &$inspected_count, $languages, $status_filter, $include_reviewed, $detail_level, $limit ): bool {
+			++$inspected_count;
 			$item = self::quality_review_queue_item( $post, $detail_level );
 			if ( ! in_array( $item['language'], $languages, true ) ) {
-				continue;
+				return false;
 			}
 			if ( isset( $totals[ $item['state'] ] ) ) {
 				++$totals[ $item['state'] ];
 			}
 			if ( ! empty( $status_filter ) && ! in_array( $item['state'], $status_filter, true ) ) {
-				continue;
+				return false;
 			}
 			if ( 'reviewed' === $item['state'] && ! $include_reviewed ) {
-				continue;
+				return false;
 			}
 			$items[] = $item;
-			if ( 'title_asc' !== $order && count( $items ) >= $limit ) {
-				break;
+			return count( $items ) >= $limit;
+		};
+
+		if ( $use_candidate_batches ) {
+			$batch_size = min( 250, max( 50, $limit * 10 ) );
+			$page       = 1;
+			do {
+				$candidates = self::quality_review_candidate_posts( $order, $target_language_filter, $include_source, $batch_size, $page );
+				if ( empty( $candidates ) ) {
+					break;
+				}
+				++$query_page_count;
+				foreach ( $candidates as $post ) {
+					if ( $process_post( $post ) ) {
+						break 2;
+					}
+				}
+				++$page;
+			} while ( count( $candidates ) >= $batch_size );
+		} else {
+			foreach ( $posts as $post ) {
+				if ( $process_post( $post ) && 'title_asc' !== $order ) {
+					break;
+				}
 			}
 		}
 
@@ -15069,7 +15067,8 @@ final class Devenia_AI_Translations {
 			'items'            => $items,
 			'next_item'        => $items[0] ?? null,
 			'item_count'       => count( $items ),
-			'inspected_count'  => count( $posts ),
+			'inspected_count'  => $inspected_count,
+			'query_page_count' => $query_page_count,
 			'totals'           => $totals,
 			'languages'        => array_values( $languages ),
 			'status_filter'    => array_values( $status_filter ),
@@ -17309,6 +17308,86 @@ final class Devenia_AI_Translations {
 		}
 
 		return $checks;
+	}
+
+	/**
+	 * Candidate posts for the quality-review queue without expanding queue items.
+	 *
+	 * @param array<int,string> $target_languages Target translation languages.
+	 * @return WP_Post[]
+	 */
+	private static function quality_review_candidate_posts( string $order, array $target_languages, bool $include_source, int $per_page, int $paged ): array {
+		$translation_ids = self::quality_review_candidate_translation_ids( $target_languages );
+		if ( self::translation_index_available() && empty( $translation_ids ) ) {
+			return array();
+		}
+
+		$query_args = array(
+			'post_status'    => array( 'publish' ),
+			'posts_per_page' => max( 1, min( 1000, $per_page ) ),
+			'paged'          => max( 1, $paged ),
+			'orderby'        => 'title_asc' === $order ? 'title' : 'modified',
+			'order'          => 'modified_desc' === $order ? 'DESC' : 'ASC',
+		);
+
+		if ( $translation_ids ) {
+			$query_args['post__in'] = $translation_ids;
+		}
+
+		$query = self::translation_page_query( $query_args );
+		$posts = array_values(
+			array_filter(
+				$query->posts,
+				static function ( $post ): bool {
+					return $post instanceof WP_Post;
+				}
+			)
+		);
+
+		if ( ! $include_source ) {
+			return $posts;
+		}
+
+		$source_query = self::source_page_query(
+			array(
+				'post_status'    => array( 'publish' ),
+				'posts_per_page' => max( 1, min( 1000, $per_page ) ),
+				'paged'          => max( 1, $paged ),
+				'orderby'        => 'title_asc' === $order ? 'title' : 'modified',
+				'order'          => 'modified_desc' === $order ? 'DESC' : 'ASC',
+			)
+		);
+		foreach ( $source_query->posts as $candidate ) {
+			if ( ! $candidate instanceof WP_Post || self::is_translation_post( (int) $candidate->ID ) ) {
+				continue;
+			}
+			$posts[] = $candidate;
+		}
+
+		return $posts;
+	}
+
+	/**
+	 * Translation IDs eligible for the quality-review queue, backed by the index table when available.
+	 *
+	 * @param array<int,string> $target_languages Target translation languages.
+	 * @return array<int,int>
+	 */
+	private static function quality_review_candidate_translation_ids( array $target_languages ): array {
+		if ( ! self::translation_index_available() ) {
+			return array();
+		}
+
+		$ids = array();
+		if ( $target_languages ) {
+			foreach ( $target_languages as $language ) {
+				$ids = array_merge( $ids, self::translation_index_ids_for_language( sanitize_key( (string) $language ), array( 'publish' ) ) );
+			}
+		} else {
+			$ids = self::translation_index_ids( array( 'publish' ) );
+		}
+
+		return array_values( array_unique( array_map( 'absint', $ids ) ) );
 	}
 
 	/**
