@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.375
+ * Version: 0.1.376
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.375';
+	const VERSION = '0.1.376';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -15876,11 +15876,11 @@ final class Devenia_AI_Translations {
 		if ( ! empty( $translation['is_stale'] ) || 'stale' === $translation_status ) {
 			return 'stale';
 		}
-		if ( 'publish' !== $post_status || 'draft' === $translation_status ) {
-			return 'draft';
-		}
 		if ( '' === $translation_status || 'needs_review' === $translation_status ) {
 			return 'needs_review';
+		}
+		if ( 'publish' !== $post_status || 'draft' === $translation_status ) {
+			return 'draft';
 		}
 		$review_state = isset( $translation['linguistic_review_state'] ) && is_array( $translation['linguistic_review_state'] )
 			? $translation['linguistic_review_state']
