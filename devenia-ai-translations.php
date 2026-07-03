@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.373
+ * Version: 0.1.374
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.373';
+	const VERSION = '0.1.374';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -18659,7 +18659,7 @@ final class Devenia_AI_Translations {
 		}
 
 		$classes = trim( $class . ( $as_li ? ' menu-item menu-item-type-custom menu-item-has-children' : '' ) );
-		$label   = sprintf( 'Choose language. Current language: %s', $current_label );
+		$label   = self::language_menu_trigger_label( $current_language, $current_label );
 		$icon    = self::language_menu_trigger_icon();
 
 		if ( $as_li ) {
@@ -18669,7 +18669,7 @@ final class Devenia_AI_Translations {
 				esc_url( $links[ $current_language ]['url'] ?? '#' ),
 				esc_attr( $label ),
 				$icon, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Static SVG icon.
-				self::render_language_menu_groups( $submenu, true ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Built from escaped internal markup.
+				self::render_language_menu_groups( $submenu, true, $current_language ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Built from escaped internal markup.
 			);
 		}
 
@@ -18678,8 +18678,78 @@ final class Devenia_AI_Translations {
 			esc_attr( $classes ),
 			esc_attr( $label ),
 			$icon, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Static SVG icon.
-			self::render_language_menu_groups( $submenu, false ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Built from escaped internal markup.
+			self::render_language_menu_groups( $submenu, false, $current_language ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Built from escaped internal markup.
 		);
+	}
+
+	private static function language_menu_trigger_label( string $language, string $current_label ): string {
+		$templates = array(
+			'nb' => 'Velg språk. Gjeldende språk: %s',
+			'da' => 'Vælg sprog. Aktuelt sprog: %s',
+			'sv' => 'Välj språk. Aktuellt språk: %s',
+			'fi' => 'Valitse kieli. Nykyinen kieli: %s',
+			'de' => 'Sprache wählen. Aktuelle Sprache: %s',
+			'fr' => 'Choisir la langue. Langue actuelle : %s',
+			'es' => 'Elegir idioma. Idioma actual: %s',
+			'it' => 'Scegli la lingua. Lingua attuale: %s',
+			'nl' => 'Taal kiezen. Huidige taal: %s',
+			'pt' => 'Escolher idioma. Idioma atual: %s',
+			'ja' => '言語を選択。現在の言語: %s',
+			'vi' => 'Chọn ngôn ngữ. Ngôn ngữ hiện tại: %s',
+			'zh' => '选择语言。当前语言：%s',
+			'ar' => 'اختر اللغة. اللغة الحالية: %s',
+		);
+		$template  = $templates[ sanitize_key( $language ) ] ?? 'Choose language. Current language: %s';
+		return sprintf( $template, $current_label );
+	}
+
+	private static function language_menu_group_label( string $group, string $language ): string {
+		$labels = array(
+			'nb' => array(
+				'Europe'      => 'Europa',
+				'Asia'        => 'Asia',
+				'Middle East' => 'Midtøsten',
+				'Other'       => 'Andre',
+			),
+			'da' => array(
+				'Europe'      => 'Europa',
+				'Asia'        => 'Asien',
+				'Middle East' => 'Mellemøsten',
+				'Other'       => 'Andre',
+			),
+			'sv' => array(
+				'Europe'      => 'Europa',
+				'Asia'        => 'Asien',
+				'Middle East' => 'Mellanöstern',
+				'Other'       => 'Övriga',
+			),
+			'de' => array(
+				'Europe'      => 'Europa',
+				'Asia'        => 'Asien',
+				'Middle East' => 'Naher Osten',
+				'Other'       => 'Weitere',
+			),
+			'fr' => array(
+				'Europe'      => 'Europe',
+				'Asia'        => 'Asie',
+				'Middle East' => 'Moyen-Orient',
+				'Other'       => 'Autres',
+			),
+			'es' => array(
+				'Europe'      => 'Europa',
+				'Asia'        => 'Asia',
+				'Middle East' => 'Oriente Medio',
+				'Other'       => 'Otros',
+			),
+			'ar' => array(
+				'Europe'      => 'أوروبا',
+				'Asia'        => 'آسيا',
+				'Middle East' => 'الشرق الأوسط',
+				'Other'       => 'أخرى',
+			),
+		);
+		$language = sanitize_key( $language );
+		return $labels[ $language ][ $group ] ?? $group;
 	}
 
 	/**
@@ -18687,14 +18757,14 @@ final class Devenia_AI_Translations {
 	 *
 	 * @param array<string,array<int,string>> $groups Escaped language rows grouped by region.
 	 */
-	private static function render_language_menu_groups( array $groups, bool $as_list ): string {
+	private static function render_language_menu_groups( array $groups, bool $as_list, string $current_language = 'en' ): string {
 		$output = '';
 		foreach ( array( 'Europe', 'Asia', 'Middle East', 'Other' ) as $group ) {
 			if ( empty( $groups[ $group ] ) ) {
 				continue;
 			}
 
-			$heading = sprintf( '<span class="devenia-language-group-heading">%s</span>', esc_html( $group ) );
+			$heading = sprintf( '<span class="devenia-language-group-heading">%s</span>', esc_html( self::language_menu_group_label( $group, $current_language ) ) );
 			if ( $as_list ) {
 				$output .= sprintf(
 					'<li class="devenia-language-group devenia-language-group-%1$s">%2$s<div class="devenia-language-group-list">%3$s</div></li>',
