@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.358
+ * Version: 0.1.359
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.358';
+	const VERSION = '0.1.359';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -9983,7 +9983,7 @@ final class Devenia_AI_Translations {
 	private static function upsert_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'source_id', 'language', 'localized_slug', 'title', 'step_token', 'step_token_label' ),
+				'required'             => array( 'source_id', 'language', 'localized_slug', 'title', 'step_token', 'step_token_label', 'writer_process_id' ),
 			'properties'           => array(
 				'source_id'         => array( 'type' => 'integer' ),
 				'language'          => array( 'type' => 'string' ),
@@ -10154,7 +10154,7 @@ final class Devenia_AI_Translations {
 	private static function reproject_source_design_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'source_id' ),
+				'required'             => array( 'source_id', 'writer_process_id' ),
 			'properties'           => array(
 				'source_id' => array(
 					'type'        => 'integer',
@@ -16188,13 +16188,6 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Stable default writer process label for draft writes when caller does not provide one.
-	 */
-	private static function default_writer_process_id(): string {
-		return 'writer:' . self::current_operator_label();
-	}
-
-	/**
 	 * Normalize process identifiers used for writer/reviewer separation.
 	 */
 	private static function normalize_process_id( string $process_id ): string {
@@ -16235,18 +16228,26 @@ final class Devenia_AI_Translations {
 				'step'    => $step,
 			);
 		}
-		$token_label = sanitize_key( (string) ( $input['step_token_label'] ?? '' ) );
-		if ( '' === $token_label ) {
-			return array(
+			$token_label = sanitize_key( (string) ( $input['step_token_label'] ?? '' ) );
+			if ( '' === $token_label ) {
+				return array(
 				'success' => false,
 				'code'    => 'step_token_label_required',
 				'message' => 'A token label confirmed by the owner for this process/session is required for this translation workflow step.',
 				'step'    => $step,
 			);
-		}
-		$process_id = self::step_token_process_id( $step, $input );
+			}
+			$process_id = self::step_token_process_id( $step, $input );
+			if ( '' === $process_id ) {
+				return array(
+					'success' => false,
+					'code'    => 'workflow_process_id_required',
+					'message' => 'A stable writer_process_id or reviewer_process_id is required so the token authority can bind the workflow token to one process/session.',
+					'step'    => $step,
+				);
+			}
 
-		$decision = apply_filters(
+			$decision = apply_filters(
 			'devenia_translation_step_token_gate',
 			null,
 			$step,
@@ -16319,10 +16320,10 @@ final class Devenia_AI_Translations {
 	 * Process/session ID that must match the active token-authority lease.
 	 */
 	private static function step_token_process_id( string $step, array $input ): string {
-		if ( 'draft_write' === $step ) {
-			$process_id = self::normalize_process_id( (string) ( $input['writer_process_id'] ?? '' ) );
-			return '' !== $process_id ? $process_id : self::default_writer_process_id();
-		}
+			if ( 'draft_write' === $step ) {
+				$process_id = self::normalize_process_id( (string) ( $input['writer_process_id'] ?? '' ) );
+				return $process_id;
+			}
 
 		return self::normalize_process_id( (string) ( $input['reviewer_process_id'] ?? '' ) );
 	}
