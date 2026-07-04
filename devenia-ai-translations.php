@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.390
+ * Version: 0.1.391
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.390';
+	const VERSION = '0.1.391';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -10016,6 +10016,19 @@ final class Devenia_AI_Translations {
 						'type'        => 'string',
 						'description' => 'Required: concrete notes on whether the rendered page feels like a designed Devenia article, including hero treatment, visual hierarchy, rhythm, media, and section/card treatment.',
 					),
+					'design_problem_assessment' => array(
+						'type'        => 'string',
+						'description' => 'Required: explicit good/bad design judgment from the rendered page, including what looked strong, weak, awkward, or unresolved.',
+					),
+					'alternative_design_solutions_considered' => array(
+						'type'        => 'array',
+						'items'       => array( 'type' => 'string' ),
+						'description' => 'Required: at least two plausible alternative design solutions considered for this specific page or section.',
+					),
+					'chosen_design_rationale' => array(
+						'type'        => 'string',
+						'description' => 'Required: why the chosen design solution fits this article better than the alternatives.',
+					),
 					'desktop_layout_notes' => array(
 						'type'        => 'string',
 						'description' => 'Required: concrete desktop viewport observations from the reviewed surface.',
@@ -10078,6 +10091,10 @@ final class Devenia_AI_Translations {
 					'visual_design_reviewed' => array(
 						'type'        => 'boolean',
 						'description' => 'The page design, hero, section rhythm, cards, media, and visual hierarchy were reviewed as part of the publication experience.',
+					),
+					'design_alternatives_considered' => array(
+						'type'        => 'boolean',
+						'description' => 'The reviewer considered alternative design solutions and chose the best fit for this page rather than accepting the first technically valid layout.',
 					),
 					'desktop_layout_reviewed' => array(
 						'type'        => 'boolean',
@@ -14985,6 +15002,10 @@ final class Devenia_AI_Translations {
 				'section_design_roles',
 				'image_or_media_function',
 				'hierarchy_rhythm_contrast',
+				'rendered_desktop_mobile_observations',
+				'good_or_bad_design_verdict',
+				'alternative_design_solutions_considered',
+				'chosen_design_rationale',
 				'designed_experience_verdict',
 			),
 		);
@@ -15001,7 +15022,7 @@ final class Devenia_AI_Translations {
 				'workflow_step' => 'quality_review',
 				'required_ability' => 'ai-translations/mark-quality-reviewed',
 				'design_ownership' => $design_ownership,
-				'instructions' => 'Fetch the Site Presentation article contract and review the visible public page like a publication designer and editor who owns the design decision: design idea, reader decision, section rhythm, hierarchy, cards/callouts, contrast, media function, layout, links/actions, currentness, and reader decision safety. Do not approve class-name/template checklists, green technical gates, or flat text poured into bands.',
+				'instructions' => 'Fetch the Site Presentation article contract and review the visible public page like a publication designer and editor who owns the design decision: design idea, reader decision, section rhythm, hierarchy, cards/callouts, contrast, media function, layout, links/actions, currentness, reader decision safety, good/bad design judgment, alternative design solutions considered, and chosen design rationale. Do not approve class-name/template checklists, green technical gates, or flat text poured into bands.',
 			),
 			'final_review' => array(
 				'action' => 'review_translation_final',
@@ -16879,6 +16900,7 @@ final class Devenia_AI_Translations {
 				'real_reader_decision_safety_reviewed',
 				'links_and_actions_reviewed',
 				'visual_design_reviewed',
+				'design_alternatives_considered',
 				'desktop_layout_reviewed',
 				'mobile_layout_reviewed',
 				'source_design_experience_reviewed',
@@ -16990,6 +17012,9 @@ final class Devenia_AI_Translations {
 				self::require_review_text( $input, 'currentness_context_notes', 140, $errors );
 				self::require_review_text( $input, 'design_reference_url', 12, $errors );
 				self::require_review_text( $input, 'visual_design_notes', 160, $errors );
+				self::require_review_text( $input, 'design_problem_assessment', 160, $errors );
+				self::require_review_list( $input, 'alternative_design_solutions_considered', 2, 35, $errors );
+				self::require_review_text( $input, 'chosen_design_rationale', 140, $errors );
 				self::require_review_text( $input, 'desktop_layout_notes', 100, $errors );
 				self::require_review_text( $input, 'mobile_layout_notes', 100, $errors );
 				self::require_review_text( $input, 'source_design_experience_notes', 140, $errors );
@@ -17101,12 +17126,12 @@ final class Devenia_AI_Translations {
 		$stage = sanitize_key( $stage );
 			$text_keys = array(
 				'linguistic_review' => array( 'language_quality_notes', 'source_fidelity_notes', 'terminology_notes' ),
-				'quality_review'    => array( 'review_surface', 'visible_page_url', 'design_reference_url', 'article_quality_notes', 'reader_decision_safety_notes', 'currentness_context_notes', 'visual_design_notes', 'desktop_layout_notes', 'mobile_layout_notes', 'source_design_experience_notes', 'reviewer_statement' ),
+				'quality_review'    => array( 'review_surface', 'visible_page_url', 'design_reference_url', 'article_quality_notes', 'reader_decision_safety_notes', 'currentness_context_notes', 'visual_design_notes', 'design_problem_assessment', 'chosen_design_rationale', 'desktop_layout_notes', 'mobile_layout_notes', 'source_design_experience_notes', 'reviewer_statement' ),
 				'final_review'      => array( 'prior_review_summary', 'publication_readiness_notes', 'seo_url_notes', 'reader_decision_safety_summary', 'publication_experience_summary', 'final_decision' ),
 			);
 			$list_keys = array(
 				'linguistic_review' => array( 'reviewed_sections', 'sampled_passages' ),
-				'quality_review'    => array( 'headings_checked', 'links_checked', 'visual_evidence', 'review_findings', 'issues_found' ),
+				'quality_review'    => array( 'headings_checked', 'links_checked', 'visual_evidence', 'alternative_design_solutions_considered', 'review_findings', 'issues_found' ),
 				'final_review'      => array(),
 			);
 
@@ -17142,6 +17167,7 @@ final class Devenia_AI_Translations {
 				'Provide the live page URL for published pages, or review_surface=presentation_surface plus presentation_surface_post_id for draft translations reviewed through ai-translations/get-presentation-surface.',
 					'Provide at least two rendered headings and checked links/actions from the reviewed surface.',
 					'Provide visual evidence from the reviewed surface: design reference, desktop and mobile observations, hero/section/card/media hierarchy, and at least two concrete visual observations or screenshot/viewport identifiers.',
+					'Write an explicit good/bad design assessment from the rendered page, list at least two alternative design solutions considered, and explain why the chosen solution fits this specific article better.',
 					'Write concrete article-quality notes and review findings. Findings may approve unchanged copy when they explain what was checked and why no change is needed.',
 					'Write concrete real-reader decision-safety notes: who may rely on the page, what decision it may influence, and whether caveats/current facts are clear enough.',
 					'Write concrete currentness/context notes: current-state claims verified or made evergreen, stale facts handled, and historical context preserved without hiding present-day status.',
