@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.394
+ * Version: 0.1.395
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.394';
+	const VERSION = '0.1.395';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -14817,6 +14817,9 @@ final class Devenia_AI_Translations {
 		$totals = array(
 			'sources_scanned'          => count( $sources ),
 			'translations_seen'        => 0,
+			'missing_translations'     => 0,
+			'needs_source_reprojection' => 0,
+			'needs_draft_work'         => 0,
 			'needs_linguistic_review' => 0,
 			'needs_quality_review'    => 0,
 			'needs_final_review'      => 0,
@@ -14827,7 +14830,38 @@ final class Devenia_AI_Translations {
 		$items = array();
 
 		foreach ( $sources as $source ) {
+			$translations_by_language = array();
 			foreach ( self::translation_rows_for_source( (int) $source->ID ) as $translation ) {
+				$translation_language = sanitize_key( (string) ( $translation['language'] ?? '' ) );
+				if ( '' !== $translation_language ) {
+					$translations_by_language[ $translation_language ] = $translation;
+				}
+			}
+
+			foreach ( self::target_languages() as $language => $config ) {
+				$language    = sanitize_key( (string) $language );
+				$translation = $translations_by_language[ $language ] ?? array();
+				if ( empty( $translation ) ) {
+					++$totals['missing_translations'];
+					++$totals['needs_draft_work'];
+					if ( $include_items ) {
+						$items[] = array(
+							'source_id' => (int) $source->ID,
+							'source_title' => get_the_title( $source ),
+							'translation_id' => 0,
+							'language' => $language,
+							'language_name' => sanitize_text_field( (string) ( $config['name'] ?? strtoupper( $language ) ) ),
+							'post_status' => '',
+							'writer_token_label' => '',
+							'obligations' => array( 'draft_write' ),
+							'linguistic' => 'missing_translation',
+							'quality' => 'missing_translation',
+							'final' => 'missing_translation',
+						);
+					}
+					continue;
+				}
+
 				$translation_id = absint( $translation['id'] ?? 0 );
 				if ( ! $translation_id ) {
 					continue;
@@ -14839,7 +14873,11 @@ final class Devenia_AI_Translations {
 				$post_status = sanitize_key( (string) ( $translation['status'] ?? '' ) );
 				$obligations = array();
 
-				if ( 'reviewed_current' !== $linguistic_state ) {
+				if ( ! empty( $translation['is_stale'] ) ) {
+					++$totals['needs_source_reprojection'];
+					++$totals['needs_draft_work'];
+					$obligations[] = 'source_reprojection';
+				} elseif ( 'reviewed_current' !== $linguistic_state ) {
 					++$totals['needs_linguistic_review'];
 					$obligations[] = 'linguistic_review';
 				}
@@ -15099,7 +15137,7 @@ final class Devenia_AI_Translations {
 			$translation_id = absint( $item['translation_id'] ?? 0 );
 			$source_id = absint( $item['source_id'] ?? 0 );
 			$language = sanitize_key( (string) ( $item['language'] ?? '' ) );
-			if ( ! $translation_id || ! $source_id || ! self::is_translation_language( $language ) ) {
+			if ( ! $source_id || ! self::is_translation_language( $language ) ) {
 				continue;
 			}
 
@@ -15114,7 +15152,9 @@ final class Devenia_AI_Translations {
 				continue;
 			}
 
-			$eligibility = self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
+			$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection' ), true )
+				? self::heartbeat_draft_work_eligibility( $identity )
+				: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
 			if ( empty( $eligibility['success'] ) ) {
 				$skipped[] = self::heartbeat_skip_summary( $item, sanitize_key( (string) ( $eligibility['code'] ?? 'not_eligible' ) ) );
 				continue;
@@ -15197,7 +15237,7 @@ final class Devenia_AI_Translations {
 		if ( ! is_array( $obligations ) ) {
 			return '';
 		}
-		$allowed = array( 'linguistic_review', 'quality_review', 'final_review', 'publish' );
+		$allowed = array( 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
 		foreach ( $allowed as $obligation ) {
 			if ( in_array( $obligation, $obligations, true ) ) {
 				return $obligation;
@@ -15254,12 +15294,54 @@ final class Devenia_AI_Translations {
 				'required_ability' => 'ai-translations/publish-translation',
 				'instructions' => 'Publish only with current linguistic, quality, and final review evidence. Use live verification.',
 			),
+			'source_reprojection' => array(
+				'action' => 'reproject_source_design',
+				'workflow_step' => 'draft_write',
+				'required_ability' => 'ai-translations/reproject-source-design',
+				'design_ownership' => $design_ownership,
+				'instructions' => 'The source design has moved ahead of this translation. Fetch the Site Presentation article contract, inspect the source and existing translation, migrate/source-design fragments if needed, run ai-translations/reproject-source-design through approved workflow abilities, then stop before reviewing or publishing your own reprojection.',
+			),
+			'draft_write' => array(
+				'action' => 'write_missing_translation',
+				'workflow_step' => 'draft_write',
+				'required_ability' => 'ai-translations/upsert-page',
+				'design_ownership' => $design_ownership,
+				'instructions' => 'This language is missing for the source. Fetch the source, the workflow status, and the Site Presentation article contract. Create a real localized draft with inherited source design, localized slug/path, title, excerpt, SEO metadata, taxonomy where needed, and complete localized_fragments. Use ai-translations/upsert-page with the claim token. Do not mark review or publish the draft you create.',
+			),
 		);
 		return $map[ $obligation ] ?? array(
 			'action' => 'wait',
 			'workflow_step' => '',
 			'required_ability' => '',
 			'instructions' => 'No supported obligation selected.',
+		);
+	}
+
+	private static function heartbeat_draft_work_eligibility( array $identity ): array {
+		$actor_id = sanitize_key( (string) ( $identity['actor_id'] ?? '' ) );
+		$control_scope_id = self::normalize_control_scope_id( (string) ( $identity['control_scope_id'] ?? '' ) );
+		$process_id = self::normalize_process_id( (string) ( $identity['process_id'] ?? '' ) );
+		$session_origin = self::normalize_session_origin( (string) ( $identity['session_origin'] ?? '' ) );
+
+		if ( '' === $control_scope_id ) {
+			return array( 'success' => false, 'code' => 'draft_writer_control_scope_required' );
+		}
+		if ( '' === $process_id ) {
+			return array( 'success' => false, 'code' => 'draft_writer_process_required' );
+		}
+		if ( 'independent_session' !== $session_origin ) {
+			return array( 'success' => false, 'code' => 'independent_draft_writer_session_required' );
+		}
+
+		return array(
+			'success' => true,
+			'draft_writer' => array(
+				'actor_id' => $actor_id,
+				'token_label' => sanitize_key( (string) ( $identity['step_token_label'] ?? '' ) ),
+				'control_scope_id' => $control_scope_id,
+				'process_id' => $process_id,
+				'session_origin' => $session_origin,
+			),
 		);
 	}
 
@@ -15319,6 +15401,24 @@ final class Devenia_AI_Translations {
 	}
 
 	private static function heartbeat_independence_summary( array $eligibility, string $obligation ): array {
+		if ( isset( $eligibility['draft_writer'] ) && is_array( $eligibility['draft_writer'] ) ) {
+			$draft_writer = $eligibility['draft_writer'];
+			return array(
+				'server_checked' => true,
+				'workflow_rule' => 'draft_work_creates_writer_provenance_and_must_be_reviewed_by_an_independent_actor_later',
+				'obligation' => sanitize_key( $obligation ),
+				'message' => 'The server selected this as production draft work for the current independent heartbeat. This actor may write or reproject, but must not review or publish the work it creates.',
+				'draft_writer' => array(
+					'actor_id' => sanitize_key( (string) ( $draft_writer['actor_id'] ?? '' ) ),
+					'token_label' => sanitize_key( (string) ( $draft_writer['token_label'] ?? '' ) ),
+					'control_scope_id' => self::normalize_control_scope_id( (string) ( $draft_writer['control_scope_id'] ?? '' ) ),
+					'process_id' => self::normalize_process_id( (string) ( $draft_writer['process_id'] ?? '' ) ),
+					'session_origin' => self::normalize_session_origin( (string) ( $draft_writer['session_origin'] ?? '' ) ),
+				),
+				'provenance_match' => false,
+			);
+		}
+
 		$writer = isset( $eligibility['writer'] ) && is_array( $eligibility['writer'] ) ? $eligibility['writer'] : array();
 		$reviewer = isset( $eligibility['reviewer'] ) && is_array( $eligibility['reviewer'] ) ? $eligibility['reviewer'] : array();
 		$prior_reviewers = isset( $eligibility['prior_stage_reviewers'] ) && is_array( $eligibility['prior_stage_reviewers'] ) ? $eligibility['prior_stage_reviewers'] : array();

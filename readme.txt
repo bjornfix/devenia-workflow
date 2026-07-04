@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.394
+Stable tag: 0.1.395
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.395 =
+* Lets heartbeat workers claim production draft work for missing translations and source-design reprojection instead of only review/publish obligations.
+* Includes missing-translation and source-reprojection totals in workflow obligations so production work remains visible without manual pointing.
 
 = 0.1.394 =
 * Respects existing Rank Math descriptions in presentation surfaces and avoids fallback meta snippets ending on dangling connector words.
