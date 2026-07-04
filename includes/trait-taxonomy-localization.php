@@ -74,6 +74,54 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 	}
 
 	/**
+	 * Validate category/tag input before a translated post is created.
+	 *
+	 * @param mixed $taxonomy_input Optional per-taxonomy term overrides from the client.
+	 * @return array<string,mixed>
+	 */
+	private static function validate_translated_post_terms_before_save( WP_Post $source, string $language, $taxonomy_input ): array {
+		if ( 'post' !== $source->post_type || ! self::is_translation_language( $language ) ) {
+			return array( 'success' => true, 'checked' => array() );
+		}
+
+		$taxonomy_input = is_array( $taxonomy_input ) ? $taxonomy_input : array();
+		$checked = array();
+
+		foreach ( array( 'category', 'post_tag' ) as $taxonomy ) {
+			$source_terms = wp_get_post_terms( (int) $source->ID, $taxonomy, array( 'hide_empty' => false ) );
+			if ( is_wp_error( $source_terms ) ) {
+				return self::error( $source_terms->get_error_message() );
+			}
+
+			$input_terms = self::taxonomy_input_by_source_term( $taxonomy_input[ $taxonomy ] ?? array() );
+			$checked[ $taxonomy ] = array();
+			foreach ( $source_terms as $source_term ) {
+				if ( ! $source_term instanceof WP_Term ) {
+					continue;
+				}
+
+				$term_data        = $input_terms[ (int) $source_term->term_id ] ?? array();
+				$existing_term_id = self::find_translated_term_id( (int) $source_term->term_id, $language, (string) $taxonomy );
+				$term_issue       = self::translated_taxonomy_term_guardrail( $source_term, $language, $term_data, $existing_term_id );
+				if ( $term_issue ) {
+					$term_issue['stage'] = 'taxonomy_preflight';
+					return $term_issue;
+				}
+
+				$checked[ $taxonomy ][] = array(
+					'source_term_id'  => (int) $source_term->term_id,
+					'existing_term_id' => $existing_term_id,
+				);
+			}
+		}
+
+		return array(
+			'success' => true,
+			'checked' => $checked,
+		);
+	}
+
+	/**
 	 * Normalize optional taxonomy input by source term ID.
 	 *
 	 * @param mixed $terms Raw taxonomy terms.

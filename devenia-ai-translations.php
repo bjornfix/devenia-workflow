@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.396
+ * Version: 0.1.397
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.396';
+	const VERSION = '0.1.397';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -12322,6 +12322,33 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Keep failed creates atomic at the upsert_translation interface.
+	 *
+	 * A new WordPress post is not a valid translation until route, taxonomy,
+	 * lifecycle, and provenance metadata have all been applied. If one of those
+	 * post-save adapters fails, remove the half-created post instead of leaving
+	 * a draft orphan for later queue/report cleanup.
+	 *
+	 * @param array<string,mixed> $error Failure payload to return to the caller.
+	 * @return array<string,mixed>
+	 */
+	private static function rollback_new_translation_after_upsert_failure( int $translation_id, bool $created_translation, array $error ): array {
+		if ( ! $created_translation || ! $translation_id ) {
+			return $error;
+		}
+
+		$deleted = wp_delete_post( $translation_id, true );
+		$error['rolled_back_translation_id'] = $translation_id;
+		$error['rollback_mode']              = 'permanent_delete_unmapped_failed_create';
+		$error['rollback_success']           = (bool) $deleted;
+		if ( ! $deleted ) {
+			$error['rollback_message'] = 'Could not remove the failed newly-created translation. Manual cleanup is required.';
+		}
+
+		return $error;
+	}
+
+	/**
 	 * Block writes when another active worker has reserved the source/language.
 	 */
 	private static function translation_claim_write_gate( int $source_id, string $language, string $claim_token ): array {
@@ -12468,6 +12495,18 @@ final class Devenia_AI_Translations {
 		if ( self::has_wordpress_duplicate_slug_suffix( $slug ) ) {
 			return self::error( 'Localized slug must not end with a WordPress duplicate suffix such as -2. Resolve the route collision instead.' );
 		}
+		$localized_path = '';
+		if ( 'post' === $target_post_type && ! empty( $input['localized_path'] ) ) {
+			$localized_path = trim( sanitize_text_field( (string) $input['localized_path'] ), '/' );
+			$path_year_issue = self::validate_years_in_url_parts(
+				explode( '/', $localized_path ),
+				! empty( $input['allow_year_in_url'] ),
+				(string) ( $input['year_url_reason'] ?? '' )
+			);
+			if ( $path_year_issue ) {
+				return $path_year_issue;
+			}
+		}
 		$parent_id = 0;
 		if ( 'page' === $target_post_type ) {
 			$parent_id = isset( $input['localized_parent_id'] ) ? absint( $input['localized_parent_id'] ) : 0;
@@ -12526,6 +12565,13 @@ final class Devenia_AI_Translations {
 			);
 		}
 
+		if ( 'post' === $target_post_type ) {
+			$taxonomy_preflight = self::validate_translated_post_terms_before_save( $source, $language, $input['taxonomies'] ?? array() );
+			if ( empty( $taxonomy_preflight['success'] ) ) {
+				return $taxonomy_preflight;
+			}
+		}
+
 		$postarr = array(
 			'post_type'    => $target_post_type,
 			'post_author'  => (int) $source->post_author,
@@ -12543,6 +12589,7 @@ final class Devenia_AI_Translations {
 		}
 
 		$result = 0;
+		$creating_translation = ! $translation_id;
 		self::with_direct_save_storage_guardrails_suspended(
 			static function () use ( &$result, $translation_id, $postarr ): void {
 				self::with_reviewer_style_capture_suspended(
@@ -12565,7 +12612,7 @@ final class Devenia_AI_Translations {
 		$translation_id = (int) $result;
 		$saved_post = get_post( $translation_id );
 		if ( ! $saved_post || $slug !== (string) $saved_post->post_name || self::has_wordpress_duplicate_slug_suffix( (string) $saved_post->post_name ) ) {
-			return array(
+			return self::rollback_new_translation_after_upsert_failure( $translation_id, $creating_translation, array(
 				'success'        => false,
 				'message'        => 'WordPress changed the localized slug during save. Resolve the route collision before saving; duplicate slugs such as -2 are not allowed.',
 				'code'           => 'localized_slug_rewritten',
@@ -12574,24 +12621,15 @@ final class Devenia_AI_Translations {
 				'post_type'      => $target_post_type,
 				'parent_id'      => $parent_id,
 				'translation_id' => $translation_id,
-			);
+			) );
 		}
-		if ( 'post' === $target_post_type && ! empty( $input['localized_path'] ) ) {
-			$localized_path = trim( sanitize_text_field( (string) $input['localized_path'] ), '/' );
-			$path_year_issue = self::validate_years_in_url_parts(
-				explode( '/', $localized_path ),
-				! empty( $input['allow_year_in_url'] ),
-				(string) ( $input['year_url_reason'] ?? '' )
-			);
-			if ( $path_year_issue ) {
-				return $path_year_issue;
-			}
+		if ( 'post' === $target_post_type && '' !== $localized_path ) {
 			update_post_meta( $translation_id, self::META_LOCALIZED_PATH, $localized_path );
 		}
 		if ( 'post' === $target_post_type ) {
 			$term_result = self::sync_translated_post_terms( $translation_id, $source, $language, $input['taxonomies'] ?? array() );
 			if ( empty( $term_result['success'] ) ) {
-				return $term_result;
+				return self::rollback_new_translation_after_upsert_failure( $translation_id, $creating_translation, $term_result );
 			}
 		}
 		$seo_meta = self::sync_translation_seo_meta( $translation_id, $input, $title, $excerpt, $content );
