@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.391
+ * Version: 0.1.392
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.391';
+	const VERSION = '0.1.392';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -17509,16 +17509,84 @@ final class Devenia_AI_Translations {
 			: array();
 	}
 
+	/**
+	 * Current runtime text mutation provenance entries for a language.
+	 *
+	 * The language-level latest entry is useful for summaries, but it is not
+	 * enough for independence checks. A later edit to one runtime key must not
+	 * hide another actor's still-current edit to a different runtime key.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function runtime_language_mutation_provenance_items( string $language ): array {
+		$language = sanitize_key( $language );
+		if ( '' === $language ) {
+			return array();
+		}
+
+		$registry = self::runtime_mutation_registry();
+		$language_registry = isset( $registry[ $language ] ) && is_array( $registry[ $language ] )
+			? $registry[ $language ]
+			: array();
+		$items = array();
+		$seen = array();
+		$add_item = static function ( $item ) use ( &$items, &$seen ): void {
+			if ( ! is_array( $item ) ) {
+				return;
+			}
+			$key = implode(
+				'|',
+				array(
+					(string) ( $item['recorded_at'] ?? '' ),
+					(string) ( $item['section'] ?? '' ),
+					(string) ( $item['source'] ?? '' ),
+					(string) ( $item['actor_id'] ?? '' ),
+					(string) ( $item['control_scope_id'] ?? '' ),
+				)
+			);
+			if ( isset( $seen[ $key ] ) ) {
+				return;
+			}
+			$seen[ $key ] = true;
+			$items[] = $item;
+		};
+
+		$add_item( $language_registry['latest'] ?? array() );
+		if ( isset( $language_registry['by_section'] ) && is_array( $language_registry['by_section'] ) ) {
+			foreach ( $language_registry['by_section'] as $section_items ) {
+				if ( ! is_array( $section_items ) ) {
+					continue;
+				}
+				foreach ( $section_items as $item ) {
+					$add_item( $item );
+				}
+			}
+		}
+
+		return $items;
+	}
+
 	private static function reviewer_matches_runtime_language_mutation( array $reviewer, string $language ): bool {
-		$mutation = self::runtime_language_mutation_provenance( $language );
-		return ! empty( $mutation ) && self::reviewer_identity_matches_provenance( $reviewer, $mutation );
+		foreach ( self::runtime_language_mutation_provenance_items( $language ) as $mutation ) {
+			if ( self::reviewer_identity_matches_provenance( $reviewer, $mutation ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static function runtime_language_mutation_after_evidence( string $language, array $evidence ): bool {
-		$mutation = self::runtime_language_mutation_provenance( $language );
-		$mutation_at = isset( $mutation['recorded_at'] ) ? strtotime( (string) $mutation['recorded_at'] ) : false;
 		$evidence_at = isset( $evidence['recorded_at'] ) ? strtotime( (string) $evidence['recorded_at'] ) : false;
-		return false !== $mutation_at && false !== $evidence_at && $mutation_at > $evidence_at;
+		if ( false === $evidence_at ) {
+			return false;
+		}
+		foreach ( self::runtime_language_mutation_provenance_items( $language ) as $mutation ) {
+			$mutation_at = isset( $mutation['recorded_at'] ) ? strtotime( (string) $mutation['recorded_at'] ) : false;
+			if ( false !== $mutation_at && $mutation_at > $evidence_at ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
