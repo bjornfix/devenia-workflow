@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.398
+ * Version: 0.1.399
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.398';
+	const VERSION = '0.1.399';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -8578,8 +8578,8 @@ final class Devenia_AI_Translations {
 			),
 			'ai-translations/repair-featured-images' => array(
 				'label'            => 'Repair Translation Featured Images',
-				'description'      => 'Mirrors source featured image state to existing translated pages and posts.',
-				'input_schema'     => self::repair_url_hierarchy_input_schema(),
+				'description'      => 'Mirrors source featured image state to existing translated pages and posts, records writer provenance, and invalidates stale review evidence.',
+				'input_schema'     => self::repair_featured_images_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
 					return self::run_ability_operation( 'repair_featured_images', $input );
@@ -10848,6 +10848,50 @@ final class Devenia_AI_Translations {
 					'items'       => array( 'type' => 'integer' ),
 				),
 				'dry_run'    => array( 'type' => 'boolean', 'default' => false ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for featured-image workflow repairs.
+	 */
+	private static function repair_featured_images_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'languages'  => array(
+					'type'        => 'array',
+					'description' => 'Optional list of target languages to repair. Defaults to all target languages.',
+					'items'       => array( 'type' => 'string' ),
+				),
+				'source_ids' => array(
+					'type'        => 'array',
+					'description' => 'Optional source page IDs to repair. Defaults to all translated source pages.',
+					'items'       => array( 'type' => 'integer' ),
+				),
+				'dry_run'    => array( 'type' => 'boolean', 'default' => false ),
+				'record_provenance_when_unchanged' => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'When true, record writer provenance and invalidate reviews even when the translation already matches the source image. Use only to bring an already-applied featured-image repair under workflow provenance.',
+				),
+				'claim_token' => array(
+					'type'        => 'string',
+					'description' => 'Optional reservation token from ai-translations/reserve-work. Used when repairing one claimed source/language item.',
+				),
+				'codex_thread_id' => array(
+					'type'        => 'string',
+					'description' => 'Required for writes: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side workflow lease.',
+				),
+				'writer_process_id' => array(
+					'type'        => 'string',
+					'description' => 'Optional stable identifier for the process/session doing this visible media repair. Defaults to codex_thread_id.',
+				),
+				'writer_actor' => array(
+					'type'        => 'string',
+					'description' => 'Optional human/operator label for the writer process.',
+				),
 			),
 			'additionalProperties' => false,
 		);
@@ -16887,6 +16931,14 @@ final class Devenia_AI_Translations {
 		$dry_run    = ! empty( $input['dry_run'] );
 		$languages  = self::repair_language_filter( $input['languages'] ?? array() );
 		$source_ids = self::repair_source_filter( $input['source_ids'] ?? array() );
+		$record_provenance_when_unchanged = ! empty( $input['record_provenance_when_unchanged'] );
+		$step_token_gate = array();
+		if ( ! $dry_run ) {
+			$step_token_gate = self::translation_step_token_gate( 'draft_write', $input );
+			if ( empty( $step_token_gate['success'] ) ) {
+				return $step_token_gate;
+			}
+		}
 
 		$query = self::translation_content_query(
 			array(
@@ -16924,19 +16976,43 @@ final class Devenia_AI_Translations {
 				);
 				continue;
 			}
+			if ( ! $dry_run ) {
+				$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+				if ( $claim_gate ) {
+					$skipped[] = array(
+						'translation_id' => $translation_id,
+						'source_id'      => $source_id,
+						'language'       => $language,
+						'reason'         => sanitize_key( (string) ( $claim_gate['code'] ?? 'reservation_conflict' ) ),
+						'message'        => sanitize_text_field( (string) ( $claim_gate['message'] ?? 'Translation work is currently reserved by another worker.' ) ),
+					);
+					continue;
+				}
+			}
 
 			++$checked;
 			$sync = self::sync_source_featured_image( $translation_id, $source, $dry_run );
-			if ( empty( $sync['changed'] ) ) {
+			if ( empty( $sync['changed'] ) && ( $dry_run || ! $record_provenance_when_unchanged ) ) {
 				continue;
+			}
+			$review_invalidated = false;
+			$provenance_recorded = false;
+			if ( ! $dry_run ) {
+				$review_invalidated = self::invalidate_translation_reviews_after_visible_metadata_change( $translation_id, 'featured_image_repair' );
+				self::record_translation_writer_provenance( $translation_id, $step_token_gate );
+				self::sync_translation_index_row( $translation_id );
+				$provenance_recorded = true;
 			}
 
 			$changed[] = array(
 				'translation_id'     => $translation_id,
 				'source_id'          => $source_id,
 				'language'           => $language,
+				'changed'            => (bool) $sync['changed'],
 				'before_thumbnail_id'=> $sync['before_thumbnail_id'],
 				'after_thumbnail_id' => $sync['after_thumbnail_id'],
+				'review_invalidated' => $review_invalidated,
+				'provenance_recorded'=> $provenance_recorded,
 				'url'                => get_permalink( $translation_id ) ?: '',
 			);
 		}

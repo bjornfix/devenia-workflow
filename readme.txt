@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.398
+Stable tag: 0.1.399
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.399 =
+* Makes featured-image repair a workflow-controlled visible media write with actor provenance, reservation checks, and review invalidation.
 
 = 0.1.398 =
 * Requires quality reviewers to explicitly review featured/hero image suitability, including semantic fit, embedded text, currentness, crop, and functional value for the article.
