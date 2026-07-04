@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.405
+ * Version: 0.1.406
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.405';
+	const VERSION = '0.1.406';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -79,6 +79,7 @@ final class Devenia_AI_Translations {
 	const META_WRITER_CONTROLLER_PROCESS = '_devenia_translation_writer_controller_process';
 	const META_WRITER_TOKEN_LABEL = '_devenia_translation_writer_token_label';
 	const META_WRITER_RECORDED_AT = '_devenia_translation_writer_recorded_at';
+	const META_VISIBLE_MEDIA_PROVENANCE = '_devenia_translation_visible_media_provenance';
 	const META_COPY_FEEDBACK = '_devenia_translation_copy_feedback';
 	const META_QA_OPTIONS = '_devenia_translation_qa_options';
 	const META_AUTHORED_ORIGINAL_ID = '_devenia_translation_authored_original_id';
@@ -15108,6 +15109,12 @@ final class Devenia_AI_Translations {
 				'code' => 'current_actor_changed_runtime_language_surface',
 			);
 		}
+		if ( in_array( sanitize_key( $obligation ), array( 'quality_review', 'final_review', 'publish' ), true ) && self::reviewer_matches_visible_media_mutation( $reviewer, $translation_id ) ) {
+			return array(
+				'success' => false,
+				'code' => 'current_actor_changed_visible_media_surface',
+			);
+		}
 
 		$prior_stage_reviewers = self::heartbeat_prior_stage_reviewers_for_obligation( $translation_id, $obligation );
 		if ( self::reviewer_matches_any_provenance( $reviewer, $prior_stage_reviewers ) ) {
@@ -15245,6 +15252,12 @@ final class Devenia_AI_Translations {
 		$reviewer_process = self::normalize_process_id( (string) ( $reviewer['process_id'] ?? '' ) );
 		$provenance_process = self::normalize_process_id( (string) ( $provenance['process_id'] ?? '' ) );
 		if ( '' !== $reviewer_process && '' !== $provenance_process && $reviewer_process === $provenance_process ) {
+			return true;
+		}
+
+		$reviewer_codex_thread = self::normalize_control_scope_id( (string) ( $reviewer['codex_thread_id'] ?? '' ) );
+		$provenance_codex_thread = self::normalize_control_scope_id( (string) ( $provenance['codex_thread_id'] ?? '' ) );
+		if ( '' !== $reviewer_codex_thread && '' !== $provenance_codex_thread && $reviewer_codex_thread === $provenance_codex_thread ) {
 			return true;
 		}
 
@@ -16623,6 +16636,7 @@ final class Devenia_AI_Translations {
 			'current_source_hash'=> $current,
 			'is_stale'           => $hash && $current && $hash !== $current,
 			'writer_provenance'  => self::translation_writer_provenance( $post_id ),
+			'visible_media_provenance' => self::translation_visible_media_provenance( $post_id ),
 			'linguistic_review_state' => array(
 				'passed'        => ! empty( $linguistic_state['passed'] ),
 				'state'         => sanitize_key( (string) ( $linguistic_state['state'] ?? 'needs_linguistic_review' ) ),
@@ -17383,6 +17397,7 @@ final class Devenia_AI_Translations {
 	private static function record_translation_writer_provenance( int $translation_id, array $verified_identity ): void {
 		$process_id = self::normalize_process_id( (string) ( $verified_identity['process_id'] ?? '' ) );
 		$control_scope_id = self::normalize_control_scope_id( (string) ( $verified_identity['control_scope_id'] ?? '' ) );
+		$codex_thread_id = self::normalize_control_scope_id( (string) ( $verified_identity['codex_thread_id'] ?? '' ) );
 		$session_origin = self::normalize_session_origin( (string) ( $verified_identity['session_origin'] ?? '' ) );
 		$parent_process_id = self::normalize_process_id( (string) ( $verified_identity['parent_process_id'] ?? '' ) );
 		$controller_process_id = self::normalize_process_id( (string) ( $verified_identity['controller_process_id'] ?? '' ) );
@@ -17408,6 +17423,21 @@ final class Devenia_AI_Translations {
 		update_post_meta( $translation_id, self::META_WRITER_ACTOR_ID, $actor_id );
 		update_post_meta( $translation_id, self::META_WRITER_TOKEN_LABEL, $token_label );
 		update_post_meta( $translation_id, self::META_WRITER_RECORDED_AT, gmdate( 'c' ) );
+	}
+
+	/**
+	 * Store who last changed the visible media surface for a translation.
+	 */
+	private static function record_translation_visible_media_provenance( int $translation_id, array $verified_identity, string $reason ): void {
+		$provenance = self::runtime_mutation_provenance_from_verified_identity( $verified_identity );
+		if ( empty( $provenance['process_id'] ) && empty( $provenance['control_scope_id'] ) && empty( $provenance['actor_id'] ) && empty( $provenance['token_label'] ) ) {
+			return;
+		}
+
+		$provenance['reason'] = sanitize_key( $reason );
+		$provenance['featured_image_id'] = self::featured_image_id_for_post( $translation_id );
+		$provenance['plugin_version'] = self::VERSION;
+		update_post_meta( $translation_id, self::META_VISIBLE_MEDIA_PROVENANCE, wp_json_encode( $provenance ) );
 	}
 
 	private static function runtime_mutation_provenance_from_verified_identity( array $verified_identity ): array {
@@ -17539,6 +17569,42 @@ final class Devenia_AI_Translations {
 		return false;
 	}
 
+	private static function translation_visible_media_provenance( int $translation_id ): array {
+		$raw = (string) get_post_meta( $translation_id, self::META_VISIBLE_MEDIA_PROVENANCE, true );
+		$decoded = '' !== $raw ? json_decode( $raw, true ) : array();
+		if ( ! is_array( $decoded ) ) {
+			return array();
+		}
+
+		return array(
+			'process_id' => self::normalize_process_id( (string) ( $decoded['process_id'] ?? '' ) ),
+			'control_scope_id' => self::normalize_control_scope_id( (string) ( $decoded['control_scope_id'] ?? '' ) ),
+			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $decoded['codex_thread_id'] ?? '' ) ),
+			'session_origin' => self::normalize_session_origin( (string) ( $decoded['session_origin'] ?? '' ) ),
+			'parent_process_id' => self::normalize_process_id( (string) ( $decoded['parent_process_id'] ?? '' ) ),
+			'controller_process_id' => self::normalize_process_id( (string) ( $decoded['controller_process_id'] ?? '' ) ),
+			'actor' => sanitize_text_field( (string) ( $decoded['actor'] ?? '' ) ),
+			'actor_id' => sanitize_key( (string) ( $decoded['actor_id'] ?? '' ) ),
+			'token_label' => sanitize_key( (string) ( $decoded['token_label'] ?? '' ) ),
+			'recorded_at' => sanitize_text_field( (string) ( $decoded['recorded_at'] ?? '' ) ),
+			'reason' => sanitize_key( (string) ( $decoded['reason'] ?? '' ) ),
+			'featured_image_id' => absint( $decoded['featured_image_id'] ?? 0 ),
+			'plugin_version' => sanitize_text_field( (string) ( $decoded['plugin_version'] ?? '' ) ),
+		);
+	}
+
+	private static function reviewer_matches_visible_media_mutation( array $reviewer, int $translation_id ): bool {
+		$provenance = self::translation_visible_media_provenance( $translation_id );
+		return ! empty( $provenance ) && self::reviewer_identity_matches_provenance( $reviewer, $provenance );
+	}
+
+	private static function visible_media_mutation_after_evidence( int $translation_id, array $evidence ): bool {
+		$provenance = self::translation_visible_media_provenance( $translation_id );
+		$provenance_at = isset( $provenance['recorded_at'] ) ? strtotime( (string) $provenance['recorded_at'] ) : false;
+		$evidence_at = isset( $evidence['recorded_at'] ) ? strtotime( (string) $evidence['recorded_at'] ) : false;
+		return false !== $provenance_at && false !== $evidence_at && $provenance_at > $evidence_at;
+	}
+
 	private static function runtime_language_mutation_after_evidence( string $language, array $evidence ): bool {
 		$evidence_at = isset( $evidence['recorded_at'] ) ? strtotime( (string) $evidence['recorded_at'] ) : false;
 		if ( false === $evidence_at ) {
@@ -17592,6 +17658,7 @@ final class Devenia_AI_Translations {
 		return array(
 			'process_id'  => $process_id,
 			'control_scope_id' => $control_scope_id,
+			'codex_thread_id' => $codex_thread_id,
 			'session_origin' => $session_origin,
 			'parent_process_id' => $parent_process_id,
 			'controller_process_id' => $controller_process_id,
@@ -17731,6 +17798,18 @@ final class Devenia_AI_Translations {
 				'writer'   => $writer,
 				'reviewer' => $reviewer,
 				'runtime_mutation' => self::runtime_language_mutation_provenance( $language ),
+			);
+		}
+		if ( in_array( sanitize_key( $stage ), array( 'quality_review', 'final_review', 'publish' ), true ) && self::reviewer_matches_visible_media_mutation( $reviewer, $translation_id ) ) {
+			return array(
+				'success'  => false,
+				'code'     => 'reviewer_changed_visible_media_surface',
+				'message'  => 'The actor that last changed visible media for this translation cannot quality-review, final-review, or publish it.',
+				'operator_warning' => self::self_review_override_warning(),
+				'stage'    => sanitize_key( $stage ),
+				'writer'   => $writer,
+				'reviewer' => $reviewer,
+				'visible_media_provenance' => self::translation_visible_media_provenance( $translation_id ),
 			);
 		}
 
@@ -18187,6 +18266,12 @@ final class Devenia_AI_Translations {
 			if ( self::is_translation_post( $post_id ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_runtime_language_mutation( $evidence['reviewer'], $language ) ) {
 				$stale_reasons[] = 'quality_reviewer_changed_runtime_text';
 			}
+			if ( self::is_translation_post( $post_id ) && self::visible_media_mutation_after_evidence( $post_id, $evidence ) ) {
+				$stale_reasons[] = 'visible_media_changed_since_review';
+			}
+			if ( self::is_translation_post( $post_id ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_visible_media_mutation( $evidence['reviewer'], $post_id ) ) {
+				$stale_reasons[] = 'quality_reviewer_changed_visible_media_surface';
+			}
 			if ( array_key_exists( 'fitness_passed', $evidence ) && empty( $evidence['fitness_passed'] ) ) {
 				$stale_reasons[] = 'fitness_failed_at_review';
 			}
@@ -18261,6 +18346,12 @@ final class Devenia_AI_Translations {
 			}
 			if ( self::is_translation_post( $post_id ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_runtime_language_mutation( $evidence['reviewer'], $language ) ) {
 				$stale_reasons[] = 'final_reviewer_changed_runtime_text';
+			}
+			if ( self::is_translation_post( $post_id ) && self::visible_media_mutation_after_evidence( $post_id, $evidence ) ) {
+				$stale_reasons[] = 'visible_media_changed_since_review';
+			}
+			if ( self::is_translation_post( $post_id ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_visible_media_mutation( $evidence['reviewer'], $post_id ) ) {
+				$stale_reasons[] = 'final_reviewer_changed_visible_media_surface';
 			}
 			if ( ! empty( $evidence['translation_hash'] ) && $evidence['translation_hash'] !== $current_translation_hash ) {
 				$stale_reasons[] = 'translation_changed_since_review';
@@ -18617,6 +18708,12 @@ final class Devenia_AI_Translations {
 			return 'quality_review_stale';
 		}
 		if ( self::is_translation_post( $post_id ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_runtime_language_mutation( $evidence['reviewer'], $language ) ) {
+			return 'quality_review_stale';
+		}
+		if ( self::is_translation_post( $post_id ) && self::visible_media_mutation_after_evidence( $post_id, $evidence ) ) {
+			return 'quality_review_stale';
+		}
+		if ( self::is_translation_post( $post_id ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_visible_media_mutation( $evidence['reviewer'], $post_id ) ) {
 			return 'quality_review_stale';
 		}
 		if ( array_key_exists( 'fitness_passed', $evidence ) && empty( $evidence['fitness_passed'] ) ) {
@@ -23457,6 +23554,7 @@ final class Devenia_AI_Translations {
 			'design_inheritance_state' => self::translation_source_design_state( $post, $source ),
 			'reviewed_at'        => (string) get_post_meta( $post->ID, self::META_REVIEWED_AT, true ),
 			'writer_provenance'  => self::translation_writer_provenance( (int) $post->ID ),
+			'visible_media_provenance' => self::translation_visible_media_provenance( (int) $post->ID ),
 			'linguistic_reviewed_at' => (string) get_post_meta( $post->ID, self::META_LINGUISTIC_REVIEWED_AT, true ),
 			'linguistic_reviewer'    => (string) get_post_meta( $post->ID, self::META_LINGUISTIC_REVIEWER, true ),
 			'linguistic_reviewer_process' => (string) get_post_meta( $post->ID, self::META_LINGUISTIC_REVIEWER_PROCESS, true ),

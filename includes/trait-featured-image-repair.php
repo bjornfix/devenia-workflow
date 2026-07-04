@@ -31,7 +31,7 @@ trait Devenia_AI_Translations_Featured_Image_Repair {
 				'record_provenance_when_unchanged' => array(
 					'type'        => 'boolean',
 					'default'     => false,
-					'description' => 'When true, record writer provenance and invalidate reviews even when the translation already matches the source image. Use only to bring an already-applied featured-image repair under workflow provenance.',
+					'description' => 'When true, record writer and visible-media provenance and invalidate reviews even when the translation already matches the source image. Use only to bring an already-applied featured-image repair under workflow provenance.',
 				),
 				'claim_token'                      => array(
 					'type'        => 'string',
@@ -143,6 +143,7 @@ trait Devenia_AI_Translations_Featured_Image_Repair {
 			if ( ! $dry_run ) {
 				$review_invalidated = self::invalidate_translation_reviews_after_visible_metadata_change( $translation_id, 'featured_image_repair' );
 				self::record_translation_writer_provenance( $translation_id, $step_token_gate );
+				self::record_translation_visible_media_provenance( $translation_id, $step_token_gate, 'featured_image_repair' );
 				self::sync_translation_index_row( $translation_id );
 				$provenance_recorded = true;
 			}
@@ -156,6 +157,7 @@ trait Devenia_AI_Translations_Featured_Image_Repair {
 				'after_thumbnail_id'  => $sync['after_thumbnail_id'],
 				'review_invalidated'  => $review_invalidated,
 				'provenance_recorded' => $provenance_recorded,
+				'media_provenance_recorded' => $provenance_recorded,
 				'url'                 => get_permalink( $translation_id ) ?: '',
 			);
 		}
