@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.386
+**Stable tag:** 0.1.387
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.387
+
+- Stops inferred diacritic-shadow checks from blocking valid French words such
+  as `risque` and `demande` when related accented forms also appear in the same
+  article; explicit protected shadow terms remain enforced.
 
 ### 0.1.386
 

@@ -345,6 +345,15 @@
       "minimum_issue_count": 0
     },
     {
+      "id": "fr-valid-shadow-homographs-risk-demand",
+      "language": "fr",
+      "description": "French may use valid unaccented words such as risque and demande even when related accented forms such as risqué and demandé also appear in the same article.",
+      "content": "<!-- wp:paragraph --><p>Le risque augmente quand un lien demandé semble artificiel. Ce modèle reste risqué, mais la demande peut être légitime si la page mérite vraiment la référence.</p><!-- /wp:paragraph -->",
+      "expected_passed": true,
+      "expected_issue_codes": [],
+      "minimum_issue_count": 0
+    },
+    {
       "id": "es-stripped-diacritics-multilingual-post",
       "language": "es",
       "description": "Spanish translation residue with stripped accents and n tilde must fail.",
