@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.383
+ * Version: 0.1.384
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.383';
+	const VERSION = '0.1.384';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -31,6 +31,7 @@ final class Devenia_AI_Translations {
 	const OPTION_REVIEWER_STYLE_PROFILES = 'devenia_ai_translations_reviewer_style_profiles';
 	const OPTION_AUTHOR_ARCHIVES = 'devenia_ai_translations_author_archives';
 	const OPTION_HEARTBEATS = 'devenia_ai_translations_heartbeats';
+	const OPTION_RUNTIME_MUTATION_PROVENANCE = 'devenia_ai_translations_runtime_mutation_provenance';
 	const OPTION_TRANSLATION_CLAIM_PREFIX = 'devenia_ai_translation_claim_';
 	const DEFAULT_TRANSLATION_CLAIM_TTL = 1800;
 	const MAX_TRANSLATION_CLAIM_TTL = 14400;
@@ -3076,6 +3077,11 @@ final class Devenia_AI_Translations {
 			return self::error( 'Missing translated value.' );
 		}
 
+		$step_token_gate = self::translation_step_token_gate( 'draft_write', $input );
+		if ( empty( $step_token_gate['success'] ) ) {
+			return $step_token_gate;
+		}
+
 		$languages = get_option( self::OPTION_LANGUAGES );
 		if ( ! is_array( $languages ) ) {
 			$languages = array();
@@ -3096,6 +3102,7 @@ final class Devenia_AI_Translations {
 
 		update_option( self::OPTION_LANGUAGES, $languages, false );
 		self::languages( true );
+		self::record_runtime_language_mutation_provenance( $language, $section, $source, $step_token_gate, $delete ? 'runtime_text_delete' : 'runtime_text_update' );
 
 		return array(
 			'success'    => true,
@@ -8890,7 +8897,7 @@ final class Devenia_AI_Translations {
 	private static function runtime_text_input_schema(): array {
 		return array(
 		'type'                 => 'object',
-		'required'             => array( 'language', 'section', 'source' ),
+		'required'             => array( 'language', 'section', 'source', 'codex_thread_id' ),
 		'properties'           => array(
 			'language'   => array(
 				'type'        => 'string',
@@ -8913,6 +8920,18 @@ final class Devenia_AI_Translations {
 				'type'        => 'boolean',
 				'default'     => false,
 				'description' => 'Remove this runtime text override.',
+			),
+			'codex_thread_id' => array(
+				'type'        => 'string',
+				'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value.',
+			),
+			'writer_process_id' => array(
+				'type'        => 'string',
+				'description' => 'Optional stable identifier for the process/session updating the runtime text. Defaults to codex_thread_id.',
+			),
+			'writer_actor' => array(
+				'type'        => 'string',
+				'description' => 'Optional human/operator label for the writer process.',
 			),
 		),
 		'additionalProperties' => false,
@@ -14978,6 +14997,14 @@ final class Devenia_AI_Translations {
 			return array( 'success' => false, 'code' => 'writer_reviewer_actor_id_match' );
 		}
 
+		$language = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
+		if ( self::reviewer_matches_runtime_language_mutation( $reviewer, $language ) ) {
+			return array(
+				'success' => false,
+				'code' => 'current_actor_changed_runtime_language_surface',
+			);
+		}
+
 		$prior_stage_reviewers = self::heartbeat_prior_stage_reviewers_for_obligation( $translation_id, $obligation );
 		if ( self::reviewer_matches_any_provenance( $reviewer, $prior_stage_reviewers ) ) {
 			return array(
@@ -17290,6 +17317,81 @@ final class Devenia_AI_Translations {
 		update_post_meta( $translation_id, self::META_WRITER_RECORDED_AT, gmdate( 'c' ) );
 	}
 
+	private static function runtime_mutation_provenance_from_verified_identity( array $verified_identity ): array {
+		$token_label = sanitize_key( (string) ( $verified_identity['step_token_label'] ?? '' ) );
+		$actor_id = sanitize_key( (string) ( $verified_identity['actor_id'] ?? '' ) );
+		if ( '' === $actor_id ) {
+			$actor_id = $token_label;
+		}
+		$actor = sanitize_text_field( (string) ( $verified_identity['actor'] ?? '' ) );
+		if ( '' === $actor && '' !== $actor_id ) {
+			$actor = 'actor:' . $actor_id;
+		}
+
+		return array(
+			'process_id' => self::normalize_process_id( (string) ( $verified_identity['process_id'] ?? '' ) ),
+			'control_scope_id' => self::normalize_control_scope_id( (string) ( $verified_identity['control_scope_id'] ?? '' ) ),
+			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $verified_identity['codex_thread_id'] ?? '' ) ),
+			'session_origin' => self::normalize_session_origin( (string) ( $verified_identity['session_origin'] ?? '' ) ),
+			'parent_process_id' => self::normalize_process_id( (string) ( $verified_identity['parent_process_id'] ?? '' ) ),
+			'controller_process_id' => self::normalize_process_id( (string) ( $verified_identity['controller_process_id'] ?? '' ) ),
+			'actor' => $actor,
+			'actor_id' => $actor_id,
+			'token_label' => $token_label,
+			'recorded_at' => gmdate( 'c' ),
+		);
+	}
+
+	private static function runtime_mutation_registry(): array {
+		$registry = get_option( self::OPTION_RUNTIME_MUTATION_PROVENANCE, array() );
+		return is_array( $registry ) ? $registry : array();
+	}
+
+	private static function record_runtime_language_mutation_provenance( string $language, string $section, string $source, array $verified_identity, string $reason ): void {
+		$language = sanitize_key( $language );
+		if ( '' === $language || empty( $verified_identity ) ) {
+			return;
+		}
+
+		$provenance = self::runtime_mutation_provenance_from_verified_identity( $verified_identity );
+		$provenance['language'] = $language;
+		$provenance['section'] = sanitize_key( $section );
+		$provenance['source'] = sanitize_text_field( $source );
+		$provenance['reason'] = sanitize_key( $reason );
+		$provenance['plugin_version'] = self::VERSION;
+
+		$registry = self::runtime_mutation_registry();
+		if ( ! isset( $registry[ $language ] ) || ! is_array( $registry[ $language ] ) ) {
+			$registry[ $language ] = array();
+		}
+		$registry[ $language ]['latest'] = $provenance;
+		if ( '' !== $provenance['section'] && '' !== $provenance['source'] ) {
+			$registry[ $language ]['by_section'][ $provenance['section'] ][ md5( $provenance['source'] ) ] = $provenance;
+		}
+
+		update_option( self::OPTION_RUNTIME_MUTATION_PROVENANCE, $registry, false );
+	}
+
+	private static function runtime_language_mutation_provenance( string $language ): array {
+		$language = sanitize_key( $language );
+		$registry = self::runtime_mutation_registry();
+		return isset( $registry[ $language ]['latest'] ) && is_array( $registry[ $language ]['latest'] )
+			? $registry[ $language ]['latest']
+			: array();
+	}
+
+	private static function reviewer_matches_runtime_language_mutation( array $reviewer, string $language ): bool {
+		$mutation = self::runtime_language_mutation_provenance( $language );
+		return ! empty( $mutation ) && self::reviewer_identity_matches_provenance( $reviewer, $mutation );
+	}
+
+	private static function runtime_language_mutation_after_evidence( string $language, array $evidence ): bool {
+		$mutation = self::runtime_language_mutation_provenance( $language );
+		$mutation_at = isset( $mutation['recorded_at'] ) ? strtotime( (string) $mutation['recorded_at'] ) : false;
+		$evidence_at = isset( $evidence['recorded_at'] ) ? strtotime( (string) $evidence['recorded_at'] ) : false;
+		return false !== $mutation_at && false !== $evidence_at && $mutation_at > $evidence_at;
+	}
+
 	/**
 	 * Load writer provenance for one translation.
 	 */
@@ -17454,6 +17556,20 @@ final class Devenia_AI_Translations {
 				'stage'    => sanitize_key( $stage ),
 				'writer'   => $writer,
 				'reviewer' => $reviewer,
+			);
+		}
+
+		$language = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
+		if ( self::reviewer_matches_runtime_language_mutation( $reviewer, $language ) ) {
+			return array(
+				'success'  => false,
+				'code'     => 'reviewer_changed_runtime_language_surface',
+				'message'  => 'The actor that last changed visible runtime text for this language cannot review or publish content using that runtime surface.',
+				'operator_warning' => self::self_review_override_warning(),
+				'stage'    => sanitize_key( $stage ),
+				'writer'   => $writer,
+				'reviewer' => $reviewer,
+				'runtime_mutation' => self::runtime_language_mutation_provenance( $language ),
 			);
 		}
 
@@ -17765,6 +17881,12 @@ final class Devenia_AI_Translations {
 			if ( ! self::review_evidence_has_separate_reviewer( $evidence ) ) {
 				$stale_reasons[] = 'missing_separate_reviewer';
 			}
+			if ( self::runtime_language_mutation_after_evidence( $language, $evidence ) ) {
+				$stale_reasons[] = 'runtime_text_changed_since_review';
+			}
+			if ( ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_runtime_language_mutation( $evidence['reviewer'], $language ) ) {
+				$stale_reasons[] = 'linguistic_reviewer_changed_runtime_text';
+			}
 			if ( ! empty( $evidence['translation_hash'] ) && $evidence['translation_hash'] !== $current_translation_hash ) {
 				$stale_reasons[] = 'translation_changed_since_review';
 			}
@@ -17856,6 +17978,12 @@ final class Devenia_AI_Translations {
 			if ( self::is_translation_post( $post_id ) && ! self::review_evidence_has_independent_quality_reviewer( $post_id, $evidence ) ) {
 				$stale_reasons[] = 'quality_reviewer_already_handled_linguistic_review';
 			}
+			if ( self::is_translation_post( $post_id ) && self::runtime_language_mutation_after_evidence( $language, $evidence ) ) {
+				$stale_reasons[] = 'runtime_text_changed_since_review';
+			}
+			if ( self::is_translation_post( $post_id ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_runtime_language_mutation( $evidence['reviewer'], $language ) ) {
+				$stale_reasons[] = 'quality_reviewer_changed_runtime_text';
+			}
 			if ( array_key_exists( 'fitness_passed', $evidence ) && empty( $evidence['fitness_passed'] ) ) {
 				$stale_reasons[] = 'fitness_failed_at_review';
 			}
@@ -17924,6 +18052,12 @@ final class Devenia_AI_Translations {
 			}
 			if ( ! self::review_evidence_has_independent_final_reviewer( $post_id, $evidence ) ) {
 				$stale_reasons[] = 'final_reviewer_already_handled_prior_review';
+			}
+			if ( self::is_translation_post( $post_id ) && self::runtime_language_mutation_after_evidence( $language, $evidence ) ) {
+				$stale_reasons[] = 'runtime_text_changed_since_review';
+			}
+			if ( self::is_translation_post( $post_id ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_runtime_language_mutation( $evidence['reviewer'], $language ) ) {
+				$stale_reasons[] = 'final_reviewer_changed_runtime_text';
 			}
 			if ( ! empty( $evidence['translation_hash'] ) && $evidence['translation_hash'] !== $current_translation_hash ) {
 				$stale_reasons[] = 'translation_changed_since_review';
@@ -18240,6 +18374,12 @@ final class Devenia_AI_Translations {
 			return 'quality_review_stale';
 		}
 		if ( self::is_translation_post( $post_id ) && ! self::review_evidence_has_independent_quality_reviewer( $post_id, $evidence ) ) {
+			return 'quality_review_stale';
+		}
+		if ( self::is_translation_post( $post_id ) && self::runtime_language_mutation_after_evidence( $language, $evidence ) ) {
+			return 'quality_review_stale';
+		}
+		if ( self::is_translation_post( $post_id ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_runtime_language_mutation( $evidence['reviewer'], $language ) ) {
 			return 'quality_review_stale';
 		}
 		if ( array_key_exists( 'fitness_passed', $evidence ) && empty( $evidence['fitness_passed'] ) ) {
