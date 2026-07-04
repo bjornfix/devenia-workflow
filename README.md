@@ -206,6 +206,11 @@ Before changing the plugin:
 
 ## Changelog
 
+### 0.1.383
+
+- Prevents quality and final review from being assigned to or accepted from
+  actors that already wrote the current prior review evidence.
+
 ### 0.1.382
 
 - Prevents a heartbeat session from being reassigned the same unchanged item

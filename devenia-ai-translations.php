@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.382
+ * Version: 0.1.383
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.382';
+	const VERSION = '0.1.383';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -14978,8 +14978,8 @@ final class Devenia_AI_Translations {
 			return array( 'success' => false, 'code' => 'writer_reviewer_actor_id_match' );
 		}
 
-		$prior_stage_reviewer = self::heartbeat_prior_stage_reviewer_for_obligation( $translation_id, $obligation );
-		if ( $prior_stage_reviewer && self::reviewer_identity_matches_provenance( $reviewer, $prior_stage_reviewer ) ) {
+		$prior_stage_reviewers = self::heartbeat_prior_stage_reviewers_for_obligation( $translation_id, $obligation );
+		if ( self::reviewer_matches_any_provenance( $reviewer, $prior_stage_reviewers ) ) {
 			return array(
 				'success' => false,
 				'code' => 'current_actor_already_handled_' . sanitize_key( $obligation ),
@@ -14989,19 +14989,26 @@ final class Devenia_AI_Translations {
 		return array( 'success' => true );
 	}
 
-	private static function heartbeat_prior_stage_reviewer_for_obligation( int $translation_id, string $obligation ): array {
-		$evidence = array();
+	private static function heartbeat_prior_stage_reviewers_for_obligation( int $translation_id, string $obligation ): array {
+		$evidence_items = array();
 		if ( 'linguistic_review' === $obligation ) {
-			$evidence = self::linguistic_review_evidence_for_post( $translation_id );
+			$evidence_items[] = self::linguistic_review_evidence_for_post( $translation_id );
 		} elseif ( 'quality_review' === $obligation ) {
-			$evidence = self::quality_review_evidence_for_post( $translation_id );
-		} elseif ( 'final_review' === $obligation || 'publish' === $obligation ) {
-			$evidence = self::final_review_evidence_for_post( $translation_id );
+			$evidence_items[] = self::linguistic_review_evidence_for_post( $translation_id );
+		} elseif ( 'final_review' === $obligation ) {
+			$evidence_items[] = self::linguistic_review_evidence_for_post( $translation_id );
+			$evidence_items[] = self::quality_review_evidence_for_post( $translation_id );
+		} elseif ( 'publish' === $obligation ) {
+			$evidence_items[] = self::final_review_evidence_for_post( $translation_id );
 		}
-		if ( ! is_array( $evidence ) || empty( $evidence['reviewer'] ) || ! is_array( $evidence['reviewer'] ) ) {
-			return array();
+
+		$reviewers = array();
+		foreach ( $evidence_items as $evidence ) {
+			if ( is_array( $evidence ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) ) {
+				$reviewers[] = $evidence['reviewer'];
+			}
 		}
-		return $evidence['reviewer'];
+		return $reviewers;
 	}
 
 	private static function heartbeat_repeats_previous_item_without_change( array $input, array $identity, int $translation_id, int $source_id, string $language, string $action ): bool {
@@ -15070,6 +15077,16 @@ final class Devenia_AI_Translations {
 		$reviewer_actor = sanitize_text_field( (string) ( $reviewer['actor'] ?? '' ) );
 		$provenance_actor = sanitize_text_field( (string) ( $provenance['actor'] ?? '' ) );
 		return '' !== $reviewer_actor && '' !== $provenance_actor && $reviewer_actor === $provenance_actor;
+	}
+
+	private static function reviewer_matches_any_provenance( array $reviewer, array $provenance_items ): bool {
+		foreach ( $provenance_items as $provenance ) {
+			if ( is_array( $provenance ) && self::reviewer_identity_matches_provenance( $reviewer, $provenance ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	private static function heartbeat_skip_summary( array $item, string $reason ): array {
@@ -17440,6 +17457,38 @@ final class Devenia_AI_Translations {
 			);
 		}
 
+		if ( 'quality_review' === sanitize_key( $stage ) ) {
+			$prior_reviewers = self::quality_review_prior_stage_reviewers_for_post( $translation_id );
+			if ( self::reviewer_matches_any_provenance( $reviewer, $prior_reviewers ) ) {
+				return array(
+					'success'  => false,
+					'code'     => 'quality_reviewer_linguistic_reviewer_match',
+					'message'  => 'Quality review must be performed by an independent actor that did not write the current linguistic review evidence.',
+					'operator_warning' => self::self_review_override_warning(),
+					'stage'    => sanitize_key( $stage ),
+					'writer'   => $writer,
+					'reviewer' => $reviewer,
+					'prior_reviewers' => $prior_reviewers,
+				);
+			}
+		}
+
+		if ( 'final_review' === sanitize_key( $stage ) ) {
+			$prior_reviewers = self::final_review_prior_stage_reviewers_for_post( $translation_id );
+			if ( self::reviewer_matches_any_provenance( $reviewer, $prior_reviewers ) ) {
+				return array(
+					'success'  => false,
+					'code'     => 'final_reviewer_prior_stage_reviewer_match',
+					'message'  => 'Final review must be performed by an independent actor that did not write the current linguistic or quality review evidence.',
+					'operator_warning' => self::self_review_override_warning(),
+					'stage'    => sanitize_key( $stage ),
+					'writer'   => $writer,
+					'reviewer' => $reviewer,
+					'prior_reviewers' => $prior_reviewers,
+				);
+			}
+		}
+
 		return array(
 			'success'  => true,
 			'stage'    => sanitize_key( $stage ),
@@ -17632,6 +17681,48 @@ final class Devenia_AI_Translations {
 		return true;
 	}
 
+	private static function final_review_prior_stage_reviewers_for_post( int $post_id ): array {
+		$reviewers = array();
+		foreach ( array( self::linguistic_review_evidence_for_post( $post_id ), self::quality_review_evidence_for_post( $post_id ) ) as $evidence ) {
+			if ( is_array( $evidence ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) ) {
+				$reviewers[] = $evidence['reviewer'];
+			}
+		}
+
+		return $reviewers;
+	}
+
+	private static function quality_review_prior_stage_reviewers_for_post( int $post_id ): array {
+		$evidence = self::linguistic_review_evidence_for_post( $post_id );
+		if ( is_array( $evidence ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) ) {
+			return array( $evidence['reviewer'] );
+		}
+
+		return array();
+	}
+
+	private static function review_evidence_has_independent_quality_reviewer( int $post_id, array $quality_evidence ): bool {
+		if ( empty( $quality_evidence['reviewer'] ) || ! is_array( $quality_evidence['reviewer'] ) ) {
+			return false;
+		}
+
+		return ! self::reviewer_matches_any_provenance(
+			$quality_evidence['reviewer'],
+			self::quality_review_prior_stage_reviewers_for_post( $post_id )
+		);
+	}
+
+	private static function review_evidence_has_independent_final_reviewer( int $post_id, array $final_evidence ): bool {
+		if ( empty( $final_evidence['reviewer'] ) || ! is_array( $final_evidence['reviewer'] ) ) {
+			return false;
+		}
+
+		return ! self::reviewer_matches_any_provenance(
+			$final_evidence['reviewer'],
+			self::final_review_prior_stage_reviewers_for_post( $post_id )
+		);
+	}
+
 	/**
 	 * Current review readiness for one translation.
 	 *
@@ -17762,6 +17853,9 @@ final class Devenia_AI_Translations {
 			if ( self::is_translation_post( $post_id ) && ! self::review_evidence_has_separate_reviewer( $evidence ) ) {
 				$stale_reasons[] = 'missing_separate_reviewer';
 			}
+			if ( self::is_translation_post( $post_id ) && ! self::review_evidence_has_independent_quality_reviewer( $post_id, $evidence ) ) {
+				$stale_reasons[] = 'quality_reviewer_already_handled_linguistic_review';
+			}
 			if ( array_key_exists( 'fitness_passed', $evidence ) && empty( $evidence['fitness_passed'] ) ) {
 				$stale_reasons[] = 'fitness_failed_at_review';
 			}
@@ -17827,6 +17921,9 @@ final class Devenia_AI_Translations {
 			}
 			if ( ! self::review_evidence_has_separate_reviewer( $evidence ) ) {
 				$stale_reasons[] = 'missing_separate_reviewer';
+			}
+			if ( ! self::review_evidence_has_independent_final_reviewer( $post_id, $evidence ) ) {
+				$stale_reasons[] = 'final_reviewer_already_handled_prior_review';
 			}
 			if ( ! empty( $evidence['translation_hash'] ) && $evidence['translation_hash'] !== $current_translation_hash ) {
 				$stale_reasons[] = 'translation_changed_since_review';
@@ -18140,6 +18237,9 @@ final class Devenia_AI_Translations {
 			return 'quality_review_stale';
 		}
 		if ( self::is_translation_post( $post_id ) && ! self::review_evidence_has_separate_reviewer( $evidence ) ) {
+			return 'quality_review_stale';
+		}
+		if ( self::is_translation_post( $post_id ) && ! self::review_evidence_has_independent_quality_reviewer( $post_id, $evidence ) ) {
 			return 'quality_review_stale';
 		}
 		if ( array_key_exists( 'fitness_passed', $evidence ) && empty( $evidence['fitness_passed'] ) ) {
