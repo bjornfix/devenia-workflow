@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.395
+ * Version: 0.1.396
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.395';
+	const VERSION = '0.1.396';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -13120,6 +13120,30 @@ final class Devenia_AI_Translations {
 		$source_filter = ! empty( $input['source_id'] ) ? absint( $input['source_id'] ) : 0;
 		$lang_filter   = ! empty( $input['language'] ) ? sanitize_key( (string) $input['language'] ) : '';
 		$status_filter = ! empty( $input['status'] ) ? self::sanitize_translation_status( (string) $input['status'] ) : '';
+		if ( $source_filter ) {
+			$rows = array();
+			foreach ( self::translation_rows_for_source( $source_filter ) as $row ) {
+				$language = (string) ( $row['language'] ?? '' );
+				$status   = self::sanitize_translation_status( (string) ( $row['translation_status'] ?? '' ) );
+				if ( '' !== $lang_filter && $language !== $lang_filter ) {
+					continue;
+				}
+				if ( '' !== $status_filter && $status !== $status_filter ) {
+					continue;
+				}
+				$rows[] = $row;
+				if ( count( $rows ) >= $limit ) {
+					break;
+				}
+			}
+
+			return array(
+				'success'      => true,
+				'translations' => $rows,
+				'total'        => count( $rows ),
+			);
+		}
+
 		$query         = self::translation_page_query(
 			array(
 					'post_status'    => self::translation_workflow_post_statuses( false ),
