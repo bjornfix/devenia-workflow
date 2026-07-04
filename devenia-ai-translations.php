@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.378
+ * Version: 0.1.379
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.378';
+	const VERSION = '0.1.379';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -15089,6 +15089,25 @@ final class Devenia_AI_Translations {
 			)
 		);
 		sort( $actors_seen );
+		$fresh_actor_sessions = array_values(
+			array_filter(
+				$sessions,
+				static function ( array $session ): bool {
+					return ! empty( $session['actor'] ) && ! empty( $session['fresh'] );
+				}
+			)
+		);
+		$fresh_actors_seen = array_values(
+			array_unique(
+				array_map(
+					static function ( array $session ): string {
+						return sanitize_key( (string) ( $session['actor'] ?? '' ) );
+					},
+					$fresh_actor_sessions
+				)
+			)
+		);
+		sort( $fresh_actors_seen );
 
 		$actor_collisions = array();
 		foreach ( $actor_threads as $actor => $threads ) {
@@ -15116,8 +15135,12 @@ final class Devenia_AI_Translations {
 
 		$missing_actors = array_values( array_diff( $expected_actors, $actors_seen ) );
 		sort( $missing_actors );
+		$missing_fresh_actors = array_values( array_diff( $expected_actors, $fresh_actors_seen ) );
+		sort( $missing_fresh_actors );
 		$unexpected_actors = $expected_actors ? array_values( array_diff( $actors_seen, $expected_actors ) ) : array();
 		sort( $unexpected_actors );
+		$unexpected_fresh_actors = $expected_actors ? array_values( array_diff( $fresh_actors_seen, $expected_actors ) ) : array();
+		sort( $unexpected_fresh_actors );
 		$stale_sessions = array_values(
 			array_filter(
 				$sessions,
@@ -15127,10 +15150,12 @@ final class Devenia_AI_Translations {
 			)
 		);
 
-		$session_count_ok = ! $expected_actors || count( $sessions ) >= count( $expected_actors );
+		$session_count_ok = ! $expected_actors || count( $fresh_actor_sessions ) >= count( $expected_actors );
 		$actor_set_ok = ! $expected_actors || ( empty( $missing_actors ) && empty( $unexpected_actors ) );
 		$collisions_ok = empty( $actor_collisions ) && empty( $thread_collisions );
-		$freshness_ok = empty( $stale_sessions );
+		$freshness_ok = ! $expected_actors
+			? empty( $stale_sessions )
+			: ( empty( $missing_fresh_actors ) && empty( $unexpected_fresh_actors ) );
 		$healthy = $session_count_ok && $actor_set_ok && $collisions_ok && $freshness_ok;
 
 		return array(
@@ -15139,9 +15164,13 @@ final class Devenia_AI_Translations {
 			'max_age_seconds' => $max_age_seconds,
 			'expected_actors' => $expected_actors,
 			'actors_seen' => $actors_seen,
+			'fresh_actors_seen' => $fresh_actors_seen,
 			'missing_actors' => $missing_actors,
+			'missing_fresh_actors' => $missing_fresh_actors,
 			'unexpected_actors' => $unexpected_actors,
+			'unexpected_fresh_actors' => $unexpected_fresh_actors,
 			'session_count' => count( $sessions ),
+			'fresh_actor_session_count' => count( $fresh_actor_sessions ),
 			'checks' => array(
 				'session_count_ok' => $session_count_ok,
 				'actor_set_ok' => $actor_set_ok,
