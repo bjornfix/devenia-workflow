@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.408
+ * Version: 0.1.409
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.408';
+	const VERSION = '0.1.409';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -80,6 +80,7 @@ final class Devenia_AI_Translations {
 	const META_WRITER_TOKEN_LABEL = '_devenia_translation_writer_token_label';
 	const META_WRITER_RECORDED_AT = '_devenia_translation_writer_recorded_at';
 	const META_VISIBLE_MEDIA_PROVENANCE = '_devenia_translation_visible_media_provenance';
+	const META_FEATURED_IMAGE_ALT = '_devenia_translation_featured_image_alt';
 	const META_COPY_FEEDBACK = '_devenia_translation_copy_feedback';
 	const META_QA_OPTIONS = '_devenia_translation_qa_options';
 	const META_AUTHORED_ORIGINAL_ID = '_devenia_translation_authored_original_id';
@@ -147,6 +148,7 @@ final class Devenia_AI_Translations {
 		add_filter( 'document_title_parts', array( __CLASS__, 'filter_author_archive_document_title_parts' ), 20 );
 		add_filter( 'pre_get_document_title', array( __CLASS__, 'filter_author_archive_document_title' ), 20 );
 		add_filter( 'the_content_more_link', array( __CLASS__, 'localize_read_more_output' ), 20 );
+		add_filter( 'wp_get_attachment_image_attributes', array( __CLASS__, 'filter_featured_image_alt_attributes' ), 20, 3 );
 		add_filter( 'post_link', array( __CLASS__, 'filter_translated_post_link' ), 20, 2 );
 		add_filter( 'term_link', array( __CLASS__, 'filter_translated_term_link' ), 20, 3 );
 		add_filter( 'previous_post_link', array( __CLASS__, 'filter_adjacent_post_link_for_translation' ), 20, 5 );
@@ -3117,6 +3119,82 @@ final class Devenia_AI_Translations {
 			'deleted'    => $delete,
 			'translated' => $delete ? null : $languages[ $language ][ $section ][ $source ],
 			'message'    => $delete ? 'Runtime text override removed.' : 'Runtime text override updated.',
+		);
+	}
+
+	/**
+	 * Store localized featured-image alt text on a translated post.
+	 *
+	 * Shared attachments can serve many languages. The translated post owns the
+	 * localized public/a11y text; the attachment keeps the source-language alt.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>
+	 */
+	private static function update_featured_image_alt( array $input ): array {
+		$translation_id = absint( $input['translation_id'] ?? 0 );
+		$source_id      = absint( $input['source_id'] ?? 0 );
+		$language       = sanitize_key( (string) ( $input['language'] ?? '' ) );
+		$delete         = ! empty( $input['delete'] );
+		$alt            = trim( wp_strip_all_tags( (string) ( $input['featured_image_alt'] ?? '' ) ) );
+
+		if ( ! $translation_id ) {
+			return self::error( 'Missing translation_id.' );
+		}
+
+		$post = get_post( $translation_id );
+		if ( ! $post || ! self::is_translatable_post_type( (string) $post->post_type ) || ! self::is_translation_post( $translation_id ) ) {
+			return self::error( 'translation_id must identify an existing translated post or page.' );
+		}
+
+		$actual_source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
+		$actual_language  = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
+		if ( $source_id && $source_id !== $actual_source_id ) {
+			return self::error( 'translation_id does not belong to the requested source_id.' );
+		}
+		if ( '' !== $language && $language !== $actual_language ) {
+			return self::error( 'translation_id does not use the requested language.' );
+		}
+		if ( ! $delete && '' === $alt ) {
+			return self::error( 'featured_image_alt cannot be empty unless delete is true.' );
+		}
+
+		$thumbnail_id = self::featured_image_id_for_post( $translation_id );
+		if ( ! $thumbnail_id ) {
+			return self::error( 'Translated post has no featured image.' );
+		}
+
+		$step_token_gate = self::translation_step_token_gate( 'draft_write', $input );
+		if ( empty( $step_token_gate['success'] ) ) {
+			return $step_token_gate;
+		}
+
+		$before = self::localized_featured_image_alt_for_post( $translation_id, $thumbnail_id );
+		$stored_before = trim( (string) get_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT, true ) );
+
+		if ( $delete ) {
+			delete_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT );
+		} else {
+			update_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT, $alt );
+		}
+
+		$after = self::localized_featured_image_alt_for_post( $translation_id, $thumbnail_id );
+		$changed = $delete ? ( '' !== $stored_before ) : ( $stored_before !== $alt );
+		if ( $changed ) {
+			self::invalidate_translation_reviews_after_visible_metadata_change( $translation_id, $delete ? 'featured_image_alt_delete' : 'featured_image_alt_update' );
+			self::record_translation_visible_media_provenance( $translation_id, $step_token_gate, $delete ? 'featured_image_alt_delete' : 'featured_image_alt_update' );
+		}
+
+		return array(
+			'success'           => true,
+			'translation_id'    => $translation_id,
+			'source_id'         => $actual_source_id,
+			'language'          => $actual_language,
+			'featured_image_id' => $thumbnail_id,
+			'before_alt'        => $before,
+			'after_alt'         => $after,
+			'changed'           => $changed,
+			'message'           => $delete ? 'Localized featured-image alt override removed.' : 'Localized featured-image alt override updated.',
 		);
 	}
 
@@ -7723,6 +7801,8 @@ final class Devenia_AI_Translations {
 			return self::warm_translation_cache( $input );
 		case 'update_runtime_text':
 			return self::update_runtime_language_text( $input );
+		case 'update_featured_image_alt':
+			return self::update_featured_image_alt( $input );
 		case 'get_quality_profile':
 			return self::get_runtime_quality_profile( $input );
 		case 'update_quality_profile':
@@ -7993,6 +8073,16 @@ final class Devenia_AI_Translations {
 					'output_schema'    => self::generic_output_schema(),
 					'execute_callback' => function ( $input ) {
 						return self::run_ability_operation( 'update_runtime_text', $input );
+					},
+					'meta'             => self::ability_meta( false, false, true ),
+				),
+				'ai-translations/update-featured-image-alt' => array(
+					'label'            => 'Update Localized Featured Image Alt',
+					'description'      => 'Stores localized featured-image alt text on one translated post without changing the shared attachment alt for other languages.',
+					'input_schema'     => self::featured_image_alt_input_schema(),
+					'output_schema'    => self::generic_output_schema(),
+					'execute_callback' => function ( $input ) {
+						return self::run_ability_operation( 'update_featured_image_alt', $input );
 					},
 					'meta'             => self::ability_meta( false, false, true ),
 				),
@@ -8990,6 +9080,54 @@ final class Devenia_AI_Translations {
 			),
 		),
 		'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for localized featured-image alt updates.
+	 */
+	private static function featured_image_alt_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'translation_id', 'featured_image_alt', 'codex_thread_id' ),
+			'properties'           => array(
+				'translation_id'     => array(
+					'type'        => 'integer',
+					'minimum'     => 1,
+					'description' => 'Translated post/page ID whose featured-image alt text should be localized.',
+				),
+				'source_id'          => array(
+					'type'        => 'integer',
+					'minimum'     => 1,
+					'description' => 'Optional expected source ID. When provided, the translated post must belong to this source.',
+				),
+				'language'           => array(
+					'type'        => 'string',
+					'description' => 'Optional expected translation language. When provided, the translated post must use this language.',
+				),
+				'featured_image_alt' => array(
+					'type'        => 'string',
+					'description' => 'Localized alt text for the translated post featured image. Keep it factual and image-specific.',
+				),
+				'delete'             => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Remove the localized override and fall back to attachment alt/title.',
+				),
+				'codex_thread_id'    => array(
+					'type'        => 'string',
+					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value.',
+				),
+				'writer_process_id'  => array(
+					'type'        => 'string',
+					'description' => 'Optional stable identifier for the process/session updating the alt text. Defaults to codex_thread_id.',
+				),
+				'writer_actor'       => array(
+					'type'        => 'string',
+					'description' => 'Optional human/operator label for the writer process.',
+				),
+			),
+			'additionalProperties' => false,
 		);
 	}
 
@@ -23218,6 +23356,34 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
+		$language       = self::translated_posts_page_loop_language();
+		$previous_label = self::presentation_pagination_label( $language, 'previous', __( 'Previous', 'devenia-ai-translations' ) );
+		$next_label     = self::presentation_pagination_label( $language, 'next', __( 'Next', 'devenia-ai-translations' ) );
+		$older_label    = self::presentation_label_from_sources(
+			$language,
+			array(
+				array( 'blog_archive_text', 'older_posts_label' ),
+				array( 'blog_archive_text', 'older_posts' ),
+				array( 'widget_text', 'Older posts' ),
+			),
+			__( 'Older posts', 'devenia-ai-translations' )
+		);
+		$page_label     = self::presentation_label_from_sources(
+			$language,
+			array(
+				array( 'blog_archive_text', 'page_label' ),
+				array( 'widget_text', 'Page' ),
+			),
+			__( 'Page', 'devenia-ai-translations' )
+		);
+		$archive_label  = self::presentation_label_from_sources(
+			$language,
+			array(
+				array( 'blog_archive_text', 'archive_page_label' ),
+				array( 'widget_text', 'Archive Page' ),
+			),
+			__( 'Archive Page', 'devenia-ai-translations' )
+		);
 		$older_url     = self::translated_posts_page_url( $base_url, min( $query->max_num_pages, $current + 1 ) );
 		$page_one_url  = self::translated_posts_page_url( $base_url, 1 );
 		$page_one_dupe = add_query_arg( 'devenia_blog_page', 1, $base_url );
@@ -23227,21 +23393,21 @@ final class Devenia_AI_Translations {
 				'format'    => '',
 				'current'   => $current,
 				'total'     => (int) $query->max_num_pages,
-				'prev_text' => __( 'Previous', 'devenia-ai-translations' ),
-				'next_text' => __( 'Next', 'devenia-ai-translations' ) . ' <span aria-hidden="true">&rarr;</span>',
+				'prev_text' => $previous_label,
+				'next_text' => $next_label . ' <span aria-hidden="true">&rarr;</span>',
 				'type'      => 'plain',
 				'mid_size'  => 1,
 				'end_size'  => 1,
-				'before_page_number' => '<span class="screen-reader-text">' . esc_html__( 'Page', 'devenia-ai-translations' ) . '</span>',
+				'before_page_number' => '<span class="screen-reader-text">' . esc_html( $page_label ) . '</span>',
 			)
 		);
 		if ( $links && $page_one_url !== $page_one_dupe ) {
 			$links = str_replace( esc_url( $page_one_dupe ), esc_url( $page_one_url ), $links );
 		}
 
-		echo '<nav id="nav-below" class="paging-navigation" aria-label="' . esc_attr__( 'Archive Page', 'devenia-ai-translations' ) . '">';
+		echo '<nav id="nav-below" class="paging-navigation" aria-label="' . esc_attr( $archive_label ) . '">';
 		if ( $current < (int) $query->max_num_pages ) {
-			echo '<div class="nav-previous"><span class="prev" title="' . esc_attr__( 'Previous', 'devenia-ai-translations' ) . '"><a href="' . esc_url( $older_url ) . '">' . esc_html__( 'Older posts', 'devenia-ai-translations' ) . '</a></span></div>';
+			echo '<div class="nav-previous"><span class="prev" title="' . esc_attr( $previous_label ) . '"><a href="' . esc_url( $older_url ) . '">' . esc_html( $older_label ) . '</a></span></div>';
 		}
 		if ( $links ) {
 			echo '<div class="nav-links">' . wp_kses_post( $links ) . '</div>';
@@ -23537,6 +23703,7 @@ final class Devenia_AI_Translations {
 		$quality_review_state = self::quality_review_readiness_for_post( $post, sanitize_key( (string) get_post_meta( $post->ID, self::META_LANGUAGE, true ) ) );
 		$final_review_state = self::final_review_readiness_for_post( $post, sanitize_key( (string) get_post_meta( $post->ID, self::META_LANGUAGE, true ) ) );
 		$generated_source_id = absint( get_post_meta( $post->ID, self::META_GENERATED_SOURCE_ID, true ) );
+		$featured_image_id = self::featured_image_id_for_post( $post );
 
 		return array(
 			'id'                 => (int) $post->ID,
@@ -23548,7 +23715,8 @@ final class Devenia_AI_Translations {
 			'status'             => $post->post_status,
 			'translation_status' => (string) get_post_meta( $post->ID, self::META_STATUS, true ),
 			'url'                => get_permalink( $post ),
-			'featured_image_id'  => self::featured_image_id_for_post( $post ),
+			'featured_image_id'  => $featured_image_id,
+			'featured_image_alt' => self::localized_featured_image_alt_for_post( (int) $post->ID, $featured_image_id ),
 			'localized_path'     => (string) get_post_meta( $post->ID, self::META_LOCALIZED_PATH, true ),
 			'source_hash'        => $hash,
 			'current_source_hash'=> $current,
@@ -28268,8 +28436,8 @@ final class Devenia_AI_Translations {
 			'navigation'   => array(
 				'language_links' => array(),
 				'pagination'     => array(
-					'previous_label' => self::presentation_label( $language, 'previous_label', __( 'Previous', 'devenia-ai-translations' ) ),
-					'next_label'     => self::presentation_label( $language, 'next_label', __( 'Next', 'devenia-ai-translations' ) ),
+					'previous_label' => self::presentation_pagination_label( $language, 'previous', __( 'Previous', 'devenia-ai-translations' ) ),
+					'next_label'     => self::presentation_pagination_label( $language, 'next', __( 'Next', 'devenia-ai-translations' ) ),
 				),
 			),
 			'localized_text' => self::localized_public_text_payload( $language ),
@@ -28340,6 +28508,27 @@ final class Devenia_AI_Translations {
 	 */
 	private static function presentation_label( string $language, string $key, string $fallback ): string {
 		return self::presentation_label_from_sources( $language, array( array( 'blog_archive_text', $key ) ), $fallback );
+	}
+
+	/**
+	 * Localized pagination labels used by review surfaces and archive templates.
+	 */
+	private static function presentation_pagination_label( string $language, string $direction, string $fallback ): string {
+		$direction = sanitize_key( $direction );
+		$legacy_key = 'next' === $direction ? 'next_label' : 'previous_label';
+		$source_key = 'next' === $direction ? 'Next' : 'Previous';
+
+		return self::presentation_label_from_sources(
+			$language,
+			array(
+				array( 'blog_archive_text', $legacy_key ),
+				array( 'blog_archive_text', 'pagination.' . $legacy_key ),
+				array( 'blog_archive_text', $direction ),
+				array( 'widget_text', $legacy_key ),
+				array( 'widget_text', $source_key ),
+			),
+			$fallback
+		);
 	}
 
 	/**
@@ -28533,10 +28722,7 @@ final class Devenia_AI_Translations {
 		$post_id      = $post instanceof WP_Post ? (int) $post->ID : absint( $post );
 		$thumbnail_id = self::featured_image_id_for_post( $post_id );
 		$url          = $thumbnail_id ? (string) wp_get_attachment_image_url( $thumbnail_id, 'full' ) : '';
-		$alt          = $thumbnail_id ? trim( (string) get_post_meta( $thumbnail_id, '_wp_attachment_image_alt', true ) ) : '';
-		if ( '' === $alt && $post_id ) {
-			$alt = get_the_title( $post_id );
-		}
+		$alt          = self::localized_featured_image_alt_for_post( $post_id, $thumbnail_id );
 
 		return array(
 			'id'   => $thumbnail_id,
@@ -28544,6 +28730,58 @@ final class Devenia_AI_Translations {
 			'alt'  => $alt,
 			'html' => $thumbnail_id ? wp_get_attachment_image( $thumbnail_id, 'full', false, array( 'alt' => $alt ) ) : '',
 		);
+	}
+
+	/**
+	 * Featured-image alt text for a source or translated post.
+	 */
+	private static function localized_featured_image_alt_for_post( int $post_id, int $thumbnail_id = 0 ): string {
+		$post_id      = absint( $post_id );
+		$thumbnail_id = $thumbnail_id ? absint( $thumbnail_id ) : self::featured_image_id_for_post( $post_id );
+		if ( ! $thumbnail_id ) {
+			return '';
+		}
+
+		if ( $post_id && self::is_translation_post( $post_id ) ) {
+			$localized_alt = trim( wp_strip_all_tags( (string) get_post_meta( $post_id, self::META_FEATURED_IMAGE_ALT, true ) ) );
+			if ( '' !== $localized_alt ) {
+				return $localized_alt;
+			}
+		}
+
+		$attachment_alt = trim( (string) get_post_meta( $thumbnail_id, '_wp_attachment_image_alt', true ) );
+		if ( '' !== $attachment_alt ) {
+			return $attachment_alt;
+		}
+
+		return $post_id ? get_the_title( $post_id ) : '';
+	}
+
+	/**
+	 * Use post-localized featured-image alt text when WordPress renders thumbnails.
+	 *
+	 * @param array<string,mixed> $attr Attachment image attributes.
+	 * @param WP_Post            $attachment Attachment post.
+	 * @param string|int[]       $size Requested image size.
+	 * @return array<string,mixed>
+	 */
+	public static function filter_featured_image_alt_attributes( array $attr, WP_Post $attachment, $size ): array {
+		$post_id = absint( get_the_ID() );
+		if ( ! $post_id || ! self::is_translation_post( $post_id ) ) {
+			return $attr;
+		}
+
+		$thumbnail_id = self::featured_image_id_for_post( $post_id );
+		if ( ! $thumbnail_id || $thumbnail_id !== (int) $attachment->ID ) {
+			return $attr;
+		}
+
+		$alt = self::localized_featured_image_alt_for_post( $post_id, $thumbnail_id );
+		if ( '' !== $alt ) {
+			$attr['alt'] = $alt;
+		}
+
+		return $attr;
 	}
 
 	/**
