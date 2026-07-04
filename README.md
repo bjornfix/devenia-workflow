@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.400
+**Stable tag:** 0.1.401
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -197,7 +197,7 @@ Before changing the plugin:
 
 1. keep fixes in the module that owns the behavior
 2. do not edit `languages/*.json` for current live page text
-3. run `php -l devenia-ai-translations.php`
+3. run `node tools/check-php-syntax.mjs`
 4. run `node tools/check-language-policy.mjs`
 5. run `node tools/check-public-release.mjs`
 6. run the translation fitness and lifecycle regression abilities after deploy
@@ -205,6 +205,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.401
+
+- Moves featured-image repair and canonical thumbnail reads into a dedicated
+  module seam, and adds an all-PHP-file syntax preflight for faster local
+  feedback before the full release gate.
 
 ### 0.1.400
 
