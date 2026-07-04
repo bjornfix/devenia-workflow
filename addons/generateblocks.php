@@ -20,6 +20,7 @@ final class AI_Translation_Workflow_GenerateBlocks_Addon {
 		add_filter( 'ai_translation_workflow_semantic_button_block_names', array( __CLASS__, 'add_button_blocks' ) );
 		add_filter( 'ai_translation_workflow_semantic_image_block_names', array( __CLASS__, 'add_image_blocks' ) );
 		add_filter( 'ai_translation_workflow_is_heading_block', array( __CLASS__, 'is_heading_block' ), 10, 3 );
+		add_filter( 'ai_translation_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 		add_filter( 'ai_translation_workflow_gutenberg_guardrails', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 	}
 
@@ -152,6 +153,7 @@ final class AI_Translation_Workflow_GenerateBlocks_Addon {
 				$issues[] = self::qa_item( 'dangling_generateblocks_grid_ref', 'A GenerateBlocks grid child references a missing gridId.', $ref );
 			}
 		}
+		self::collect_dynamic_container_saved_wrapper_issues( $blocks, $issues );
 
 		$summary = isset( $result['summary'] ) && is_array( $result['summary'] ) ? $result['summary'] : array();
 		$summary['generateblocks_grid_count']       = count( $grid_ids );
@@ -162,6 +164,37 @@ final class AI_Translation_Workflow_GenerateBlocks_Addon {
 		$result['summary']  = $summary;
 
 		return $result;
+	}
+
+	/**
+	 * Detect stored frontend wrappers for dynamic GenerateBlocks containers.
+	 *
+	 * @param array<int,array<string,mixed>> $blocks Parsed blocks.
+	 * @param array<int,array<string,mixed>> $issues Hard QA failures.
+	 */
+	private static function collect_dynamic_container_saved_wrapper_issues( array $blocks, array &$issues ): void {
+		foreach ( $blocks as $block ) {
+			$name = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
+			$html = isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '';
+
+			if (
+				'generateblocks/container' === $name
+				&& false !== strpos( $html, 'gb-container' )
+				&& preg_match( '/^\s*<div\b[^>]*class="[^"]*\bgb-container\b/i', $html )
+			) {
+				$issues[] = self::qa_item(
+					'generateblocks_dynamic_container_saved_wrapper',
+					'GenerateBlocks dynamic container stores frontend wrapper markup. This can render nested containers and break the public layout even when the block tree looks structurally correct.',
+					array(
+						'block' => 'generateblocks/container',
+					)
+				);
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				self::collect_dynamic_container_saved_wrapper_issues( $block['innerBlocks'], $issues );
+			}
+		}
 	}
 
 	/**

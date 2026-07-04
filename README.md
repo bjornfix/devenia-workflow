@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.387
+**Stable tag:** 0.1.388
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.388
+
+- Blocks GenerateBlocks dynamic containers that store frontend wrapper markup,
+  preventing nested-container layouts from passing QA as visually valid
+  articles.
 
 ### 0.1.387
 
