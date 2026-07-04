@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.380
+**Stable tag:** 0.1.382
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,16 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.382
+
+- Prevents a heartbeat session from being reassigned the same unchanged item
+  after it already returned that item.
+
+### 0.1.381
+
+- Prevents heartbeat assignment from returning a stale review obligation to the
+  same actor that already handled that review stage.
 
 ### 0.1.380
 

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.380
+ * Version: 0.1.382
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.380';
+	const VERSION = '0.1.382';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -14818,18 +14818,22 @@ final class Devenia_AI_Translations {
 				continue;
 			}
 
-			$eligibility = self::heartbeat_translation_review_eligibility( $translation_id, $identity );
-			if ( empty( $eligibility['success'] ) ) {
-				$skipped[] = self::heartbeat_skip_summary( $item, sanitize_key( (string) ( $eligibility['code'] ?? 'not_eligible' ) ) );
-				continue;
-			}
-
 			$obligation = self::heartbeat_first_actionable_obligation( $item['obligations'] ?? array() );
 			if ( '' === $obligation ) {
 				continue;
 			}
 
+			$eligibility = self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
+			if ( empty( $eligibility['success'] ) ) {
+				$skipped[] = self::heartbeat_skip_summary( $item, sanitize_key( (string) ( $eligibility['code'] ?? 'not_eligible' ) ) );
+				continue;
+			}
+
 			$action = self::heartbeat_action_for_obligation( $obligation );
+			if ( self::heartbeat_repeats_previous_item_without_change( $input, $identity, $translation_id, $source_id, $language, $action['action'] ) ) {
+				$skipped[] = self::heartbeat_skip_summary( $item, 'repeated_same_item_for_actor' );
+				continue;
+			}
 			$selected = array(
 				'action' => $action['action'],
 				'workflow_step' => $action['workflow_step'],
@@ -14944,7 +14948,7 @@ final class Devenia_AI_Translations {
 		);
 	}
 
-	private static function heartbeat_translation_review_eligibility( int $translation_id, array $identity ): array {
+	private static function heartbeat_translation_review_eligibility( int $translation_id, array $identity, string $obligation = '' ): array {
 		$reviewer = self::reviewer_provenance_from_verified_identity( $identity, $translation_id );
 		if ( '' === $reviewer['control_scope_id'] ) {
 			return array( 'success' => false, 'code' => 'reviewer_control_scope_required' );
@@ -14974,7 +14978,98 @@ final class Devenia_AI_Translations {
 			return array( 'success' => false, 'code' => 'writer_reviewer_actor_id_match' );
 		}
 
+		$prior_stage_reviewer = self::heartbeat_prior_stage_reviewer_for_obligation( $translation_id, $obligation );
+		if ( $prior_stage_reviewer && self::reviewer_identity_matches_provenance( $reviewer, $prior_stage_reviewer ) ) {
+			return array(
+				'success' => false,
+				'code' => 'current_actor_already_handled_' . sanitize_key( $obligation ),
+			);
+		}
+
 		return array( 'success' => true );
+	}
+
+	private static function heartbeat_prior_stage_reviewer_for_obligation( int $translation_id, string $obligation ): array {
+		$evidence = array();
+		if ( 'linguistic_review' === $obligation ) {
+			$evidence = self::linguistic_review_evidence_for_post( $translation_id );
+		} elseif ( 'quality_review' === $obligation ) {
+			$evidence = self::quality_review_evidence_for_post( $translation_id );
+		} elseif ( 'final_review' === $obligation || 'publish' === $obligation ) {
+			$evidence = self::final_review_evidence_for_post( $translation_id );
+		}
+		if ( ! is_array( $evidence ) || empty( $evidence['reviewer'] ) || ! is_array( $evidence['reviewer'] ) ) {
+			return array();
+		}
+		return $evidence['reviewer'];
+	}
+
+	private static function heartbeat_repeats_previous_item_without_change( array $input, array $identity, int $translation_id, int $source_id, string $language, string $action ): bool {
+		$codex_thread_id = self::normalize_control_scope_id( (string) ( $input['codex_thread_id'] ?? $identity['codex_thread_id'] ?? $identity['control_scope_id'] ?? '' ) );
+		if ( '' === $codex_thread_id ) {
+			return false;
+		}
+
+		$heartbeats = get_option( self::OPTION_HEARTBEATS, array() );
+		if ( ! is_array( $heartbeats ) || empty( $heartbeats[ $codex_thread_id ] ) || ! is_array( $heartbeats[ $codex_thread_id ] ) ) {
+			return false;
+		}
+		$previous = $heartbeats[ $codex_thread_id ];
+		if ( absint( $previous['last_source_id'] ?? 0 ) !== $source_id ) {
+			return false;
+		}
+		if ( absint( $previous['last_translation_id'] ?? 0 ) !== $translation_id ) {
+			return false;
+		}
+		if ( sanitize_key( (string) ( $previous['last_language'] ?? '' ) ) !== $language ) {
+			return false;
+		}
+		if ( sanitize_key( (string) ( $previous['last_action'] ?? '' ) ) !== sanitize_key( $action ) ) {
+			return false;
+		}
+
+		$last_seen_at = sanitize_text_field( (string) ( $previous['last_seen_at'] ?? '' ) );
+		$last_seen_ts = '' !== $last_seen_at ? strtotime( $last_seen_at ) : false;
+		$post = get_post( $translation_id );
+		if ( ! $post || false === $last_seen_ts ) {
+			return true;
+		}
+		$modified_ts = strtotime( (string) $post->post_modified_gmt . ' UTC' );
+		if ( false === $modified_ts ) {
+			return true;
+		}
+
+		return $modified_ts <= $last_seen_ts;
+	}
+
+	private static function reviewer_identity_matches_provenance( array $reviewer, array $provenance ): bool {
+		$reviewer_control_scope = self::normalize_control_scope_id( (string) ( $reviewer['control_scope_id'] ?? '' ) );
+		$provenance_control_scope = self::normalize_control_scope_id( (string) ( $provenance['control_scope_id'] ?? '' ) );
+		if ( '' !== $reviewer_control_scope && '' !== $provenance_control_scope && $reviewer_control_scope === $provenance_control_scope ) {
+			return true;
+		}
+
+		$reviewer_process = self::normalize_process_id( (string) ( $reviewer['process_id'] ?? '' ) );
+		$provenance_process = self::normalize_process_id( (string) ( $provenance['process_id'] ?? '' ) );
+		if ( '' !== $reviewer_process && '' !== $provenance_process && $reviewer_process === $provenance_process ) {
+			return true;
+		}
+
+		$reviewer_actor_id = sanitize_key( (string) ( $reviewer['actor_id'] ?? '' ) );
+		$provenance_actor_id = sanitize_key( (string) ( $provenance['actor_id'] ?? '' ) );
+		if ( '' !== $reviewer_actor_id && '' !== $provenance_actor_id && $reviewer_actor_id === $provenance_actor_id ) {
+			return true;
+		}
+
+		$reviewer_token_label = sanitize_key( (string) ( $reviewer['token_label'] ?? '' ) );
+		$provenance_token_label = sanitize_key( (string) ( $provenance['token_label'] ?? '' ) );
+		if ( '' !== $reviewer_token_label && '' !== $provenance_token_label && $reviewer_token_label === $provenance_token_label ) {
+			return true;
+		}
+
+		$reviewer_actor = sanitize_text_field( (string) ( $reviewer['actor'] ?? '' ) );
+		$provenance_actor = sanitize_text_field( (string) ( $provenance['actor'] ?? '' ) );
+		return '' !== $reviewer_actor && '' !== $provenance_actor && $reviewer_actor === $provenance_actor;
 	}
 
 	private static function heartbeat_skip_summary( array $item, string $reason ): array {
