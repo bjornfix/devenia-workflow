@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.399
+ * Version: 0.1.400
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.399';
+	const VERSION = '0.1.400';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -16940,18 +16940,31 @@ final class Devenia_AI_Translations {
 			}
 		}
 
-		$query = self::translation_content_query(
-			array(
+		$posts = array();
+		if ( $source_ids ) {
+			foreach ( $source_ids as $source_id ) {
+				foreach ( self::translation_posts_for_source( (int) $source_id, self::translation_workflow_post_statuses( false ) ) as $post ) {
+					$posts[] = $post;
+				}
+			}
+		} else {
+			$query = self::translation_content_query(
+				array(
 					'post_status'    => self::translation_workflow_post_statuses( false ),
-				'posts_per_page' => 1000,
-			)
-		);
+					'posts_per_page' => 1000,
+				)
+			);
+			$posts = $query->posts;
+		}
 
 		$checked = 0;
 		$changed = array();
 		$skipped = array();
 
-		foreach ( $query->posts as $post ) {
+		foreach ( $posts as $post ) {
+			if ( ! $post instanceof WP_Post ) {
+				continue;
+			}
 			$translation_id = (int) $post->ID;
 			$language       = (string) get_post_meta( $translation_id, self::META_LANGUAGE, true );
 			$source_id      = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
