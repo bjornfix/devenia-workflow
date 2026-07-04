@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.393
+ * Version: 0.1.394
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.393';
+	const VERSION = '0.1.394';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -12851,8 +12851,34 @@ final class Devenia_AI_Translations {
 		$snippet = function_exists( 'mb_substr' ) ? mb_substr( $text, 0, $max_length, 'UTF-8' ) : substr( $text, 0, $max_length );
 		$snippet = preg_replace( '/\s+\S*$/u', '', (string) $snippet );
 		$snippet = trim( (string) $snippet, " \t\n\r\0\x0B.,;:-" );
+		$snippet = self::remove_trailing_meta_connector( $snippet );
+		$snippet = trim( $snippet, " \t\n\r\0\x0B.,;:-" );
 
 		return '' !== $snippet ? $snippet : ( function_exists( 'mb_substr' ) ? mb_substr( $text, 0, $max_length, 'UTF-8' ) : substr( $text, 0, $max_length ) );
+	}
+
+	/**
+	 * Avoid ending generated meta snippets with small connector words.
+	 */
+	private static function remove_trailing_meta_connector( string $text ): string {
+		$text = trim( $text );
+		if ( '' === $text ) {
+			return '';
+		}
+
+		$connectors = array(
+			'a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'from', 'if', 'in', 'into', 'of', 'on', 'or', 'the', 'to', 'with',
+			'y', 'e', 'o', 'u', 'que', 'de', 'del', 'la', 'las', 'el', 'los', 'con', 'sin', 'para', 'por', 'en', 'un', 'una',
+			'og', 'eller', 'men', 'som', 'av', 'for', 'fra', 'i', 'med', 'til', 'å', 'et', 'en',
+			'und', 'oder', 'aber', 'dass', 'das', 'der', 'die', 'den', 'dem', 'des', 'mit', 'von', 'zu', 'im', 'in',
+			'et', 'ou', 'mais', 'que', 'de', 'du', 'des', 'la', 'le', 'les', 'avec', 'sans', 'pour', 'dans',
+		);
+		$pattern = '/\s+(' . implode( '|', array_map( 'preg_quote', array_unique( $connectors ) ) ) . ')$/iu';
+		while ( preg_match( $pattern, $text ) ) {
+			$text = trim( (string) preg_replace( $pattern, '', $text ) );
+		}
+
+		return $text;
 	}
 
 
@@ -29040,6 +29066,11 @@ final class Devenia_AI_Translations {
 	 * Singular meta description from excerpt or content.
 	 */
 	private static function singular_meta_description( WP_Post $post ): string {
+		$rank_math_description = trim( wp_strip_all_tags( (string) get_post_meta( (int) $post->ID, 'rank_math_description', true ) ) );
+		if ( '' !== $rank_math_description ) {
+			return self::trim_meta_description( $rank_math_description );
+		}
+
 		return self::trim_meta_description( self::presentation_excerpt( $post ) );
 	}
 
