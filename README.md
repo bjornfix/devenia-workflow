@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.385
+**Stable tag:** 0.1.386
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,17 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.386
+
+- Adds a server-generated heartbeat independence proof to selected work items so
+  workers can distinguish current safe assignments from stale local self-review
+  assumptions.
+
+### 0.1.385
+
+- Adds required localized comment-form runtime text to every packaged language
+  and fails language-file checks when that contract is incomplete.
 
 ### 0.1.384
 

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.385
+ * Version: 0.1.386
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.385';
+	const VERSION = '0.1.386';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -14903,6 +14903,7 @@ final class Devenia_AI_Translations {
 				'obligation' => $obligation,
 				'instructions' => $action['instructions'],
 				'claim_required_for_writes' => true,
+				'independence' => self::heartbeat_independence_summary( $eligibility, $obligation ),
 			);
 
 			$claim_result = null;
@@ -15051,7 +15052,52 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		return array( 'success' => true );
+		return array(
+			'success' => true,
+			'writer' => $writer,
+			'reviewer' => $reviewer,
+			'prior_stage_reviewers' => $prior_stage_reviewers,
+			'language' => $language,
+		);
+	}
+
+	private static function heartbeat_independence_summary( array $eligibility, string $obligation ): array {
+		$writer = isset( $eligibility['writer'] ) && is_array( $eligibility['writer'] ) ? $eligibility['writer'] : array();
+		$reviewer = isset( $eligibility['reviewer'] ) && is_array( $eligibility['reviewer'] ) ? $eligibility['reviewer'] : array();
+		$prior_reviewers = isset( $eligibility['prior_stage_reviewers'] ) && is_array( $eligibility['prior_stage_reviewers'] ) ? $eligibility['prior_stage_reviewers'] : array();
+		$prior_actor_ids = array();
+		foreach ( $prior_reviewers as $prior ) {
+			if ( ! is_array( $prior ) ) {
+				continue;
+			}
+			$actor_id = sanitize_key( (string) ( $prior['actor_id'] ?? '' ) );
+			if ( '' !== $actor_id ) {
+				$prior_actor_ids[] = $actor_id;
+			}
+		}
+
+		return array(
+			'server_checked' => true,
+			'workflow_rule' => 'nobody_may_review_their_own_work',
+			'obligation' => sanitize_key( $obligation ),
+			'message' => 'The server selected this item only after comparing current writer, reviewer, token label, process, control scope, runtime mutation, and prior-stage reviewer provenance. Use this current server proof instead of stale local memory when deciding whether the assignment is safe.',
+			'reviewer' => array(
+				'actor_id' => sanitize_key( (string) ( $reviewer['actor_id'] ?? '' ) ),
+				'token_label' => sanitize_key( (string) ( $reviewer['token_label'] ?? '' ) ),
+				'control_scope_id' => self::normalize_control_scope_id( (string) ( $reviewer['control_scope_id'] ?? '' ) ),
+				'process_id' => self::normalize_process_id( (string) ( $reviewer['process_id'] ?? '' ) ),
+				'session_origin' => self::normalize_session_origin( (string) ( $reviewer['session_origin'] ?? '' ) ),
+			),
+			'current_writer' => array(
+				'actor_id' => sanitize_key( (string) ( $writer['actor_id'] ?? '' ) ),
+				'token_label' => sanitize_key( (string) ( $writer['token_label'] ?? '' ) ),
+				'control_scope_id' => self::normalize_control_scope_id( (string) ( $writer['control_scope_id'] ?? '' ) ),
+				'process_id' => self::normalize_process_id( (string) ( $writer['process_id'] ?? '' ) ),
+				'recorded_at' => sanitize_text_field( (string) ( $writer['recorded_at'] ?? '' ) ),
+			),
+			'prior_stage_reviewer_actor_ids' => array_values( array_unique( $prior_actor_ids ) ),
+			'provenance_match' => false,
+		);
 	}
 
 	private static function heartbeat_prior_stage_reviewers_for_obligation( int $translation_id, string $obligation ): array {
