@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.392
+Stable tag: 0.1.393
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.393 =
+* Adds a workflow-controlled translation author repair ability so visible byline mismatches can be fixed without bypassing translation storage guardrails.
 
 = 0.1.392 =
 * Tightens runtime-text provenance checks so a later edit to one shared language runtime key cannot hide another actor's still-current runtime correction during review assignment or evidence freshness checks.

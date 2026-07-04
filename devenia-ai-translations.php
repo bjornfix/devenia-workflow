@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.392
+ * Version: 0.1.393
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.392';
+	const VERSION = '0.1.393';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -7764,6 +7764,8 @@ final class Devenia_AI_Translations {
 			return self::list_translation_reservations( $input );
 		case 'upsert_page':
 			return self::upsert_translation( $input );
+		case 'repair_translation_author':
+			return self::repair_translation_author( $input );
 		case 'reproject_source_design':
 			return self::reproject_source_design( $input );
 		case 'migrate_source_design_fragments':
@@ -8228,6 +8230,16 @@ final class Devenia_AI_Translations {
 					return self::run_ability_operation( 'upsert_page', $input );
 				},
 				'meta'             => self::ability_meta( false, false, false ),
+			),
+			'ai-translations/repair-translation-author' => array(
+				'label'            => 'Repair Translation Author',
+				'description'      => 'Aligns an existing translated page or post author with its source author through the translation workflow, invalidating review evidence when the visible byline changes.',
+				'input_schema'     => self::repair_translation_author_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'repair_translation_author', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
 			),
 			'ai-translations/reproject-source-design' => array(
 				'label'            => 'Reproject Source Design',
@@ -10371,6 +10383,61 @@ final class Devenia_AI_Translations {
 					'description' => 'Optional stable identifier for the process/session that authored this translation draft. Defaults to codex_thread_id; reviewer processes must be different.',
 				),
 				'writer_actor' => array(
+					'type'        => 'string',
+					'description' => 'Optional human/operator label for the writer process.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for author-only translation repairs.
+	 */
+	private static function repair_translation_author_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'translation_id', 'codex_thread_id' ),
+			'properties'           => array(
+				'translation_id' => array(
+					'type'        => 'integer',
+					'description' => 'Existing translated page or post whose visible WordPress author/byline should be repaired.',
+				),
+				'source_id'      => array(
+					'type'        => 'integer',
+					'description' => 'Optional expected source ID. When supplied it must match the translation metadata.',
+				),
+				'language'       => array(
+					'type'        => 'string',
+					'description' => 'Optional expected translation language. When supplied it must match the translation metadata.',
+				),
+				'author_id'      => array(
+					'type'        => 'integer',
+					'description' => 'Optional target author. Defaults to the source post author.',
+				),
+				'dry_run'        => array(
+					'type'        => 'boolean',
+					'default'     => true,
+					'description' => 'When true, report the intended author repair without writing.',
+				),
+				'apply'          => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Required true to write the author repair.',
+				),
+				'claim_token'    => array(
+					'type'        => 'string',
+					'description' => 'Optional reservation token from ai-translations/reserve-work.',
+				),
+				'codex_thread_id' => array(
+					'type'        => 'string',
+					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. Required when apply=true.',
+				),
+				'writer_process_id' => array(
+					'type'        => 'string',
+					'description' => 'Optional stable identifier for the process/session doing this metadata write. Defaults to codex_thread_id.',
+				),
+				'writer_actor'   => array(
 					'type'        => 'string',
 					'description' => 'Optional human/operator label for the writer process.',
 				),
@@ -12551,6 +12618,130 @@ final class Devenia_AI_Translations {
 			'seo_meta'           => $seo_meta,
 			'presentation'       => $lifecycle['presentation'] ?? array(),
 			'source_design'      => $source_design,
+		);
+	}
+
+	/**
+	 * Repair a translated post/page author while keeping workflow authority explicit.
+	 *
+	 * Author appears as visible byline on public pages, so changing it is treated
+	 * as a writer mutation and any current review evidence must be refreshed by a
+	 * different actor.
+	 */
+	private static function repair_translation_author( array $input ): array {
+		$translation_id = absint( $input['translation_id'] ?? 0 );
+		$translation    = get_post( $translation_id );
+		if ( ! $translation || ! self::is_translatable_post_type( (string) $translation->post_type ) || ! self::is_translation_post( $translation_id ) ) {
+			return self::error( 'Translation content not found.' );
+		}
+
+		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
+		$language  = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
+		if ( ! $source_id || ! self::is_translation_language( $language ) ) {
+			return self::error( 'Translation source or language metadata is missing.' );
+		}
+		if ( ! empty( $input['source_id'] ) && absint( $input['source_id'] ) !== $source_id ) {
+			return self::error( 'Provided source_id does not match the translation metadata.' );
+		}
+		if ( ! empty( $input['language'] ) && sanitize_key( (string) $input['language'] ) !== $language ) {
+			return self::error( 'Provided language does not match the translation metadata.' );
+		}
+
+		$source = get_post( $source_id );
+		if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
+			return self::error( 'Translation source content not found.' );
+		}
+		if ( (string) $source->post_type !== (string) $translation->post_type ) {
+			return self::error( 'Translation post type does not match the source post type.' );
+		}
+
+		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+		if ( $claim_gate ) {
+			return $claim_gate;
+		}
+
+		$current_author_id = (int) $translation->post_author;
+		$target_author_id  = ! empty( $input['author_id'] ) ? absint( $input['author_id'] ) : (int) $source->post_author;
+		$target_author     = $target_author_id ? get_userdata( $target_author_id ) : false;
+		if ( ! $target_author ) {
+			return self::error( 'Target author not found.' );
+		}
+
+		$payload = array(
+			'translation_id' => $translation_id,
+			'source_id'      => $source_id,
+			'language'       => $language,
+			'current_author' => array(
+				'id'   => $current_author_id,
+				'name' => (string) get_the_author_meta( 'display_name', $current_author_id ),
+			),
+			'target_author'  => array(
+				'id'   => $target_author_id,
+				'name' => (string) $target_author->display_name,
+			),
+		);
+
+		if ( $current_author_id === $target_author_id ) {
+			self::sync_translation_index_row( $translation_id );
+			return array(
+				'success'     => true,
+				'message'     => 'Translation author already matches the requested author.',
+				'changed'     => false,
+				'repair'      => $payload,
+				'translation' => self::translation_payload( get_post( $translation_id ) ),
+			);
+		}
+
+		if ( empty( $input['apply'] ) || ! empty( $input['dry_run'] ) ) {
+			return array(
+				'success' => true,
+				'message' => 'Dry run: translation author would be repaired.',
+				'changed' => true,
+				'dry_run' => true,
+				'repair'  => $payload,
+			);
+		}
+
+		$step_token_gate = self::translation_step_token_gate( 'draft_write', $input );
+		if ( empty( $step_token_gate['success'] ) ) {
+			return $step_token_gate;
+		}
+
+		$result = 0;
+		self::with_direct_save_storage_guardrails_suspended(
+			static function () use ( &$result, $translation_id, $target_author_id ): void {
+				self::with_reviewer_style_capture_suspended(
+					static function () use ( &$result, $translation_id, $target_author_id ): void {
+						$result = wp_update_post(
+							wp_slash(
+								array(
+									'ID'          => $translation_id,
+									'post_author' => $target_author_id,
+								)
+							),
+							true
+						);
+					}
+				);
+			}
+		);
+
+		if ( is_wp_error( $result ) ) {
+			return self::error( $result->get_error_message() );
+		}
+
+		$review_invalidated = self::invalidate_translation_reviews_after_visible_metadata_change( $translation_id, 'author_repair' );
+		self::record_translation_writer_provenance( $translation_id, $step_token_gate );
+		self::sync_translation_index_row( $translation_id );
+		clean_post_cache( $translation_id );
+
+		return array(
+			'success'            => true,
+			'message'            => 'Translation author repaired.',
+			'changed'            => true,
+			'repair'             => $payload,
+			'review_invalidated' => $review_invalidated,
+			'translation'        => self::translation_payload( get_post( $translation_id ) ),
 		);
 	}
 
@@ -18307,6 +18498,40 @@ final class Devenia_AI_Translations {
 		}
 
 		if ( ! $had_linguistic_review && ! $had_quality_review && ! $had_final_review && empty( $linguistic_evidence ) && empty( $quality_evidence ) && empty( $final_evidence ) ) {
+			return false;
+		}
+
+		self::delete_linguistic_review_meta( $translation_id );
+		self::delete_quality_review_meta( $translation_id );
+		self::delete_final_review_meta( $translation_id );
+		update_post_meta( $translation_id, self::META_STATUS, 'needs_review' );
+		delete_post_meta( $translation_id, self::META_REVIEWED_AT );
+		update_post_meta( $translation_id, '_devenia_translation_review_invalidated_reason', sanitize_key( $reason ) );
+		update_post_meta( $translation_id, '_devenia_translation_review_invalidated_at', gmdate( 'c' ) );
+		self::sync_translation_index_row( $translation_id );
+
+		return true;
+	}
+
+	/**
+	 * Remove review markers when public translation metadata changes.
+	 */
+	private static function invalidate_translation_reviews_after_visible_metadata_change( int $translation_id, string $reason ): bool {
+		$post = get_post( $translation_id );
+		if ( ! $post || ! self::is_translatable_post_type( (string) $post->post_type ) || ! self::is_translation_post( $translation_id ) ) {
+			return false;
+		}
+
+		$had_linguistic_review = '' !== (string) get_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, true );
+		$had_quality_review    = '' !== (string) get_post_meta( $translation_id, self::META_QUALITY_REVIEWED_AT, true );
+		$had_final_review      = '' !== (string) get_post_meta( $translation_id, self::META_FINAL_REVIEWED_AT, true );
+		$linguistic_evidence   = self::linguistic_review_evidence_for_post( $translation_id );
+		$quality_evidence      = self::quality_review_evidence_for_post( $translation_id );
+		$final_evidence        = self::final_review_evidence_for_post( $translation_id );
+
+		if ( ! $had_linguistic_review && ! $had_quality_review && ! $had_final_review && empty( $linguistic_evidence ) && empty( $quality_evidence ) && empty( $final_evidence ) ) {
+			update_post_meta( $translation_id, self::META_STATUS, 'needs_review' );
+			self::sync_translation_index_row( $translation_id );
 			return false;
 		}
 
