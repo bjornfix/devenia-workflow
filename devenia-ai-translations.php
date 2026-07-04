@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.403
+ * Version: 0.1.404
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.403';
+	const VERSION = '0.1.404';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -15147,25 +15147,17 @@ final class Devenia_AI_Translations {
 	}
 
 	private static function heartbeat_prior_stage_reviewers_for_obligation( int $translation_id, string $obligation ): array {
-		$evidence_items = array();
 		if ( 'linguistic_review' === $obligation ) {
-			$evidence_items[] = self::linguistic_review_evidence_for_post( $translation_id );
+			return self::review_attempt_prior_reviewers_for_stage( $translation_id, 'linguistic_review' );
 		} elseif ( 'quality_review' === $obligation ) {
-			$evidence_items[] = self::linguistic_review_evidence_for_post( $translation_id );
+			return self::review_attempt_prior_reviewers_for_stage( $translation_id, 'quality_review' );
 		} elseif ( 'final_review' === $obligation ) {
-			$evidence_items[] = self::linguistic_review_evidence_for_post( $translation_id );
-			$evidence_items[] = self::quality_review_evidence_for_post( $translation_id );
+			return self::review_attempt_prior_reviewers_for_stage( $translation_id, 'final_review' );
 		} elseif ( 'publish' === $obligation ) {
-			$evidence_items[] = self::final_review_evidence_for_post( $translation_id );
+			return self::review_attempt_prior_reviewers_for_stage( $translation_id, 'publish' );
 		}
 
-		$reviewers = array();
-		foreach ( $evidence_items as $evidence ) {
-			if ( is_array( $evidence ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) ) {
-				$reviewers[] = $evidence['reviewer'];
-			}
-		}
-		return $reviewers;
+		return array();
 	}
 
 	private static function heartbeat_repeats_previous_item_without_change( array $input, array $identity, int $translation_id, int $source_id, string $language, string $action ): bool {
@@ -17705,13 +17697,29 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		if ( 'quality_review' === sanitize_key( $stage ) ) {
-			$prior_reviewers = self::quality_review_prior_stage_reviewers_for_post( $translation_id );
+		if ( 'linguistic_review' === sanitize_key( $stage ) ) {
+			$prior_reviewers = self::review_attempt_prior_reviewers_for_stage( $translation_id, 'linguistic_review' );
 			if ( self::reviewer_matches_any_provenance( $reviewer, $prior_reviewers ) ) {
 				return array(
 					'success'  => false,
-					'code'     => 'quality_reviewer_linguistic_reviewer_match',
-					'message'  => 'Quality review must be performed by an independent actor that did not write the current linguistic review evidence.',
+					'code'     => 'linguistic_reviewer_already_handled_linguistic_review',
+					'message'  => 'Linguistic review must be performed by an independent actor that did not write the current linguistic review evidence.',
+					'operator_warning' => self::self_review_override_warning(),
+					'stage'    => sanitize_key( $stage ),
+					'writer'   => $writer,
+					'reviewer' => $reviewer,
+					'prior_reviewers' => $prior_reviewers,
+				);
+			}
+		}
+
+		if ( 'quality_review' === sanitize_key( $stage ) ) {
+			$prior_reviewers = self::review_attempt_prior_reviewers_for_stage( $translation_id, 'quality_review' );
+			if ( self::reviewer_matches_any_provenance( $reviewer, $prior_reviewers ) ) {
+				return array(
+					'success'  => false,
+					'code'     => 'quality_reviewer_prior_or_same_stage_reviewer_match',
+					'message'  => 'Quality review must be performed by an independent actor that did not write the current linguistic or quality review evidence.',
 					'operator_warning' => self::self_review_override_warning(),
 					'stage'    => sanitize_key( $stage ),
 					'writer'   => $writer,
@@ -17722,12 +17730,12 @@ final class Devenia_AI_Translations {
 		}
 
 		if ( 'final_review' === sanitize_key( $stage ) ) {
-			$prior_reviewers = self::final_review_prior_stage_reviewers_for_post( $translation_id );
+			$prior_reviewers = self::review_attempt_prior_reviewers_for_stage( $translation_id, 'final_review' );
 			if ( self::reviewer_matches_any_provenance( $reviewer, $prior_reviewers ) ) {
 				return array(
 					'success'  => false,
-					'code'     => 'final_reviewer_prior_stage_reviewer_match',
-					'message'  => 'Final review must be performed by an independent actor that did not write the current linguistic or quality review evidence.',
+					'code'     => 'final_reviewer_prior_or_same_stage_reviewer_match',
+					'message'  => 'Final review must be performed by an independent actor that did not write the current linguistic, quality, or final review evidence.',
 					'operator_warning' => self::self_review_override_warning(),
 					'stage'    => sanitize_key( $stage ),
 					'writer'   => $writer,
@@ -17947,6 +17955,32 @@ final class Devenia_AI_Translations {
 		}
 
 		return array();
+	}
+
+	private static function review_attempt_prior_reviewers_for_stage( int $post_id, string $stage ): array {
+		$stage = sanitize_key( $stage );
+		$evidence_items = array();
+		if ( 'linguistic_review' === $stage ) {
+			$evidence_items[] = self::linguistic_review_evidence_for_post( $post_id );
+		} elseif ( 'quality_review' === $stage ) {
+			$evidence_items[] = self::linguistic_review_evidence_for_post( $post_id );
+			$evidence_items[] = self::quality_review_evidence_for_post( $post_id );
+		} elseif ( 'final_review' === $stage ) {
+			$evidence_items[] = self::linguistic_review_evidence_for_post( $post_id );
+			$evidence_items[] = self::quality_review_evidence_for_post( $post_id );
+			$evidence_items[] = self::final_review_evidence_for_post( $post_id );
+		} elseif ( 'publish' === $stage ) {
+			$evidence_items[] = self::final_review_evidence_for_post( $post_id );
+		}
+
+		$reviewers = array();
+		foreach ( $evidence_items as $evidence ) {
+			if ( is_array( $evidence ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) ) {
+				$reviewers[] = $evidence['reviewer'];
+			}
+		}
+
+		return $reviewers;
 	}
 
 	private static function review_evidence_has_independent_quality_reviewer( int $post_id, array $quality_evidence ): bool {

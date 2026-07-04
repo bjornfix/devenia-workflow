@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.403
+Stable tag: 0.1.404
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.404 =
+* Prevents stale linguistic, quality, and final review obligations from being reassigned to the same actor that wrote the review evidence being replaced.
 
 = 0.1.403 =
 * Makes heartbeat health collision checks use only fresh/live sessions so stale heartbeat history cannot block a renewed actor session after a stale assignment is released.
