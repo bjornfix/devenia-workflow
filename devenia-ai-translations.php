@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.388
+ * Version: 0.1.390
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.388';
+	const VERSION = '0.1.390';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -8231,7 +8231,7 @@ final class Devenia_AI_Translations {
 			),
 			'ai-translations/reproject-source-design' => array(
 				'label'            => 'Reproject Source Design',
-				'description'      => 'Rebuilds existing translations from the current source Gutenberg block tree and their stored localized fragments. Use this after the source design changes; translations do not get redesigned per language.',
+				'description'      => 'Rebuilds existing translations from the current source Gutenberg block tree and their stored localized fragments. Use this only after the source design has passed the Site Presentation article contract; translations do not get redesigned per language.',
 				'input_schema'     => self::reproject_source_design_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
@@ -10253,7 +10253,7 @@ final class Devenia_AI_Translations {
 				'title'             => array( 'type' => 'string' ),
 				'content'           => array(
 					'type'        => 'string',
-					'description' => 'Legacy escape hatch for already-projected Gutenberg content. Prefer inherit_source_design with localized_fragments so translators translate text instead of rebuilding design.',
+					'description' => 'Legacy escape hatch for already-projected Gutenberg content. Source posts must first be designed from the Site Presentation article contract; prefer inherit_source_design with localized_fragments so translators translate text instead of rebuilding design.',
 				),
 				'inherit_source_design' => array(
 					'type'        => 'boolean',
@@ -14902,6 +14902,7 @@ final class Devenia_AI_Translations {
 				'post_status' => sanitize_key( (string) ( $item['post_status'] ?? '' ) ),
 				'obligation' => $obligation,
 				'instructions' => $action['instructions'],
+				'design_ownership' => isset( $action['design_ownership'] ) && is_array( $action['design_ownership'] ) ? $action['design_ownership'] : array(),
 				'claim_required_for_writes' => true,
 				'independence' => self::heartbeat_independence_summary( $eligibility, $obligation ),
 			);
@@ -14972,24 +14973,42 @@ final class Devenia_AI_Translations {
 	}
 
 	private static function heartbeat_action_for_obligation( string $obligation ): array {
+		$design_ownership = array(
+			'design_contract_required' => true,
+			'design_contract_ability'  => 'devenia-site-presentation/get-article-contract',
+			'worker_ownership_rule'    => 'The worker owns the design judgment for the assigned item. Persona name, green technical gates, and later reviewers are not substitutes for doing the design work now.',
+			'required_design_brief'    => array(
+				'reader',
+				'decision_moment',
+				'promise',
+				'proof_risk_next_action',
+				'section_design_roles',
+				'image_or_media_function',
+				'hierarchy_rhythm_contrast',
+				'designed_experience_verdict',
+			),
+		);
 		$map = array(
 			'linguistic_review' => array(
 				'action' => 'review_translation_linguistic',
 				'workflow_step' => 'linguistic_review',
 				'required_ability' => 'ai-translations/mark-linguistic-reviewed',
-				'instructions' => 'Run QA and a real language review. If copy is stiff or wrong, record/fix feedback; do not approve merely because the checkboxes can be filled.',
+				'design_ownership' => $design_ownership,
+				'instructions' => 'Run QA, fetch the Site Presentation article contract, and perform a real language/design/content review. If copy is stiff, wrong, visually broken, or the source design is not good enough to inherit, record/fix the problem instead of approving. Do not approve merely because checkboxes can be filled.',
 			),
 			'quality_review' => array(
 				'action' => 'review_translation_quality',
 				'workflow_step' => 'quality_review',
 				'required_ability' => 'ai-translations/mark-quality-reviewed',
-				'instructions' => 'Review the visible public page, design, layout, links/actions, currentness, and reader decision safety before marking quality reviewed.',
+				'design_ownership' => $design_ownership,
+				'instructions' => 'Fetch the Site Presentation article contract and review the visible public page like a publication designer and editor who owns the design decision: design idea, reader decision, section rhythm, hierarchy, cards/callouts, contrast, media function, layout, links/actions, currentness, and reader decision safety. Do not approve class-name/template checklists, green technical gates, or flat text poured into bands.',
 			),
 			'final_review' => array(
 				'action' => 'review_translation_final',
 				'workflow_step' => 'final_review',
 				'required_ability' => 'ai-translations/mark-final-reviewed',
-				'instructions' => 'Confirm prior reviews, SEO/URL readiness, publication experience, and final publish decision.',
+				'design_ownership' => $design_ownership,
+				'instructions' => 'Fetch the Site Presentation article contract and confirm prior reviews, SEO/URL readiness, publication experience, source-design ownership, visible-page design quality, and final publish decision.',
 			),
 			'publish' => array(
 				'action' => 'publish_translation',

@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.388
+**Stable tag:** 0.1.390
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,17 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.390
+
+- Carries heartbeat design-ownership requirements into the selected work
+  payload, making the worker contract visible as structured assignment data.
+
+### 0.1.389
+
+- Adds explicit heartbeat design-ownership requirements so workers must fetch
+  the Site Presentation article contract and own the design judgment instead of
+  relying on persona labels, checklists, or later reviewers.
 
 ### 0.1.388
 
