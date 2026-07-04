@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.404
+ * Version: 0.1.405
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.404';
+	const VERSION = '0.1.405';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -14863,11 +14863,12 @@ final class Devenia_AI_Translations {
 				'translation_id' => $translation_id,
 				'language' => $language,
 				'post_status' => sanitize_key( (string) ( $item['post_status'] ?? '' ) ),
-				'obligation' => $obligation,
-				'instructions' => $action['instructions'],
-				'design_ownership' => isset( $action['design_ownership'] ) && is_array( $action['design_ownership'] ) ? $action['design_ownership'] : array(),
-				'claim_required_for_writes' => true,
-				'independence' => self::heartbeat_independence_summary( $eligibility, $obligation ),
+					'obligation' => $obligation,
+					'instructions' => $action['instructions'],
+					'review_surface_guidance' => self::heartbeat_review_surface_guidance( $obligation, $translation_id, $language, sanitize_key( (string) ( $item['post_status'] ?? '' ) ) ),
+					'design_ownership' => isset( $action['design_ownership'] ) && is_array( $action['design_ownership'] ) ? $action['design_ownership'] : array(),
+					'claim_required_for_writes' => true,
+					'independence' => self::heartbeat_independence_summary( $eligibility, $obligation ),
 			);
 
 			$claim_result = null;
@@ -14963,13 +14964,13 @@ final class Devenia_AI_Translations {
 				'design_ownership' => $design_ownership,
 				'instructions' => 'Run QA, fetch the Site Presentation article contract, and perform a real language/design/content review. If copy is stiff, wrong, visually broken, or the source design is not good enough to inherit, record/fix the problem instead of approving. Do not approve merely because checkboxes can be filled.',
 			),
-			'quality_review' => array(
-				'action' => 'review_translation_quality',
-				'workflow_step' => 'quality_review',
-				'required_ability' => 'ai-translations/mark-quality-reviewed',
-				'design_ownership' => $design_ownership,
-				'instructions' => 'Fetch the Site Presentation article contract and review the visible public page like a publication designer and editor who owns the design decision: design idea, reader decision, section rhythm, hierarchy, cards/callouts, contrast, media function, layout, links/actions, currentness, reader decision safety, good/bad design judgment, alternative design solutions considered, and chosen design rationale. Do not approve class-name/template checklists, green technical gates, or flat text poured into bands.',
-			),
+				'quality_review' => array(
+					'action' => 'review_translation_quality',
+					'workflow_step' => 'quality_review',
+					'required_ability' => 'ai-translations/mark-quality-reviewed',
+					'design_ownership' => $design_ownership,
+					'instructions' => 'Fetch the Site Presentation article contract and review the assigned visible surface like a publication designer and editor who owns the design decision. If the translation is published, use the public URL. If it is draft/pre-publish, use ai-translations/get-presentation-surface and mark-quality-reviewed with review_surface=presentation_surface plus presentation_surface_post_id. A draft public URL returning 404 is expected and is not by itself a blocker. Review design idea, reader decision, section rhythm, hierarchy, cards/callouts, contrast, media function, layout, links/actions, currentness, reader decision safety, good/bad design judgment, alternative design solutions considered, and chosen design rationale. Do not approve class-name/template checklists, green technical gates, or flat text poured into bands.',
+				),
 			'final_review' => array(
 				'action' => 'review_translation_final',
 				'workflow_step' => 'final_review',
@@ -15003,6 +15004,42 @@ final class Devenia_AI_Translations {
 			'workflow_step' => '',
 			'required_ability' => '',
 			'instructions' => 'No supported obligation selected.',
+			);
+	}
+
+	private static function heartbeat_review_surface_guidance( string $obligation, int $translation_id, string $language, string $post_status ): array {
+		$obligation = sanitize_key( $obligation );
+		if ( 'quality_review' !== $obligation ) {
+			return array();
+		}
+
+		$translation_id = absint( $translation_id );
+		$language       = sanitize_key( $language );
+		$post_status    = sanitize_key( $post_status );
+		if ( 'publish' === $post_status ) {
+			return array(
+				'review_surface' => 'public_url',
+				'mark_quality_reviewed_params' => array(
+					'review_surface' => 'public_url',
+					'visible_page_url' => $translation_id ? get_permalink( $translation_id ) : '',
+				),
+				'instructions' => 'This translation is published. Review the rendered public URL and pass review_surface=public_url plus the visible_page_url you actually inspected to ai-translations/mark-quality-reviewed.',
+			);
+		}
+
+		return array(
+			'review_surface' => 'presentation_surface',
+			'presentation_ability' => 'ai-translations/get-presentation-surface',
+			'presentation_params' => array(
+				'surface_type' => 'singular',
+				'post_id' => $translation_id,
+				'language' => $language,
+			),
+			'mark_quality_reviewed_params' => array(
+				'review_surface' => 'presentation_surface',
+				'presentation_surface_post_id' => $translation_id,
+			),
+			'instructions' => 'This translation is draft/pre-publish. Its public URL may return 404. That is expected. Review the WordPress presentation payload from ai-translations/get-presentation-surface and pass review_surface=presentation_surface plus presentation_surface_post_id to ai-translations/mark-quality-reviewed.',
 		);
 	}
 
