@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.409
+ * Version: 0.1.410
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.409';
+	const VERSION = '0.1.410';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -15247,7 +15247,7 @@ final class Devenia_AI_Translations {
 				'code' => 'current_actor_changed_runtime_language_surface',
 			);
 		}
-		if ( in_array( sanitize_key( $obligation ), array( 'quality_review', 'final_review', 'publish' ), true ) && self::reviewer_matches_visible_media_mutation( $reviewer, $translation_id ) ) {
+		if ( self::reviewer_matches_visible_media_mutation( $reviewer, $translation_id ) ) {
 			return array(
 				'success' => false,
 				'code' => 'current_actor_changed_visible_media_surface',
@@ -17938,11 +17938,11 @@ final class Devenia_AI_Translations {
 				'runtime_mutation' => self::runtime_language_mutation_provenance( $language ),
 			);
 		}
-		if ( in_array( sanitize_key( $stage ), array( 'quality_review', 'final_review', 'publish' ), true ) && self::reviewer_matches_visible_media_mutation( $reviewer, $translation_id ) ) {
+		if ( self::reviewer_matches_visible_media_mutation( $reviewer, $translation_id ) ) {
 			return array(
 				'success'  => false,
 				'code'     => 'reviewer_changed_visible_media_surface',
-				'message'  => 'The actor that last changed visible media for this translation cannot quality-review, final-review, or publish it.',
+				'message'  => 'The actor that last changed visible media or image alt text for this translation cannot review or publish it.',
 				'operator_warning' => self::self_review_override_warning(),
 				'stage'    => sanitize_key( $stage ),
 				'writer'   => $writer,
@@ -18308,6 +18308,12 @@ final class Devenia_AI_Translations {
 			}
 			if ( ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_runtime_language_mutation( $evidence['reviewer'], $language ) ) {
 				$stale_reasons[] = 'linguistic_reviewer_changed_runtime_text';
+			}
+			if ( self::is_translation_post( $post_id ) && self::visible_media_mutation_after_evidence( $post_id, $evidence ) ) {
+				$stale_reasons[] = 'visible_media_changed_since_review';
+			}
+			if ( self::is_translation_post( $post_id ) && ! empty( $evidence['reviewer'] ) && is_array( $evidence['reviewer'] ) && self::reviewer_matches_visible_media_mutation( $evidence['reviewer'], $post_id ) ) {
+				$stale_reasons[] = 'linguistic_reviewer_changed_visible_media_surface';
 			}
 			if ( ! empty( $evidence['translation_hash'] ) && $evidence['translation_hash'] !== $current_translation_hash ) {
 				$stale_reasons[] = 'translation_changed_since_review';
