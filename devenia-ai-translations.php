@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.379
+ * Version: 0.1.380
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.379';
+	const VERSION = '0.1.380';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -27646,13 +27646,32 @@ final class Devenia_AI_Translations {
 		$comments        = self::comment_form_strings( $language );
 
 		return array(
-			'author'         => self::presentation_label( $language, 'author_by_label', __( 'By', 'devenia-ai-translations' ) ),
+			'author'         => self::presentation_label_from_sources(
+				$language,
+				array(
+					array( 'blog_archive_text', 'author_by_label' ),
+					array( 'blog_archive_text', 'labels.author' ),
+					array( 'blog_archive_text', 'author' ),
+					array( 'widget_text', 'By' ),
+				),
+				__( 'By', 'devenia-ai-translations' )
+			),
 			'published'      => self::presentation_label( $language, 'published_label', __( 'Published', 'devenia-ai-translations' ) ),
 			'updated'        => self::presentation_label( $language, 'updated_label', __( 'Updated', 'devenia-ai-translations' ) ),
 			'read_more'      => self::presentation_label( $language, 'read_more_label', __( 'Read more', 'devenia-ai-translations' ) ),
 			'category'       => isset( $taxonomy_labels['Categories'] ) ? (string) $taxonomy_labels['Categories'] : __( 'Categories', 'devenia-ai-translations' ),
 			'tag'            => isset( $taxonomy_labels['Tags'] ) ? (string) $taxonomy_labels['Tags'] : __( 'Tags', 'devenia-ai-translations' ),
-			'comments'       => self::presentation_label( $language, 'comments_label', __( 'Comments', 'devenia-ai-translations' ) ),
+			'comments'       => self::presentation_label_from_sources(
+				$language,
+				array(
+					array( 'comment_form_text', 'comments_label' ),
+					array( 'comment_form_text', 'labels.comments' ),
+					array( 'comment_form_text', 'comments' ),
+					array( 'widget_text', 'Comments' ),
+					array( 'blog_archive_text', 'comments_label' ),
+				),
+				__( 'Comments', 'devenia-ai-translations' )
+			),
 			'comment_submit' => (string) ( $comments['label_submit'] ?? __( 'Post Comment', 'devenia-ai-translations' ) ),
 		);
 	}
@@ -27680,16 +27699,41 @@ final class Devenia_AI_Translations {
 	 * Localized label used by presentation templates.
 	 */
 	private static function presentation_label( string $language, string $key, string $fallback ): string {
-		$value = trim( self::runtime_text_value( $language, 'blog_archive_text', $key, '' ) );
-		if ( '' !== $value ) {
-			return $value;
+		return self::presentation_label_from_sources( $language, array( array( 'blog_archive_text', $key ) ), $fallback );
+	}
+
+	/**
+	 * Localized label using explicit runtime-text source keys.
+	 *
+	 * @param array<int,array{0:string,1:string}> $sources Runtime text section/key pairs.
+	 */
+	private static function presentation_label_from_sources( string $language, array $sources, string $fallback ): string {
+		foreach ( $sources as $source ) {
+			if ( ! is_array( $source ) || 2 > count( $source ) ) {
+				continue;
+			}
+
+			$section = sanitize_key( (string) $source[0] );
+			$key     = trim( (string) $source[1] );
+			$value   = trim( wp_strip_all_tags( self::runtime_text_value( $language, $section, $key, '' ) ) );
+			if ( '' !== $value ) {
+				return $value;
+			}
 		}
 
 		$config = self::languages()[ sanitize_key( $language ) ] ?? array();
-		if ( isset( $config['blog_archive_text'] ) && is_array( $config['blog_archive_text'] ) && isset( $config['blog_archive_text'][ $key ] ) ) {
-			$value = trim( wp_strip_all_tags( (string) $config['blog_archive_text'][ $key ] ) );
-			if ( '' !== $value ) {
-				return $value;
+		foreach ( $sources as $source ) {
+			if ( ! is_array( $source ) || 2 > count( $source ) ) {
+				continue;
+			}
+
+			$section = sanitize_key( (string) $source[0] );
+			$key     = trim( (string) $source[1] );
+			if ( isset( $config[ $section ] ) && is_array( $config[ $section ] ) && isset( $config[ $section ][ $key ] ) ) {
+				$value = trim( wp_strip_all_tags( (string) $config[ $section ][ $key ] ) );
+				if ( '' !== $value ) {
+					return $value;
+				}
 			}
 		}
 
