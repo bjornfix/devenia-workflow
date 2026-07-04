@@ -122,5 +122,17 @@
   "transliterate_urls": "1",
   "blocked_source_paths": [
     "terms"
-  ]
+  ],
+  "comment_form_text": {
+    "title_reply": "اترك تعليقًا",
+    "cancel_reply_link": "إلغاء الرد",
+    "comment": "التعليق",
+    "name": "الاسم",
+    "name_required": "الاسم *",
+    "email": "البريد الإلكتروني",
+    "email_required": "البريد الإلكتروني *",
+    "website": "الموقع الإلكتروني",
+    "label_submit": "إرسال التعليق",
+    "comments_label": "التعليقات"
+  }
 }

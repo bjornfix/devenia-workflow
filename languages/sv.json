@@ -117,5 +117,17 @@
     "/learn/",
     "/plugins/",
     "/contact/"
-  ]
+  ],
+  "comment_form_text": {
+    "title_reply": "Lämna ett svar",
+    "cancel_reply_link": "Avbryt svar",
+    "comment": "Kommentar",
+    "name": "Namn",
+    "name_required": "Namn *",
+    "email": "E-post",
+    "email_required": "E-post *",
+    "website": "Webbplats",
+    "label_submit": "Skicka kommentar",
+    "comments_label": "Kommentarer"
+  }
 }

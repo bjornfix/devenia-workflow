@@ -124,5 +124,17 @@
   "blog_taxonomy_paths": {
     "category": "fenlei",
     "tag": "biaoqian"
+  },
+  "comment_form_text": {
+    "title_reply": "发表评论",
+    "cancel_reply_link": "取消回复",
+    "comment": "评论",
+    "name": "姓名",
+    "name_required": "姓名 *",
+    "email": "电子邮箱",
+    "email_required": "电子邮箱 *",
+    "website": "网站",
+    "label_submit": "提交评论",
+    "comments_label": "评论"
   }
 }

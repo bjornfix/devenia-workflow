@@ -123,5 +123,17 @@
   "blog_taxonomy_paths": {
     "category": "categoria",
     "tag": "etiqueta"
+  },
+  "comment_form_text": {
+    "title_reply": "Deixe uma resposta",
+    "cancel_reply_link": "Cancelar resposta",
+    "comment": "Comentário",
+    "name": "Nome",
+    "name_required": "Nome *",
+    "email": "Email",
+    "email_required": "Email *",
+    "website": "Site",
+    "label_submit": "Publicar comentário",
+    "comments_label": "Comentários"
   }
 }

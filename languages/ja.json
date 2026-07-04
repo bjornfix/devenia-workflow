@@ -123,5 +123,17 @@
   "blog_taxonomy_paths": {
     "category": "category",
     "tag": "tag"
+  },
+  "comment_form_text": {
+    "title_reply": "コメントを残す",
+    "cancel_reply_link": "返信をキャンセル",
+    "comment": "コメント",
+    "name": "名前",
+    "name_required": "名前 *",
+    "email": "メールアドレス",
+    "email_required": "メールアドレス *",
+    "website": "ウェブサイト",
+    "label_submit": "コメントを送信",
+    "comments_label": "コメント"
   }
 }

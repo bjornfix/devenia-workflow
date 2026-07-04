@@ -117,5 +117,17 @@
     "/learn/",
     "/plugins/",
     "/contact/"
-  ]
+  ],
+  "comment_form_text": {
+    "title_reply": "Legg igjen en kommentar",
+    "cancel_reply_link": "Avbryt svar",
+    "comment": "Kommentar",
+    "name": "Navn",
+    "name_required": "Navn *",
+    "email": "E-post",
+    "email_required": "E-post *",
+    "website": "Nettsted",
+    "label_submit": "Publiser kommentar",
+    "comments_label": "Kommentarer"
+  }
 }

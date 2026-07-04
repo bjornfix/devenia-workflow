@@ -123,5 +123,17 @@
   "blog_taxonomy_paths": {
     "category": "danh-muc",
     "tag": "the"
+  },
+  "comment_form_text": {
+    "title_reply": "Để lại phản hồi",
+    "cancel_reply_link": "Hủy phản hồi",
+    "comment": "Bình luận",
+    "name": "Tên",
+    "name_required": "Tên *",
+    "email": "Email",
+    "email_required": "Email *",
+    "website": "Trang web",
+    "label_submit": "Gửi bình luận",
+    "comments_label": "Bình luận"
   }
 }

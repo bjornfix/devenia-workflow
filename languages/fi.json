@@ -117,5 +117,17 @@
     "/learn/",
     "/plugins/",
     "/contact/"
-  ]
+  ],
+  "comment_form_text": {
+    "title_reply": "Jätä vastaus",
+    "cancel_reply_link": "Peruuta vastaus",
+    "comment": "Kommentti",
+    "name": "Nimi",
+    "name_required": "Nimi *",
+    "email": "Sähköposti",
+    "email_required": "Sähköposti *",
+    "website": "Verkkosivusto",
+    "label_submit": "Lähetä kommentti",
+    "comments_label": "Kommentit"
+  }
 }

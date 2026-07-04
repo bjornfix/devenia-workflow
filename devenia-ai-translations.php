@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.384
+ * Version: 0.1.385
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -20,7 +20,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 
-	const VERSION = '0.1.384';
+	const VERSION = '0.1.385';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -6035,6 +6035,8 @@ final class Devenia_AI_Translations {
 				'has_widget_text' => is_array( $decoded ) && isset( $decoded['widget_text'] ) && is_array( $decoded['widget_text'] ),
 				'has_not_found_text' => is_array( $decoded ) && isset( $decoded['not_found_text'] ) && is_array( $decoded['not_found_text'] ),
 				'has_not_found_routes' => is_array( $decoded ) && isset( $decoded['not_found_routes'] ) && is_array( $decoded['not_found_routes'] ),
+				'has_comment_form_text' => is_array( $decoded ) && isset( $decoded['comment_form_text'] ) && is_array( $decoded['comment_form_text'] ),
+				'comment_form_text_issues' => is_array( $decoded ) ? self::validate_comment_form_text( $language, $decoded ) : array(),
 				'has_language_profile' => is_array( $decoded ) && isset( $decoded['language_profile'] ) && is_array( $decoded['language_profile'] ),
 				'language_profile_issues' => is_array( $decoded ) ? self::validate_language_profile( $language, $decoded ) : array(),
 				'widget_link_issues' => is_array( $decoded ) ? self::validate_widget_text_links( $language, $decoded ) : array(),
@@ -6043,6 +6045,42 @@ final class Devenia_AI_Translations {
 		}
 
 		return $status;
+	}
+
+	/**
+	 * Validate packaged comment form runtime text.
+	 *
+	 * @param string              $language Language code.
+	 * @param array<string,mixed> $decoded  Decoded language file.
+	 * @return array<int,array<string,string>>
+	 */
+	private static function validate_comment_form_text( string $language, array $decoded ): array {
+		$issues = array();
+		$text   = isset( $decoded['comment_form_text'] ) && is_array( $decoded['comment_form_text'] ) ? $decoded['comment_form_text'] : array();
+		$keys   = array(
+			'title_reply',
+			'cancel_reply_link',
+			'comment',
+			'name',
+			'name_required',
+			'email',
+			'email_required',
+			'website',
+			'label_submit',
+			'comments_label',
+		);
+
+		foreach ( $keys as $key ) {
+			if ( ! isset( $text[ $key ] ) || ! is_string( $text[ $key ] ) || '' === trim( $text[ $key ] ) ) {
+				$issues[] = array(
+					'code'     => 'missing_comment_form_text',
+					'language' => sanitize_key( $language ),
+					'key'      => $key,
+				);
+			}
+		}
+
+		return $issues;
 	}
 
 	/**
@@ -7640,7 +7678,7 @@ final class Devenia_AI_Translations {
 			$missing = array();
 
 			foreach ( $status as $language => $row ) {
-				if ( empty( $row['exists'] ) || empty( $row['valid_json'] ) || empty( $row['has_wordpress_locale'] ) || empty( $row['has_menu'] ) || empty( $row['has_widget_text'] ) || empty( $row['has_not_found_text'] ) || empty( $row['has_not_found_routes'] ) || empty( $row['has_language_profile'] ) || ! empty( $row['language_profile_issues'] ) || ! empty( $row['widget_link_issues'] ) || ! empty( $row['link_issues'] ) ) {
+				if ( empty( $row['exists'] ) || empty( $row['valid_json'] ) || empty( $row['has_wordpress_locale'] ) || empty( $row['has_menu'] ) || empty( $row['has_widget_text'] ) || empty( $row['has_not_found_text'] ) || empty( $row['has_not_found_routes'] ) || empty( $row['has_comment_form_text'] ) || empty( $row['has_language_profile'] ) || ! empty( $row['comment_form_text_issues'] ) || ! empty( $row['language_profile_issues'] ) || ! empty( $row['widget_link_issues'] ) || ! empty( $row['link_issues'] ) ) {
 					$missing[] = $language;
 				}
 			}
@@ -22111,6 +22149,7 @@ final class Devenia_AI_Translations {
 			'email_required'    => 'Email *',
 			'website'           => 'Website',
 			'label_submit'      => 'Post Comment',
+			'comments_label'    => 'Comments',
 		);
 
 		$languages = self::languages();

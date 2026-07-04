@@ -178,6 +178,35 @@ for (const file of gitFiles()) {
   }
 }
 
+const requiredCommentFormKeys = [
+  "title_reply",
+  "cancel_reply_link",
+  "comment",
+  "name",
+  "name_required",
+  "email",
+  "email_required",
+  "website",
+  "label_submit",
+  "comments_label",
+];
+for (const file of gitFiles().filter((name) => name.startsWith("languages/") && name.endsWith(".json"))) {
+  let decoded = null;
+  try {
+    decoded = JSON.parse(read(file));
+  } catch {
+    continue;
+  }
+  const commentFormText = decoded && typeof decoded === "object" && decoded.comment_form_text && typeof decoded.comment_form_text === "object"
+    ? decoded.comment_form_text
+    : {};
+  for (const key of requiredCommentFormKeys) {
+    if (typeof commentFormText[key] !== "string" || commentFormText[key].trim() === "") {
+      issue(file, "missing_comment_form_text", "Packaged language files must seed localized comment-form UI text.", { key });
+    }
+  }
+}
+
 const vendorHookPattern = /\b(?:add_action|add_filter|do_action|apply_filters)\(\s*['"](?:generate_|rank_math\/|mcp_abilities_elementor_)/;
 const rankMathMetaWritePattern = /\b(?:update_post_meta|delete_post_meta)\(\s*\$?[A-Za-z0-9_>()[\]'"\s,-]+,\s*['"]rank_math_/;
 const coreVendorReferencePattern = /\b(?:rank_math|Rank Math|generateblocks|GenerateBlocks|generatepress|GeneratePress|elementor|Elementor|mcp_abilities_elementor_)\b/;

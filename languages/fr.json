@@ -117,5 +117,17 @@
     "/learn/",
     "/plugins/",
     "/contact/"
-  ]
+  ],
+  "comment_form_text": {
+    "title_reply": "Laisser un commentaire",
+    "cancel_reply_link": "Annuler la réponse",
+    "comment": "Commentaire",
+    "name": "Nom",
+    "name_required": "Nom *",
+    "email": "E-mail",
+    "email_required": "E-mail *",
+    "website": "Site web",
+    "label_submit": "Publier le commentaire",
+    "comments_label": "Commentaires"
+  }
 }
