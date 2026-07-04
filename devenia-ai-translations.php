@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.406
+ * Version: 0.1.407
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.406';
+	const VERSION = '0.1.407';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -17819,7 +17819,7 @@ final class Devenia_AI_Translations {
 				return array(
 					'success'  => false,
 					'code'     => 'linguistic_reviewer_already_handled_linguistic_review',
-					'message'  => 'Linguistic review must be performed by an independent actor that did not write the current linguistic review evidence.',
+					'message'  => 'Linguistic review must be performed by an independent actor that did not write current review evidence for this translation.',
 					'operator_warning' => self::self_review_override_warning(),
 					'stage'    => sanitize_key( $stage ),
 					'writer'   => $writer,
@@ -18078,6 +18078,8 @@ final class Devenia_AI_Translations {
 		$evidence_items = array();
 		if ( 'linguistic_review' === $stage ) {
 			$evidence_items[] = self::linguistic_review_evidence_for_post( $post_id );
+			$evidence_items[] = self::quality_review_evidence_for_post( $post_id );
+			$evidence_items[] = self::final_review_evidence_for_post( $post_id );
 		} elseif ( 'quality_review' === $stage ) {
 			$evidence_items[] = self::linguistic_review_evidence_for_post( $post_id );
 			$evidence_items[] = self::quality_review_evidence_for_post( $post_id );
