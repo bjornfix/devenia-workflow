@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.426
+Stable tag: 0.1.427
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.427 =
+* Adds source-design fragment support for visible static core/list item text so localized lists survive reprojection safely.
+* Keeps list structure in the design signature while treating list item text as translatable content.
 
 = 0.1.426 =
 * Avoids false semantic-mismatch flags for CJK localized fragments that are long enough by character length but short by whitespace word count.

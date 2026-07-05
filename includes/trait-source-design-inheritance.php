@@ -343,6 +343,20 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				}
 			}
 
+			foreach ( self::list_item_fragments( $name, $html, $current_path ) as $list_fragment ) {
+				$value = (string) ( $list_fragment['html'] ?? '' );
+				if ( '' !== trim( wp_strip_all_tags( $value ) ) ) {
+					$records[] = array(
+						'key'     => (string) ( $list_fragment['key'] ?? '' ),
+						'html'    => wp_kses_post( $value ),
+						'path'    => $current_path,
+						'block'   => $name . ':item',
+						'heading' => false,
+						'text'    => self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $value ) ) ),
+					);
+				}
+			}
+
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
 				self::collect_localized_fragment_records_from_blocks( $block['innerBlocks'], $records, $current_path );
 			}
@@ -1198,6 +1212,22 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				);
 			}
 
+			foreach ( self::list_item_fragments( $name, $html, $current_path ) as $list_fragment ) {
+				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( (string) ( $list_fragment['html'] ?? '' ) ) ) );
+				if ( '' === $text ) {
+					continue;
+				}
+				$fragments[] = array(
+					'key'        => (string) ( $list_fragment['key'] ?? '' ),
+					'path'       => $current_path,
+					'block'      => $name . ':item',
+					'item_index' => absint( $list_fragment['item_index'] ?? 0 ),
+					'format'     => 'inline_html',
+					'heading'    => false,
+					'text'       => $text,
+				);
+			}
+
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
 				self::collect_source_design_fragments( $block['innerBlocks'], $fragments, $current_path );
 			}
@@ -1259,6 +1289,18 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 						$block['innerContent'] = self::replace_core_table_inner_content( $block['innerContent'], $table_html );
 					} elseif ( empty( $block['innerBlocks'] ) ) {
 						$block['innerContent'] = array( $table_html );
+					}
+				}
+			}
+
+			if ( 'core/list' === $name && isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
+				$list_html = self::project_list_item_fragments( (string) $block['innerHTML'], $current_path, $fragments, $stats );
+				if ( $list_html !== $block['innerHTML'] ) {
+					$block['innerHTML'] = $list_html;
+					if ( isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
+						$block['innerContent'] = self::replace_core_list_inner_content( $block['innerContent'], $list_html );
+					} elseif ( empty( $block['innerBlocks'] ) ) {
+						$block['innerContent'] = array( $list_html );
 					}
 				}
 			}
@@ -1372,6 +1414,13 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	 */
 	private static function table_cell_fragment_key( string $path, int $cell_index ): string {
 		return 'table:' . preg_replace( '/[^0-9.]/', '', $path ) . ':core_table:cell-' . sprintf( '%03d', max( 0, $cell_index ) );
+	}
+
+	/**
+	 * Stable fragment key for visible static core/list item content.
+	 */
+	private static function list_item_fragment_key( string $path, int $item_index ): string {
+		return 'list:' . preg_replace( '/[^0-9.]/', '', $path ) . ':core_list:item-' . sprintf( '%03d', max( 0, $item_index ) );
 	}
 
 	/**
@@ -1701,6 +1750,76 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	}
 
 	/**
+	 * @return array<int,array{key:string,html:string,item_index:int}>
+	 */
+	private static function list_item_fragments( string $block_name, string $html, string $path ): array {
+		if ( 'core/list' !== $block_name || '' === trim( $html ) ) {
+			return array();
+		}
+
+		$fragments = array();
+		if ( ! preg_match_all( '/<li\\b(?P<attrs>[^>]*)>(?P<html>.*?)<\\/li>/is', $html, $matches, PREG_SET_ORDER ) ) {
+			return $fragments;
+		}
+
+		foreach ( $matches as $index => $match ) {
+			$item_html = (string) ( $match['html'] ?? '' );
+			if ( '' === trim( wp_strip_all_tags( $item_html ) ) ) {
+				continue;
+			}
+			$fragments[] = array(
+				'key'        => self::list_item_fragment_key( $path, (int) $index ),
+				'html'       => wp_kses_post( $item_html ),
+				'item_index' => (int) $index,
+			);
+		}
+
+		return $fragments;
+	}
+
+	/**
+	 * Project localized fragments into static core/list item content.
+	 *
+	 * @param array<string,string> $fragments Localized values by key.
+	 * @param array<string,int>    $stats Projection stats.
+	 */
+	private static function project_list_item_fragments( string $html, string $path, array $fragments, array &$stats ): string {
+		$item_index = 0;
+
+		return preg_replace_callback(
+			'/(<li\\b(?P<attrs>[^>]*)>)(?P<html>.*?)(<\\/li>)/is',
+			static function ( array $matches ) use ( $path, $fragments, &$stats, &$item_index ): string {
+				$key = self::list_item_fragment_key( $path, $item_index );
+				++$item_index;
+				if ( ! array_key_exists( $key, $fragments ) ) {
+					return (string) $matches[0];
+				}
+
+				$stats['projected_count']++;
+				return (string) $matches[1] . (string) $fragments[ $key ] . (string) $matches[4];
+			},
+			$html
+		) ?? $html;
+	}
+
+	/**
+	 * @param array<int,mixed> $inner_content Parsed block innerContent.
+	 * @return array<int,mixed>
+	 */
+	private static function replace_core_list_inner_content( array $inner_content, string $list_html ): array {
+		foreach ( $inner_content as &$part ) {
+			if ( is_string( $part ) && ( false !== stripos( $part, '<ul' ) || false !== stripos( $part, '<ol' ) ) ) {
+				$part = $list_html;
+				unset( $part );
+				return $inner_content;
+			}
+		}
+		unset( $part );
+
+		return array( $list_html );
+	}
+
+	/**
 	 * Hash the non-text design signature of a Gutenberg block tree.
 	 */
 	private static function source_design_signature_hash( string $content ): string {
@@ -1787,6 +1906,9 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		if ( 'core/table' === $block_name ) {
 			return self::core_table_html_shell( $html );
 		}
+		if ( 'core/list' === $block_name ) {
+			return self::core_list_html_shell( $html );
+		}
 		if ( 'core/image' === $block_name ) {
 			return self::core_image_html_shell( $html );
 		}
@@ -1811,6 +1933,19 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			preg_replace(
 				'/(<(?P<tag>td|th)\\b(?P<attrs>[^>]*)>)(?P<html>.*?)(<\\/\\2>)/is',
 				'$1{{text}}$5',
+				$html
+			) ?? ''
+		);
+	}
+
+	/**
+	 * Preserve list structure while removing localized item text from signatures.
+	 */
+	private static function core_list_html_shell( string $html ): string {
+		return trim(
+			preg_replace(
+				'/(<li\\b(?P<attrs>[^>]*)>)(?P<html>.*?)(<\\/li>)/is',
+				'$1{{text}}$4',
 				$html
 			) ?? ''
 		);
