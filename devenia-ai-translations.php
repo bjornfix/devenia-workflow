@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.417
+ * Version: 0.1.418
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.417';
+	const VERSION = '0.1.418';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -6520,54 +6520,41 @@ final class Devenia_AI_Translations {
 					'translation_id' => $created['translation_id'],
 					'verify_live'    => $verify_live,
 					'sync_menu'      => false,
+					'codex_thread_id' => $codex_thread_id,
 				)
 			);
 			self::add_lifecycle_check(
 				$checks,
 				$failed,
 				'publish_without_review_blocked',
-				empty( $publish_without_review['success'] ) && isset( $publish_without_review['review_state'] ),
+				empty( $publish_without_review['success'] ) && 'workflow_authority_identity_required' !== (string) ( $publish_without_review['code'] ?? '' ),
 				self::lifecycle_compact_publish_result( $publish_without_review )
 			);
 
-			$linguistic_review = self::mark_linguistic_reviewed(
+			$self_linguistic_review = self::mark_linguistic_reviewed(
 				array_merge(
 					array(
 						'translation_id' => $created['translation_id'],
 						'reviewer'       => 'Lifecycle regression',
 						'note'           => 'Temporary lifecycle regression proof.',
 						'run_qa'         => true,
+						'codex_thread_id' => $codex_thread_id,
 					),
 					self::review_check_input( self::required_linguistic_review_checks( $language ) )
 				)
 			);
-			self::add_lifecycle_check( $checks, $failed, 'linguistic_review_marked', ! empty( $linguistic_review['success'] ), self::lifecycle_compact_review_result( $linguistic_review ) );
+			self::add_lifecycle_check(
+				$checks,
+				$failed,
+				'linguistic_self_review_blocked',
+				empty( $self_linguistic_review['success'] ) && 'workflow_authority_identity_required' !== (string) ( $self_linguistic_review['code'] ?? '' ),
+				self::lifecycle_compact_review_result( $self_linguistic_review )
+			);
 
 			$review_state = self::linguistic_review_state_for_post( $created['translation_id'] );
-			self::add_lifecycle_check( $checks, $failed, 'review_current_after_mark', ! empty( $review_state['passed'] ), $review_state );
+			self::add_lifecycle_check( $checks, $failed, 'review_state_still_requires_independent_review', empty( $review_state['passed'] ) && in_array( 'missing_linguistic_review', $review_state['stale_reasons'] ?? array(), true ), $review_state );
 
-			$publish = self::publish_translation(
-				array(
-					'translation_id' => $created['translation_id'],
-					'verify_live'    => $verify_live,
-					'sync_menu'      => false,
-				)
-			);
-			self::add_lifecycle_check( $checks, $failed, 'publish_after_review_succeeds', ! empty( $publish['success'] ), self::lifecycle_compact_publish_result( $publish ) );
-
-			$quality_review = self::mark_quality_reviewed(
-				array_merge(
-					array(
-						'page_id'  => $created['translation_id'],
-						'reviewer' => 'Lifecycle regression',
-						'note'     => 'Temporary lifecycle regression proof.',
-					),
-					self::review_check_input( self::required_quality_review_checks( $language ) )
-				)
-			);
-			self::add_lifecycle_check( $checks, $failed, 'quality_review_marked', ! empty( $quality_review['success'] ), self::lifecycle_compact_review_result( $quality_review ) );
-
-			$update_after_review = self::upsert_translation(
+			$writer_publish_update = self::upsert_translation(
 				array(
 					'translation_id'       => $created['translation_id'],
 					'source_id'            => $created['source_id'],
@@ -6583,27 +6570,12 @@ final class Devenia_AI_Translations {
 					'codex_thread_id'      => $codex_thread_id,
 				)
 			);
-			self::add_lifecycle_check( $checks, $failed, 'review_invalidates_after_content_change', ! empty( $update_after_review['success'] ) && ! empty( $update_after_review['review_invalidated'] ), self::lifecycle_compact_upsert_result( $update_after_review ) );
-
-			$state_after_change = self::linguistic_review_state_for_post( $created['translation_id'] );
-			self::add_lifecycle_check( $checks, $failed, 'review_state_stale_after_change', empty( $state_after_change['passed'] ) && in_array( 'missing_linguistic_review', $state_after_change['stale_reasons'] ?? array(), true ), $state_after_change );
-
-			$quality_evidence_after_change = self::quality_review_evidence_for_post( $created['translation_id'] );
-			self::add_lifecycle_check( $checks, $failed, 'quality_review_evidence_removed_after_change', empty( $quality_evidence_after_change ), array( 'quality_evidence' => $quality_evidence_after_change ) );
-
-			$publish_after_change = self::publish_translation(
-				array(
-					'translation_id' => $created['translation_id'],
-					'verify_live'    => $verify_live,
-					'sync_menu'      => false,
-				)
-			);
 			self::add_lifecycle_check(
 				$checks,
 				$failed,
-				'publish_after_change_blocked',
-				empty( $publish_after_change['success'] ) && isset( $publish_after_change['review_state'] ),
-				self::lifecycle_compact_publish_result( $publish_after_change )
+				'writer_publish_update_blocked',
+				empty( $writer_publish_update['success'] ) && 'workflow_authority_identity_required' !== (string) ( $writer_publish_update['code'] ?? '' ),
+				self::lifecycle_compact_upsert_result( $writer_publish_update )
 			);
 		} finally {
 			if ( $cleanup && ! $cleanup_completed ) {
