@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.414
+ * Version: 0.1.415
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.414';
+	const VERSION = '0.1.415';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -15347,7 +15347,7 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		$obligations = self::workflow_obligations(
+		$obligations = self::heartbeat_obligations(
 			array(
 				'limit' => $limit,
 				'include_items' => true,
@@ -15463,6 +15463,210 @@ final class Devenia_AI_Translations {
 			'skipped_sample' => array_slice( $skipped, 0, 10 ),
 			'heartbeat_policy' => self::heartbeat_policy(),
 		);
+	}
+
+	/**
+	 * Fast obligation read model for heartbeat assignment.
+	 *
+	 * The full workflow_obligations response intentionally expands rich review
+	 * state for dashboards. Heartbeat assignment only needs the next safe item,
+	 * so this path uses indexed rows and cheap meta reads first. It does not
+	 * assign publish work from the fast path; publication still uses the full
+	 * publish gate.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>
+	 */
+	private static function heartbeat_obligations( array $input ): array {
+		$source_id     = absint( $input['source_id'] ?? 0 );
+		$limit         = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 100;
+		$include_items = array_key_exists( 'include_items', $input ) ? (bool) $input['include_items'] : true;
+		$sources       = array();
+
+		if ( $source_id ) {
+			$source = get_post( $source_id );
+			if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
+				return self::error( 'Source content not found.' );
+			}
+			$sources[] = $source;
+		} else {
+			$query = self::source_page_query(
+				array(
+					'post_status'    => 'publish',
+					'posts_per_page' => 1000,
+					'orderby'        => 'modified',
+					'order'          => 'DESC',
+				)
+			);
+			foreach ( $query->posts as $candidate ) {
+				if ( ! self::is_translation_post( (int) $candidate->ID ) ) {
+					$sources[] = $candidate;
+					if ( count( $sources ) >= $limit ) {
+						break;
+					}
+				}
+			}
+		}
+
+		$totals = array(
+			'sources_scanned'          => count( $sources ),
+			'translations_seen'        => 0,
+			'missing_translations'     => 0,
+			'needs_source_reprojection' => 0,
+			'needs_draft_work'         => 0,
+			'needs_linguistic_review' => 0,
+			'needs_quality_review'    => 0,
+			'needs_final_review'      => 0,
+			'ready_to_publish'        => 0,
+			'published'               => 0,
+			'blocked_from_publish'    => 0,
+		);
+		$items = array();
+
+		foreach ( $sources as $source ) {
+			$current_source_hash = self::source_hash( $source );
+			$translations_by_language = array();
+			foreach ( self::heartbeat_translation_rows_for_source( (int) $source->ID ) as $translation ) {
+				$translation_language = sanitize_key( (string) ( $translation['language'] ?? '' ) );
+				if ( '' !== $translation_language ) {
+					$translations_by_language[ $translation_language ] = $translation;
+				}
+			}
+
+			foreach ( self::target_languages() as $language => $config ) {
+				$language    = sanitize_key( (string) $language );
+				$translation = $translations_by_language[ $language ] ?? array();
+				if ( empty( $translation ) ) {
+					++$totals['missing_translations'];
+					++$totals['needs_draft_work'];
+					if ( $include_items ) {
+						$items[] = array(
+							'source_id' => (int) $source->ID,
+							'source_title' => get_the_title( $source ),
+							'translation_id' => 0,
+							'language' => $language,
+							'language_name' => sanitize_text_field( (string) ( $config['name'] ?? strtoupper( $language ) ) ),
+							'post_status' => '',
+							'writer_token_label' => '',
+							'obligations' => array( 'draft_write' ),
+							'linguistic' => 'missing_translation',
+							'quality' => 'missing_translation',
+							'final' => 'missing_translation',
+						);
+					}
+					continue;
+				}
+
+				$translation_id = absint( $translation['id'] ?? 0 );
+				if ( ! $translation_id ) {
+					continue;
+				}
+				++$totals['translations_seen'];
+
+				$post_status = sanitize_key( (string) ( $translation['status'] ?? '' ) );
+				$source_hash = (string) ( $translation['source_hash'] ?? '' );
+				$linguistic_reviewed_at = (string) ( $translation['linguistic_reviewed_at'] ?? '' );
+				$quality_reviewed_at    = (string) ( $translation['quality_reviewed_at'] ?? '' );
+				$final_reviewed_at      = (string) ( $translation['final_reviewed_at'] ?? '' );
+				$obligations = array();
+				$linguistic_state = '' === $linguistic_reviewed_at ? 'needs_linguistic_review' : 'reviewed_recorded';
+				$quality_state    = '' === $quality_reviewed_at ? 'needs_quality_review' : 'quality_review_recorded';
+				$final_state      = '' === $final_reviewed_at ? 'needs_final_review' : 'final_review_recorded';
+
+				if ( '' !== $source_hash && '' !== $current_source_hash && $source_hash !== $current_source_hash ) {
+					++$totals['needs_source_reprojection'];
+					++$totals['needs_draft_work'];
+					$obligations[] = 'source_reprojection';
+				} elseif ( '' === $linguistic_reviewed_at ) {
+					++$totals['needs_linguistic_review'];
+					$obligations[] = 'linguistic_review';
+				}
+				if ( '' === $quality_reviewed_at ) {
+					++$totals['needs_quality_review'];
+					$obligations[] = 'quality_review';
+				}
+				if ( '' === $final_reviewed_at ) {
+					++$totals['needs_final_review'];
+					$obligations[] = 'final_review';
+				}
+
+				if ( 'publish' === $post_status ) {
+					++$totals['published'];
+				} elseif ( empty( $obligations ) ) {
+					++$totals['ready_to_publish'];
+				} else {
+					++$totals['blocked_from_publish'];
+				}
+
+				if ( $include_items && $obligations ) {
+					$items[] = array(
+						'source_id' => (int) $source->ID,
+						'source_title' => get_the_title( $source ),
+						'translation_id' => $translation_id,
+						'language' => $language,
+						'post_status' => $post_status,
+						'writer_token_label' => sanitize_key( (string) ( $translation['writer_token_label'] ?? '' ) ),
+						'obligations' => array_values( array_unique( $obligations ) ),
+						'linguistic' => $linguistic_state,
+						'quality' => $quality_state,
+						'final' => $final_state,
+					);
+				}
+			}
+		}
+
+		return array(
+			'success' => true,
+			'totals'  => $totals,
+			'items'   => $include_items ? $items : array(),
+			'read_model' => 'heartbeat_fast_index',
+		);
+	}
+
+	/**
+	 * Compact translation rows for heartbeat obligation selection.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function heartbeat_translation_rows_for_source( int $source_id ): array {
+		$rows = self::translation_index_rows_for_source( $source_id, self::translation_workflow_post_statuses( false ) );
+		$out  = array();
+		foreach ( $rows as $row ) {
+			$translation_id = absint( $row['id'] ?? $row['translation_post_id'] ?? 0 );
+			if ( ! $translation_id ) {
+				continue;
+			}
+			$out[] = array(
+				'id'                     => $translation_id,
+				'language'               => sanitize_key( (string) ( $row['language'] ?? '' ) ),
+				'status'                 => sanitize_key( (string) ( $row['status'] ?? $row['post_status'] ?? '' ) ),
+				'source_hash'            => (string) ( $row['source_hash'] ?? '' ),
+				'linguistic_reviewed_at' => (string) ( $row['linguistic_reviewed_at'] ?? '' ),
+				'quality_reviewed_at'    => (string) ( $row['quality_reviewed_at'] ?? '' ),
+				'final_reviewed_at'      => (string) get_post_meta( $translation_id, self::META_FINAL_REVIEWED_AT, true ),
+				'writer_token_label'     => sanitize_key( (string) ( self::translation_writer_provenance( $translation_id )['token_label'] ?? '' ) ),
+			);
+		}
+
+		if ( ! empty( $out ) || self::translation_index_available() ) {
+			return $out;
+		}
+
+		foreach ( self::translation_posts_for_source( $source_id, self::translation_workflow_post_statuses( false ) ) as $post ) {
+			$translation_id = (int) $post->ID;
+			$out[] = array(
+				'id'                     => $translation_id,
+				'language'               => sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) ),
+				'status'                 => sanitize_key( (string) $post->post_status ),
+				'source_hash'            => (string) get_post_meta( $translation_id, self::META_SOURCE_HASH, true ),
+				'linguistic_reviewed_at' => (string) get_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, true ),
+				'quality_reviewed_at'    => (string) get_post_meta( $translation_id, self::META_QUALITY_REVIEWED_AT, true ),
+				'final_reviewed_at'      => (string) get_post_meta( $translation_id, self::META_FINAL_REVIEWED_AT, true ),
+				'writer_token_label'     => sanitize_key( (string) ( self::translation_writer_provenance( $translation_id )['token_label'] ?? '' ) ),
+			);
+		}
+
+		return $out;
 	}
 
 	private static function heartbeat_first_actionable_obligation( $obligations ): string {

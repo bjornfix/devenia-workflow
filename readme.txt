@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.414
+Stable tag: 0.1.415
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.415 =
+* Speeds up heartbeat assignment by using a compact indexed obligation model instead of expanding full translation payloads for every candidate source.
+* Keeps publication out of the fast heartbeat path so speed improvements do not weaken publish gates.
 
 = 0.1.414 =
 * Ignores intentional language-switcher hreflang anchors in frontend link integrity checks so localized homepages are not blocked by their own language selector.

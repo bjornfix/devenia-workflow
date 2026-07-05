@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.414
+**Stable tag:** 0.1.415
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,13 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.415
+
+- Speeds up heartbeat assignment by using a compact indexed obligation model
+  instead of expanding full translation payloads for every candidate source.
+- Keeps publication out of the fast heartbeat path so speed improvements do not
+  weaken publish gates.
 
 ### 0.1.414
 
