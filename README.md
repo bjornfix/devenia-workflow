@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.415
+**Stable tag:** 0.1.416
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,14 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.416
+
+- Rejects source-language URL vocabulary for languages that require
+  transliterated URLs, so drafts must use target-language transliteration
+  instead of English/source-based ASCII slugs.
+- Adds the same transliteration URL contract to route QA/readiness so existing
+  translations with bad slugs enter the review/fix queue.
 
 ### 0.1.415
 

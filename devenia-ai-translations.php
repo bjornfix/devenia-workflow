@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.415
+ * Version: 0.1.416
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.415';
+	const VERSION = '0.1.416';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -6458,6 +6458,28 @@ final class Devenia_AI_Translations {
 					empty( $source_slug_copy['success'] ) && 'localized_slug_copied_from_source' === (string) ( $source_slug_copy['code'] ?? '' ),
 					self::lifecycle_compact_upsert_result( $source_slug_copy )
 				);
+
+				$source_vocabulary_slug = 'lifecycle-proof-translation-review-' . $suffix;
+				$source_vocabulary_copy = self::upsert_translation(
+					array(
+						'source_id'          => $created['source_id'],
+						'language'           => $language,
+						'localized_slug'     => $source_vocabulary_slug,
+						'localized_path'     => trim( self::localized_blog_base_path( $language ) . '/' . $source_vocabulary_slug, '/' ),
+						'title'              => (string) $fixture['title'] . ' ' . $suffix,
+						'content'            => (string) $fixture['content'],
+						'excerpt'            => (string) $fixture['excerpt'],
+						'status'             => 'draft',
+						'translation_status' => 'needs_review',
+					)
+				);
+				self::add_lifecycle_check(
+					$checks,
+					$failed,
+					'transliterated_source_vocabulary_slug_rejected',
+					empty( $source_vocabulary_copy['success'] ) && 'localized_slug_source_language_vocabulary' === (string) ( $source_vocabulary_copy['code'] ?? '' ),
+					self::lifecycle_compact_upsert_result( $source_vocabulary_copy )
+				);
 			}
 
 			$upsert = self::upsert_translation(
@@ -10346,7 +10368,10 @@ final class Devenia_AI_Translations {
 			'properties'           => array(
 				'source_id'         => array( 'type' => 'integer' ),
 				'language'          => array( 'type' => 'string' ),
-				'localized_slug'    => array( 'type' => 'string' ),
+				'localized_slug'    => array(
+					'type'        => 'string',
+					'description' => 'Localized URL slug. Languages with transliterated URLs must use target-language transliteration in ASCII, not English/source-language route words.',
+				),
 				'localized_parent_path' => array(
 					'type'        => 'string',
 					'description' => 'Optional page parent path under the language prefix, such as tjenester or tjenester/seo. Page translations only.',
@@ -10354,7 +10379,7 @@ final class Devenia_AI_Translations {
 				'localized_parent_id' => array( 'type' => 'integer' ),
 				'localized_path'      => array(
 					'type'        => 'string',
-					'description' => 'Optional full localized path for translated posts, such as nb/blogg/flerspraklige-utfordringer. Defaults to the localized blog archive path plus slug.',
+					'description' => 'Optional full localized path for translated posts, such as nb/blogg/flerspraklige-utfordringer. Defaults to the localized blog archive path plus slug. Languages with transliterated URLs must use target-language transliteration in ASCII, not English/source-language route words.',
 				),
 				'allow_year_in_url'   => array(
 					'type'        => 'boolean',
@@ -12761,6 +12786,18 @@ final class Devenia_AI_Translations {
 			return $source_slug_issue;
 		}
 
+		$source_vocabulary_issue = self::validate_transliterated_segment_not_source_vocabulary(
+			$slug,
+			$source,
+			$language,
+			$allow_source_slug,
+			$source_slug_reason,
+			'localized_slug'
+		);
+		if ( $source_vocabulary_issue ) {
+			return $source_vocabulary_issue;
+		}
+
 		return null;
 	}
 
@@ -12801,8 +12838,130 @@ final class Devenia_AI_Translations {
 			'code'    => 'localized_slug_copied_from_source',
 			'field'   => $field,
 			'segment' => $segment,
-			'language'=> $language,
+			'language' => $language,
 		);
+	}
+
+	/**
+	 * Reject ASCII slugs for transliterated languages when they are built from
+	 * source-language vocabulary instead of target-language transliteration.
+	 */
+	private static function validate_transliterated_segment_not_source_vocabulary( string $segment, ?WP_Post $source, string $language, bool $allow_source_slug, string $source_slug_reason, string $field ): ?array {
+		$segment = sanitize_title( $segment );
+		if ( '' === $segment || ! $source || ! self::language_requires_transliterated_urls( $language ) ) {
+			return null;
+		}
+
+		$reason = self::normalize_review_text( wp_strip_all_tags( $source_slug_reason ) );
+		if ( $allow_source_slug && '' !== $reason ) {
+			return null;
+		}
+
+		$segment_tokens = self::source_language_slug_tokens( $segment );
+		if ( count( $segment_tokens ) < 2 ) {
+			return null;
+		}
+
+		return self::validate_transliterated_segment_not_source_vocabulary_tokens(
+			$segment,
+			self::source_language_slug_tokens_for_post( $source ),
+			$language,
+			$field
+		);
+	}
+
+	/**
+	 * Reject a transliterated URL segment when it mostly reuses source tokens.
+	 *
+	 * @param array<int,string> $source_tokens Normalized source-language tokens.
+	 */
+	private static function validate_transliterated_segment_not_source_vocabulary_tokens( string $segment, array $source_tokens, string $language, string $field ): ?array {
+		$segment = sanitize_title( $segment );
+		if ( '' === $segment || ! self::language_requires_transliterated_urls( $language ) ) {
+			return null;
+		}
+		$segment_tokens = self::source_language_slug_tokens( $segment );
+		if ( count( $segment_tokens ) < 2 || empty( $source_tokens ) ) {
+			return null;
+		}
+
+		$matches = array_values( array_intersect( $segment_tokens, $source_tokens ) );
+		$ratio   = count( $matches ) / max( 1, count( $segment_tokens ) );
+		if ( count( $matches ) < 2 || $ratio < 0.5 ) {
+			return null;
+		}
+
+		return array(
+			'success'        => false,
+			'message'        => 'Localized URL segment uses source-language vocabulary. For this language, use target-language transliteration in ASCII, or pass allow_source_slug_in_url with source_slug_reason only for brand/proper-name URLs.',
+			'code'           => 'localized_slug_source_language_vocabulary',
+			'field'          => $field,
+			'segment'        => $segment,
+			'language'       => $language,
+			'matched_tokens' => array_slice( $matches, 0, 10 ),
+		);
+	}
+
+	/**
+	 * Source-language comparable tokens for route contract checks.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function source_language_slug_tokens_for_post( WP_Post $source ): array {
+		return self::source_language_slug_tokens(
+			implode(
+				' ',
+				array(
+					(string) $source->post_name,
+					(string) $source->post_title,
+					(string) $source->post_excerpt,
+					self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( (string) $source->post_content ) ) ),
+				)
+			)
+		);
+	}
+
+	/**
+	 * Normalize source-language URL/title/content into comparable slug tokens.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function source_language_slug_tokens( string $text ): array {
+		$text = strtolower( html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ) );
+		$raw_tokens = preg_split( '/[^a-z0-9]+/', $text );
+		if ( ! is_array( $raw_tokens ) ) {
+			return array();
+		}
+
+		$stopwords = array(
+			'a' => true, 'an' => true, 'and' => true, 'are' => true, 'as' => true, 'at' => true, 'be' => true, 'but' => true,
+			'by' => true, 'can' => true, 'for' => true, 'from' => true, 'how' => true, 'if' => true, 'in' => true, 'into' => true,
+			'is' => true, 'it' => true, 'not' => true, 'of' => true, 'on' => true, 'or' => true, 'online' => true, 'should' => true,
+			'that' => true, 'the' => true, 'their' => true, 'them' => true, 'this' => true, 'to' => true, 'what' => true, 'when' => true,
+			'where' => true, 'why' => true, 'with' => true, 'you' => true, 'your' => true,
+		);
+
+		$tokens = array();
+		foreach ( $raw_tokens as $token ) {
+			$token = trim( (string) $token );
+			if ( strlen( $token ) < 3 || isset( $stopwords[ $token ] ) ) {
+				continue;
+			}
+			if ( str_ends_with( $token, "'s" ) ) {
+				$token = substr( $token, 0, -2 );
+			}
+			if ( strlen( $token ) > 4 && str_ends_with( $token, 'ies' ) ) {
+				$token = substr( $token, 0, -3 ) . 'y';
+			} elseif ( strlen( $token ) > 4 && str_ends_with( $token, 's' ) ) {
+				$token = substr( $token, 0, -1 );
+			}
+			if ( strlen( $token ) < 3 || isset( $stopwords[ $token ] ) ) {
+				continue;
+			}
+			$tokens[ $token ] = $token;
+		}
+
+		return array_values( $tokens );
 	}
 
 	/**
@@ -12921,8 +13080,9 @@ final class Devenia_AI_Translations {
 			return null;
 		}
 
-		$segments = array_values( array_filter( explode( '/', trim( $parent_path, '/' ) ), 'strlen' ) );
+		$segments               = array_values( array_filter( explode( '/', trim( $parent_path, '/' ) ), 'strlen' ) );
 		$source_parent_segments = $source ? self::source_parent_slug_segments( $source ) : array();
+		$source_parent_tokens   = $source ? self::source_parent_language_slug_tokens( $source ) : array();
 		foreach ( $segments as $segment ) {
 			$sanitized = sanitize_title( $segment );
 			if ( $segment !== $sanitized || ! preg_match( '/^[A-Za-z0-9_-]+$/', $segment ) ) {
@@ -12938,6 +13098,15 @@ final class Devenia_AI_Translations {
 			);
 			if ( $source_slug_issue ) {
 				return $source_slug_issue;
+			}
+			$source_vocabulary_issue = self::validate_transliterated_segment_not_source_vocabulary_tokens(
+				$sanitized,
+				$source_parent_tokens,
+				$language,
+				'localized_parent_path'
+			);
+			if ( $source_vocabulary_issue ) {
+				return $source_vocabulary_issue;
 			}
 		}
 
@@ -12964,6 +13133,31 @@ final class Devenia_AI_Translations {
 		}
 
 		return $segments;
+	}
+
+	/**
+	 * Source-language comparable tokens for hierarchical page parent routes.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function source_parent_language_slug_tokens( WP_Post $source ): array {
+		if ( 'page' !== (string) $source->post_type ) {
+			return array();
+		}
+
+		$ancestor_ids = array_reverse( array_map( 'absint', get_post_ancestors( $source ) ) );
+		$text_parts   = array();
+		foreach ( $ancestor_ids as $ancestor_id ) {
+			$ancestor = get_post( $ancestor_id );
+			if ( ! $ancestor instanceof WP_Post ) {
+				continue;
+			}
+			$text_parts[] = (string) $ancestor->post_name;
+			$text_parts[] = (string) $ancestor->post_title;
+			$text_parts[] = (string) $ancestor->post_excerpt;
+		}
+
+		return self::source_language_slug_tokens( implode( ' ', $text_parts ) );
 	}
 
 	/**
@@ -15048,7 +15242,8 @@ final class Devenia_AI_Translations {
 			'translations_seen'        => 0,
 			'missing_translations'     => 0,
 			'needs_source_reprojection' => 0,
-			'needs_draft_work'         => 0,
+			'needs_draft_work'        => 0,
+			'needs_route_repair'      => 0,
 			'needs_linguistic_review' => 0,
 			'needs_quality_review'    => 0,
 			'needs_final_review'      => 0,
@@ -15097,12 +15292,19 @@ final class Devenia_AI_Translations {
 				}
 				++$totals['translations_seen'];
 				$linguistic_state = sanitize_key( (string) ( $translation['linguistic_review_state']['state'] ?? 'needs_linguistic_review' ) );
-				$quality_state = sanitize_key( (string) ( $translation['quality_review_state']['state'] ?? 'needs_quality_review' ) );
-				$final_state = sanitize_key( (string) ( $translation['final_review_state']['state'] ?? 'needs_final_review' ) );
-				$post_status = sanitize_key( (string) ( $translation['status'] ?? '' ) );
-				$obligations = array();
+				$quality_state    = sanitize_key( (string) ( $translation['quality_review_state']['state'] ?? 'needs_quality_review' ) );
+				$final_state      = sanitize_key( (string) ( $translation['final_review_state']['state'] ?? 'needs_final_review' ) );
+				$route_integrity  = isset( $translation['route_integrity'] ) && is_array( $translation['route_integrity'] ) ? $translation['route_integrity'] : array();
+				$route_issue_count = absint( $route_integrity['issue_count'] ?? 0 );
+				$post_status      = sanitize_key( (string) ( $translation['status'] ?? '' ) );
+				$obligations      = array();
 
-				if ( ! empty( $translation['is_stale'] ) ) {
+				if ( $route_issue_count > 0 ) {
+					++$totals['needs_route_repair'];
+					++$totals['needs_draft_work'];
+					$obligations[]   = 'route_repair';
+					$linguistic_state = 'route_repair_required';
+				} elseif ( ! empty( $translation['is_stale'] ) ) {
 					++$totals['needs_source_reprojection'];
 					++$totals['needs_draft_work'];
 					$obligations[] = 'source_reprojection';
@@ -15382,7 +15584,7 @@ final class Devenia_AI_Translations {
 			}
 
 			foreach ( $item_obligations as $obligation ) {
-				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection' ), true )
+				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair' ), true )
 					? self::heartbeat_draft_work_eligibility( $identity )
 					: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
 				if ( empty( $eligibility['success'] ) ) {
@@ -15513,7 +15715,8 @@ final class Devenia_AI_Translations {
 			'translations_seen'        => 0,
 			'missing_translations'     => 0,
 			'needs_source_reprojection' => 0,
-			'needs_draft_work'         => 0,
+			'needs_draft_work'        => 0,
+			'needs_route_repair'      => 0,
 			'needs_linguistic_review' => 0,
 			'needs_quality_review'    => 0,
 			'needs_final_review'      => 0,
@@ -15524,7 +15727,8 @@ final class Devenia_AI_Translations {
 		$items = array();
 
 		foreach ( $sources as $source ) {
-			$current_source_hash = self::source_hash( $source );
+			$current_source_hash  = self::source_hash( $source );
+			$source_language_tokens = self::source_language_slug_tokens_for_post( $source );
 			$translations_by_language = array();
 			foreach ( self::heartbeat_translation_rows_for_source( (int) $source->ID ) as $translation ) {
 				$translation_language = sanitize_key( (string) ( $translation['language'] ?? '' ) );
@@ -15566,14 +15770,21 @@ final class Devenia_AI_Translations {
 				$post_status = sanitize_key( (string) ( $translation['status'] ?? '' ) );
 				$source_hash = (string) ( $translation['source_hash'] ?? '' );
 				$linguistic_reviewed_at = (string) ( $translation['linguistic_reviewed_at'] ?? '' );
-				$quality_reviewed_at    = (string) ( $translation['quality_reviewed_at'] ?? '' );
-				$final_reviewed_at      = (string) ( $translation['final_reviewed_at'] ?? '' );
+				$quality_reviewed_at = (string) ( $translation['quality_reviewed_at'] ?? '' );
+				$final_reviewed_at = (string) ( $translation['final_reviewed_at'] ?? '' );
+				$slug = sanitize_title( (string) ( $translation['slug'] ?? '' ) );
 				$obligations = array();
 				$linguistic_state = '' === $linguistic_reviewed_at ? 'needs_linguistic_review' : 'reviewed_recorded';
-				$quality_state    = '' === $quality_reviewed_at ? 'needs_quality_review' : 'quality_review_recorded';
-				$final_state      = '' === $final_reviewed_at ? 'needs_final_review' : 'final_review_recorded';
+				$quality_state = '' === $quality_reviewed_at ? 'needs_quality_review' : 'quality_review_recorded';
+				$final_state = '' === $final_reviewed_at ? 'needs_final_review' : 'final_review_recorded';
+				$route_issue = self::heartbeat_translation_slug_language_issue( $slug, $language, $source, $source_language_tokens );
 
-				if ( '' !== $source_hash && '' !== $current_source_hash && $source_hash !== $current_source_hash ) {
+				if ( $route_issue ) {
+					++$totals['needs_route_repair'];
+					++$totals['needs_draft_work'];
+					$obligations[]   = 'route_repair';
+					$linguistic_state = 'route_repair_required';
+				} elseif ( '' !== $source_hash && '' !== $current_source_hash && $source_hash !== $current_source_hash ) {
 					++$totals['needs_source_reprojection'];
 					++$totals['needs_draft_work'];
 					$obligations[] = 'source_reprojection';
@@ -15636,10 +15847,12 @@ final class Devenia_AI_Translations {
 			if ( ! $translation_id ) {
 				continue;
 			}
+			$post = get_post( $translation_id );
 			$out[] = array(
 				'id'                     => $translation_id,
 				'language'               => sanitize_key( (string) ( $row['language'] ?? '' ) ),
 				'status'                 => sanitize_key( (string) ( $row['status'] ?? $row['post_status'] ?? '' ) ),
+				'slug'                   => $post ? (string) $post->post_name : '',
 				'source_hash'            => (string) ( $row['source_hash'] ?? '' ),
 				'linguistic_reviewed_at' => (string) ( $row['linguistic_reviewed_at'] ?? '' ),
 				'quality_reviewed_at'    => (string) ( $row['quality_reviewed_at'] ?? '' ),
@@ -15669,6 +15882,27 @@ final class Devenia_AI_Translations {
 		return $out;
 	}
 
+	/**
+	 * Fast route-contract check for heartbeat obligation selection.
+	 *
+	 * @param array<int,string> $source_language_tokens Precomputed source tokens.
+	 */
+	private static function heartbeat_translation_slug_language_issue( string $slug, string $language, WP_Post $source, array $source_language_tokens ): bool {
+		$slug     = sanitize_title( $slug );
+		$language = sanitize_key( $language );
+		if ( '' === $slug || '' === $language || ! self::language_requires_transliterated_urls( $language ) ) {
+			return false;
+		}
+		if ( self::has_wordpress_duplicate_slug_suffix( $slug ) ) {
+			return true;
+		}
+		if ( self::validate_transliterated_segment_not_source_copy( $slug, array( (string) $source->post_name ), $language, false, '', 'localized_slug' ) ) {
+			return true;
+		}
+
+		return null !== self::validate_transliterated_segment_not_source_vocabulary_tokens( $slug, $source_language_tokens, $language, 'localized_slug' );
+	}
+
 	private static function heartbeat_first_actionable_obligation( $obligations ): string {
 		$ordered = self::heartbeat_actionable_obligations( $obligations );
 		return $ordered[0] ?? '';
@@ -15678,7 +15912,7 @@ final class Devenia_AI_Translations {
 		if ( ! is_array( $obligations ) ) {
 			return array();
 		}
-		$allowed = array( 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
+		$allowed = array( 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
 		$ordered = array();
 		foreach ( $allowed as $obligation ) {
 			if ( in_array( $obligation, $obligations, true ) ) {
@@ -15736,19 +15970,26 @@ final class Devenia_AI_Translations {
 				'required_ability' => 'ai-translations/publish-translation',
 				'instructions' => 'Publish only with current linguistic, quality, and final review evidence. Use live verification.',
 			),
-			'source_reprojection' => array(
-				'action' => 'reproject_source_design',
-				'workflow_step' => 'draft_write',
-				'required_ability' => 'ai-translations/reproject-source-design',
-				'design_ownership' => $design_ownership,
-				'instructions' => 'The source design has moved ahead of this translation. Fetch the Site Presentation article contract, inspect the source and existing translation, migrate/source-design fragments if needed, run ai-translations/reproject-source-design through approved workflow abilities, then stop before reviewing or publishing your own reprojection.',
-			),
-			'draft_write' => array(
+				'source_reprojection' => array(
+					'action' => 'reproject_source_design',
+					'workflow_step' => 'draft_write',
+					'required_ability' => 'ai-translations/reproject-source-design',
+					'design_ownership' => $design_ownership,
+					'instructions' => 'The source design has moved ahead of this translation. Fetch the Site Presentation article contract, inspect the source and existing translation, migrate/source-design fragments if needed, run ai-translations/reproject-source-design through approved workflow abilities, then stop before reviewing or publishing your own reprojection.',
+				),
+				'route_repair' => array(
+					'action' => 'repair_translation_route',
+					'workflow_step' => 'draft_write',
+					'required_ability' => 'ai-translations/upsert-page',
+					'design_ownership' => $design_ownership,
+					'instructions' => 'The existing translation route violates the localized URL contract. Fetch the source, the current translation, workflow status, QA route_integrity details, and the Site Presentation article contract. Preserve the existing translated content/design unless it also needs normal content fixes, then use ai-translations/upsert-page to set a correct localized_slug/localized_path. For languages with transliterated URLs, use target-language transliteration in ASCII, not English/source-language route words. Do not mark review or publish your own route repair.',
+				),
+				'draft_write' => array(
 				'action' => 'write_missing_translation',
 				'workflow_step' => 'draft_write',
 				'required_ability' => 'ai-translations/upsert-page',
 				'design_ownership' => $design_ownership,
-				'instructions' => 'This language is missing for the source. Fetch the source, the workflow status, and the Site Presentation article contract. Create a real localized draft with inherited source design, localized slug/path, title, excerpt, SEO metadata, taxonomy where needed, and complete localized_fragments. Use ai-translations/upsert-page with the claim token. Do not mark review or publish the draft you create.',
+				'instructions' => 'This language is missing for the source. Fetch the source, the workflow status, and the Site Presentation article contract. Create a real localized draft with inherited source design, localized slug/path, title, excerpt, SEO metadata, taxonomy where needed, and complete localized_fragments. For languages with transliterated URLs, use target-language transliteration in ASCII; do not use English/source-language route words. Use ai-translations/upsert-page with the claim token. Do not mark review or publish the draft you create.',
 			),
 		);
 		return $map[ $obligation ] ?? array(
@@ -22731,17 +22972,22 @@ final class Devenia_AI_Translations {
 		$parent_id = array_key_exists( 'post_parent', $data ) ? absint( $data['post_parent'] ) : (int) $post->post_parent;
 		$issues = array();
 
-		if ( self::has_wordpress_duplicate_slug_suffix( $slug ) ) {
-			$issues[] = self::qa_item(
-				'localized_slug_duplicate_suffix',
-				'Translation permalink uses a WordPress duplicate slug suffix such as -2. Resolve the route collision instead of saving the duplicate URL.',
+			if ( self::has_wordpress_duplicate_slug_suffix( $slug ) ) {
+				$issues[] = self::qa_item(
+					'localized_slug_duplicate_suffix',
+					'Translation permalink uses a WordPress duplicate slug suffix such as -2. Resolve the route collision instead of saving the duplicate URL.',
 				array(
 					'slug' => $slug,
-				)
-			);
-		}
+					)
+				);
+			}
+			$language = sanitize_key( (string) get_post_meta( $post_id, self::META_LANGUAGE, true ) );
+			$slug_language_issue = self::translated_post_slug_language_issue( $post_id, $slug, $language );
+			if ( $slug_language_issue ) {
+				$issues[] = $slug_language_issue;
+			}
 
-		$conflicts = self::translation_slug_conflicts( $slug, (string) $post->post_type, $parent_id, $post_id );
+			$conflicts = self::translation_slug_conflicts( $slug, (string) $post->post_type, $parent_id, $post_id );
 		if ( $conflicts ) {
 			$issues[] = self::qa_item(
 				'localized_slug_collision',
@@ -24370,21 +24616,22 @@ final class Devenia_AI_Translations {
 			return array();
 		}
 
-		$source_id = absint( get_post_meta( $post->ID, self::META_SOURCE_ID, true ) );
-		$source    = $source_id ? get_post( $source_id ) : null;
-		$hash      = (string) get_post_meta( $post->ID, self::META_SOURCE_HASH, true );
-		$current   = $source ? self::source_hash( $source ) : '';
+		$source_id               = absint( get_post_meta( $post->ID, self::META_SOURCE_ID, true ) );
+		$source                  = $source_id ? get_post( $source_id ) : null;
+		$hash                    = (string) get_post_meta( $post->ID, self::META_SOURCE_HASH, true );
+		$current                 = $source ? self::source_hash( $source ) : '';
+		$language                = sanitize_key( (string) get_post_meta( $post->ID, self::META_LANGUAGE, true ) );
 		$linguistic_review_state = self::linguistic_review_state_for_post( (int) $post->ID );
-		$quality_review_state = self::quality_review_readiness_for_post( $post, sanitize_key( (string) get_post_meta( $post->ID, self::META_LANGUAGE, true ) ) );
-		$final_review_state = self::final_review_readiness_for_post( $post, sanitize_key( (string) get_post_meta( $post->ID, self::META_LANGUAGE, true ) ) );
-		$generated_source_id = absint( get_post_meta( $post->ID, self::META_GENERATED_SOURCE_ID, true ) );
-		$featured_image_id = self::featured_image_id_for_post( $post );
+		$quality_review_state    = self::quality_review_readiness_for_post( $post, $language );
+		$final_review_state      = self::final_review_readiness_for_post( $post, $language );
+		$generated_source_id     = absint( get_post_meta( $post->ID, self::META_GENERATED_SOURCE_ID, true ) );
+		$featured_image_id       = self::featured_image_id_for_post( $post );
 
 		return array(
 			'id'                 => (int) $post->ID,
 			'post_type'          => (string) $post->post_type,
 			'source_id'          => $source_id,
-			'language'           => (string) get_post_meta( $post->ID, self::META_LANGUAGE, true ),
+			'language'           => $language,
 			'title'              => get_the_title( $post ),
 			'slug'               => $post->post_name,
 			'status'             => $post->post_status,
@@ -24397,6 +24644,7 @@ final class Devenia_AI_Translations {
 			'current_source_hash'=> $current,
 			'is_stale'           => $hash && $current && $hash !== $current,
 			'design_inheritance_state' => self::translation_source_design_state( $post, $source ),
+			'route_integrity'    => self::translation_route_integrity( (int) $post->ID, $language ),
 			'reviewed_at'        => (string) get_post_meta( $post->ID, self::META_REVIEWED_AT, true ),
 			'writer_provenance'  => self::translation_writer_provenance( (int) $post->ID ),
 			'visible_media_provenance' => self::translation_visible_media_provenance( (int) $post->ID ),
@@ -25786,6 +26034,10 @@ final class Devenia_AI_Translations {
 				)
 			);
 		}
+		$slug_language_issue = self::translated_post_slug_language_issue( $translation_id, (string) $post->post_name, $language );
+		if ( $slug_language_issue ) {
+			$issues[] = $slug_language_issue;
+		}
 
 		$prefix = (string) $summary['prefix'];
 		$actual_path = trim( self::normalized_url_path( (string) get_permalink( $translation_id ) ), '/' );
@@ -25814,23 +26066,23 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-			$adapter_issues = apply_filters(
-				'ai_translation_workflow_route_integrity_issues',
-				array(),
-				$translation_id,
-				$language,
-				array(
-					'permalink' => (string) get_permalink( $translation_id ),
-					'summary'   => $summary,
-				)
-			);
-			if ( is_array( $adapter_issues ) ) {
-				foreach ( $adapter_issues as $adapter_issue ) {
-					if ( is_array( $adapter_issue ) ) {
-						$issues[] = $adapter_issue;
-					}
+		$adapter_issues = apply_filters(
+			'ai_translation_workflow_route_integrity_issues',
+			array(),
+			$translation_id,
+			$language,
+			array(
+				'permalink' => (string) get_permalink( $translation_id ),
+				'summary'   => $summary,
+			)
+		);
+		if ( is_array( $adapter_issues ) ) {
+			foreach ( $adapter_issues as $adapter_issue ) {
+				if ( is_array( $adapter_issue ) ) {
+					$issues[] = $adapter_issue;
 				}
 			}
+		}
 
 		return array(
 			'passed'        => empty( $issues ),
@@ -25839,6 +26091,40 @@ final class Devenia_AI_Translations {
 			'issue_count'   => count( $issues ),
 			'warning_count' => count( $warnings ),
 			'summary'       => $summary,
+		);
+	}
+
+	/**
+	 * Build a route QA issue when an existing translation slug violates the
+	 * target-language transliteration contract.
+	 */
+	private static function translated_post_slug_language_issue( int $translation_id, string $slug, string $language ): ?array {
+		$language = sanitize_key( $language );
+		if ( '' === $language || ! self::language_requires_transliterated_urls( $language ) ) {
+			return null;
+		}
+
+		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
+		$source    = $source_id ? get_post( $source_id ) : null;
+		$slug      = sanitize_title( $slug );
+		if ( '' === $slug ) {
+			return null;
+		}
+
+		$issue = self::validate_localized_slug( $slug, $slug, $language, $source instanceof WP_Post ? $source : null, false, '' );
+		if ( ! $issue ) {
+			return null;
+		}
+
+		return self::qa_item(
+			(string) ( $issue['code'] ?? 'localized_slug_language_contract_failed' ),
+			(string) ( $issue['message'] ?? 'Localized URL slug does not satisfy the target-language URL contract.' ),
+			array(
+				'slug'           => $slug,
+				'language'       => $language,
+				'source_id'      => $source_id,
+				'matched_tokens' => isset( $issue['matched_tokens'] ) && is_array( $issue['matched_tokens'] ) ? array_values( $issue['matched_tokens'] ) : array(),
+			)
 		);
 	}
 
