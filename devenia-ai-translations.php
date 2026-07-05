@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.410
+ * Version: 0.1.411
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.410';
+	const VERSION = '0.1.411';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -14629,8 +14629,8 @@ final class Devenia_AI_Translations {
 		} else {
 			$query = self::source_page_query(
 				array(
-					'post_status'    => self::translation_workflow_post_statuses( false ),
-					'posts_per_page' => $limit,
+					'post_status'    => 'publish',
+					'posts_per_page' => 1000,
 					'orderby'        => 'modified',
 					'order'          => 'DESC',
 				)
@@ -14638,6 +14638,9 @@ final class Devenia_AI_Translations {
 			foreach ( $query->posts as $candidate ) {
 				if ( ! self::is_translation_post( (int) $candidate->ID ) ) {
 					$sources[] = $candidate;
+					if ( count( $sources ) >= $limit ) {
+						break;
+					}
 				}
 			}
 		}
@@ -14975,72 +14978,74 @@ final class Devenia_AI_Translations {
 				continue;
 			}
 
-			$obligation = self::heartbeat_first_actionable_obligation( $item['obligations'] ?? array() );
-			if ( '' === $obligation ) {
+			$item_obligations = self::heartbeat_actionable_obligations( $item['obligations'] ?? array() );
+			if ( empty( $item_obligations ) ) {
 				continue;
 			}
 
-			$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection' ), true )
-				? self::heartbeat_draft_work_eligibility( $identity )
-				: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
-			if ( empty( $eligibility['success'] ) ) {
-				$skipped[] = self::heartbeat_skip_summary( $item, sanitize_key( (string) ( $eligibility['code'] ?? 'not_eligible' ) ) );
-				continue;
-			}
+			foreach ( $item_obligations as $obligation ) {
+				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection' ), true )
+					? self::heartbeat_draft_work_eligibility( $identity )
+					: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
+				if ( empty( $eligibility['success'] ) ) {
+					$skipped[] = self::heartbeat_skip_summary( $item, sanitize_key( (string) ( $eligibility['code'] ?? 'not_eligible' ) . '_' . $obligation ) );
+					continue;
+				}
 
-			$action = self::heartbeat_action_for_obligation( $obligation );
-			if ( self::heartbeat_repeats_previous_item_without_change( $input, $identity, $translation_id, $source_id, $language, $action['action'] ) ) {
-				$skipped[] = self::heartbeat_skip_summary( $item, 'repeated_same_item_for_actor' );
-				continue;
-			}
-			$selected = array(
-				'action' => $action['action'],
-				'workflow_step' => $action['workflow_step'],
-				'required_ability' => $action['required_ability'],
-				'source_id' => $source_id,
-				'source_title' => sanitize_text_field( (string) ( $item['source_title'] ?? '' ) ),
-				'translation_id' => $translation_id,
-				'language' => $language,
-				'post_status' => sanitize_key( (string) ( $item['post_status'] ?? '' ) ),
+				$action = self::heartbeat_action_for_obligation( $obligation );
+				if ( self::heartbeat_repeats_previous_item_without_change( $input, $identity, $translation_id, $source_id, $language, $action['action'] ) ) {
+					$skipped[] = self::heartbeat_skip_summary( $item, 'repeated_same_item_for_actor_' . $obligation );
+					continue;
+				}
+				$selected = array(
+					'action' => $action['action'],
+					'workflow_step' => $action['workflow_step'],
+					'required_ability' => $action['required_ability'],
+					'source_id' => $source_id,
+					'source_title' => sanitize_text_field( (string) ( $item['source_title'] ?? '' ) ),
+					'translation_id' => $translation_id,
+					'language' => $language,
+					'post_status' => sanitize_key( (string) ( $item['post_status'] ?? '' ) ),
 					'obligation' => $obligation,
 					'instructions' => $action['instructions'],
 					'review_surface_guidance' => self::heartbeat_review_surface_guidance( $obligation, $translation_id, $language, sanitize_key( (string) ( $item['post_status'] ?? '' ) ) ),
 					'design_ownership' => isset( $action['design_ownership'] ) && is_array( $action['design_ownership'] ) ? $action['design_ownership'] : array(),
 					'claim_required_for_writes' => true,
 					'independence' => self::heartbeat_independence_summary( $eligibility, $obligation ),
-			);
-
-			$claim_result = null;
-			if ( $claim ) {
-				$claim_result = self::reserve_translation_work(
-					array(
-						'source_id' => $source_id,
-						'language' => $language,
-						'owner' => 'heartbeat:' . (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? 'unknown' ),
-						'note' => '' !== $note ? $note : 'Reserved by next-heartbeat-action.',
-						'ttl_seconds' => $ttl_seconds,
-					)
 				);
-				if ( empty( $claim_result['success'] ) ) {
-					$skipped[] = self::heartbeat_skip_summary( $item, 'claim_conflict' );
-					continue;
-				}
-				$selected['claim_token'] = (string) ( $claim_result['claim_token'] ?? '' );
-				$selected['reservation'] = $claim_result['claims'][0] ?? null;
-			}
 
-			self::record_heartbeat_state( $input, $selected, $identity );
-			return array(
-				'success' => true,
-				'action' => $selected['action'],
-				'mode' => $claim ? 'claimed' : 'observe',
-				'identity' => self::public_heartbeat_identity( $identity ),
-				'selected' => $selected,
-				'totals' => $obligations['totals'] ?? array(),
-				'skipped_count' => count( $skipped ),
-				'skipped_sample' => array_slice( $skipped, 0, 10 ),
-				'heartbeat_policy' => self::heartbeat_policy(),
-			);
+				$claim_result = null;
+				if ( $claim ) {
+					$claim_result = self::reserve_translation_work(
+						array(
+							'source_id' => $source_id,
+							'language' => $language,
+							'owner' => 'heartbeat:' . (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? 'unknown' ),
+							'note' => '' !== $note ? $note : 'Reserved by next-heartbeat-action.',
+							'ttl_seconds' => $ttl_seconds,
+						)
+					);
+					if ( empty( $claim_result['success'] ) ) {
+						$skipped[] = self::heartbeat_skip_summary( $item, 'claim_conflict' );
+						continue 2;
+					}
+					$selected['claim_token'] = (string) ( $claim_result['claim_token'] ?? '' );
+					$selected['reservation'] = $claim_result['claims'][0] ?? null;
+				}
+
+				self::record_heartbeat_state( $input, $selected, $identity );
+				return array(
+					'success' => true,
+					'action' => $selected['action'],
+					'mode' => $claim ? 'claimed' : 'observe',
+					'identity' => self::public_heartbeat_identity( $identity ),
+					'selected' => $selected,
+					'totals' => $obligations['totals'] ?? array(),
+					'skipped_count' => count( $skipped ),
+					'skipped_sample' => array_slice( $skipped, 0, 10 ),
+					'heartbeat_policy' => self::heartbeat_policy(),
+				);
+			}
 		}
 
 		$wait = array(
@@ -15063,16 +15068,22 @@ final class Devenia_AI_Translations {
 	}
 
 	private static function heartbeat_first_actionable_obligation( $obligations ): string {
+		$ordered = self::heartbeat_actionable_obligations( $obligations );
+		return $ordered[0] ?? '';
+	}
+
+	private static function heartbeat_actionable_obligations( $obligations ): array {
 		if ( ! is_array( $obligations ) ) {
-			return '';
+			return array();
 		}
 		$allowed = array( 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
+		$ordered = array();
 		foreach ( $allowed as $obligation ) {
 			if ( in_array( $obligation, $obligations, true ) ) {
-				return $obligation;
+				$ordered[] = $obligation;
 			}
 		}
-		return '';
+		return $ordered;
 	}
 
 	private static function heartbeat_action_for_obligation( string $obligation ): array {
