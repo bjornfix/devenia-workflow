@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.416
+ * Version: 0.1.417
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.416';
+	const VERSION = '0.1.417';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -6402,6 +6402,10 @@ final class Devenia_AI_Translations {
 		if ( empty( $fixture['success'] ) ) {
 			return $fixture;
 		}
+		$codex_thread_id = sanitize_text_field( (string) ( $input['codex_thread_id'] ?? '' ) );
+		if ( '' === $codex_thread_id ) {
+			return self::error( 'codex_thread_id is required when run_write_test is true so lifecycle regression can exercise the same workflow authority seam as production upserts.' );
+		}
 
 		$created = array(
 			'source_id'      => 0,
@@ -6449,6 +6453,7 @@ final class Devenia_AI_Translations {
 						'excerpt'            => (string) $fixture['excerpt'],
 						'status'             => 'draft',
 						'translation_status' => 'needs_review',
+						'codex_thread_id'    => $codex_thread_id,
 					)
 				);
 				self::add_lifecycle_check(
@@ -6471,6 +6476,7 @@ final class Devenia_AI_Translations {
 						'excerpt'            => (string) $fixture['excerpt'],
 						'status'             => 'draft',
 						'translation_status' => 'needs_review',
+						'codex_thread_id'    => $codex_thread_id,
 					)
 				);
 				self::add_lifecycle_check(
@@ -6493,6 +6499,7 @@ final class Devenia_AI_Translations {
 					'excerpt'            => (string) $fixture['excerpt'],
 					'status'             => 'draft',
 					'translation_status' => 'needs_review',
+					'codex_thread_id'    => $codex_thread_id,
 				)
 			);
 			self::add_lifecycle_check( $checks, $failed, 'translation_created', ! empty( $upsert['success'] ), self::lifecycle_compact_upsert_result( $upsert ) );
@@ -6573,6 +6580,7 @@ final class Devenia_AI_Translations {
 					'status'               => 'publish',
 					'translation_status'   => 'published',
 					'allow_update_published' => true,
+					'codex_thread_id'      => $codex_thread_id,
 				)
 			);
 			self::add_lifecycle_check( $checks, $failed, 'review_invalidates_after_content_change', ! empty( $update_after_review['success'] ) && ! empty( $update_after_review['review_invalidated'] ), self::lifecycle_compact_upsert_result( $update_after_review ) );
@@ -9070,6 +9078,10 @@ final class Devenia_AI_Translations {
 					'type'        => 'boolean',
 					'default'     => true,
 					'description' => 'Delete temporary source and translation posts after the write regression.',
+				),
+				'codex_thread_id' => array(
+					'type'        => 'string',
+					'description' => 'Required when run_write_test is true. Use the exact CODEX_THREAD_ID value so lifecycle regression exercises the same workflow authority seam as production upserts.',
 				),
 				'source_title' => array(
 					'type'        => 'string',
