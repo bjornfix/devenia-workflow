@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.418
+ * Version: 0.1.419
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.418';
+	const VERSION = '0.1.419';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -21274,7 +21274,12 @@ final class Devenia_AI_Translations {
 
 		$runtime = self::runtime_text_replacements_for_language( $language );
 		if ( ! empty( $runtime['has_replacements'] ) ) {
-			$content = str_replace( $runtime['search'], $runtime['replace'], $content );
+			$content = self::rewrite_visible_text_segments(
+				$content,
+				static function ( string $text ) use ( $runtime ): string {
+					return self::apply_runtime_text_replacements( $text, $runtime );
+				}
+			);
 		}
 
 		$content = self::localize_internal_links_in_html( $content, $language );
@@ -24019,9 +24024,17 @@ final class Devenia_AI_Translations {
 			<div class="ai-translation-workflow-post-card">
 				<?php if ( has_post_thumbnail() ) : ?>
 					<div class="post-image">
-						<a href="<?php the_permalink(); ?>">
-							<?php the_post_thumbnail( 'medium', array( 'itemprop' => 'image' ) ); ?>
-						</a>
+						<?php
+						$thumbnail_html = get_the_post_thumbnail( get_the_ID(), 'medium', array( 'itemprop' => 'image' ) );
+						if ( false === stripos( $thumbnail_html, '<a ' ) ) {
+							$thumbnail_html = sprintf(
+								'<a href="%1$s">%2$s</a>',
+								esc_url( get_permalink() ),
+								$thumbnail_html
+							);
+						}
+						echo wp_kses_post( $thumbnail_html );
+						?>
 					</div>
 				<?php endif; ?>
 
