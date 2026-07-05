@@ -857,6 +857,8 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 
 		$source_words = self::word_count_for_fragment_shape( $source_text );
 		$legacy_words = self::word_count_for_fragment_shape( $legacy_text );
+		$source_chars = mb_strlen( $source_text );
+		$legacy_chars = mb_strlen( $legacy_text );
 		$source_heading = ! empty( $source_fragment['heading'] );
 		$legacy_heading = ! empty( $legacy_record['heading'] );
 		$reasons = array();
@@ -867,7 +869,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		if ( $source_words <= 4 && $legacy_words >= 14 ) {
 			$reasons[] = 'short_source_fragment_received_long_legacy_text';
 		}
-		if ( $source_words >= 18 && $legacy_words <= 5 ) {
+		if ( $source_words >= 18 && $legacy_words <= 5 && $legacy_chars < max( 30, (int) floor( $source_chars * 0.25 ) ) ) {
 			$reasons[] = 'long_source_fragment_received_short_legacy_text';
 		}
 
