@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.413
+ * Version: 0.1.414
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.413';
+	const VERSION = '0.1.414';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -19573,12 +19573,18 @@ final class Devenia_AI_Translations {
 		}
 
 		$map = self::localized_link_expected_target_map( $language );
-		if ( empty( $map ) || ! preg_match_all( '/\bhref=([\"\'])([^\"\']+)\1/i', $html, $matches ) ) {
+		if ( empty( $map ) || ! preg_match_all( '/<a\b([^>]*)\bhref=([\"\'])([^\"\']+)\2([^>]*)>/i', $html, $matches, PREG_SET_ORDER ) ) {
 			return array();
 		}
 
 		$issues = array();
-		foreach ( $matches[2] as $raw_url ) {
+		foreach ( $matches as $match ) {
+			$attributes = (string) $match[1] . ' ' . (string) $match[4];
+			if ( preg_match( '/\bhreflang\s*=/i', $attributes ) || false !== strpos( $attributes, 'devenia-language-' ) ) {
+				continue;
+			}
+
+			$raw_url = (string) $match[3];
 			$url = html_entity_decode( (string) $raw_url, ENT_QUOTES );
 			if ( '' === $url || '#' === $url[0] || preg_match( '/^(mailto|tel|sms|javascript):/i', $url ) ) {
 				continue;
