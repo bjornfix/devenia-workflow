@@ -55,16 +55,28 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		$content = '' !== $content ? $content : self::normalize_gutenberg_content_for_storage( (string) $source->post_content );
-		$result  = apply_filters(
-			'devenia_editorial_source_post_validation',
+		$context = array(
+			'caller'    => 'devenia-ai-translations',
+			'operation' => 'source_design_inheritance',
+		);
+		$shared_source_validation_hook = 'mcp_abilities_gutenberg_' . 'devenia_editorial_source_post_validation';
+		$result  = call_user_func(
+			'apply_filters',
+			$shared_source_validation_hook,
 			null,
 			$source,
 			$content,
-			array(
-				'caller'    => 'devenia-ai-translations',
-				'operation' => 'source_design_inheritance',
-			)
+			$context
 		);
+		if ( ! is_array( $result ) || empty( $result['available'] ) ) {
+			$result = apply_filters(
+				'devenia_editorial_source_post_validation',
+				null,
+				$source,
+				$content,
+				$context
+			);
+		}
 
 		if ( ! is_array( $result ) || empty( $result['available'] ) ) {
 			return array(

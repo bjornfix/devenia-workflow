@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.411
+ * Version: 0.1.412
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.411';
+	const VERSION = '0.1.412';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -21889,9 +21889,9 @@ final class Devenia_AI_Translations {
 			return $data;
 		}
 
-		$content = self::normalize_gutenberg_content_for_storage( (string) ( $data['post_content'] ?? '' ) );
+		$content = self::pending_source_publish_guard_content( $data, $postarr, $post_id );
 		if ( '' === $content && $post_id > 0 ) {
-			$content = self::normalize_gutenberg_content_for_storage( (string) get_post_field( 'post_content', $post_id ) );
+			$content = (string) get_post_field( 'post_content', $post_id );
 		}
 
 		$guard_post = self::source_publish_guard_post_object( $data, $postarr, $content );
@@ -21905,6 +21905,31 @@ final class Devenia_AI_Translations {
 
 		self::reject_source_publish_save( (int) $guard_post->ID, $validation );
 		return $data;
+	}
+
+	/**
+	 * Return the exact pending source content for the publish guard.
+	 *
+	 * The guard should inspect the block tree being saved, not a repaired or
+	 * reserialized variant. Serialization normalizers are useful for translation
+	 * storage safety, but they can hide the article presentation contract from
+	 * the source design validator during small native block attribute repairs.
+	 *
+	 * @param array<string,mixed> $data    Sanitized post data about to be stored.
+	 * @param array<string,mixed> $postarr Raw post array for the save request.
+	 */
+	private static function pending_source_publish_guard_content( array $data, array $postarr, int $post_id ): string {
+		foreach ( array( $postarr, $data ) as $candidate ) {
+			if ( ! array_key_exists( 'post_content', $candidate ) ) {
+				continue;
+			}
+			$content = (string) wp_unslash( $candidate['post_content'] );
+			if ( '' !== $content ) {
+				return $content;
+			}
+		}
+
+		return $post_id > 0 ? (string) get_post_field( 'post_content', $post_id ) : '';
 	}
 
 	/**
