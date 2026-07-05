@@ -320,6 +320,16 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				}
 			}
 
+			foreach ( self::table_cell_fragments( $name, $html, $current_path ) as $table_fragment ) {
+				$value = (string) ( $table_fragment['html'] ?? '' );
+				if ( '' !== trim( wp_strip_all_tags( $value ) ) ) {
+					$records[] = array(
+						'key'  => (string) ( $table_fragment['key'] ?? '' ),
+						'html' => wp_kses_post( $value ),
+					);
+				}
+			}
+
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
 				self::collect_localized_fragment_records_from_blocks( $block['innerBlocks'], $records, $current_path );
 			}
@@ -1065,6 +1075,22 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				);
 			}
 
+			foreach ( self::table_cell_fragments( $name, $html, $current_path ) as $table_fragment ) {
+				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( (string) ( $table_fragment['html'] ?? '' ) ) ) );
+				if ( '' === $text ) {
+					continue;
+				}
+				$fragments[] = array(
+					'key'       => (string) ( $table_fragment['key'] ?? '' ),
+					'path'      => $current_path,
+					'block'     => $name . ':cell',
+					'cell_index' => absint( $table_fragment['cell_index'] ?? 0 ),
+					'format'    => 'inline_html',
+					'heading'   => ! empty( $table_fragment['heading'] ),
+					'text'      => $text,
+				);
+			}
+
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
 				self::collect_source_design_fragments( $block['innerBlocks'], $fragments, $current_path );
 			}
@@ -1118,6 +1144,18 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				$stats['projected_count']++;
 			}
 
+			if ( 'core/table' === $name && isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
+				$table_html = self::project_table_cell_fragments( (string) $block['innerHTML'], $current_path, $fragments, $stats );
+				if ( $table_html !== $block['innerHTML'] ) {
+					$block['innerHTML'] = $table_html;
+					if ( isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
+						$block['innerContent'] = self::replace_core_table_inner_content( $block['innerContent'], $table_html );
+					} elseif ( empty( $block['innerBlocks'] ) ) {
+						$block['innerContent'] = array( $table_html );
+					}
+				}
+			}
+
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
 				self::project_source_design_blocks( $block['innerBlocks'], $fragments, $stats, $current_path );
 			}
@@ -1135,6 +1173,13 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		return 'path:' . preg_replace( '/[^0-9.]/', '', $path ) . ':' . sanitize_key( str_replace( '/', '_', $block_name ) ) . ':' . sanitize_key( $part );
+	}
+
+	/**
+	 * Stable fragment key for visible core/table cell content.
+	 */
+	private static function table_cell_fragment_key( string $path, int $cell_index ): string {
+		return 'table:' . preg_replace( '/[^0-9.]/', '', $path ) . ':core_table:cell-' . sprintf( '%03d', max( 0, $cell_index ) );
 	}
 
 	/**
@@ -1393,6 +1438,77 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	}
 
 	/**
+	 * @return array<int,array{key:string,html:string,cell_index:int,heading:bool}>
+	 */
+	private static function table_cell_fragments( string $block_name, string $html, string $path ): array {
+		if ( 'core/table' !== $block_name || '' === trim( $html ) ) {
+			return array();
+		}
+
+		$fragments = array();
+		if ( ! preg_match_all( '/<(?P<tag>td|th)\\b(?P<attrs>[^>]*)>(?P<html>.*?)<\\/\\1>/is', $html, $matches, PREG_SET_ORDER ) ) {
+			return $fragments;
+		}
+
+		foreach ( $matches as $index => $match ) {
+			$cell_html = (string) ( $match['html'] ?? '' );
+			if ( '' === trim( wp_strip_all_tags( $cell_html ) ) ) {
+				continue;
+			}
+			$fragments[] = array(
+				'key'        => self::table_cell_fragment_key( $path, (int) $index ),
+				'html'       => wp_kses_post( $cell_html ),
+				'cell_index' => (int) $index,
+				'heading'    => 'th' === strtolower( (string) ( $match['tag'] ?? '' ) ),
+			);
+		}
+
+		return $fragments;
+	}
+
+	/**
+	 * Project localized fragments into core/table cell content.
+	 *
+	 * @param array<string,string> $fragments Localized values by key.
+	 * @param array<string,int>    $stats Projection stats.
+	 */
+	private static function project_table_cell_fragments( string $html, string $path, array $fragments, array &$stats ): string {
+		$cell_index = 0;
+
+		return preg_replace_callback(
+			'/(<(?P<tag>td|th)\\b(?P<attrs>[^>]*)>)(?P<html>.*?)(<\\/\\2>)/is',
+			static function ( array $matches ) use ( $path, $fragments, &$stats, &$cell_index ): string {
+				$key = self::table_cell_fragment_key( $path, $cell_index );
+				++$cell_index;
+				if ( ! array_key_exists( $key, $fragments ) ) {
+					return (string) $matches[0];
+				}
+
+				$stats['projected_count']++;
+				return (string) $matches[1] . (string) $fragments[ $key ] . (string) $matches[5];
+			},
+			$html
+		) ?? $html;
+	}
+
+	/**
+	 * @param array<int,mixed> $inner_content Parsed block innerContent.
+	 * @return array<int,mixed>
+	 */
+	private static function replace_core_table_inner_content( array $inner_content, string $table_html ): array {
+		foreach ( $inner_content as &$part ) {
+			if ( is_string( $part ) && false !== stripos( $part, '<table' ) ) {
+				$part = $table_html;
+				unset( $part );
+				return $inner_content;
+			}
+		}
+		unset( $part );
+
+		return array( $table_html );
+	}
+
+	/**
 	 * Hash the non-text design signature of a Gutenberg block tree.
 	 */
 	private static function source_design_signature_hash( string $content ): string {
@@ -1473,12 +1589,11 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		if ( in_array( $block_name, self::copy_quality_text_block_names(), true ) && preg_match( '/^(\\s*<([a-z][a-z0-9]*)\\b[^>]*>)(.*)(<\\/\\2>\\s*)$/is', $html, $matches ) ) {
 			return trim( $matches[1] . '{{text}}' . $matches[4] );
 		}
-
-		$structured_fragments = self::structured_text_attr_fragments( $block_name, $attrs );
-		if ( $structured_fragments ) {
-			return '';
+		if ( 'core/table' === $block_name ) {
+			return self::core_table_html_shell( $html );
 		}
 
+		$structured_fragments = self::structured_text_attr_fragments( $block_name, $attrs );
 		$shell = $html;
 		foreach ( $structured_fragments as $attr_fragment ) {
 			$shell = self::replace_source_design_structured_html_value( $shell, (string) ( $attr_fragment['text'] ?? '' ), '{{text}}' );
@@ -1488,6 +1603,19 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		return '';
+	}
+
+	/**
+	 * Preserve table structure while removing localized cell text from signatures.
+	 */
+	private static function core_table_html_shell( string $html ): string {
+		return trim(
+			preg_replace(
+				'/(<(?P<tag>td|th)\\b(?P<attrs>[^>]*)>)(?P<html>.*?)(<\\/\\2>)/is',
+				'$1{{text}}$5',
+				$html
+			) ?? ''
+		);
 	}
 
 	/**
