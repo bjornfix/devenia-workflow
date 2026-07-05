@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.412
+**Stable tag:** 0.1.413
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,16 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.413
+
+- Adds rendered frontend integrity checks for localized public surfaces so
+  runtime widget, footer, menu, and shared chrome source-language remnants are
+  caught by the workflow.
+- Blocks publication experience readiness when published translations render
+  source-language remnants that are not visible in stored Gutenberg content.
+- Applies configured language naturalness rules to rendered frontend surfaces,
+  starting with a Swedish guard against `inge förtroende` in public agency copy.
 
 ### 0.1.412
 

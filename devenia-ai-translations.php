@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.412
+ * Version: 0.1.413
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.412';
+	const VERSION = '0.1.413';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -7797,6 +7797,8 @@ final class Devenia_AI_Translations {
 			return self::gutenberg_content_safety_scan( $input );
 		case 'frontend_performance_status':
 			return self::frontend_performance_status( $input );
+		case 'frontend_integrity_status':
+			return self::frontend_integrity_status( $input );
 		case 'warm_cache':
 			return self::warm_translation_cache( $input );
 		case 'update_runtime_text':
@@ -8055,6 +8057,16 @@ final class Devenia_AI_Translations {
 								return self::run_ability_operation( 'frontend_performance_status', $input );
 							},
 							'meta'             => self::ability_meta( false, false, true ),
+						),
+						'ai-translations/frontend-integrity-status' => array(
+							'label'            => 'Check Translation Frontend Integrity',
+							'description'      => 'Fetches localized public frontend surfaces, especially language homepages, and blocks visible English/source remnants that only appear after runtime widgets, menus, and shared chrome render.',
+							'input_schema'     => self::frontend_integrity_status_input_schema(),
+							'output_schema'    => self::generic_output_schema(),
+							'execute_callback' => function ( $input ) {
+								return self::run_ability_operation( 'frontend_integrity_status', $input );
+							},
+							'meta'             => self::ability_meta( true, false, false ),
 						),
 						'ai-translations/warm-cache' => array(
 							'label'            => 'Warm Translation Cache',
@@ -8950,6 +8962,44 @@ final class Devenia_AI_Translations {
 					'type'        => 'boolean',
 					'default'     => false,
 					'description' => 'Include clean posts in the response items.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for public frontend integrity status.
+	 */
+	private static function frontend_integrity_status_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'languages' => array(
+					'type'        => 'array',
+					'items'       => array( 'type' => 'string' ),
+					'description' => 'Optional language codes to scan. Defaults to every configured target language.',
+				),
+				'surfaces' => array(
+					'type'        => 'array',
+					'items'       => array(
+						'type' => 'string',
+						'enum' => array( 'homepages' ),
+					),
+					'default'     => array( 'homepages' ),
+					'description' => 'Public frontend surface families to scan.',
+				),
+				'timeout' => array(
+					'type'        => 'integer',
+					'default'     => 15,
+					'minimum'     => 3,
+					'maximum'     => 30,
+					'description' => 'HTTP timeout for each public frontend request.',
+				),
+				'include_clean' => array(
+					'type'        => 'boolean',
+					'default'     => true,
+					'description' => 'Include clean surfaces in the response.',
 				),
 			),
 			'additionalProperties' => false,
@@ -13890,6 +13940,29 @@ final class Devenia_AI_Translations {
 			);
 		}
 
+		if ( 'publish' === (string) $post->post_status && self::is_translation_post( $post_id ) && self::is_translation_language( $language ) ) {
+			$frontend_integrity = self::frontend_public_surface_integrity_for_url(
+				(string) get_permalink( $post ),
+				$language,
+				15,
+				self::source_id_for_context( $post_id ) === absint( get_option( 'page_on_front' ) ) ? 'homepage' : 'singular'
+			);
+			$signals['frontend_integrity'] = $frontend_integrity;
+			if ( empty( $frontend_integrity['passed'] ) ) {
+				$blockers[] = self::quality_verdict_blocker(
+					'publication_experience_frontend_integrity_failed',
+					'block_publish',
+					'Rendered public frontend output contains localization or source-language remnants that are not visible in stored Gutenberg content.',
+					array(
+						'post_id'     => $post_id,
+						'language'    => $language,
+						'url'         => (string) ( $frontend_integrity['url'] ?? '' ),
+						'issue_codes' => self::qa_item_codes( $frontend_integrity['issues'] ?? array() ),
+					)
+				);
+			}
+		}
+
 		$state = array(
 			'passed'    => empty( $blockers ),
 			'state'     => empty( $blockers ) ? 'ready' : 'blocked',
@@ -14173,6 +14246,331 @@ final class Devenia_AI_Translations {
 			'final_url'     => $final_url,
 			'translation'   => $translation,
 		);
+	}
+
+	/**
+	 * Scan public localized frontend surfaces that are assembled after stored
+	 * post content renders, such as shared widgets, menus, and footer chrome.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>
+	 */
+	private static function frontend_integrity_status( array $input ): array {
+		$languages = self::frontend_integrity_language_filter( $input['languages'] ?? array() );
+		$surfaces  = self::frontend_integrity_surface_filter( $input['surfaces'] ?? array( 'homepages' ) );
+		$timeout   = max( 3, min( 30, absint( $input['timeout'] ?? 15 ) ) );
+		$include_clean = array_key_exists( 'include_clean', $input ) ? (bool) $input['include_clean'] : true;
+		$items     = array();
+		$issues    = array();
+		$warnings  = array();
+
+		if ( in_array( 'homepages', $surfaces, true ) ) {
+			foreach ( $languages as $language ) {
+				$url = self::localized_home_url_for_language( $language );
+				if ( '' === $url ) {
+					$item = array(
+						'surface'     => 'homepage',
+						'language'    => $language,
+						'url'         => '',
+						'passed'      => false,
+						'issues'      => array( self::qa_item( 'frontend_home_url_missing', 'Localized homepage URL is missing.', array( 'language' => $language ) ) ),
+						'warnings'    => array(),
+						'status_code' => 0,
+					);
+				} else {
+					$item = self::frontend_public_surface_integrity_for_url( $url, $language, $timeout, 'homepage' );
+				}
+
+				$item_issues = isset( $item['issues'] ) && is_array( $item['issues'] ) ? $item['issues'] : array();
+				$item_warnings = isset( $item['warnings'] ) && is_array( $item['warnings'] ) ? $item['warnings'] : array();
+				$issues   = array_merge( $issues, $item_issues );
+				$warnings = array_merge( $warnings, $item_warnings );
+				if ( $include_clean || ! empty( $item_issues ) || ! empty( $item_warnings ) ) {
+					$items[] = $item;
+				}
+			}
+		}
+
+		return array(
+			'success'       => empty( $issues ),
+			'passed'        => empty( $issues ),
+			'issues'        => $issues,
+			'warnings'      => $warnings,
+			'issue_count'   => count( $issues ),
+			'warning_count' => count( $warnings ),
+			'items'         => $items,
+			'checked_at'    => gmdate( 'c' ),
+		);
+	}
+
+	/**
+	 * Sanitize frontend integrity language filters.
+	 *
+	 * @param mixed $languages Requested languages.
+	 * @return array<int,string>
+	 */
+	private static function frontend_integrity_language_filter( $languages ): array {
+		$targets = array_keys( self::target_languages() );
+		if ( ! is_array( $languages ) || empty( $languages ) ) {
+			return $targets;
+		}
+
+		$clean = array();
+		foreach ( $languages as $language ) {
+			$language = sanitize_key( (string) $language );
+			if ( in_array( $language, $targets, true ) ) {
+				$clean[] = $language;
+			}
+		}
+
+		return $clean ? array_values( array_unique( $clean ) ) : $targets;
+	}
+
+	/**
+	 * Sanitize frontend integrity surface filters.
+	 *
+	 * @param mixed $surfaces Requested surfaces.
+	 * @return array<int,string>
+	 */
+	private static function frontend_integrity_surface_filter( $surfaces ): array {
+		if ( ! is_array( $surfaces ) || empty( $surfaces ) ) {
+			return array( 'homepages' );
+		}
+
+		$clean = array();
+		foreach ( $surfaces as $surface ) {
+			$surface = sanitize_key( (string) $surface );
+			if ( 'homepages' === $surface ) {
+				$clean[] = $surface;
+			}
+		}
+
+		return $clean ? array_values( array_unique( $clean ) ) : array( 'homepages' );
+	}
+
+	/**
+	 * Fetch and validate one public localized frontend URL.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function frontend_public_surface_integrity_for_url( string $url, string $language, int $timeout = 15, string $surface = 'public' ): array {
+		$url      = esc_url_raw( $url );
+		$language = sanitize_key( $language );
+		$issues   = array();
+		$warnings = array();
+		$body     = '';
+		$status_code = 0;
+		$final_url = $url;
+
+		if ( '' === $url ) {
+			$issues[] = self::qa_item( 'frontend_url_missing', 'Frontend URL is missing.', array( 'language' => $language, 'surface' => $surface ) );
+		} else {
+			$response = wp_remote_get(
+				add_query_arg( 'devenia_frontend_integrity', (string) time(), $url ),
+				array(
+					'timeout'     => max( 3, min( 30, $timeout ) ),
+					'redirection' => 3,
+					'headers'     => array(
+						'Cache-Control' => 'no-cache',
+					),
+				)
+			);
+
+			if ( is_wp_error( $response ) ) {
+				$issues[] = self::qa_item(
+					'frontend_integrity_http_error',
+					'Frontend integrity check could not fetch the public URL.',
+					array(
+						'url'      => $url,
+						'language' => $language,
+						'error'    => $response->get_error_message(),
+					)
+				);
+			} else {
+				$status_code = (int) wp_remote_retrieve_response_code( $response );
+				$body        = (string) wp_remote_retrieve_body( $response );
+				$final_url   = self::wp_remote_final_url( $response, $url );
+				if ( 200 !== $status_code ) {
+					$issues[] = self::qa_item(
+						'frontend_integrity_http_status_not_ok',
+						'Frontend integrity check did not receive HTTP 200.',
+						array(
+							'url'         => $url,
+							'final_url'   => $final_url,
+							'status_code' => $status_code,
+							'language'    => $language,
+						)
+					);
+				}
+				if ( '' === trim( $body ) ) {
+					$issues[] = self::qa_item(
+						'frontend_integrity_empty_body',
+						'Frontend integrity check received an empty response body.',
+						array(
+							'url'      => $url,
+							'language' => $language,
+						)
+					);
+				}
+			}
+		}
+
+		if ( '' !== $body ) {
+			$issues = array_merge( $issues, self::frontend_public_surface_html_issues( $body, $language, $final_url, $surface ) );
+		}
+
+		return array(
+			'surface'     => sanitize_key( $surface ),
+			'language'    => $language,
+			'url'         => $url,
+			'final_url'   => $final_url,
+			'passed'      => empty( $issues ),
+			'issues'      => $issues,
+			'warnings'    => $warnings,
+			'issue_count' => count( $issues ),
+			'warning_count' => count( $warnings ),
+			'status_code' => $status_code,
+			'checked_at'  => gmdate( 'c' ),
+		);
+	}
+
+	/**
+	 * Extract the final URL from a WordPress HTTP API response when available.
+	 *
+	 * @param array<string,mixed>|WP_Error $response Response.
+	 */
+	private static function wp_remote_final_url( $response, string $fallback ): string {
+		if ( is_array( $response ) && isset( $response['http_response'] ) && is_object( $response['http_response'] ) && method_exists( $response['http_response'], 'get_response_object' ) ) {
+			$response_object = $response['http_response']->get_response_object();
+			if ( is_object( $response_object ) && ! empty( $response_object->url ) ) {
+				return (string) $response_object->url;
+			}
+		}
+
+		return $fallback;
+	}
+
+	/**
+	 * Detect source-language leftovers on rendered public HTML.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function frontend_public_surface_html_issues( string $html, string $language, string $url = '', string $surface = 'public' ): array {
+		$language = sanitize_key( $language );
+		$issues   = array();
+		$expected_lang = self::html_lang_for_language( $language );
+		if ( $expected_lang && ! preg_match( '/<html\b[^>]*\blang=["\']' . preg_quote( $expected_lang, '/' ) . '["\']/i', $html ) ) {
+			$issues[] = self::qa_item(
+				'frontend_html_lang_mismatch',
+				'Rendered public surface html lang does not match the language.',
+				array(
+					'language'      => $language,
+					'expected_lang' => $expected_lang,
+					'url'           => $url,
+					'surface'       => $surface,
+				)
+			);
+		}
+
+		$prefix = self::language_prefix( $language );
+		$path   = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+		if ( $prefix && '' !== $path && $path !== $prefix && 0 !== strpos( $path, $prefix . '/' ) ) {
+			$issues[] = self::qa_item(
+				'frontend_language_prefix_mismatch',
+				'Rendered public surface is not under the configured language prefix.',
+				array(
+					'language'        => $language,
+					'expected_prefix' => $prefix,
+					'url'             => $url,
+					'surface'         => $surface,
+				)
+			);
+		}
+
+		$visible = self::frontend_visible_text_for_integrity( $html );
+		foreach ( self::frontend_source_remnant_terms() as $term ) {
+			if ( '' !== $term && false !== stripos( $visible, $term ) ) {
+				$issues[] = self::qa_item(
+					'frontend_source_language_remnant',
+					'Rendered public surface contains source-language text after runtime widgets/chrome were applied.',
+					array(
+						'language' => $language,
+						'term'     => $term,
+						'url'      => $url,
+						'surface'  => $surface,
+					)
+				);
+			}
+		}
+
+		$profile = self::language_review_profile( $language );
+		$naturalness_patterns = isset( $profile['naturalness_patterns'] ) && is_array( $profile['naturalness_patterns'] ) ? $profile['naturalness_patterns'] : array();
+		$naturalness = self::naturalness_pattern_guardrails( self::normalized_plain_text_for_review( $visible ), '', $language, $naturalness_patterns );
+		foreach ( $naturalness['issues'] as $naturalness_issue ) {
+			$issues[] = self::qa_item(
+				'frontend_language_naturalness_pattern_found',
+				'Rendered public surface contains target-language phrasing that the quality profile marks as unnatural.',
+				array(
+					'language' => $language,
+					'url'      => $url,
+					'surface'  => $surface,
+					'issue'    => $naturalness_issue,
+				)
+			);
+		}
+
+		foreach ( self::localized_link_issues_for_html( $html, $language ) as $link_issue ) {
+			$issues[] = self::qa_item(
+				'frontend_public_surface_link_language_mismatch',
+				'Rendered public surface contains an internal link that points to the wrong language target.',
+				array_merge(
+					$link_issue,
+					array(
+						'language' => $language,
+						'url'      => $url,
+						'surface'  => $surface,
+					)
+				)
+			);
+		}
+
+		return $issues;
+	}
+
+	/**
+	 * Visible text projection for frontend integrity checks.
+	 */
+	private static function frontend_visible_text_for_integrity( string $html ): string {
+		$html = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', ' ', $html ) ?? $html;
+		$html = preg_replace( '/<style\b[^>]*>.*?<\/style>/is', ' ', $html ) ?? $html;
+		$text = html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' );
+		$text = preg_replace( '/\s+/u', ' ', $text ) ?? $text;
+
+		return trim( $text );
+	}
+
+	/**
+	 * Source-language fragments that should never survive on target-language
+	 * public surfaces after runtime widgets/chrome render.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function frontend_source_remnant_terms(): array {
+		$terms = array_merge(
+			self::default_forbidden_terms(),
+			array(
+				'and tell us what is not working',
+				'One brand operated',
+				'One brand operated by',
+				'Registered company details',
+				'Start with the URL',
+				'Use the email button and include the page, symptoms, and what should improve',
+				'We reply in writing with the practical first move',
+				'Email Devenia about the website',
+			)
+		);
+
+		return array_values( array_unique( array_filter( array_map( 'trim', $terms ) ) ) );
 	}
 
 	/**
@@ -20435,19 +20833,16 @@ final class Devenia_AI_Translations {
 		}
 
 		$language = self::frontend_language();
-		$languages = self::languages();
-		$replacements = isset( $languages[ $language ]['widget_text'] ) && is_array( $languages[ $language ]['widget_text'] )
-			? $languages[ $language ]['widget_text']
-			: array();
-		if ( ! $replacements ) {
+		if ( 'en' === $language ) {
 			return $content;
 		}
 
-		foreach ( $replacements as $source => $translated ) {
-			if ( is_string( $source ) && is_string( $translated ) && '' !== $source ) {
-				$content = str_replace( $source, $translated, $content );
-			}
+		$runtime = self::runtime_text_replacements_for_language( $language );
+		if ( ! empty( $runtime['has_replacements'] ) ) {
+			$content = str_replace( $runtime['search'], $runtime['replace'], $content );
 		}
+
+		$content = self::localize_internal_links_in_html( $content, $language );
 
 		return self::localize_logo_home_links( $content, $language );
 	}
@@ -20461,6 +20856,34 @@ final class Devenia_AI_Translations {
 		}
 
 		return self::localized_home_url_for_language( self::frontend_language() ) ?: $href;
+	}
+
+	/**
+	 * Point shared-widget internal links at the matching translated page.
+	 */
+	private static function localize_internal_links_in_html( string $content, string $language ): string {
+		if ( '' === $content || 'en' === $language ) {
+			return $content;
+		}
+
+		$map = self::localized_internal_link_map( $language );
+		if ( empty( $map ) || ! preg_match( '/\bhref=([\"\'])/i', $content ) ) {
+			return $content;
+		}
+
+		return preg_replace_callback(
+			'/<a\b([^>]*)\bhref=(["\'])([^"\']+)\2([^>]*)>/i',
+			static function ( array $match ) use ( $map ): string {
+				$href = html_entity_decode( (string) $match[3], ENT_QUOTES, get_bloginfo( 'charset' ) ?: 'UTF-8' );
+				$localized = self::localized_internal_link_target( $href, $map );
+				if ( null === $localized ) {
+					return $match[0];
+				}
+
+				return '<a' . $match[1] . 'href=' . $match[2] . esc_url( $localized ) . $match[2] . $match[4] . '>';
+			},
+			$content
+		) ?: $content;
 	}
 
 	/**

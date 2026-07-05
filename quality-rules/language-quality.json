@@ -1129,6 +1129,15 @@
             "var skadad av samma fel",
             "hade skadats av samma fel"
           ]
+        },
+        {
+          "id": "sv-build-trust-inge-fortroende",
+          "target": "inge förtroende",
+          "message": "Stiff or odd Swedish agency copy. In this website context, use skapa förtroende or bygga förtroende instead of inge förtroende.",
+          "suggestions": [
+            "skapa förtroende",
+            "bygga förtroende"
+          ]
         }
       ],
       "script_signals": {
