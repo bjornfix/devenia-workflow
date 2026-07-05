@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.419
+Stable tag: 0.1.421
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,12 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.421 =
+* Preserves Gutenberg block-comment JSON while normalizing stale GenerateBlocks dynamic container wrappers.
+
+= 0.1.420 =
+* Normalizes stale GenerateBlocks dynamic container wrapper markup before storage integrity checks so source-design repairs can be saved safely.
 
 = 0.1.419 =
 * Fixes localized archive HTML safety so runtime text replacement does not corrupt attributes or media URLs, and avoids nested featured-image links when Clickable Featured Image is active.

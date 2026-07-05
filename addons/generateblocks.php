@@ -20,6 +20,7 @@ final class AI_Translation_Workflow_GenerateBlocks_Addon {
 		add_filter( 'ai_translation_workflow_semantic_button_block_names', array( __CLASS__, 'add_button_blocks' ) );
 		add_filter( 'ai_translation_workflow_semantic_image_block_names', array( __CLASS__, 'add_image_blocks' ) );
 		add_filter( 'ai_translation_workflow_is_heading_block', array( __CLASS__, 'is_heading_block' ), 10, 3 );
+		add_filter( 'ai_translation_workflow_normalize_gutenberg_content_for_storage', array( __CLASS__, 'normalize_gutenberg_content_for_storage' ) );
 		add_filter( 'ai_translation_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 		add_filter( 'ai_translation_workflow_gutenberg_guardrails', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 	}
@@ -165,6 +166,39 @@ final class AI_Translation_Workflow_GenerateBlocks_Addon {
 
 		return $result;
 	}
+
+	/**
+	 * Strip stale frontend wrapper HTML from dynamic GenerateBlocks containers.
+	 */
+	public static function normalize_gutenberg_content_for_storage( string $content ): string {
+		if ( false === strpos( $content, '<!-- wp:generateblocks/container' ) || false === strpos( $content, 'gb-container' ) ) {
+			return $content;
+		}
+
+			$normalized = preg_replace(
+				'/(<!--\s+wp:generateblocks\/container\b(?:(?!-->).)*"isDynamic"\s*:\s*true(?:(?!-->).)*-->)\s*<div\b[^>]*class="[^"]*\bgb-container\b[^"]*"[^>]*>\s*/is',
+				'$1',
+				$content,
+				-1,
+				$open_count
+			);
+			if ( ! is_string( $normalized ) ) {
+				return $content;
+			}
+
+			$normalized = preg_replace(
+				'/\s*<\/div>\s*(<!--\s+\/wp:generateblocks\/container\s+-->)/i',
+				'$1',
+				$normalized,
+				-1,
+				$close_count
+			);
+			if ( ! is_string( $normalized ) || ( 0 === $open_count && 0 === $close_count ) ) {
+				return $content;
+			}
+
+			return $normalized;
+		}
 
 	/**
 	 * Detect stored frontend wrappers for dynamic GenerateBlocks containers.
