@@ -249,7 +249,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	 * Build sanitized fragment rows suitable for storage and later projection.
 	 *
 	 * @param mixed $raw Raw fragment list.
-	 * @return array<int,array{key:string,html:string}>
+	 * @return array<int,array{key:string,html:string,path?:string,block?:string,heading?:bool,text?:string}>
 	 */
 	private static function localized_fragment_records_for_storage( $raw ): array {
 		$map = self::localized_fragment_map( $raw );
@@ -285,7 +285,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	 * Collect localized projection rows from an existing translated block tree.
 	 *
 	 * @param array<int,array<string,mixed>> $blocks Parsed blocks.
-	 * @param array<int,array{key:string,html:string}> $records Output records.
+	 * @param array<int,array{key:string,html:string,path?:string,block?:string,heading?:bool,text?:string}> $records Output records.
 	 */
 	private static function collect_localized_fragment_records_from_blocks( array $blocks, array &$records, string $path = '' ): void {
 		foreach ( $blocks as $index => $block ) {
@@ -303,8 +303,12 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 					$value = self::source_design_inner_html_value( $html );
 					if ( '' !== $key && '' !== trim( wp_strip_all_tags( $value ) ) ) {
 						$records[] = array(
-							'key'  => $key,
-							'html' => wp_kses_post( $value ),
+							'key'     => $key,
+							'html'    => wp_kses_post( $value ),
+							'path'    => $current_path,
+							'block'   => $name,
+							'heading' => self::is_heading_block( $name, $attrs ),
+							'text'    => self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $value ) ) ),
 						);
 					}
 				}
@@ -315,8 +319,12 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				$value = (string) ( $attr_fragment['text'] ?? '' );
 				if ( '' !== $key && '' !== trim( wp_strip_all_tags( $value ) ) ) {
 					$records[] = array(
-						'key'  => $key,
-						'html' => wp_kses_post( $value ),
+						'key'     => $key,
+						'html'    => wp_kses_post( $value ),
+						'path'    => $current_path,
+						'block'   => $name . ':' . (string) ( $attr_fragment['field'] ?? '' ),
+						'heading' => ! empty( $attr_fragment['heading'] ),
+						'text'    => self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $value ) ) ),
 					);
 				}
 			}
@@ -325,8 +333,12 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				$value = (string) ( $table_fragment['html'] ?? '' );
 				if ( '' !== trim( wp_strip_all_tags( $value ) ) ) {
 					$records[] = array(
-						'key'  => (string) ( $table_fragment['key'] ?? '' ),
-						'html' => wp_kses_post( $value ),
+						'key'     => (string) ( $table_fragment['key'] ?? '' ),
+						'html'    => wp_kses_post( $value ),
+						'path'    => $current_path,
+						'block'   => $name . ':cell',
+						'heading' => ! empty( $table_fragment['heading'] ),
+						'text'    => self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $value ) ) ),
 					);
 				}
 			}
@@ -623,6 +635,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		);
 		$records = $migration['records'];
 		$missing = $migration['missing_keys'];
+		$semantic_mismatches = isset( $migration['mapping']['semantic_mismatches'] ) && is_array( $migration['mapping']['semantic_mismatches'] ) ? $migration['mapping']['semantic_mismatches'] : array();
 		if ( $missing ) {
 			return array(
 				'success' => false,
@@ -634,6 +647,22 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				'migrated_count' => count( $records ),
 				'missing_count' => count( $missing ),
 				'missing_keys' => $missing,
+				'mapping' => $migration['mapping'],
+				'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, 0, 12 ) : array(),
+			);
+		}
+		if ( $semantic_mismatches ) {
+			return array(
+				'success' => false,
+				'code' => 'localized_fragments_semantic_mismatch',
+				'message' => 'Legacy translated content has exact fragment keys, but some keys appear to represent different source fragments. Provide reviewed supplemental_fragments for the flagged keys before applying migration.',
+				'translation_id' => $translation_id,
+				'language' => $language,
+				'post_status' => (string) $translation->post_status,
+				'migrated_count' => count( $records ),
+				'missing_count' => 0,
+				'semantic_mismatch_count' => count( $semantic_mismatches ),
+				'semantic_mismatches' => array_slice( $semantic_mismatches, 0, 20 ),
 				'mapping' => $migration['mapping'],
 				'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, 0, 12 ) : array(),
 			);
@@ -724,6 +753,13 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		$source_fragments = isset( $contract['fragments'] ) && is_array( $contract['fragments'] ) ? $contract['fragments'] : array();
 		$legacy_records = self::localized_fragment_records_from_existing_content( $legacy_content );
 		$legacy_by_key = self::localized_fragment_map( $legacy_records );
+		$legacy_record_by_key = array();
+		foreach ( $legacy_records as $legacy_record ) {
+			$legacy_key = self::source_design_fragment_key_from_input( (string) ( $legacy_record['key'] ?? '' ) );
+			if ( '' !== $legacy_key && ! isset( $legacy_record_by_key[ $legacy_key ] ) ) {
+				$legacy_record_by_key[ $legacy_key ] = $legacy_record;
+			}
+		}
 		$supplemental_by_key = self::localized_fragment_map( $supplemental_records );
 		$legacy_values = array_values(
 			array_filter(
@@ -743,6 +779,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		$exact_count = 0;
 		$supplemental_count = 0;
 		$order_count = 0;
+		$semantic_mismatches = array();
 		foreach ( $source_fragments as $fragment ) {
 			$key = self::source_design_fragment_key_from_input( (string) ( $fragment['key'] ?? '' ) );
 			if ( '' === $key ) {
@@ -756,6 +793,10 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			} elseif ( array_key_exists( $key, $legacy_by_key ) && '' !== trim( (string) $legacy_by_key[ $key ] ) ) {
 				$html = (string) $legacy_by_key[ $key ];
 				++$exact_count;
+				$mismatch = self::source_design_exact_key_semantic_mismatch( $fragment, $legacy_record_by_key[ $key ] ?? array() );
+				if ( $mismatch ) {
+					$semantic_mismatches[] = $mismatch;
+				}
 			} elseif ( $use_order_fallback && array_key_exists( $order_index, $legacy_values ) ) {
 				$html = (string) $legacy_values[ $order_index ];
 				++$order_count;
@@ -792,9 +833,70 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				'supplemental_key_count' => $supplemental_count,
 				'order_fallback_count' => $order_count,
 				'order_fallback_used' => $order_count > 0,
+				'semantic_mismatch_count' => count( $semantic_mismatches ),
+				'semantic_mismatches' => array_slice( $semantic_mismatches, 0, 20 ),
 				'complete' => empty( $missing ),
 			),
 		);
+	}
+
+	/**
+	 * Detect likely stale exact-key matches where a reused uniqueId no longer represents the same source fragment.
+	 *
+	 * @param array<string,mixed> $source_fragment Current source-design fragment.
+	 * @param array<string,mixed> $legacy_record   Existing translated fragment with the same key.
+	 * @return array<string,mixed>
+	 */
+	private static function source_design_exact_key_semantic_mismatch( array $source_fragment, array $legacy_record ): array {
+		$key = (string) ( $source_fragment['key'] ?? '' );
+		$source_text = self::normalize_review_text( (string) ( $source_fragment['text'] ?? '' ) );
+		$legacy_text = self::normalize_review_text( (string) ( $legacy_record['text'] ?? wp_strip_all_tags( (string) ( $legacy_record['html'] ?? '' ) ) ) );
+		if ( '' === $key || '' === $source_text || '' === $legacy_text ) {
+			return array();
+		}
+
+		$source_words = self::word_count_for_fragment_shape( $source_text );
+		$legacy_words = self::word_count_for_fragment_shape( $legacy_text );
+		$source_heading = ! empty( $source_fragment['heading'] );
+		$legacy_heading = ! empty( $legacy_record['heading'] );
+		$reasons = array();
+
+		if ( $source_heading !== $legacy_heading ) {
+			$reasons[] = 'heading_role_changed';
+		}
+		if ( $source_words <= 4 && $legacy_words >= 14 ) {
+			$reasons[] = 'short_source_fragment_received_long_legacy_text';
+		}
+		if ( $source_words >= 18 && $legacy_words <= 5 ) {
+			$reasons[] = 'long_source_fragment_received_short_legacy_text';
+		}
+
+		if ( empty( $reasons ) ) {
+			return array();
+		}
+
+		return array(
+			'key' => $key,
+			'reasons' => $reasons,
+			'source_words' => $source_words,
+			'legacy_words' => $legacy_words,
+			'source_heading' => $source_heading,
+			'legacy_heading' => $legacy_heading,
+			'source_preview' => mb_substr( $source_text, 0, 120 ),
+			'legacy_preview' => mb_substr( $legacy_text, 0, 160 ),
+		);
+	}
+
+	private static function word_count_for_fragment_shape( string $text ): int {
+		$text = trim( preg_replace( '/\\s+/u', ' ', $text ) ?? $text );
+		if ( '' === $text ) {
+			return 0;
+		}
+		if ( preg_match_all( '/[\\p{L}\\p{N}]+/u', $text, $matches ) ) {
+			return count( $matches[0] );
+		}
+
+		return str_word_count( $text );
 	}
 
 	/**
