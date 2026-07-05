@@ -160,7 +160,8 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'provided_count'  => count( $fragments ),
 			'missing_count'   => count( $missing ),
 		);
-		self::project_source_design_blocks( $blocks, $fragments, $stats );
+		$translation_id = absint( $input['translation_id'] ?? 0 );
+		self::project_source_design_blocks( $blocks, $fragments, $stats, '', $translation_id );
 
 		$content = serialize_blocks( $blocks );
 		$content = self::mirror_rtl_block_layout_from_source( $content, $source_content, $language );
@@ -657,6 +658,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			array(
 				'localized_fragments' => $records,
 				'strict_source_design_fragments' => true,
+				'translation_id' => $translation_id,
 			),
 			$language
 		);
@@ -886,6 +888,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			array(
 				'localized_fragments' => $fragments,
 				'strict_source_design_fragments' => true,
+				'translation_id' => $translation_id,
 			),
 			$language
 		);
@@ -1104,7 +1107,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	 * @param array<string,string>           $fragments Localized values by key.
 	 * @param array<string,int>              $stats Projection stats.
 	 */
-	private static function project_source_design_blocks( array &$blocks, array $fragments, array &$stats, string $path = '' ): void {
+	private static function project_source_design_blocks( array &$blocks, array $fragments, array &$stats, string $path = '', int $translation_id = 0 ): void {
 		foreach ( $blocks as $index => &$block ) {
 			$current_path = '' === $path ? (string) $index : $path . '.' . $index;
 			if ( ! is_array( $block ) ) {
@@ -1156,11 +1159,96 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				}
 			}
 
+			if ( 'core/image' === $name && $translation_id > 0 ) {
+				self::project_source_design_image_alt( $block, $translation_id, $stats );
+			}
+
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
-				self::project_source_design_blocks( $block['innerBlocks'], $fragments, $stats, $current_path );
+				self::project_source_design_blocks( $block['innerBlocks'], $fragments, $stats, $current_path, $translation_id );
 			}
 		}
 		unset( $block );
+	}
+
+	/**
+	 * Apply a post-localized featured-image alt override to inherited core/image blocks.
+	 *
+	 * Source-design reprojection copies the source image block shell. Shared
+	 * attachments keep source-language attachment alt text, so translated posts
+	 * store localized image alt in post meta. When the inherited image block is
+	 * the translated post's featured image, mirror that localized alt into the
+	 * static core/image markup as well as presentation surfaces.
+	 *
+	 * @param array<string,mixed> $block Parsed core/image block.
+	 * @param array<string,int>   $stats Projection stats.
+	 */
+	private static function project_source_design_image_alt( array &$block, int $translation_id, array &$stats ): void {
+		$attrs = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
+		$image_id = absint( $attrs['id'] ?? 0 );
+		if ( ! $image_id ) {
+			return;
+		}
+
+		$thumbnail_id = self::featured_image_id_for_post( $translation_id );
+		if ( ! $thumbnail_id || $thumbnail_id !== $image_id ) {
+			return;
+		}
+
+		$alt = self::localized_featured_image_alt_for_post( $translation_id, $thumbnail_id );
+		if ( '' === $alt ) {
+			return;
+		}
+
+		$block['attrs']['alt'] = $alt;
+		if ( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
+			$updated = self::replace_core_image_alt_attribute( (string) $block['innerHTML'], $alt );
+			if ( $updated !== $block['innerHTML'] ) {
+				$block['innerHTML'] = $updated;
+				if ( isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
+					$block['innerContent'] = self::replace_core_image_inner_content_alt_attribute( $block['innerContent'], $alt );
+				} elseif ( empty( $block['innerBlocks'] ) ) {
+					$block['innerContent'] = array( $updated );
+				}
+				$stats['localized_image_alt_count'] = (int) ( $stats['localized_image_alt_count'] ?? 0 ) + 1;
+			}
+		}
+	}
+
+	/**
+	 * Replace or add the alt attribute on the first img tag in a core/image HTML shell.
+	 */
+	private static function replace_core_image_alt_attribute( string $html, string $alt ): string {
+		$escaped_alt = esc_attr( $alt );
+		if ( preg_match( '/<img\\b[^>]*>/i', $html, $match, PREG_OFFSET_CAPTURE ) ) {
+			$tag = $match[0][0];
+			if ( preg_match( "~\\s+alt=(\"[^\"]*\"|'[^']*'|[^\\s>]+)~i", $tag ) ) {
+				$new_tag = preg_replace( "~\\s+alt=(\"[^\"]*\"|'[^']*'|[^\\s>]+)~i", ' alt="' . $escaped_alt . '"', $tag, 1 );
+			} else {
+				$new_tag = preg_replace( '/\\s*\\/?>$/', ' alt="' . $escaped_alt . '"$0', $tag, 1 );
+			}
+			if ( is_string( $new_tag ) && $new_tag !== $tag ) {
+				return substr_replace( $html, $new_tag, (int) $match[0][1], strlen( $tag ) );
+			}
+		}
+
+		return $html;
+	}
+
+	/**
+	 * Replace core/image alt text inside serialized innerContent pieces.
+	 *
+	 * @param array<int,mixed> $inner_content Block innerContent.
+	 * @return array<int,mixed>
+	 */
+	private static function replace_core_image_inner_content_alt_attribute( array $inner_content, string $alt ): array {
+		foreach ( $inner_content as &$part ) {
+			if ( is_string( $part ) && false !== stripos( $part, '<img' ) ) {
+				$part = self::replace_core_image_alt_attribute( $part, $alt );
+			}
+		}
+		unset( $part );
+
+		return $inner_content;
 	}
 
 	/**
@@ -1574,6 +1662,9 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	private static function source_design_signature_attrs( string $block_name, array $attrs ): array {
 		foreach ( self::structured_text_attr_fragments( $block_name, $attrs ) as $attr_fragment ) {
 			self::set_nested_array_value( $attrs, (array) ( $attr_fragment['attr_path'] ?? array() ), '{{text}}' );
+		}
+		if ( 'core/image' === $block_name && array_key_exists( 'alt', $attrs ) ) {
+			$attrs['alt'] = '{{text}}';
 		}
 
 		return self::recursive_ksort_array( $attrs );

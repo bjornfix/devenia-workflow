@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.422
+**Stable tag:** 0.1.423
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,13 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.423
+
+- Keeps localized featured-image alt text in inherited `core/image` blocks during
+  source-design reprojection.
+- Treats `core/image` alt as localized media text in the source-design signature
+  so translated image alt can differ safely.
 
 ### 0.1.422
 
