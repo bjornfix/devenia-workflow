@@ -1663,8 +1663,8 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		foreach ( self::structured_text_attr_fragments( $block_name, $attrs ) as $attr_fragment ) {
 			self::set_nested_array_value( $attrs, (array) ( $attr_fragment['attr_path'] ?? array() ), '{{text}}' );
 		}
-		if ( 'core/image' === $block_name && array_key_exists( 'alt', $attrs ) ) {
-			$attrs['alt'] = '{{text}}';
+		if ( 'core/image' === $block_name ) {
+			unset( $attrs['alt'] );
 		}
 
 		return self::recursive_ksort_array( $attrs );
@@ -1682,6 +1682,9 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 		if ( 'core/table' === $block_name ) {
 			return self::core_table_html_shell( $html );
+		}
+		if ( 'core/image' === $block_name ) {
+			return self::core_image_html_shell( $html );
 		}
 
 		$structured_fragments = self::structured_text_attr_fragments( $block_name, $attrs );
@@ -1706,6 +1709,22 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				'$1{{text}}$5',
 				$html
 			) ?? ''
+		);
+	}
+
+	/**
+	 * Preserve image wrapper/source markup while removing localized alt text.
+	 */
+	private static function core_image_html_shell( string $html ): string {
+		return trim(
+			preg_replace_callback(
+				'/<img\\b[^>]*>/i',
+				static function ( array $matches ): string {
+					return preg_replace( "~\\s+alt=(\"[^\"]*\"|'[^']*'|[^\\s>]+)~i", '', (string) $matches[0], 1 ) ?? (string) $matches[0];
+				},
+				$html,
+				1
+			) ?? $html
 		);
 	}
 
