@@ -699,7 +699,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				'language' => $language,
 			);
 		}
-		$claim_gate = self::translation_claim_write_gate( (int) $source->ID, $language, (string) ( $input['claim_token'] ?? '' ) );
+		$claim_gate = self::translation_claim_write_gate( (int) $source->ID, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			$claim_gate['translation_id'] = $translation_id;
 			return $claim_gate;
@@ -1042,7 +1042,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				'language' => $language,
 			);
 		}
-		$claim_gate = self::translation_claim_write_gate( (int) $source->ID, $language, (string) ( $input['claim_token'] ?? '' ) );
+		$claim_gate = self::translation_claim_write_gate( (int) $source->ID, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			$claim_gate['translation_id'] = $translation_id;
 			return $claim_gate;
