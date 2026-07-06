@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.443
+ * Version: 0.1.444
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.443';
+	const VERSION = '0.1.444';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -28603,9 +28603,12 @@ final class Devenia_AI_Translations {
 				$issues[] = self::qa_item(
 					'source_' . $key . '_mismatch',
 					'Translated page must keep the same ' . str_replace( '_', ' ', $key ) . ' as the source page.',
-					array(
+					array_merge(
+						array(
 						'source'      => $source[ $key ],
 						'translation' => $target[ $key ],
+						),
+						'link_count' === $key ? array( 'link_coverage' => self::source_link_coverage_context( $source_content, $content ) ) : array()
 					)
 				);
 			}
@@ -28731,20 +28734,36 @@ final class Devenia_AI_Translations {
 	 * Allow raw href-count drift only when meaningful source link coverage remains.
 	 */
 	private static function source_link_coverage_is_preserved( string $source_content, string $target_content ): bool {
-		$source_linked = self::linked_source_ids_for_content( $source_content );
-		$target_linked = self::linked_source_ids_for_content( $target_content );
-		if ( empty( $source_linked ) ) {
+		$context = self::source_link_coverage_context( $source_content, $target_content );
+		if ( empty( $context['source_ids'] ) ) {
 			return false;
 		}
 
-		foreach ( array_keys( $source_linked ) as $linked_source_id ) {
-			if ( empty( $target_linked[ $linked_source_id ] ) ) {
-				return false;
-			}
-		}
+		return empty( $context['missing_source_ids'] )
+			&& (int) $context['target_action_links'] >= (int) $context['source_action_links']
+			&& (int) $context['target_non_content_links'] <= (int) $context['source_non_content_links'];
+	}
 
-		return self::action_link_count( $target_content ) >= self::action_link_count( $source_content )
-			&& self::non_content_link_count( $target_content ) <= self::non_content_link_count( $source_content );
+	/**
+	 * Explain which semantic link coverage condition failed.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function source_link_coverage_context( string $source_content, string $target_content ): array {
+		$source_ids = array_map( 'intval', array_keys( self::linked_source_ids_for_content( $source_content ) ) );
+		$target_ids = array_map( 'intval', array_keys( self::linked_source_ids_for_content( $target_content ) ) );
+		sort( $source_ids );
+		sort( $target_ids );
+
+		return array(
+			'source_ids'               => $source_ids,
+			'target_ids'               => $target_ids,
+			'missing_source_ids'       => array_values( array_diff( $source_ids, $target_ids ) ),
+			'source_action_links'      => self::action_link_count( $source_content ),
+			'target_action_links'      => self::action_link_count( $target_content ),
+			'source_non_content_links' => self::non_content_link_count( $source_content ),
+			'target_non_content_links' => self::non_content_link_count( $target_content ),
+		);
 	}
 
 	/**
