@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.451
+ * Version: 0.1.452
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.451';
+	const VERSION = '0.1.452';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -15675,25 +15675,99 @@ final class Devenia_AI_Translations {
 			return $sources;
 		}
 
-		$query = self::source_page_query(
-			array(
-				'post_status'    => 'publish',
-				'posts_per_page' => 1000,
-				'orderby'        => 'modified',
-				'order'          => 'DESC',
-			)
-		);
-		foreach ( $query->posts as $candidate ) {
-			if ( self::is_translation_post( (int) $candidate->ID ) ) {
-				continue;
-			}
-			$sources[] = $candidate;
+		$scan_limit = max( $limit, min( 2000, max( 500, $limit * 4 ) ) );
+		foreach ( self::source_design_workflow_source_candidates( $scan_limit ) as $candidate ) {
+			self::add_workflow_source_candidate( $sources, $candidate, $limit );
 			if ( count( $sources ) >= $limit ) {
-				break;
+				return $sources;
+			}
+		}
+
+		foreach ( self::translation_workflow_source_candidates( $scan_limit ) as $candidate ) {
+			self::add_workflow_source_candidate( $sources, $candidate, $limit );
+			if ( count( $sources ) >= $limit ) {
+				return $sources;
 			}
 		}
 
 		return $sources;
+	}
+
+	/**
+	 * Candidate source posts that need source-design inspection, independent of translation rows.
+	 *
+	 * @return array<int,WP_Post>
+	 */
+	private static function source_design_workflow_source_candidates( int $scan_limit ): array {
+		$query = self::source_content_query(
+			array(
+				'post_type'      => 'post',
+				'post_status'    => 'publish',
+				'posts_per_page' => max( 1, min( 2000, $scan_limit ) ),
+				'orderby'        => 'modified',
+				'order'          => 'DESC',
+				'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Source-design queue must include legacy original posts, not translation posts.
+					array(
+						'key'     => self::META_SOURCE_ID,
+						'compare' => 'NOT EXISTS',
+					),
+				),
+			)
+		);
+
+		return array_values(
+			array_filter(
+				$query->posts,
+				static function ( $candidate ): bool {
+					return $candidate instanceof WP_Post;
+				}
+			)
+		);
+	}
+
+	/**
+	 * Candidate source content for translation workflow work.
+	 *
+	 * @return array<int,WP_Post>
+	 */
+	private static function translation_workflow_source_candidates( int $scan_limit ): array {
+		$query = self::source_page_query(
+			array(
+				'post_status'    => 'publish',
+				'posts_per_page' => max( 1, min( 2000, $scan_limit ) ),
+				'orderby'        => 'modified',
+				'order'          => 'DESC',
+			)
+		);
+
+		return array_values(
+			array_filter(
+				$query->posts,
+				static function ( $candidate ): bool {
+					return $candidate instanceof WP_Post;
+				}
+			)
+		);
+	}
+
+	/**
+	 * Add one source candidate while preserving first-seen priority and original-only scope.
+	 *
+	 * @param array<int,WP_Post> $sources Source accumulator.
+	 */
+	private static function add_workflow_source_candidate( array &$sources, WP_Post $candidate, int $limit ): void {
+		if ( count( $sources ) >= $limit ) {
+			return;
+		}
+		if ( ! self::is_translatable_post_type( (string) $candidate->post_type ) || self::is_translation_post( (int) $candidate->ID ) ) {
+			return;
+		}
+		foreach ( $sources as $source ) {
+			if ( (int) $source->ID === (int) $candidate->ID ) {
+				return;
+			}
+		}
+		$sources[] = $candidate;
 	}
 
 	/**
@@ -16827,23 +16901,7 @@ final class Devenia_AI_Translations {
 			}
 			$sources[] = $source;
 		} else {
-			$query = self::source_page_query(
-				array(
-					'post_status'    => 'publish',
-					'posts_per_page' => 1000,
-					'orderby'        => 'modified',
-					'order'          => 'DESC',
-				)
-			);
-			foreach ( $query->posts as $candidate ) {
-				if ( self::is_translation_post( (int) $candidate->ID ) ) {
-					continue;
-				}
-				$sources[] = $candidate;
-				if ( count( $sources ) >= $limit ) {
-					break;
-				}
-			}
+			$sources = self::workflow_source_candidates( 0, $limit );
 		}
 
 		$items  = array();
