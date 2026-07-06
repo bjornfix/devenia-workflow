@@ -36,6 +36,18 @@ trait Devenia_AI_Translations_Translation_Reservations {
 					'description' => 'Human-readable owner, such as the agent/session name.',
 				),
 				'note'        => array( 'type' => 'string' ),
+				'codex_thread_id' => array(
+					'type'        => 'string',
+					'description' => 'Stable worker session identifier that owns the reservation.',
+				),
+				'session_binding_token' => array(
+					'type'        => 'string',
+					'description' => 'Persona/session secret proof for the worker session that owns this reservation.',
+				),
+				'actor_id'    => array(
+					'type'        => 'string',
+					'description' => 'Optional worker actor label for diagnostics.',
+				),
 				'ttl_seconds' => array(
 					'type'        => 'integer',
 					'default'     => self::DEFAULT_TRANSLATION_CLAIM_TTL,
@@ -71,10 +83,26 @@ trait Devenia_AI_Translations_Translation_Reservations {
 					'type'        => 'string',
 					'description' => 'Token returned by reserve-work. Required unless force is true.',
 				),
+				'codex_thread_id' => array(
+					'type'        => 'string',
+					'description' => 'Stable worker session identifier that owns the reservation. Required to release reservations that were created with a worker session binding.',
+				),
+				'session_binding_token' => array(
+					'type'        => 'string',
+					'description' => 'Persona/session secret proof for the worker session that owns this reservation.',
+				),
 				'force'       => array(
 					'type'        => 'boolean',
 					'default'     => false,
 					'description' => 'Release reservations without matching the claim token.',
+				),
+				'confirm_force_release' => array(
+					'type'        => 'string',
+					'description' => 'Required with force=true. Must equal ai-translations/release-reservation:force.',
+				),
+				'force_reason' => array(
+					'type'        => 'string',
+					'description' => 'Required with force=true. Human-readable reason for supervisor takeover.',
 				),
 			),
 			'additionalProperties' => false,
@@ -120,6 +148,10 @@ trait Devenia_AI_Translations_Translation_Reservations {
 		$force      = ! empty( $input['force'] );
 		$owner      = ! empty( $input['owner'] ) ? sanitize_text_field( (string) $input['owner'] ) : 'AI Translation Workflow';
 		$note       = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
+		$codex_thread_id = ! empty( $input['codex_thread_id'] ) ? self::normalize_control_scope_id( (string) $input['codex_thread_id'] ) : '';
+		$session_binding_token = sanitize_text_field( (string) ( $input['session_binding_token'] ?? '' ) );
+		$session_binding_hash = '' !== $session_binding_token ? self::translation_reservation_session_binding_hash( $session_binding_token ) : '';
+		$actor_id   = ! empty( $input['actor_id'] ) ? sanitize_key( (string) $input['actor_id'] ) : '';
 		$now        = time();
 		$token      = wp_generate_password( 32, false, false );
 		$claims     = array();
@@ -141,6 +173,10 @@ trait Devenia_AI_Translations_Translation_Reservations {
 				'token'      => $token,
 				'owner'      => $owner,
 				'note'       => $note,
+				'codex_thread_id' => $codex_thread_id,
+				'session_binding_hash' => $session_binding_hash,
+				'session_binding_created_at' => '' !== $session_binding_hash ? gmdate( 'c', $now ) : '',
+				'actor_id'   => $actor_id,
 				'claimed_at' => gmdate( 'c', $now ),
 				'expires_at' => gmdate( 'c', $now + $ttl_seconds ),
 			);
@@ -189,15 +225,54 @@ trait Devenia_AI_Translations_Translation_Reservations {
 
 		$token     = (string) ( $input['claim_token'] ?? '' );
 		$force     = ! empty( $input['force'] );
+		$codex_thread_id = ! empty( $input['codex_thread_id'] ) ? self::normalize_control_scope_id( (string) $input['codex_thread_id'] ) : '';
+		$session_binding_token = sanitize_text_field( (string) ( $input['session_binding_token'] ?? '' ) );
 		$released  = array();
 		$conflicts = array();
 		$missing   = array();
+
+		if ( $force ) {
+			$confirm_force_release = (string) ( $input['confirm_force_release'] ?? '' );
+			$force_reason          = trim( sanitize_textarea_field( (string) ( $input['force_reason'] ?? '' ) ) );
+			if ( 'ai-translations/release-reservation:force' !== $confirm_force_release || '' === $force_reason ) {
+				return array(
+					'success' => false,
+					'message' => 'force release requires confirm_force_release and force_reason.',
+					'code'    => 'force_release_confirmation_required',
+				);
+			}
+		}
 
 		foreach ( $languages as $language ) {
 			$key      = self::translation_reservation_option_name( $source_id, $language );
 			$existing = self::translation_reservation_for_language( $source_id, $language, true );
 			if ( ! $existing ) {
 				$missing[] = $language;
+				continue;
+			}
+			$owner_thread_id = self::normalize_control_scope_id( (string) ( $existing['codex_thread_id'] ?? '' ) );
+			if ( ! $force && '' !== $owner_thread_id && ! hash_equals( $owner_thread_id, $codex_thread_id ) ) {
+				$conflicts[] = array(
+					'language'    => $language,
+					'code'        => 'reservation_owner_mismatch',
+					'reservation' => self::public_translation_reservation( $existing ),
+				);
+				continue;
+			}
+			$existing_session_binding_hash = sanitize_text_field( (string) ( $existing['session_binding_hash'] ?? '' ) );
+			if (
+				! $force
+				&& '' !== $existing_session_binding_hash
+				&& (
+					'' === $session_binding_token
+					|| ! hash_equals( $existing_session_binding_hash, self::translation_reservation_session_binding_hash( $session_binding_token ) )
+				)
+			) {
+				$conflicts[] = array(
+					'language'    => $language,
+					'code'        => 'reservation_session_binding_mismatch',
+					'reservation' => self::public_translation_reservation( $existing ),
+				);
 				continue;
 			}
 			if ( ! $force && ( '' === $token || ! hash_equals( (string) ( $existing['token'] ?? '' ), $token ) ) ) {
@@ -306,6 +381,10 @@ trait Devenia_AI_Translations_Translation_Reservations {
 		return self::OPTION_TRANSLATION_CLAIM_PREFIX . absint( $source_id ) . '_' . sanitize_key( $language );
 	}
 
+	private static function translation_reservation_session_binding_hash( string $token ): string {
+		return hash_hmac( 'sha256', $token, wp_salt( 'auth' ) );
+	}
+
 	/**
 	 * Return an active reservation for a source/language pair.
 	 */
@@ -352,6 +431,10 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'token'      => $token,
 			'owner'      => sanitize_text_field( (string) ( $claim['owner'] ?? '' ) ),
 			'note'       => sanitize_textarea_field( (string) ( $claim['note'] ?? '' ) ),
+			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $claim['codex_thread_id'] ?? '' ) ),
+			'session_binding_hash' => sanitize_text_field( (string) ( $claim['session_binding_hash'] ?? '' ) ),
+			'session_binding_created_at' => sanitize_text_field( (string) ( $claim['session_binding_created_at'] ?? '' ) ),
+			'actor_id'   => sanitize_key( (string) ( $claim['actor_id'] ?? '' ) ),
 			'claimed_at' => sanitize_text_field( (string) ( $claim['claimed_at'] ?? '' ) ),
 			'expires_at' => gmdate( 'c', $expires_ts ),
 			'expired'    => $expires_ts <= time(),
@@ -367,6 +450,10 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'language'   => sanitize_key( (string) ( $claim['language'] ?? '' ) ),
 			'owner'      => sanitize_text_field( (string) ( $claim['owner'] ?? '' ) ),
 			'note'       => sanitize_textarea_field( (string) ( $claim['note'] ?? '' ) ),
+			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $claim['codex_thread_id'] ?? '' ) ),
+			'has_session_binding' => ! empty( $claim['session_binding_hash'] ),
+			'session_binding_created_at' => sanitize_text_field( (string) ( $claim['session_binding_created_at'] ?? '' ) ),
+			'actor_id'   => sanitize_key( (string) ( $claim['actor_id'] ?? '' ) ),
 			'claimed_at' => sanitize_text_field( (string) ( $claim['claimed_at'] ?? '' ) ),
 			'expires_at' => sanitize_text_field( (string) ( $claim['expires_at'] ?? '' ) ),
 			'expired'    => ! empty( $claim['expired'] ),
@@ -376,22 +463,53 @@ trait Devenia_AI_Translations_Translation_Reservations {
 	/**
 	 * Block writes when another active worker has reserved the source/language.
 	 */
-	private static function translation_claim_write_gate( int $source_id, string $language, string $claim_token ): array {
+	private static function translation_claim_write_gate( int $source_id, string $language, string $claim_token, array $input = array() ): array {
 		$reservation = self::translation_reservation_for_language( $source_id, $language );
 		if ( ! $reservation ) {
 			return array();
 		}
-		if ( '' !== $claim_token && hash_equals( (string) ( $reservation['token'] ?? '' ), $claim_token ) ) {
-			return array();
+		if ( '' === $claim_token || ! hash_equals( (string) ( $reservation['token'] ?? '' ), $claim_token ) ) {
+			return array(
+				'success'     => false,
+				'message'     => 'Translation work is currently reserved by another worker. Use the matching claim_token, wait for expiry, or force-release the reservation after review.',
+				'code'        => 'translation_reserved',
+				'source_id'   => $source_id,
+				'language'    => $language,
+				'reservation' => self::public_translation_reservation( $reservation ),
+			);
 		}
 
-		return array(
-			'success'     => false,
-			'message'     => 'Translation work is currently reserved by another worker. Use the matching claim_token, wait for expiry, or force-release the reservation after review.',
-			'code'        => 'translation_reserved',
-			'source_id'   => $source_id,
-			'language'    => $language,
-			'reservation' => self::public_translation_reservation( $reservation ),
-		);
+		$owner_thread_id = self::normalize_control_scope_id( (string) ( $reservation['codex_thread_id'] ?? '' ) );
+		$codex_thread_id = self::normalize_control_scope_id( (string) ( $input['codex_thread_id'] ?? '' ) );
+		if ( '' !== $owner_thread_id && ! hash_equals( $owner_thread_id, $codex_thread_id ) ) {
+			return array(
+				'success'     => false,
+				'message'     => 'Translation work is reserved by a different worker session.',
+				'code'        => 'translation_reserved_session_mismatch',
+				'source_id'   => $source_id,
+				'language'    => $language,
+				'reservation' => self::public_translation_reservation( $reservation ),
+			);
+		}
+
+		$session_binding_hash = sanitize_text_field( (string) ( $reservation['session_binding_hash'] ?? '' ) );
+		if ( '' !== $session_binding_hash ) {
+			$session_binding_token = sanitize_text_field( (string) ( $input['session_binding_token'] ?? '' ) );
+			if (
+				'' === $session_binding_token
+				|| ! hash_equals( $session_binding_hash, self::translation_reservation_session_binding_hash( $session_binding_token ) )
+			) {
+				return array(
+					'success'     => false,
+					'message'     => 'Translation work is reserved by a session-secret-bound worker. The matching session binding token is required.',
+					'code'        => 'translation_reserved_session_binding_mismatch',
+					'source_id'   => $source_id,
+					'language'    => $language,
+					'reservation' => self::public_translation_reservation( $reservation ),
+				);
+			}
+		}
+
+			return array();
 	}
 }

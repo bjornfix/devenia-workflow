@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.445
+Stable tag: 0.1.446
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.446 =
+* Carries persona/session binding proof through protected translation workflow abilities.
+* Binds heartbeat reservations to the owning session proof so copied claim files are not enough to write or release another worker's claim.
 
 = 0.1.445 =
 * Adds source-design fragment role guardrails so QA and source-fidelity scans catch translations where the design tree matches but localized text is stored under the wrong fragment role.

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.445
+ * Version: 0.1.446
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.445';
+	const VERSION = '0.1.446';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -7900,7 +7900,7 @@ final class Devenia_AI_Translations {
 		case 'list_translations':
 			return self::list_translations( $input );
 		case 'mark_reviewed':
-			return self::mark_reviewed( (int) ( $input['translation_id'] ?? 0 ), (string) ( $input['translation_status'] ?? '' ), (string) ( $input['claim_token'] ?? '' ) );
+			return self::mark_reviewed( (int) ( $input['translation_id'] ?? 0 ), (string) ( $input['translation_status'] ?? '' ), (string) ( $input['claim_token'] ?? '' ), $input );
 		case 'qa_translation':
 			return self::qa_translation( $input );
 		case 'mark_linguistic_reviewed':
@@ -9093,6 +9093,7 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required when run_write_test is true. Use the exact CODEX_THREAD_ID value so lifecycle regression exercises the same workflow authority seam as production upserts.',
 				),
+				'session_binding_token' => self::session_binding_token_input_schema(),
 				'source_title' => array(
 					'type'        => 'string',
 					'description' => 'Optional custom source post title for languages without a bundled lifecycle fixture.',
@@ -9164,6 +9165,7 @@ final class Devenia_AI_Translations {
 				'type'        => 'string',
 				'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value.',
 			),
+			'session_binding_token' => self::session_binding_token_input_schema(),
 			'writer_process_id' => array(
 				'type'        => 'string',
 				'description' => 'Optional stable identifier for the process/session updating the runtime text. Defaults to codex_thread_id.',
@@ -9212,6 +9214,7 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value.',
 				),
+				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id'  => array(
 					'type'        => 'string',
 					'description' => 'Optional stable identifier for the process/session updating the alt text. Defaults to codex_thread_id.',
@@ -9833,6 +9836,16 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Optional persona/session proof field used by protected workflow abilities.
+	 */
+	private static function session_binding_token_input_schema(): array {
+		return array(
+			'type'        => 'string',
+			'description' => 'Persona/session secret proof from heartbeat bootstrap. Required when the server-side workflow lease is session-bound.',
+		);
+	}
+
+	/**
 	 * Input schema for the conservative heartbeat work assignment surface.
 	 */
 	private static function heartbeat_action_input_schema(): array {
@@ -9844,6 +9857,7 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required. Set this to the exact CODEX_THREAD_ID environment value for the real independent heartbeat session.',
 				),
+				'session_binding_token' => self::session_binding_token_input_schema(),
 				'limit' => array(
 					'type'        => 'integer',
 					'default'     => 100,
@@ -10121,6 +10135,7 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
 				),
+				'session_binding_token' => self::session_binding_token_input_schema(),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
 					'description' => 'Optional for translated content: stable identifier for the separate reviewer process/session. Defaults to codex_thread_id and must differ from the writer process.',
@@ -10306,6 +10321,7 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
 				),
+				'session_binding_token' => self::session_binding_token_input_schema(),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
 					'description' => 'Optional stable identifier for the separate final reviewer process/session. Defaults to codex_thread_id.',
@@ -10533,6 +10549,7 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
 				),
+				'session_binding_token' => self::session_binding_token_input_schema(),
 				'allow_update_published' => array(
 					'type'    => 'boolean',
 					'default' => false,
@@ -10592,6 +10609,7 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. Required when apply=true.',
 				),
+				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id' => array(
 					'type'        => 'string',
 					'description' => 'Optional stable identifier for the process/session doing this metadata write. Defaults to codex_thread_id.',
@@ -10650,6 +10668,7 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. Required when apply=true.',
 				),
+				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id' => array(
 					'type'        => 'string',
 					'description' => 'Optional stable identifier for the process/session doing the reprojection write. Defaults to codex_thread_id.',
@@ -10751,6 +10770,7 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. Required when apply=true.',
 				),
+				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id' => array(
 					'type'        => 'string',
 					'description' => 'Optional stable identifier for the process/session doing the migration write. Defaults to codex_thread_id.',
@@ -11067,6 +11087,7 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
 				),
+				'session_binding_token' => self::session_binding_token_input_schema(),
 				'claim_token'          => array(
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
@@ -11139,6 +11160,7 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
 				),
+				'session_binding_token' => self::session_binding_token_input_schema(),
 				'claim_token'    => array(
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
@@ -12247,7 +12269,7 @@ final class Devenia_AI_Translations {
 		if ( ! self::is_translation_language( $language ) ) {
 			return self::error( 'Unknown or source language.' );
 		}
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
@@ -12556,7 +12578,7 @@ final class Devenia_AI_Translations {
 			return self::error( 'Translation post type does not match the source post type.' );
 		}
 
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
@@ -13254,14 +13276,14 @@ final class Devenia_AI_Translations {
 	/**
 	 * Mark translation reviewed/status.
 	 */
-	private static function mark_reviewed( int $translation_id, string $translation_status, string $claim_token = '' ): array {
+	private static function mark_reviewed( int $translation_id, string $translation_status, string $claim_token = '', array $input = array() ): array {
 		$post = get_post( $translation_id );
 		if ( ! $post || ! self::is_translatable_post_type( (string) $post->post_type ) ) {
 			return self::error( 'Translation content not found.' );
 		}
 		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
 		$language  = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, $claim_token );
+		$claim_gate = self::translation_claim_write_gate( $source_id, $language, $claim_token, $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
@@ -14834,7 +14856,7 @@ final class Devenia_AI_Translations {
 		}
 		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
 		$language  = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
@@ -15085,7 +15107,7 @@ final class Devenia_AI_Translations {
 		}
 		$language = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
 		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
@@ -15644,6 +15666,9 @@ final class Devenia_AI_Translations {
 							'language' => $language,
 							'owner' => 'heartbeat:' . (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? 'unknown' ),
 							'note' => '' !== $note ? $note : 'Reserved by next-heartbeat-action.',
+							'codex_thread_id' => (string) ( $identity['codex_thread_id'] ?? $input['codex_thread_id'] ?? '' ),
+							'session_binding_token' => (string) ( $input['session_binding_token'] ?? '' ),
+							'actor_id' => (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? '' ),
 							'ttl_seconds' => $ttl_seconds,
 						)
 					);
@@ -16965,7 +16990,7 @@ final class Devenia_AI_Translations {
 		$language        = self::is_translation_post( $page_id ) ? sanitize_key( (string) get_post_meta( $page_id, self::META_LANGUAGE, true ) ) : self::source_language_code();
 		if ( self::is_translation_post( $page_id ) ) {
 			$source_id = absint( get_post_meta( $page_id, self::META_SOURCE_ID, true ) );
-			$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+			$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 			if ( $claim_gate ) {
 				return $claim_gate;
 			}
@@ -17055,7 +17080,7 @@ final class Devenia_AI_Translations {
 
 		$language = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
 		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
