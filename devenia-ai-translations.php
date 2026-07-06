@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.444
+ * Version: 0.1.445
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.444';
+	const VERSION = '0.1.445';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -25322,7 +25322,7 @@ final class Devenia_AI_Translations {
 			),
 			'source_fidelity' => self::translation_fitness_dimension(
 				$guardrails,
-				array( 'source_editorial_design', 'source_carryover', 'source_structure', 'link_integrity' )
+				array( 'source_editorial_design', 'source_design_fragments', 'source_carryover', 'source_structure', 'link_integrity' )
 			),
 			'locale_terminology' => self::translation_fitness_dimension(
 				$guardrails,
@@ -25419,6 +25419,89 @@ final class Devenia_AI_Translations {
 				'source_id'  => $source_id,
 				'passed'     => ! empty( $validation['passed'] ),
 				'issue_codes' => self::sanitize_qa_code_list( $validation['issue_codes'] ?? array() ),
+			),
+		);
+	}
+
+	/**
+	 * Guard that translated source-design fragments still match their visual roles.
+	 *
+	 * The source design signature proves the block tree is intact. It does not
+	 * prove that localized text stored under each fragment key still belongs in
+	 * that source fragment's role after source redesign or migration. This module
+	 * keeps that semantic check at the source-design seam so review gates and
+	 * broad scans see the same blocker as visual reviewers.
+	 *
+	 * @return array{passed:bool,issues:array<int,array<string,mixed>>,warnings:array<int,array<string,mixed>>,issue_count:int,warning_count:int,summary:array<string,mixed>}
+	 */
+	private static function source_design_fragment_role_guardrails( string $content, string $source_content = '', int $source_id = 0, string $language = '' ): array {
+		$issues = array();
+		$source = $source_id ? get_post( $source_id ) : null;
+		if ( '' === trim( $source_content ) || ! $source instanceof WP_Post || 'post' !== (string) $source->post_type ) {
+			return array(
+				'passed'        => true,
+				'issues'        => array(),
+				'warnings'      => array(),
+				'issue_count'   => 0,
+				'warning_count' => 0,
+				'summary'       => array(
+					'applicable' => false,
+					'source_id'  => $source_id,
+					'language'   => sanitize_key( $language ),
+				),
+			);
+		}
+
+		$contract = self::source_design_contract( $source );
+		$fragments = isset( $contract['fragments'] ) && is_array( $contract['fragments'] ) ? $contract['fragments'] : array();
+		if ( empty( $fragments ) ) {
+			return array(
+				'passed'        => true,
+				'issues'        => array(),
+				'warnings'      => array(),
+				'issue_count'   => 0,
+				'warning_count' => 0,
+				'summary'       => array(
+					'applicable' => false,
+					'source_id'  => $source_id,
+					'language'   => sanitize_key( $language ),
+					'reason'     => 'source_design_has_no_fragments',
+				),
+			);
+		}
+
+		$migration = self::source_design_fragment_migration_records( $contract, $content, false );
+		$mapping = isset( $migration['mapping'] ) && is_array( $migration['mapping'] ) ? $migration['mapping'] : array();
+		$semantic_mismatches = isset( $mapping['semantic_mismatches'] ) && is_array( $mapping['semantic_mismatches'] ) ? $mapping['semantic_mismatches'] : array();
+		if ( $semantic_mismatches ) {
+			$issues[] = self::qa_item(
+				'source_design_fragment_role_mismatch',
+				'Translated content keeps the source design tree, but one or more localized text fragments appear to be stored under the wrong source-design role. Re-migrate or reproject localized fragments before review.',
+				array(
+					'source_id'               => $source_id,
+					'language'                => sanitize_key( $language ),
+					'semantic_mismatch_count' => count( $semantic_mismatches ),
+					'semantic_mismatches'     => array_slice( $semantic_mismatches, 0, 12 ),
+					'next_action'             => 'repair_localized_source_design_fragment_mapping_then_reproject',
+				)
+			);
+		}
+
+		return array(
+			'passed'        => empty( $issues ),
+			'issues'        => $issues,
+			'warnings'      => array(),
+			'issue_count'   => count( $issues ),
+			'warning_count' => 0,
+			'summary'       => array(
+				'applicable'              => true,
+				'source_id'               => $source_id,
+				'language'                => sanitize_key( $language ),
+				'source_fragment_count'   => count( $fragments ),
+				'migrated_fragment_count' => absint( $mapping['migrated_fragment_count'] ?? 0 ),
+				'exact_key_count'         => absint( $mapping['exact_key_count'] ?? 0 ),
+				'semantic_mismatch_count' => count( $semantic_mismatches ),
+				'semantic_mismatches'     => array_slice( $semantic_mismatches, 0, 12 ),
 			),
 		);
 	}
@@ -25563,6 +25646,7 @@ final class Devenia_AI_Translations {
 		$language_integrity = self::language_integrity_guardrails( $content, $language, $profile_patch, $runtime_profile_overrides );
 		$source_carryover = self::source_language_carryover_guardrails( $content, $source_content, $language, $source_id );
 		$source_editorial_design = self::source_editorial_design_guardrails( $source_id, $source_content );
+		$source_design_fragments = self::source_design_fragment_role_guardrails( $content, $source_content, $source_id, $language );
 		$address_form = self::address_form_guardrails( $content, $language, $source_id, $title, $excerpt );
 		$locale_terminology = self::locale_terminology_guardrails( $content, $language, $title, $excerpt );
 		$integrity = self::translation_integrity_guardrails( $content, $source_id );
@@ -25577,6 +25661,7 @@ final class Devenia_AI_Translations {
 				'language_integrity'    => $language_integrity,
 				'source_carryover'      => $source_carryover,
 				'source_editorial_design' => $source_editorial_design,
+				'source_design_fragments' => $source_design_fragments,
 				'address_form'          => $address_form,
 				'locale_terminology'    => $locale_terminology,
 				'translation_integrity' => $integrity,
@@ -25598,6 +25683,7 @@ final class Devenia_AI_Translations {
 			'language_integrity' => $language_integrity,
 			'source_carryover' => $source_carryover,
 			'source_editorial_design' => $source_editorial_design,
+			'source_design_fragments' => $source_design_fragments,
 			'address_form'  => $address_form,
 			'locale_terminology' => $locale_terminology,
 			'translation_integrity' => $integrity,
