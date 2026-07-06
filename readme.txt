@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.439
+Stable tag: 0.1.440
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,7 +94,7 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 == Changelog ==
 
-= 0.1.439 =
+= 0.1.440 =
 * Adds source editorial design-gate failures to translation fitness scans so legacy flat source posts cannot make translated pages look clean before the source design is repaired.
 
 = 0.1.438 =

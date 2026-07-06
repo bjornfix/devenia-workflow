@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.439
+ * Version: 0.1.440
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.439';
+	const VERSION = '0.1.440';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -25486,12 +25486,13 @@ final class Devenia_AI_Translations {
 	private static function translation_fitness_dimension( array $guardrails, array $module_keys ): array {
 		$issues   = array();
 		$warnings = array();
+		$modules  = isset( $guardrails['modules'] ) && is_array( $guardrails['modules'] ) ? $guardrails['modules'] : $guardrails;
 		foreach ( $module_keys as $key ) {
-			if ( empty( $guardrails[ $key ] ) || ! is_array( $guardrails[ $key ] ) ) {
+			if ( empty( $modules[ $key ] ) || ! is_array( $modules[ $key ] ) ) {
 				continue;
 			}
-			$issues   = array_merge( $issues, isset( $guardrails[ $key ]['issues'] ) && is_array( $guardrails[ $key ]['issues'] ) ? $guardrails[ $key ]['issues'] : array() );
-			$warnings = array_merge( $warnings, isset( $guardrails[ $key ]['warnings'] ) && is_array( $guardrails[ $key ]['warnings'] ) ? $guardrails[ $key ]['warnings'] : array() );
+			$issues   = array_merge( $issues, isset( $modules[ $key ]['issues'] ) && is_array( $modules[ $key ]['issues'] ) ? $modules[ $key ]['issues'] : array() );
+			$warnings = array_merge( $warnings, isset( $modules[ $key ]['warnings'] ) && is_array( $modules[ $key ]['warnings'] ) ? $modules[ $key ]['warnings'] : array() );
 		}
 
 		return array(
