@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.441
+ * Version: 0.1.442
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.441';
+	const VERSION = '0.1.442';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -25657,6 +25657,16 @@ final class Devenia_AI_Translations {
 			'repairable'       => $normalized !== $content,
 			'content_length'   => strlen( $normalized ),
 		);
+
+		if ( $normalized !== $content ) {
+			$warnings[] = self::qa_item(
+				'repairable_gutenberg_saved_markup_mismatch',
+				'Gutenberg saved markup differs from the block attributes and should be resaved through the storage normalizer.',
+				array(
+					'changed' => true,
+				)
+			);
+		}
 
 		if ( has_blocks( $normalized ) ) {
 			$blocks = parse_blocks( $normalized );

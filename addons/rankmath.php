@@ -51,6 +51,132 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		add_filter( 'ai_translation_workflow_repair_translation_self_redirects', array( __CLASS__, 'repair_translation_self_redirects' ), 10, 3 );
 		add_filter( 'ai_translation_workflow_repair_term_archive_self_redirects', array( __CLASS__, 'repair_term_archive_self_redirects' ), 10, 4 );
 		add_filter( 'ai_translation_workflow_semantic_link_count_content', array( __CLASS__, 'filter_semantic_link_count_content' ), 10, 2 );
+		add_filter( 'ai_translation_workflow_normalize_gutenberg_content_for_storage', array( __CLASS__, 'normalize_faq_saved_markup' ) );
+		add_filter( 'ai_translation_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_content_safety' ), 10, 3 );
+	}
+
+	public static function normalize_faq_saved_markup( string $content ): string {
+		if ( false === strpos( $content, '<!-- wp:rank-math/faq-block' ) ) {
+			return $content;
+		}
+
+		$blocks  = parse_blocks( $content );
+		$changed = false;
+		$blocks  = self::normalize_faq_blocks( $blocks, $changed );
+		if ( ! $changed ) {
+			return $content;
+		}
+
+		$serialized = serialize_blocks( $blocks );
+		return is_string( $serialized ) && '' !== $serialized ? $serialized : $content;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $blocks Parsed block tree.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function normalize_faq_blocks( array $blocks, bool &$changed ): array {
+		foreach ( $blocks as &$block ) {
+			$name = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
+			if ( 'rank-math/faq-block' === $name ) {
+				$attrs     = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
+				$questions = isset( $attrs['questions'] ) && is_array( $attrs['questions'] ) ? $attrs['questions'] : array();
+				if ( ! empty( $questions ) ) {
+					$current_html = isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '';
+					$next_html    = self::faq_saved_html_from_attrs( $questions, $current_html );
+					if ( '' !== $next_html && $next_html !== $current_html ) {
+						$block['innerHTML']   = $next_html;
+						$block['innerContent'] = array( $next_html );
+						$changed              = true;
+					}
+				}
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$block['innerBlocks'] = self::normalize_faq_blocks( $block['innerBlocks'], $changed );
+			}
+		}
+		unset( $block );
+
+		return $blocks;
+	}
+
+	/**
+	 * Rebuild Rank Math FAQ static markup from the authoritative block attrs.
+	 *
+	 * @param array<int,mixed> $questions FAQ question records from the block comment.
+	 */
+	private static function faq_saved_html_from_attrs( array $questions, string $current_html ): string {
+		$outer_open = '<div class="wp-block-rank-math-faq-block rank-math-block">';
+		if ( preg_match( '/<div\b[^>]*\bwp-block-rank-math-faq-block\b[^>]*>/i', $current_html, $match ) ) {
+			$outer_open = (string) $match[0];
+		}
+
+		$list_open = '<div class="rank-math-list">';
+		if ( preg_match( '/<div\b[^>]*\brank-math-list\b[^>]*>/i', $current_html, $match ) ) {
+			$list_open = (string) $match[0];
+		}
+
+		$items = '';
+		foreach ( $questions as $question ) {
+			if ( ! is_array( $question ) ) {
+				continue;
+			}
+			if ( array_key_exists( 'visible', $question ) && false === (bool) $question['visible'] ) {
+				continue;
+			}
+
+			$id      = isset( $question['id'] ) ? sanitize_html_class( (string) $question['id'] ) : '';
+			$title   = isset( $question['title'] ) ? wp_kses_post( (string) $question['title'] ) : '';
+			$content = isset( $question['content'] ) ? wp_kses_post( (string) $question['content'] ) : '';
+			if ( '' === $id ) {
+				$id = 'faq-question-' . substr( md5( wp_strip_all_tags( $title . '|' . $content ) ), 0, 10 );
+			}
+
+			$items .= '<div id="' . esc_attr( $id ) . '" class="rank-math-list-item">';
+			$items .= '<h3 class="rank-math-question">' . $title . '</h3>';
+			$items .= '<div class="rank-math-answer">' . $content . '</div>';
+			$items .= '</div>';
+		}
+
+		if ( '' === $items ) {
+			return '';
+		}
+
+		return $outer_open . $list_open . $items . '</div></div>';
+	}
+
+	/**
+	 * Add Rank Math block visibility to the generic Gutenberg safety summary.
+	 *
+	 * @param array<string,mixed>            $safety Existing adapter safety payload.
+	 * @param array<int,array<string,mixed>> $blocks Parsed block tree.
+	 */
+	public static function gutenberg_content_safety( array $safety, array $blocks, string $content ): array {
+		unset( $content );
+
+		$summary = isset( $safety['summary'] ) && is_array( $safety['summary'] ) ? $safety['summary'] : array();
+		$summary['rank_math_faq_blocks'] = self::count_faq_blocks( $blocks );
+		$safety['summary'] = $summary;
+
+		return $safety;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $blocks Parsed block tree.
+	 */
+	private static function count_faq_blocks( array $blocks ): int {
+		$count = 0;
+		foreach ( $blocks as $block ) {
+			$name = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : '';
+			if ( 'rank-math/faq-block' === $name ) {
+				$count++;
+			}
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$count += self::count_faq_blocks( $block['innerBlocks'] );
+			}
+		}
+		return $count;
 	}
 
 	/**

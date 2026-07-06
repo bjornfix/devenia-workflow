@@ -1083,7 +1083,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 
 		$content = self::localize_internal_links_in_content( (string) $projection['content'], $language );
 		$content = self::normalize_gutenberg_content_for_storage( $content );
-		$changed = $content !== self::normalize_gutenberg_content_for_storage( (string) $translation->post_content );
+		$changed = $content !== (string) $translation->post_content;
 		$previous_review_hash = self::translation_review_content_hash( $translation );
 		$review_invalidated = false;
 
