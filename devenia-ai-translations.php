@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.427
+ * Version: 0.1.428
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.427';
+	const VERSION = '0.1.428';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -10664,7 +10664,7 @@ final class Devenia_AI_Translations {
 				),
 				'supplemental_fragments' => array(
 					'type'        => 'array',
-					'description' => 'Localized text fragments keyed by the current source design contract. Use this to fill gaps found in legacy translations before applying migration.',
+					'description' => 'Localized text fragments keyed by the current source design contract. Use this to fill gaps found in legacy translations before applying migration. Supplemental fragments are language-specific and may only be used when exactly one target translation is selected.',
 					'items'       => array(
 						'type'                 => 'object',
 						'required'             => array( 'key' ),

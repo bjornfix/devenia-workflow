@@ -549,6 +549,49 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		$language_filter = self::source_design_language_filter( $input['languages'] ?? array() );
 		$translation_filter = self::source_design_translation_filter( $input['translation_ids'] ?? array() );
 		$contract = self::source_design_contract( $source );
+		$target_rows = array();
+		foreach ( self::translation_rows_for_source( $source_id ) as $row ) {
+			$translation_id = absint( $row['id'] ?? 0 );
+			$language = sanitize_key( (string) ( $row['language'] ?? '' ) );
+			if ( ! $translation_id || ( $language_filter && empty( $language_filter[ $language ] ) ) || ( $translation_filter && empty( $translation_filter[ $translation_id ] ) ) ) {
+				continue;
+			}
+			$target_rows[] = array(
+				'id' => $translation_id,
+				'language' => $language,
+			);
+		}
+
+		$supplemental_fragments = isset( $input['supplemental_fragments'] ) && is_array( $input['supplemental_fragments'] ) ? $input['supplemental_fragments'] : array();
+		if ( ! empty( $supplemental_fragments ) && 1 !== count( $target_rows ) ) {
+			return array(
+				'success' => false,
+				'code' => 'supplemental_fragments_require_single_target',
+				'message' => 'Supplemental source-design fragments are language-specific. Select exactly one target translation when using supplemental_fragments.',
+				'dry_run' => $dry_run,
+				'source' => array(
+					'id' => (int) $source->ID,
+					'title' => get_the_title( $source ),
+				),
+				'target_count' => count( $target_rows ),
+				'target_translation_ids' => array_values(
+					array_map(
+						static function ( array $target ): int {
+							return absint( $target['id'] ?? 0 );
+						},
+						$target_rows
+					)
+				),
+				'target_languages' => array_values(
+					array_map(
+						static function ( array $target ): string {
+							return sanitize_key( (string) ( $target['language'] ?? '' ) );
+						},
+						$target_rows
+					)
+				),
+			);
+		}
 		$items = array();
 		$totals = array(
 			'checked' => 0,
@@ -559,13 +602,9 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'order_fallback' => 0,
 		);
 
-		foreach ( self::translation_rows_for_source( $source_id ) as $row ) {
+		foreach ( $target_rows as $row ) {
 			$translation_id = absint( $row['id'] ?? 0 );
 			$language = sanitize_key( (string) ( $row['language'] ?? '' ) );
-			if ( ! $translation_id || ( $language_filter && empty( $language_filter[ $language ] ) ) || ( $translation_filter && empty( $translation_filter[ $translation_id ] ) ) ) {
-				continue;
-			}
-
 			++$totals['checked'];
 			$item = self::migrate_one_translation_source_design_fragments( $source, $contract, $translation_id, $language, $input, $dry_run, $step_token_gate );
 			$items[] = $item;
