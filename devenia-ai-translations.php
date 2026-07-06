@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.434
+ * Version: 0.1.435
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.434';
+	const VERSION = '0.1.435';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -163,6 +163,7 @@ final class Devenia_AI_Translations {
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_translated_posts_page_styles' ), 23 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_language_menu_styles' ), 24 );
 		add_action( 'wp', array( __CLASS__, 'switch_frontend_locale' ), 1 );
+		add_action( 'wp', array( __CLASS__, 'suppress_broken_translated_discovery_links' ), 20 );
 		add_action( 'template_redirect', array( __CLASS__, 'redirect_translated_posts_page_first_page_query' ), 1 );
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_start_not_found_localization' ), 20 );
 		add_action( 'template_redirect', array( __CLASS__, 'redirect_localized_source_paths_with_language_prefix' ), 2 );
@@ -20924,6 +20925,18 @@ final class Devenia_AI_Translations {
 		if ( ! empty( $links['en'] ) ) {
 			printf( '<link rel="alternate" hreflang="x-default" href="%s" />' . "\n", esc_url( $links['en']['url'] ) );
 		}
+	}
+
+	/**
+	 * Suppress WordPress discovery links that point to unavailable translated endpoints.
+	 */
+	public static function suppress_broken_translated_discovery_links(): void {
+		if ( ! self::is_frontend_language_surface() || ! self::is_translation_language( self::frontend_language() ) ) {
+			return;
+		}
+
+		remove_action( 'wp_head', 'feed_links_extra', 3 );
+		remove_action( 'wp_head', 'wp_oembed_add_discovery_links' );
 	}
 
 	/**
