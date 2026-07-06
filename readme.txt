@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.453
+Stable tag: 0.1.454
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.454 =
+* Adds content-integrity repair queue support for source and translated Gutenberg content, including Rank Math FAQ blocks with unparseable question attributes or disallowed FAQ item links.
 
 = 0.1.453 =
 * Prioritizes actual invalid source-design posts before queue limits are applied so worker-sized scans see repair work.

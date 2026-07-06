@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.453
+ * Version: 0.1.454
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.453';
+	const VERSION = '0.1.454';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -9828,7 +9828,7 @@ final class Devenia_AI_Translations {
 				),
 				'statuses'         => array(
 					'type'        => 'array',
-					'description' => 'Optional queue states to include: source_design_repair, missing, stale, draft, needs_review, needs_linguistic_review, ready_to_publish, reserved, complete.',
+					'description' => 'Optional queue states to include: content_integrity_repair, source_design_repair, missing, stale, draft, needs_review, needs_linguistic_review, ready_to_publish, reserved, complete.',
 					'items'       => array( 'type' => 'string' ),
 				),
 			),
@@ -15676,6 +15676,13 @@ final class Devenia_AI_Translations {
 		}
 
 		$scan_limit = max( $limit, min( 2000, max( 500, $limit * 4 ) ) );
+		foreach ( self::source_content_integrity_workflow_source_candidates( $scan_limit ) as $candidate ) {
+			self::add_workflow_source_candidate( $sources, $candidate, $limit );
+			if ( count( $sources ) >= $limit ) {
+				return $sources;
+			}
+		}
+
 		foreach ( self::source_design_workflow_source_candidates( $scan_limit ) as $candidate ) {
 			self::add_workflow_source_candidate( $sources, $candidate, $limit );
 			if ( count( $sources ) >= $limit ) {
@@ -15688,6 +15695,41 @@ final class Devenia_AI_Translations {
 			if ( count( $sources ) >= $limit ) {
 				return $sources;
 			}
+		}
+
+		return $sources;
+	}
+
+	/**
+	 * Candidate source content that needs source content-integrity inspection.
+	 *
+	 * @return array<int,WP_Post>
+	 */
+	private static function source_content_integrity_workflow_source_candidates( int $scan_limit ): array {
+		$query = self::source_content_query(
+			array(
+				'post_status'    => 'publish',
+				'posts_per_page' => max( 1, min( 2000, max( $scan_limit, 2000 ) ) ),
+				'orderby'        => 'modified',
+				'order'          => 'DESC',
+				'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Integrity queue must include original source content only.
+					array(
+						'key'     => self::META_SOURCE_ID,
+						'compare' => 'NOT EXISTS',
+					),
+				),
+			)
+		);
+
+		$sources = array();
+		foreach ( $query->posts as $candidate ) {
+			if ( ! $candidate instanceof WP_Post ) {
+				continue;
+			}
+			if ( ! self::source_content_integrity_repair_work_item( $candidate ) ) {
+				continue;
+			}
+			$sources[] = $candidate;
 		}
 
 		return $sources;
@@ -15786,6 +15828,7 @@ final class Devenia_AI_Translations {
 	private static function workflow_work_items_for_sources( array $sources, bool $include_items = true ): array {
 		$totals = array(
 			'sources_scanned'            => count( $sources ),
+			'content_integrity_repair'   => 0,
 			'source_design_repair'       => 0,
 			'translations_seen'          => 0,
 			'missing_translations'       => 0,
@@ -15803,6 +15846,16 @@ final class Devenia_AI_Translations {
 
 		foreach ( $sources as $source ) {
 			if ( ! $source instanceof WP_Post ) {
+				continue;
+			}
+
+			$source_content_item = self::source_content_integrity_repair_work_item( $source );
+			if ( $source_content_item ) {
+				++$totals['content_integrity_repair'];
+				++$totals['needs_draft_work'];
+				if ( $include_items ) {
+					$items[] = $source_content_item;
+				}
 				continue;
 			}
 
@@ -15870,8 +15923,14 @@ final class Devenia_AI_Translations {
 				$quality_state = '' === $quality_reviewed_at ? 'needs_quality_review' : 'quality_review_recorded';
 				$final_state = '' === $final_reviewed_at ? 'needs_final_review' : 'final_review_recorded';
 				$route_issue = self::heartbeat_translation_slug_language_issue( $slug, $language, $source, $source_language_tokens );
+				$content_integrity = ! empty( $translation['content_integrity_issue_count'] );
 
-				if ( $route_issue ) {
+				if ( $content_integrity ) {
+					++$totals['content_integrity_repair'];
+					++$totals['needs_draft_work'];
+					$obligations[]   = 'content_integrity_repair';
+					$linguistic_state = 'content_integrity_repair_required';
+				} elseif ( $route_issue ) {
 					++$totals['needs_route_repair'];
 					++$totals['needs_draft_work'];
 					$obligations[]   = 'route_repair';
@@ -15928,6 +15987,71 @@ final class Devenia_AI_Translations {
 		);
 	}
 
+	private static function source_content_integrity_repair_work_item( WP_Post $source ): array {
+		$validation = self::source_content_integrity_validation( $source );
+		if ( empty( $validation['issue_count'] ) ) {
+			return array();
+		}
+
+		return self::workflow_work_item(
+			'content_integrity_repair',
+			'source',
+			(int) $source->ID,
+			0,
+			'',
+			array(
+				'source_title' => get_the_title( $source ),
+				'post_status' => sanitize_key( (string) $source->post_status ),
+				'content_integrity' => $validation,
+				'obligations' => array( 'content_integrity_repair' ),
+				'linguistic' => 'content_integrity_repair_required',
+				'quality' => 'content_integrity_repair_required',
+				'final' => 'content_integrity_repair_required',
+			)
+		);
+	}
+
+	private static function source_content_integrity_validation( WP_Post $post ): array {
+		$guardrails = self::gutenberg_guardrails( (string) $post->post_content );
+		$issues     = array();
+
+		foreach ( $guardrails['issues'] ?? array() as $issue ) {
+			if ( ! is_array( $issue ) ) {
+				continue;
+			}
+			$code = sanitize_key( (string) ( $issue['code'] ?? '' ) );
+			if ( '' === $code ) {
+				continue;
+			}
+			$is_content_integrity_issue = str_starts_with( $code, 'rankmath_faq_' );
+			$is_content_integrity_issue = (bool) apply_filters(
+				'ai_translation_workflow_source_content_integrity_issue',
+				$is_content_integrity_issue,
+				$issue,
+				$post
+			);
+			if ( ! $is_content_integrity_issue ) {
+				continue;
+			}
+			$issues[] = $issue;
+		}
+
+		return array(
+			'passed'      => empty( $issues ),
+			'issue_count' => count( $issues ),
+			'issues'      => $issues,
+			'issue_codes' => self::sanitize_qa_code_list(
+				array_map(
+					static function ( array $issue ): string {
+						return (string) ( $issue['code'] ?? '' );
+					},
+					$issues
+				)
+			),
+			'checked_at'  => gmdate( 'c' ),
+		);
+	}
+
 	private static function source_design_repair_work_item( WP_Post $source ): array {
 		if ( 'post' !== (string) $source->post_type ) {
 			return array();
@@ -15980,6 +16104,9 @@ final class Devenia_AI_Translations {
 		}
 		if ( isset( $extra['editorial_source_validation'] ) && is_array( $extra['editorial_source_validation'] ) ) {
 			$item['editorial_source_validation'] = $extra['editorial_source_validation'];
+		}
+		if ( isset( $extra['content_integrity'] ) && is_array( $extra['content_integrity'] ) ) {
+			$item['content_integrity'] = $extra['content_integrity'];
 		}
 
 		return $item;
@@ -16058,7 +16185,7 @@ final class Devenia_AI_Translations {
 			}
 
 			foreach ( $item_obligations as $obligation ) {
-				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair', 'source_design_repair' ), true )
+				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair', 'source_design_repair', 'content_integrity_repair' ), true )
 					? self::heartbeat_draft_work_eligibility( $identity )
 					: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
 				if ( empty( $eligibility['success'] ) ) {
@@ -16192,6 +16319,7 @@ final class Devenia_AI_Translations {
 				continue;
 			}
 			$post = get_post( $translation_id );
+			$content_integrity = $post instanceof WP_Post ? self::source_content_integrity_validation( $post ) : array();
 			$out[] = array(
 				'id'                     => $translation_id,
 				'language'               => sanitize_key( (string) ( $row['language'] ?? '' ) ),
@@ -16202,6 +16330,7 @@ final class Devenia_AI_Translations {
 				'quality_reviewed_at'    => (string) ( $row['quality_reviewed_at'] ?? '' ),
 				'final_reviewed_at'      => (string) get_post_meta( $translation_id, self::META_FINAL_REVIEWED_AT, true ),
 				'writer_token_label'     => sanitize_key( (string) ( self::translation_writer_provenance( $translation_id )['token_label'] ?? '' ) ),
+				'content_integrity_issue_count' => absint( $content_integrity['issue_count'] ?? 0 ),
 			);
 		}
 
@@ -16211,6 +16340,7 @@ final class Devenia_AI_Translations {
 
 		foreach ( self::translation_posts_for_source( $source_id, self::translation_workflow_post_statuses( false ) ) as $post ) {
 			$translation_id = (int) $post->ID;
+			$content_integrity = self::source_content_integrity_validation( $post );
 			$out[] = array(
 				'id'                     => $translation_id,
 				'language'               => sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) ),
@@ -16220,6 +16350,7 @@ final class Devenia_AI_Translations {
 				'quality_reviewed_at'    => (string) get_post_meta( $translation_id, self::META_QUALITY_REVIEWED_AT, true ),
 				'final_reviewed_at'      => (string) get_post_meta( $translation_id, self::META_FINAL_REVIEWED_AT, true ),
 				'writer_token_label'     => sanitize_key( (string) ( self::translation_writer_provenance( $translation_id )['token_label'] ?? '' ) ),
+				'content_integrity_issue_count' => absint( $content_integrity['issue_count'] ?? 0 ),
 			);
 		}
 
@@ -16256,7 +16387,7 @@ final class Devenia_AI_Translations {
 		if ( ! is_array( $obligations ) ) {
 			return array();
 		}
-		$allowed = array( 'source_design_repair', 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
+		$allowed = array( 'content_integrity_repair', 'source_design_repair', 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
 		$ordered = array();
 		foreach ( $allowed as $obligation ) {
 			if ( in_array( $obligation, $obligations, true ) ) {
@@ -16287,6 +16418,13 @@ final class Devenia_AI_Translations {
 			),
 		);
 		$map = array(
+			'content_integrity_repair' => array(
+				'action' => 'repair_content_integrity',
+				'workflow_step' => 'draft_write',
+				'required_ability' => 'content/update-post',
+				'design_ownership' => $design_ownership,
+				'instructions' => 'The assigned source or translation has invalid stored Gutenberg content that can break the public/rendered experience. Inspect the content_integrity issues on the work item, repair through the narrowest safe WordPress content ability, rerun the relevant QA/audit, then stop before reviewing or publishing your own correction.',
+			),
 			'source_design_repair' => array(
 				'action' => 'repair_source_design',
 				'workflow_step' => 'draft_write',
@@ -16910,6 +17048,7 @@ final class Devenia_AI_Translations {
 
 		$items  = array();
 		$totals = array(
+			'content_integrity_repair'   => 0,
 			'source_design_repair'       => 0,
 			'missing'                 => 0,
 			'stale'                   => 0,
@@ -17898,8 +18037,22 @@ final class Devenia_AI_Translations {
 		}
 
 		$source_work_items = array();
-		$source_design_item = self::source_design_repair_work_item( $source );
-		if ( $source_design_item ) {
+			$source_content_item = self::source_content_integrity_repair_work_item( $source );
+			if ( $source_content_item ) {
+				$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'content_integrity_repair' );
+				$source_state = $source_reservation ? 'reserved' : 'content_integrity_repair';
+				if ( empty( $status_filter ) || in_array( $source_state, $status_filter, true ) ) {
+					$source_work_items[] = array(
+						'state'       => $source_state,
+						'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'repair_content_integrity',
+						'work_item'   => $source_content_item,
+						'reservation' => $source_reservation ? self::public_source_work_reservation( $source_reservation ) : null,
+					);
+				}
+			}
+
+			$source_design_item = self::source_design_repair_work_item( $source );
+			if ( $source_design_item ) {
 			$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'source_design_repair' );
 			$source_state = $source_reservation ? 'reserved' : 'source_design_repair';
 			if ( empty( $status_filter ) || in_array( $source_state, $status_filter, true ) ) {
@@ -18011,6 +18164,7 @@ final class Devenia_AI_Translations {
 					)
 				)
 			),
+			'content_integrity' => self::source_content_integrity_validation( $post ),
 		);
 	}
 
@@ -18024,7 +18178,11 @@ final class Devenia_AI_Translations {
 
 		$translation_status = (string) ( $translation['translation_status'] ?? '' );
 		$post_status        = (string) ( $translation['status'] ?? '' );
+		$content_integrity  = isset( $translation['content_integrity'] ) && is_array( $translation['content_integrity'] ) ? $translation['content_integrity'] : array();
 
+		if ( ! empty( $content_integrity['issue_count'] ) ) {
+			return 'content_integrity_repair';
+		}
 		if ( ! empty( $translation['is_stale'] ) || 'stale' === $translation_status ) {
 			return 'stale';
 		}
@@ -18052,6 +18210,7 @@ final class Devenia_AI_Translations {
 	 */
 	private static function queue_action_for_state( string $state ): string {
 		$actions = array(
+			'content_integrity_repair'   => 'repair_content_integrity',
 			'missing'                 => 'create_translation',
 			'stale'                   => 'refresh_translation_from_source',
 			'draft'                   => 'finish_translation',
@@ -20974,7 +21133,7 @@ final class Devenia_AI_Translations {
 			return array();
 		}
 
-		$allowed = array( 'source_design_repair', 'missing', 'stale', 'draft', 'needs_review', 'needs_linguistic_review', 'ready_to_publish', 'reserved', 'complete' );
+		$allowed = array( 'content_integrity_repair', 'source_design_repair', 'missing', 'stale', 'draft', 'needs_review', 'needs_linguistic_review', 'ready_to_publish', 'reserved', 'complete' );
 		$clean   = array();
 		foreach ( $statuses as $status ) {
 			$status = sanitize_key( (string) $status );
