@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.431
+ * Version: 0.1.432
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.431';
+	const VERSION = '0.1.432';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -17834,6 +17834,15 @@ final class Devenia_AI_Translations {
 	public static function localize_author_archive_urls_html( string $html ): string {
 		$language  = sanitize_key( (string) get_query_var( 'devenia_author_archive_language' ) );
 		$author_id = absint( get_query_var( 'devenia_author_archive_author_id' ) );
+		if ( ! $author_id || ! self::is_translation_language( $language ) ) {
+			$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+			$path        = wp_parse_url( $request_uri, PHP_URL_PATH );
+			$match = self::translated_author_archive_request_for_path( is_string( $path ) ? $path : '' );
+			if ( $match ) {
+				$language  = sanitize_key( (string) ( $match['language'] ?? '' ) );
+				$author_id = absint( $match['author_id'] ?? 0 );
+			}
+		}
 		if ( '' === $html || ! $author_id || ! self::is_translation_language( $language ) ) {
 			return $html;
 		}
