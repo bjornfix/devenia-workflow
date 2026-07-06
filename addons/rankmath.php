@@ -42,6 +42,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		add_filter( 'rank_math/opengraph/facebook/description', array( __CLASS__, 'filter_author_archive_seo_description' ), 20 );
 		add_filter( 'rank_math/opengraph/twitter/description', array( __CLASS__, 'filter_author_archive_seo_description' ), 20 );
 		add_filter( 'rank_math/json_ld', array( __CLASS__, 'filter_translated_posts_page_json_ld' ), 99, 2 );
+		add_filter( 'rank_math/json_ld', array( __CLASS__, 'filter_author_archive_json_ld' ), 100, 2 );
 		add_action( 'ai_translation_workflow_flush_sitemap_cache', array( __CLASS__, 'flush_sitemap_cache' ) );
 		add_filter( 'ai_translation_workflow_title_template_option_name', array( __CLASS__, 'title_template_option_name' ), 10, 2 );
 		add_filter( 'ai_translation_workflow_sync_seo_meta', array( __CLASS__, 'sync_seo_meta' ), 10, 4 );
@@ -153,6 +154,56 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		$localized_description = Devenia_AI_Translations::current_author_archive_meta_description();
 
 		return '' !== $localized_description ? $localized_description : $description;
+	}
+
+	/**
+	 * Localize Rank Math JSON-LD entity IDs on translated author archives.
+	 *
+	 * @param array<string,mixed> $data Rank Math JSON-LD data.
+	 * @param mixed               $jsonld Rank Math JSON-LD context object.
+	 * @return array<string,mixed>
+	 */
+	public static function filter_author_archive_json_ld( array $data, $jsonld ): array {
+		unset( $jsonld );
+
+		$localized_base = Devenia_AI_Translations::current_localized_author_archive_url();
+		if ( '' === $localized_base ) {
+			return $data;
+		}
+
+		return self::localize_author_archive_json_ld_value(
+			$data,
+			trailingslashit( home_url( '/author/' ) ),
+			trailingslashit( $localized_base )
+		);
+	}
+
+	/**
+	 * @param mixed $value JSON-LD value.
+	 * @return mixed
+	 */
+	private static function localize_author_archive_json_ld_value( $value, string $source_base, string $localized_base ) {
+		if ( is_string( $value ) ) {
+			if ( $source_base === $value ) {
+				return $localized_base;
+			}
+			if ( str_starts_with( $value, $source_base . '#' ) ) {
+				return $localized_base . substr( $value, strlen( $source_base ) );
+			}
+			if ( preg_match( '#^' . preg_quote( $source_base, '#' ) . 'page/([0-9]+)/$#', $value, $match ) ) {
+				return $localized_base . 'page/' . max( 1, absint( $match[1] ?? 1 ) ) . '/';
+			}
+			return $value;
+		}
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+
+		foreach ( $value as $key => $child ) {
+			$value[ $key ] = self::localize_author_archive_json_ld_value( $child, $source_base, $localized_base );
+		}
+
+		return $value;
 	}
 
 	/**
