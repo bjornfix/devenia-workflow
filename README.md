@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.437
+**Stable tag:** 0.1.438
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,14 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.438
+
+- Rewrites WordPress query-style content shortlinks to canonical localized
+  permalinks and flags non-canonical `page_id`/`p`/`post_id` hrefs in
+  translation QA.
+- Outputs translated blog pagination as canonical `/page/n/` URLs and redirects
+  legacy `devenia_blog_page` query requests.
 
 ### 0.1.437
 

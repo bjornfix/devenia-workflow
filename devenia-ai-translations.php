@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.437
+ * Version: 0.1.438
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.437';
+	const VERSION = '0.1.438';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -20235,7 +20235,10 @@ final class Devenia_AI_Translations {
 					continue;
 				}
 
-				$variants = array( (string) $source_url );
+				$variants = array_merge(
+					array( (string) $source_url ),
+					self::content_shortlink_variants( (int) $source_id )
+				);
 				foreach ( $translations as $translation ) {
 					$variants = array_merge( $variants, (array) ( $translation['variants'] ?? array() ) );
 				}
@@ -20289,7 +20292,10 @@ final class Devenia_AI_Translations {
 				continue;
 			}
 
-			$variants = array( (string) $source_url );
+			$variants = array_merge(
+				array( (string) $source_url ),
+				self::content_shortlink_variants( (int) $source_id )
+			);
 			foreach ( $translations as $translation ) {
 				$variants = array_merge( $variants, (array) ( $translation['variants'] ?? array() ) );
 			}
@@ -20327,6 +20333,14 @@ final class Devenia_AI_Translations {
 		foreach ( self::frontend_row_legacy_source_slug_link_variants( $row ) as $variant ) {
 			$variants[] = $variant;
 		}
+		foreach (
+			self::content_shortlink_variants(
+				absint( $row['id'] ?? $row['translation_post_id'] ?? 0 ),
+				(string) ( $row['language'] ?? '' )
+			) as $variant
+		) {
+			$variants[] = $variant;
+		}
 
 		return array_values(
 			array_unique(
@@ -20343,6 +20357,43 @@ final class Devenia_AI_Translations {
 				)
 			)
 		);
+	}
+
+	/**
+	 * WordPress query-style shortlink variants for a content object.
+	 *
+	 * These variants identify content, but the query itself is not canonical
+	 * frontend output and must be stripped when rewriting to a permalink.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function content_shortlink_variants( int $post_id, string $language = '' ): array {
+		if ( ! $post_id || ! get_post( $post_id ) ) {
+			return array();
+		}
+
+		$language_prefixes = array( '' );
+		$prefix = self::language_prefix( sanitize_key( $language ) );
+		if ( '' !== $prefix ) {
+			$language_prefixes[] = trim( $prefix, '/' );
+		}
+
+		$variants = array();
+		foreach ( array( 'page_id', 'p', 'post_id' ) as $query_var ) {
+			foreach ( array( (string) $post_id, (string) $post_id . '/' ) as $value ) {
+				$variants[] = '?' . $query_var . '=' . $value;
+			}
+			foreach ( $language_prefixes as $language_prefix ) {
+				$base_path = '' === $language_prefix ? '/' : '/' . trim( $language_prefix, '/' ) . '/';
+				foreach ( array( (string) $post_id, (string) $post_id . '/' ) as $value ) {
+					$relative = $base_path . '?' . $query_var . '=' . $value;
+					$variants[] = $relative;
+					$variants[] = home_url( $relative );
+				}
+			}
+		}
+
+		return array_values( array_unique( $variants ) );
 	}
 
 	/**
@@ -20428,6 +20479,15 @@ final class Devenia_AI_Translations {
 		$from_path = self::normalized_url_path( $from_url );
 		$to_path   = self::normalized_url_path( $to_url );
 
+		if ( false !== strpos( $from_url, '?' ) ) {
+			foreach ( array( $from_url, trailingslashit( $from_url ), untrailingslashit( $from_url ) ) as $from ) {
+				if ( '' !== $from ) {
+					$map[ $from ] = $to_url;
+				}
+			}
+			return;
+		}
+
 		foreach ( array( $from_url, trailingslashit( $from_url ), untrailingslashit( $from_url ), $from_path, trailingslashit( $from_path ), untrailingslashit( $from_path ) ) as $from ) {
 			if ( '' === $from ) {
 				continue;
@@ -20463,6 +20523,7 @@ final class Devenia_AI_Translations {
 		$path     = self::normalized_url_path( $url );
 		$query    = isset( $parts['query'] ) ? '?' . $parts['query'] : '';
 		$fragment = isset( $parts['fragment'] ) ? '#' . $parts['fragment'] : '';
+		$content_query_id = self::wordpress_content_query_id_from_parts( $parts );
 
 		$candidates = array_filter(
 			array_unique(
@@ -20487,10 +20548,41 @@ final class Devenia_AI_Translations {
 				$target = self::normalized_url_path( $target );
 			}
 
-			return $target . $query . $fragment;
+			return $target . ( $content_query_id ? '' : $query ) . $fragment;
 		}
 
 		return null;
+	}
+
+	/**
+	 * Return the content ID encoded by WordPress shortlink query vars.
+	 *
+	 * @param array<string,mixed> $parts Parsed URL parts.
+	 */
+	private static function wordpress_content_query_id_from_parts( array $parts ): int {
+		if ( empty( $parts['query'] ) ) {
+			return 0;
+		}
+
+		$params = array();
+		wp_parse_str( (string) $parts['query'], $params );
+		foreach ( array( 'page_id', 'p', 'post_id' ) as $query_var ) {
+			if ( ! array_key_exists( $query_var, $params ) ) {
+				continue;
+			}
+
+			$value = $params[ $query_var ];
+			if ( is_array( $value ) ) {
+				$value = reset( $value );
+			}
+
+			$post_id = absint( $value );
+			if ( $post_id ) {
+				return $post_id;
+			}
+		}
+
+		return 0;
 	}
 
 	/**
@@ -23709,7 +23801,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Redirect duplicate translated posts-page page-1 query URLs to the clean archive URL.
+	 * Redirect duplicate translated posts-page query URLs to the clean archive URL.
 	 */
 	public static function redirect_translated_posts_page_first_page_query(): void {
 		if ( ! self::is_translated_posts_page_request() ) {
@@ -23726,16 +23818,12 @@ final class Devenia_AI_Translations {
 		}
 
 		$page = absint( $page_value );
-		if ( $page > 1 ) {
-			return;
-		}
-
 		$base_url = self::translated_posts_page_base_url();
 		if ( '' === $base_url ) {
 			return;
 		}
 
-		wp_safe_redirect( $base_url, 301 );
+		wp_safe_redirect( self::translated_posts_page_url( $base_url, $page ), 301 );
 		exit;
 	}
 
@@ -23868,7 +23956,7 @@ final class Devenia_AI_Translations {
 			return $base_url;
 		}
 
-		return add_query_arg( 'devenia_blog_page', $page, $base_url );
+		return trailingslashit( $base_url ) . user_trailingslashit( 'page/' . $page, 'paged' );
 	}
 
 	/**
@@ -24465,10 +24553,9 @@ final class Devenia_AI_Translations {
 		);
 		$older_url     = self::translated_posts_page_url( $base_url, min( $query->max_num_pages, $current + 1 ) );
 		$page_one_url  = self::translated_posts_page_url( $base_url, 1 );
-		$page_one_dupe = add_query_arg( 'devenia_blog_page', 1, $base_url );
 		$links         = paginate_links(
 			array(
-				'base'      => esc_url_raw( add_query_arg( 'devenia_blog_page', '%#%', $base_url ) ),
+				'base'      => esc_url_raw( trailingslashit( $base_url ) . 'page/%#%/' ),
 				'format'    => '',
 				'current'   => $current,
 				'total'     => (int) $query->max_num_pages,
@@ -24480,8 +24567,8 @@ final class Devenia_AI_Translations {
 				'before_page_number' => '<span class="screen-reader-text">' . esc_html( $page_label ) . '</span>',
 			)
 		);
-		if ( $links && $page_one_url !== $page_one_dupe ) {
-			$links = str_replace( esc_url( $page_one_dupe ), esc_url( $page_one_url ), $links );
+		if ( $links ) {
+			$links = str_replace( esc_url( trailingslashit( $base_url ) . 'page/1/' ), esc_url( $page_one_url ), $links );
 		}
 
 		echo '<nav id="nav-below" class="paging-navigation" aria-label="' . esc_attr( $archive_label ) . '">';
@@ -25827,6 +25914,7 @@ final class Devenia_AI_Translations {
 						'actual_url'   => $url,
 						'path'         => $internal_resolution['path'] ?? '',
 						'reason'       => $internal_resolution['reason'] ?? 'unresolved',
+						'canonical_url' => $internal_resolution['canonical_url'] ?? '',
 						'review_scope' => self::link_review_scope_for_url( $content, $raw_url ),
 					)
 				);
@@ -25894,6 +25982,35 @@ final class Devenia_AI_Translations {
 		}
 
 		$path = self::normalized_url_path( $url );
+		$query_post_id = self::wordpress_content_query_id_from_parts( $parts );
+		if ( $query_post_id ) {
+			$post = get_post( $query_post_id );
+			if ( ! $post ) {
+				return array(
+					'resolved' => false,
+					'path'     => $path ?: '/',
+					'reason'   => 'missing_wordpress_query_target',
+				);
+			}
+
+			$canonical_url = (string) get_permalink( $query_post_id );
+			if ( self::normalized_comparable_url( $url ) === self::normalized_comparable_url( $canonical_url ) ) {
+				return array(
+					'resolved'      => true,
+					'path'          => $path ?: '/',
+					'reason'        => 'post',
+					'canonical_url' => $canonical_url,
+				);
+			}
+
+			return array(
+				'resolved'      => false,
+				'path'          => $path ?: '/',
+				'reason'        => 'non_canonical_wordpress_shortlink',
+				'canonical_url' => $canonical_url,
+			);
+		}
+
 		if ( '' === $path ) {
 			return array();
 		}

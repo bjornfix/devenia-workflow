@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.437
+Stable tag: 0.1.438
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.438 =
+* Rewrites WordPress query-style content shortlinks to canonical localized permalinks and flags non-canonical `page_id`/`p`/`post_id` hrefs in translation QA.
+* Outputs translated blog pagination as canonical `/page/n/` URLs and redirects legacy `devenia_blog_page` query requests.
 
 = 0.1.437 =
 * Keeps existing stored source-design fragments when saving a partial localized fragment update.
