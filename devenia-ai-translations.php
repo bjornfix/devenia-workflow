@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.438
+ * Version: 0.1.439
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.438';
+	const VERSION = '0.1.439';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -25322,7 +25322,7 @@ final class Devenia_AI_Translations {
 			),
 			'source_fidelity' => self::translation_fitness_dimension(
 				$guardrails,
-				array( 'source_carryover', 'source_structure', 'link_integrity' )
+				array( 'source_editorial_design', 'source_carryover', 'source_structure', 'link_integrity' )
 			),
 			'locale_terminology' => self::translation_fitness_dimension(
 				$guardrails,
@@ -25365,6 +25365,92 @@ final class Devenia_AI_Translations {
 			'profile_patch'             => self::sanitize_quality_profile_patch( $profile_patch ),
 			'runtime_profile_overrides' => self::sanitize_runtime_language_profile_overrides( $runtime_profile_overrides ),
 		);
+	}
+
+	/**
+	 * Guard that source-post design is valid before translation fitness passes.
+	 *
+	 * Translation fitness is where broad scans, review gates, and queue hygiene
+	 * meet. A translation cannot be considered source-faithful when the source
+	 * itself is not a valid Devenia editorial design source.
+	 *
+	 * @return array{passed:bool,issues:array<int,array<string,mixed>>,warnings:array<int,array<string,mixed>>,issue_count:int,warning_count:int,summary:array<string,mixed>}
+	 */
+	private static function source_editorial_design_guardrails( int $source_id, string $source_content ): array {
+		$issues = array();
+		$source = $source_id ? get_post( $source_id ) : null;
+		if ( ! $source instanceof WP_Post || 'post' !== (string) $source->post_type ) {
+			return array(
+				'passed'        => true,
+				'issues'        => array(),
+				'warnings'      => array(),
+				'issue_count'   => 0,
+				'warning_count' => 0,
+				'summary'       => array(
+					'applicable' => false,
+					'source_id'  => $source_id,
+				),
+			);
+		}
+
+		$validation = self::source_editorial_design_validation( $source, $source_content );
+		if ( empty( $validation['passed'] ) ) {
+			$issues[] = self::qa_item(
+				'source_editorial_design_gate_failed',
+				'The source post does not pass the Devenia editorial design gate, so translations cannot be considered source-design faithful until the source design is repaired.',
+				array(
+					'source_id'    => $source_id,
+					'available'    => ! empty( $validation['available'] ),
+					'issue_codes'  => self::sanitize_qa_code_list( $validation['issue_codes'] ?? array() ),
+					'metrics'      => isset( $validation['metrics'] ) && is_array( $validation['metrics'] ) ? self::compact_editorial_design_metrics( $validation['metrics'] ) : array(),
+					'next_action'  => 'fix_source_design_until_devenia_editorial_design_gate_passes',
+				)
+			);
+		}
+
+		return array(
+			'passed'        => empty( $issues ),
+			'issues'        => $issues,
+			'warnings'      => array(),
+			'issue_count'   => count( $issues ),
+			'warning_count' => 0,
+			'summary'       => array(
+				'applicable' => true,
+				'source_id'  => $source_id,
+				'passed'     => ! empty( $validation['passed'] ),
+				'issue_codes' => self::sanitize_qa_code_list( $validation['issue_codes'] ?? array() ),
+			),
+		);
+	}
+
+	/**
+	 * Keep source-design scan findings compact enough for queue/report output.
+	 *
+	 * @param array<string,mixed> $metrics Full Site Presentation metrics.
+	 * @return array<string,mixed>
+	 */
+	private static function compact_editorial_design_metrics( array $metrics ): array {
+		$keys = array(
+			'top_level_section_count',
+			'top_level_container_count',
+			'section_hero_count',
+			'section_warm_count',
+			'section_dark_count',
+			'card_warm_count',
+			'featured_media_count',
+			'presentation_shortcode_count',
+			'h1_count',
+			'first_top_level_block',
+			'first_top_level_classes',
+		);
+		$compact = array();
+		foreach ( $keys as $key ) {
+			if ( array_key_exists( $key, $metrics ) ) {
+				$compact[ $key ] = $metrics[ $key ];
+			}
+		}
+
+		return $compact;
 	}
 
 	/**
@@ -25475,6 +25561,7 @@ final class Devenia_AI_Translations {
 		$script_signals = self::language_script_signal_guardrails( $content, $language, $profile_patch );
 		$language_integrity = self::language_integrity_guardrails( $content, $language, $profile_patch, $runtime_profile_overrides );
 		$source_carryover = self::source_language_carryover_guardrails( $content, $source_content, $language, $source_id );
+		$source_editorial_design = self::source_editorial_design_guardrails( $source_id, $source_content );
 		$address_form = self::address_form_guardrails( $content, $language, $source_id, $title, $excerpt );
 		$locale_terminology = self::locale_terminology_guardrails( $content, $language, $title, $excerpt );
 		$integrity = self::translation_integrity_guardrails( $content, $source_id );
@@ -25488,6 +25575,7 @@ final class Devenia_AI_Translations {
 				'script_signals'        => $script_signals,
 				'language_integrity'    => $language_integrity,
 				'source_carryover'      => $source_carryover,
+				'source_editorial_design' => $source_editorial_design,
 				'address_form'          => $address_form,
 				'locale_terminology'    => $locale_terminology,
 				'translation_integrity' => $integrity,
