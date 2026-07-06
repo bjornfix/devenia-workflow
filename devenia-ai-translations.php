@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.428
+ * Version: 0.1.429
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.428';
+	const VERSION = '0.1.429';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -8677,7 +8677,7 @@ final class Devenia_AI_Translations {
 			),
 			'ai-translations/repair-internal-links' => array(
 				'label'            => 'Repair Translation Internal Links',
-				'description'      => 'Rewrites translated content links that still point at English source content to the matching localized translated content.',
+				'description'      => 'Rewrites translated content links that point at English source content or unpublished localized targets to the safe published frontend target.',
 				'input_schema'     => self::repair_url_hierarchy_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
@@ -20053,69 +20053,7 @@ final class Devenia_AI_Translations {
 			return $cache[ $language ];
 		}
 
-		$frontend_rows = self::translation_frontend_rows_for_language( $language, self::translation_workflow_post_statuses( false ) );
-		if ( ! empty( $frontend_rows ) ) {
-			$map = array();
-			foreach ( $frontend_rows as $row ) {
-				$source_url  = (string) ( $row['source_url'] ?? '' );
-				$target_url  = (string) ( $row['target_url'] ?? '' );
-				$source_path = (string) ( $row['source_path'] ?? '' );
-				$target_path = (string) ( $row['target_path'] ?? '' );
-				if ( '' === $source_path || '' === $target_path || '' === $target_url ) {
-					continue;
-				}
-
-				self::add_link_map_variants( $map, (string) $source_url, (string) $target_url );
-				self::add_link_map_variants( $map, (string) $source_path, (string) $target_url );
-				foreach ( self::frontend_row_target_link_variants( $row ) as $variant_url ) {
-					self::add_link_map_variants( $map, $variant_url, (string) $target_url );
-				}
-			}
-
-			$cache[ $language ] = $map;
-			return $cache[ $language ];
-		}
-
-		$query = self::translation_page_query(
-			array(
-					'post_status'    => self::translation_workflow_post_statuses( false ),
-				'posts_per_page' => 1000,
-			)
-		);
-
-		$map = array();
-		foreach ( $query->posts as $translation ) {
-			if ( $language !== (string) get_post_meta( $translation->ID, self::META_LANGUAGE, true ) ) {
-				continue;
-			}
-			$source_id = absint( get_post_meta( $translation->ID, self::META_SOURCE_ID, true ) );
-			if ( ! $source_id ) {
-				continue;
-			}
-
-			$source_url = get_permalink( $source_id );
-			$target_url = get_permalink( $translation );
-			if ( ! $source_url || ! $target_url ) {
-				continue;
-			}
-
-			$source_path = self::normalized_url_path( $source_url );
-			$target_path = self::normalized_url_path( $target_url );
-			if ( '' === $source_path || '' === $target_path ) {
-				continue;
-			}
-
-			self::add_link_map_variants( $map, (string) $source_url, (string) $target_url );
-			self::add_link_map_variants( $map, (string) $source_path, (string) $target_url );
-			self::add_link_map_variants( $map, (string) $target_url, (string) $target_url );
-			self::add_link_map_variants( $map, (string) $target_path, (string) $target_url );
-			$localized_path = trim( (string) get_post_meta( $translation->ID, self::META_LOCALIZED_PATH, true ), '/' );
-			if ( '' !== $localized_path ) {
-				self::add_link_map_variants( $map, $localized_path, (string) $target_url );
-			}
-		}
-
-		$cache[ $language ] = $map;
+		$cache[ $language ] = self::localized_link_expected_target_map( $language, $force_refresh );
 
 		return $cache[ $language ];
 	}
@@ -20144,7 +20082,7 @@ final class Devenia_AI_Translations {
 				ARRAY_A
 			);
 			$indexed_rows = self::frontend_rows_from_index_rows(
-				self::normalize_translation_index_rows( is_array( $indexed_rows ) ? $indexed_rows : array(), array( 'publish' ) )
+				self::normalize_translation_index_rows( is_array( $indexed_rows ) ? $indexed_rows : array(), self::translation_workflow_post_statuses( false ) )
 			);
 		} else {
 			$indexed_rows = array();
@@ -20152,6 +20090,7 @@ final class Devenia_AI_Translations {
 
 		if ( ! empty( $indexed_rows ) ) {
 			$by_source = array();
+			$published_by_source = array();
 			foreach ( $indexed_rows as $row ) {
 				$source_id = absint( $row['source_id'] ?? 0 );
 				$lang      = (string) ( $row['language'] ?? '' );
@@ -20164,12 +20103,19 @@ final class Devenia_AI_Translations {
 					'target_url' => (string) $url,
 					'variants'   => self::frontend_row_target_link_variants( $row ),
 				);
+				if ( 'publish' === (string) ( $row['post_status'] ?? $row['status'] ?? '' ) ) {
+					$published_by_source[ $source_id ][ $lang ] = $by_source[ $source_id ][ $lang ];
+				}
 			}
 
 			$map = array();
 			foreach ( $by_source as $source_id => $translations ) {
 				$source_url = get_permalink( (int) $source_id );
-				$target_url = 'en' === $language ? $source_url : ( (string) ( $translations[ $language ]['target_url'] ?? '' ) );
+				if ( 'publish' !== get_post_status( (int) $source_id ) ) {
+					continue;
+				}
+
+				$target_url = 'en' === $language ? $source_url : ( (string) ( $published_by_source[ $source_id ][ $language ]['target_url'] ?? $source_url ) );
 				if ( ! $source_url || ! $target_url ) {
 					continue;
 				}
@@ -20189,12 +20135,13 @@ final class Devenia_AI_Translations {
 
 		$query = self::translation_page_query(
 			array(
-				'post_status'    => array( 'publish' ),
+				'post_status'    => self::translation_workflow_post_statuses( false ),
 				'posts_per_page' => 1000,
 			)
 		);
 
 		$by_source = array();
+		$published_by_source = array();
 		foreach ( $query->posts as $translation ) {
 			$source_id = absint( get_post_meta( $translation->ID, self::META_SOURCE_ID, true ) );
 			$lang      = (string) get_post_meta( $translation->ID, self::META_LANGUAGE, true );
@@ -20210,12 +20157,19 @@ final class Devenia_AI_Translations {
 				'target_url' => (string) $url,
 				'variants'   => array_values( array_unique( array_map( 'strval', $variants ) ) ),
 			);
+			if ( 'publish' === (string) get_post_status( (int) $translation->ID ) ) {
+				$published_by_source[ $source_id ][ $lang ] = $by_source[ $source_id ][ $lang ];
+			}
 		}
 
 		$map = array();
 		foreach ( $by_source as $source_id => $translations ) {
 			$source_url = get_permalink( (int) $source_id );
-			$target_url = 'en' === $language ? $source_url : ( (string) ( $translations[ $language ]['target_url'] ?? '' ) );
+			if ( 'publish' !== get_post_status( (int) $source_id ) ) {
+				continue;
+			}
+
+			$target_url = 'en' === $language ? $source_url : ( (string) ( $published_by_source[ $source_id ][ $language ]['target_url'] ?? $source_url ) );
 			if ( ! $source_url || ! $target_url ) {
 				continue;
 			}
@@ -20252,6 +20206,12 @@ final class Devenia_AI_Translations {
 				$variants[] = (string) $variant;
 			}
 		}
+		foreach ( self::frontend_row_old_slug_link_variants( $row ) as $variant ) {
+			$variants[] = $variant;
+		}
+		foreach ( self::frontend_row_legacy_source_slug_link_variants( $row ) as $variant ) {
+			$variants[] = $variant;
+		}
 
 		return array_values(
 			array_unique(
@@ -20268,6 +20228,80 @@ final class Devenia_AI_Translations {
 				)
 			)
 		);
+	}
+
+	/**
+	 * Historical source-slug target paths created before route repair localized the slug.
+	 *
+	 * @param array<string,mixed> $row Frontend registry row.
+	 * @return array<int,string>
+	 */
+	private static function frontend_row_legacy_source_slug_link_variants( array $row ): array {
+		$source_id   = absint( $row['source_id'] ?? $row['source_post_id'] ?? 0 );
+		$language    = sanitize_key( (string) ( $row['language'] ?? '' ) );
+		$target_path = trim( (string) ( $row['target_path'] ?? '' ), '/' );
+		if ( ! $source_id || '' === $language || '' === $target_path ) {
+			return array();
+		}
+
+		$source_slug = sanitize_title( (string) get_post_field( 'post_name', $source_id ) );
+		if ( '' === $source_slug ) {
+			return array();
+		}
+
+		$base_path = '';
+		$last_slash = strrpos( $target_path, '/' );
+		if ( false !== $last_slash ) {
+			$base_path = substr( $target_path, 0, $last_slash );
+		}
+
+		$variants = array();
+		foreach ( array( $source_slug, $source_slug . '-' . $language ) as $legacy_slug ) {
+			$legacy_path = '' === $base_path ? $legacy_slug : trim( $base_path . '/' . $legacy_slug, '/' );
+			$variants[] = $legacy_path;
+			$variants[] = home_url( '/' . $legacy_path . '/' );
+		}
+
+		return array_values( array_unique( $variants ) );
+	}
+
+	/**
+	 * Historical target paths for translated posts whose slugs changed after a link was written.
+	 *
+	 * @param array<string,mixed> $row Frontend registry row.
+	 * @return array<int,string>
+	 */
+	private static function frontend_row_old_slug_link_variants( array $row ): array {
+		$translation_id = absint( $row['id'] ?? $row['translation_post_id'] ?? 0 );
+		$target_path    = trim( (string) ( $row['target_path'] ?? '' ), '/' );
+		if ( ! $translation_id || '' === $target_path ) {
+			return array();
+		}
+
+		$old_slugs = get_post_meta( $translation_id, '_wp_old_slug', false );
+		if ( empty( $old_slugs ) || ! is_array( $old_slugs ) ) {
+			return array();
+		}
+
+		$base_path = '';
+		$last_slash = strrpos( $target_path, '/' );
+		if ( false !== $last_slash ) {
+			$base_path = substr( $target_path, 0, $last_slash );
+		}
+
+		$variants = array();
+		foreach ( $old_slugs as $old_slug ) {
+			$old_slug = trim( sanitize_title( (string) $old_slug ), '/' );
+			if ( '' === $old_slug ) {
+				continue;
+			}
+
+			$old_path = '' === $base_path ? $old_slug : trim( $base_path . '/' . $old_slug, '/' );
+			$variants[] = $old_path;
+			$variants[] = home_url( '/' . $old_path . '/' );
+		}
+
+		return array_values( array_unique( $variants ) );
 	}
 
 	/**
