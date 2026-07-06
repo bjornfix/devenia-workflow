@@ -120,6 +120,13 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	 */
 	private static function inherited_source_design_content( WP_Post $source, array $input, string $language ): array {
 		$fragments = self::localized_fragment_map( $input['localized_fragments'] ?? array() );
+		$translation_id = absint( $input['translation_id'] ?? 0 );
+		if ( $translation_id > 0 ) {
+			$stored = self::stored_localized_source_design_fragments( $translation_id );
+			if ( ! empty( $stored['fragments'] ) && is_array( $stored['fragments'] ) ) {
+				$fragments = array_merge( self::localized_fragment_map( $stored['fragments'] ), $fragments );
+			}
+		}
 		if ( empty( $fragments ) ) {
 			return array(
 				'success' => false,
@@ -160,7 +167,6 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'provided_count'  => count( $fragments ),
 			'missing_count'   => count( $missing ),
 		);
-		$translation_id = absint( $input['translation_id'] ?? 0 );
 		self::project_source_design_blocks( $blocks, $fragments, $stats, '', $translation_id );
 
 		$content = serialize_blocks( $blocks );
@@ -191,10 +197,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			return;
 		}
 
-		$design_hash = (string) ( $source_design['design_hash'] ?? '' );
-		if ( '' === $design_hash ) {
-			$design_hash = self::source_design_signature_hash( (string) $source->post_content );
-		}
+		$design_hash = self::expected_source_design_signature_hash( (string) $source->post_content, $language );
 
 		self::update_json_post_meta(
 			$translation_id,
@@ -1478,10 +1481,156 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			return $html;
 		}
 		if ( preg_match( '/^(\\s*<([a-z][a-z0-9]*)\\b[^>]*>)(.*)(<\\/\\2>\\s*)$/is', $html, $matches ) ) {
-			return $matches[1] . $localized_html . $matches[4];
+			return $matches[1] . self::preserve_source_design_fragment_links( (string) $matches[3], $localized_html ) . $matches[4];
 		}
 
-		return $localized_html;
+		return self::preserve_source_design_fragment_links( $html, $localized_html );
+	}
+
+	/**
+	 * Keep source-owned links when a translator supplies plain localized text.
+	 *
+	 * Source-design projection owns structure. Translators may provide plain text
+	 * fragments, but that must not silently remove source links/buttons. When the
+	 * localized fragment already contains links, trust it. Otherwise, carry the
+	 * source anchor shells onto matching or positionally corresponding localized
+	 * words so semantic link count is preserved without source-specific rules.
+	 */
+	private static function preserve_source_design_fragment_links( string $source_html, string $localized_html ): string {
+		if ( false === stripos( $source_html, '<a ' ) || preg_match( '/<a\\b[^>]*\\bhref=/i', $localized_html ) ) {
+			return $localized_html;
+		}
+
+		$anchors = self::source_design_anchor_fragments( $source_html );
+		if ( empty( $anchors ) ) {
+			return $localized_html;
+		}
+
+		$result    = $localized_html;
+		$remaining = array();
+		foreach ( $anchors as $anchor ) {
+			$label = (string) ( $anchor['text'] ?? '' );
+			if ( '' === $label ) {
+				$remaining[] = $anchor;
+				continue;
+			}
+
+			$pattern = '/' . preg_quote( $label, '/' ) . '/iu';
+			if ( preg_match( $pattern, $result ) ) {
+				$result = preg_replace( $pattern, (string) $anchor['open'] . '$0' . (string) $anchor['close'], $result, 1 ) ?? $result;
+				continue;
+			}
+			$remaining[] = $anchor;
+		}
+
+		if ( empty( $remaining ) || preg_match( '/<[^>]+>/', $result ) ) {
+			return $result;
+		}
+
+		$source_plain = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $source_html ) ) );
+		if ( 1 === count( $remaining ) ) {
+			$anchor_text = (string) ( $remaining[0]['text'] ?? '' );
+			if ( '' !== $source_plain && '' !== $anchor_text && strlen( $anchor_text ) / max( 1, strlen( $source_plain ) ) >= 0.8 ) {
+				return (string) $remaining[0]['open'] . $result . (string) $remaining[0]['close'];
+			}
+		}
+
+		return self::wrap_localized_words_with_source_links( $result, $remaining );
+	}
+
+	/**
+	 * @return array<int,array{open:string,close:string,text:string,start_ratio:float,end_ratio:float}>
+	 */
+	private static function source_design_anchor_fragments( string $source_html ): array {
+		if ( ! preg_match_all( '/<a\\b(?P<attrs>[^>]*)>(?P<html>.*?)<\\/a>/is', $source_html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE ) ) {
+			return array();
+		}
+
+		$source_plain = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $source_html ) ) );
+		$source_len   = max( 1, strlen( $source_plain ) );
+		$anchors      = array();
+		foreach ( $matches as $match ) {
+			$offset = isset( $match[0][1] ) ? absint( $match[0][1] ) : 0;
+			$inner  = isset( $match['html'][0] ) ? (string) $match['html'][0] : '';
+			$text   = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $inner ) ) );
+			$before = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( substr( $source_html, 0, $offset ) ) ) );
+			$attrs  = isset( $match['attrs'][0] ) ? (string) $match['attrs'][0] : '';
+			$start  = min( 1.0, strlen( $before ) / $source_len );
+			$end    = min( 1.0, ( strlen( $before ) + max( 1, strlen( $text ) ) ) / $source_len );
+
+			$anchors[] = array(
+				'open'        => '<a' . $attrs . '>',
+				'close'       => '</a>',
+				'text'        => $text,
+				'start_ratio' => $start,
+				'end_ratio'   => max( $start, $end ),
+			);
+		}
+
+		return $anchors;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $anchors Source anchor shells.
+	 */
+	private static function wrap_localized_words_with_source_links( string $localized_text, array $anchors ): string {
+		if ( ! preg_match_all( '/\\S+/u', $localized_text, $matches, PREG_OFFSET_CAPTURE ) || empty( $matches[0] ) ) {
+			return $localized_text;
+		}
+
+		$words = $matches[0];
+		$count = count( $words );
+		$used = array();
+		$ranges = array();
+		foreach ( $anchors as $anchor ) {
+			$center = ( (float) ( $anchor['start_ratio'] ?? 0.0 ) + (float) ( $anchor['end_ratio'] ?? 0.0 ) ) / 2;
+			$target = (int) round( $center * max( 0, $count - 1 ) );
+			$chosen = self::nearest_unused_word_index( $target, $count, $used );
+			if ( null === $chosen ) {
+				continue;
+			}
+			$used[ $chosen ] = true;
+			$word = (string) $words[ $chosen ][0];
+			$start = absint( $words[ $chosen ][1] );
+			$ranges[] = array(
+				'start' => $start,
+				'end'   => $start + strlen( $word ),
+				'open'  => (string) ( $anchor['open'] ?? '' ),
+				'close' => (string) ( $anchor['close'] ?? '' ),
+			);
+		}
+
+		usort(
+			$ranges,
+			static function ( array $a, array $b ): int {
+				return (int) $b['start'] <=> (int) $a['start'];
+			}
+		);
+
+		$result = $localized_text;
+		foreach ( $ranges as $range ) {
+			$start = absint( $range['start'] ?? 0 );
+			$end   = absint( $range['end'] ?? $start );
+			$result = substr( $result, 0, $end ) . (string) $range['close'] . substr( $result, $end );
+			$result = substr( $result, 0, $start ) . (string) $range['open'] . substr( $result, $start );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * @param array<int,bool> $used
+	 */
+	private static function nearest_unused_word_index( int $target, int $count, array $used ): ?int {
+		for ( $distance = 0; $distance < $count; $distance++ ) {
+			foreach ( array( $target - $distance, $target + $distance ) as $candidate ) {
+				if ( $candidate >= 0 && $candidate < $count && empty( $used[ $candidate ] ) ) {
+					return $candidate;
+				}
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -1679,6 +1828,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		if ( '' === $old_value ) {
 			return $html;
 		}
+		$new_value = self::preserve_source_design_fragment_links( $old_value, $new_value );
 
 		$plain = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $old_value ) ) );
 		$variants = array_unique(
@@ -1765,7 +1915,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				}
 
 				$stats['projected_count']++;
-				return (string) $matches[1] . (string) $fragments[ $key ] . (string) $matches[5];
+				return (string) $matches[1] . self::preserve_source_design_fragment_links( (string) $matches[3], (string) $fragments[ $key ] ) . (string) $matches[5];
 			},
 			$html
 		) ?? $html;
@@ -1835,7 +1985,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				}
 
 				$stats['projected_count']++;
-				return (string) $matches[1] . (string) $fragments[ $key ] . (string) $matches[4];
+				return (string) $matches[1] . self::preserve_source_design_fragment_links( (string) $matches['html'], (string) $fragments[ $key ] ) . (string) $matches[4];
 			},
 			$html
 		) ?? $html;
