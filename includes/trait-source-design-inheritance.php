@@ -467,24 +467,8 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			$step_token_gate = array();
 		}
 
-		$language_filter = array();
-		if ( ! empty( $input['languages'] ) && is_array( $input['languages'] ) ) {
-			foreach ( $input['languages'] as $language ) {
-				$language = sanitize_key( (string) $language );
-				if ( self::is_translation_language( $language ) ) {
-					$language_filter[ $language ] = true;
-				}
-			}
-		}
-		$translation_filter = array();
-		if ( ! empty( $input['translation_ids'] ) && is_array( $input['translation_ids'] ) ) {
-			foreach ( $input['translation_ids'] as $translation_id ) {
-				$translation_id = absint( $translation_id );
-				if ( $translation_id ) {
-					$translation_filter[ $translation_id ] = true;
-				}
-			}
-		}
+		$language_filter    = self::source_design_language_filter( $input['languages'] ?? array() );
+		$translation_filter = self::source_design_translation_filter( $input['translation_ids'] ?? array() );
 
 		$items = array();
 		$totals = array(
@@ -496,10 +480,10 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'missing_fragments' => 0,
 		);
 
-		foreach ( self::translation_rows_for_source( $source_id ) as $row ) {
+		foreach ( self::source_design_target_rows( $source_id, $language_filter, $translation_filter ) as $row ) {
 			$translation_id = absint( $row['id'] ?? 0 );
 			$language = sanitize_key( (string) ( $row['language'] ?? '' ) );
-			if ( ! $translation_id || ( $language_filter && empty( $language_filter[ $language ] ) ) || ( $translation_filter && empty( $translation_filter[ $translation_id ] ) ) ) {
+			if ( ! $translation_id ) {
 				continue;
 			}
 
@@ -575,10 +559,10 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		$translation_filter = self::source_design_translation_filter( $input['translation_ids'] ?? array() );
 		$contract = self::source_design_contract( $source );
 		$target_rows = array();
-		foreach ( self::translation_rows_for_source( $source_id ) as $row ) {
+		foreach ( self::source_design_target_rows( $source_id, $language_filter, $translation_filter ) as $row ) {
 			$translation_id = absint( $row['id'] ?? 0 );
 			$language = sanitize_key( (string) ( $row['language'] ?? '' ) );
-			if ( ! $translation_id || ( $language_filter && empty( $language_filter[ $language ] ) ) || ( $translation_filter && empty( $translation_filter[ $translation_id ] ) ) ) {
+			if ( ! $translation_id ) {
 				continue;
 			}
 			$target_rows[] = array(
@@ -1015,6 +999,80 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		return $filter;
+	}
+
+	/**
+	 * Compact target rows for source-design migration/reprojection.
+	 *
+	 * These operations only need translation ID and language before loading a
+	 * single target. Using translation_rows_for_source() here expands review,
+	 * quality, route, feedback, taxonomy, and design state for every translation
+	 * before the exact target filters are applied.
+	 *
+	 * @param array<string,bool> $language_filter Language filter from source_design_language_filter().
+	 * @param array<int,bool>    $translation_filter Translation ID filter from source_design_translation_filter().
+	 * @return array<int,array{id:int,language:string}>
+	 */
+	private static function source_design_target_rows( int $source_id, array $language_filter = array(), array $translation_filter = array() ): array {
+		$source_id = absint( $source_id );
+		if ( ! $source_id ) {
+			return array();
+		}
+
+		$status_filter = self::translation_workflow_post_statuses( false );
+		$rows          = array();
+		$seen          = array();
+		$add_row       = static function ( int $translation_id, string $language ) use ( &$rows, &$seen, $source_id, $language_filter, $translation_filter, $status_filter ): void {
+			$translation_id = absint( $translation_id );
+			$language       = sanitize_key( $language );
+			if ( ! $translation_id || '' === $language || isset( $seen[ $translation_id ] ) ) {
+				return;
+			}
+			if ( $language_filter && empty( $language_filter[ $language ] ) ) {
+				return;
+			}
+			if ( $translation_filter && empty( $translation_filter[ $translation_id ] ) ) {
+				return;
+			}
+			if ( $source_id !== absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) ) ) {
+				return;
+			}
+			$status = get_post_status( $translation_id );
+			if ( ! is_string( $status ) || ! in_array( sanitize_key( $status ), $status_filter, true ) ) {
+				return;
+			}
+			$seen[ $translation_id ] = true;
+			$rows[] = array(
+				'id'       => $translation_id,
+				'language' => $language,
+			);
+		};
+
+		if ( $translation_filter ) {
+			foreach ( array_keys( $translation_filter ) as $translation_id ) {
+				$language = sanitize_key( (string) get_post_meta( absint( $translation_id ), self::META_LANGUAGE, true ) );
+				$add_row( absint( $translation_id ), $language );
+			}
+			return $rows;
+		}
+
+		foreach ( self::translation_index_rows_for_source( $source_id, $status_filter ) as $row ) {
+			$translation_id = absint( $row['id'] ?? $row['translation_post_id'] ?? 0 );
+			$language       = sanitize_key( (string) ( $row['language'] ?? '' ) );
+			$add_row( $translation_id, $language );
+		}
+
+		if ( $rows || self::translation_index_available() ) {
+			return $rows;
+		}
+
+		foreach ( self::translation_posts_for_source( $source_id, $status_filter ) as $post ) {
+			$translation_id = (int) $post->ID;
+			$language       = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
+			$add_row( $translation_id, $language );
+		}
+
+		return $rows;
 	}
 
 	/**
