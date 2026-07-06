@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.449
+ * Version: 0.1.450
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24394,7 +24394,7 @@ final class Devenia_AI_Translations {
 	public static function render_translated_posts_page_article(): void {
 		?>
 		<article id="post-<?php the_ID(); ?>" <?php post_class(); ?> itemtype="https://schema.org/CreativeWork" itemscope>
-			<div class="ai-translation-workflow-post-card">
+			<div class="inside-article ai-translation-workflow-post-card">
 				<?php if ( has_post_thumbnail() ) : ?>
 					<div class="post-image">
 						<?php

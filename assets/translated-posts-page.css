@@ -1,14 +1,20 @@
+.ai-translation-workflow-post-card {
+	box-sizing: border-box;
+	display: flow-root;
+}
+
+.ai-translation-workflow-post-card .post-image {
+	margin-bottom: 40px;
+}
+
 @media (min-width: 769px) {
 	.devenia-translated-posts-page.post-image-aligned-left .ai-translation-workflow-post-card .post-image {
 		float: left;
+		margin-bottom: 40px;
 		margin-right: 2em;
 		margin-top: 0;
 		text-align: left;
 	}
-}
-
-.ai-translation-workflow-post-card {
-	display: flow-root;
 }
 
 :root[dir="rtl"] body.devenia-translated-posts-page .entry-meta .cat-links {
