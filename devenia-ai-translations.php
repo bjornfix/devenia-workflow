@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.455
+ * Version: 0.1.456
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.455';
+	const VERSION = '0.1.456';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -16080,6 +16080,24 @@ final class Devenia_AI_Translations {
 		);
 	}
 
+	/**
+	 * Keep source-design validation payloads compact and queue-safe.
+	 *
+	 * @param array<string,mixed> $validation Full Site Presentation validation result.
+	 * @return array<string,mixed>
+	 */
+	private static function source_editorial_design_validation_summary( array $validation ): array {
+		return array(
+			'available'     => ! empty( $validation['available'] ),
+			'passed'        => ! empty( $validation['passed'] ),
+			'issue_count'   => absint( $validation['issue_count'] ?? 0 ),
+			'warning_count' => absint( $validation['warning_count'] ?? 0 ),
+			'issue_codes'   => self::sanitize_qa_code_list( $validation['issue_codes'] ?? array() ),
+			'metrics'       => isset( $validation['metrics'] ) && is_array( $validation['metrics'] ) ? self::compact_editorial_design_metrics( $validation['metrics'] ) : array(),
+			'issues'        => array_slice( array_values( array_filter( (array) ( $validation['issues'] ?? array() ), 'is_array' ) ), 0, 8 ),
+		);
+	}
+
 	private static function workflow_work_item( string $work_type, string $scope, int $source_id, int $translation_id, string $language, array $extra = array() ): array {
 		$work_type = sanitize_key( $work_type );
 		$scope     = 'source' === sanitize_key( $scope ) ? 'source' : 'translation';
@@ -26018,6 +26036,13 @@ final class Devenia_AI_Translations {
 			'card_warm_explanatory_centered_count',
 			'opening_intro_column_not_centered_count',
 			'featured_media_count',
+			'featured_image_id',
+			'featured_image_width',
+			'featured_image_height',
+			'featured_image_aspect_ratio',
+			'featured_image_mime_type',
+			'featured_image_unsuitable_count',
+			'featured_image_unsuitable_reasons',
 			'presentation_shortcode_count',
 			'h1_count',
 			'first_top_level_block',
