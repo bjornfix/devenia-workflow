@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.448
+ * Version: 0.1.449
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.447';
+	const VERSION = '0.1.449';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -10412,7 +10412,7 @@ final class Devenia_AI_Translations {
 				),
 				'localized_parent_path' => array(
 					'type'        => 'string',
-					'description' => 'Optional page parent path under the language prefix, such as tjenester or tjenester/seo. Page translations only.',
+					'description' => 'Optional page parent path under the language prefix, such as tjenester or tjenester/seo. Page translations with a source parent must use the translated source parent path exactly; the workflow will reject mismatched hierarchy.',
 				),
 				'localized_parent_id' => array( 'type' => 'integer' ),
 				'localized_path'      => array(
@@ -12300,6 +12300,70 @@ final class Devenia_AI_Translations {
 			return $step_token_gate;
 		}
 
+		$raw_slug           = (string) ( $input['localized_slug'] ?? '' );
+		$slug               = sanitize_title( $raw_slug );
+		if ( '' === $slug ) {
+			return self::error( 'Localized slug is required.' );
+		}
+		$allow_source_slug_in_url = ! empty( $input['allow_source_slug_in_url'] );
+		$source_slug_reason       = (string) ( $input['source_slug_reason'] ?? '' );
+		$slug_issue = self::validate_localized_slug( $raw_slug, $slug, $language, $source, $allow_source_slug_in_url, $source_slug_reason );
+		if ( $slug_issue ) {
+			return $slug_issue;
+		}
+		$year_issue = self::validate_years_in_url_parts(
+			array( $slug ),
+			! empty( $input['allow_year_in_url'] ),
+			(string) ( $input['year_url_reason'] ?? '' )
+		);
+		if ( $year_issue ) {
+			return $year_issue;
+		}
+		if ( self::has_wordpress_duplicate_slug_suffix( $slug ) ) {
+			return self::error( 'Localized slug must not end with a WordPress duplicate suffix such as -2. Resolve the route collision instead.' );
+		}
+		$localized_path = '';
+		if ( 'post' === $target_post_type && ! empty( $input['localized_path'] ) ) {
+			$localized_path = trim( sanitize_text_field( (string) $input['localized_path'] ), '/' );
+			$path_year_issue = self::validate_years_in_url_parts(
+				explode( '/', $localized_path ),
+				! empty( $input['allow_year_in_url'] ),
+				(string) ( $input['year_url_reason'] ?? '' )
+			);
+			if ( $path_year_issue ) {
+				return $path_year_issue;
+			}
+		}
+		$parent_id = 0;
+		$localized_parent_path = '';
+		if ( 'page' === $target_post_type ) {
+			$parent_id = isset( $input['localized_parent_id'] ) ? absint( $input['localized_parent_id'] ) : 0;
+			$localized_parent_path = isset( $input['localized_parent_path'] ) ? self::normalize_localized_parent_path( (string) $input['localized_parent_path'], $language ) : '';
+		}
+		if ( 'page' === $target_post_type ) {
+			$source_parent_result = self::authoritative_source_parent_for_translation( $source, $language, $parent_id, $localized_parent_path );
+			if ( ! $source_parent_result['success'] ) {
+				return $source_parent_result;
+			}
+			if ( ! empty( $source_parent_result['parent_id'] ) ) {
+				$parent_id = (int) $source_parent_result['parent_id'];
+			}
+		}
+		if ( 'page' === $target_post_type && ! $parent_id && '' !== $localized_parent_path ) {
+			$parent_path_issue = self::validate_localized_parent_path( $localized_parent_path, $language, $source, $allow_source_slug_in_url, $source_slug_reason );
+			if ( $parent_path_issue ) {
+				return $parent_path_issue;
+			}
+			$parent_status = self::sanitize_post_status( (string) ( $input['parent_status'] ?? 'draft' ), 'draft' );
+			$parent_result = self::ensure_parent_path( $language, $localized_parent_path, $parent_status );
+			if ( ! $parent_result['success'] ) {
+				return $parent_result;
+			}
+			$parent_id = (int) $parent_result['parent_id'];
+		} elseif ( 'page' === $target_post_type && ! $parent_id ) {
+			$parent_id = self::default_translation_parent_id( $source, $language );
+		}
+
 		$source_design = array();
 		$inherit_source_design = array_key_exists( 'inherit_source_design', $input )
 			? ! empty( $input['inherit_source_design'] )
@@ -12357,58 +12421,6 @@ final class Devenia_AI_Translations {
 			&& ! empty( $input['allow_update_published'] );
 		if ( in_array( $translation_status, array( 'reviewed', 'published' ), true ) || ( 'publish' === $status && ! $updating_published_needs_review_translation ) ) {
 			return self::error( 'Writer workflows may only save translated drafts or needs_review content. A separate reviewer process must review and publish translations.' );
-		}
-		$raw_slug           = (string) ( $input['localized_slug'] ?? '' );
-		$slug               = sanitize_title( $raw_slug );
-		if ( '' === $slug ) {
-			return self::error( 'Localized slug is required.' );
-		}
-		$allow_source_slug_in_url = ! empty( $input['allow_source_slug_in_url'] );
-		$source_slug_reason       = (string) ( $input['source_slug_reason'] ?? '' );
-		$slug_issue = self::validate_localized_slug( $raw_slug, $slug, $language, $source, $allow_source_slug_in_url, $source_slug_reason );
-		if ( $slug_issue ) {
-			return $slug_issue;
-		}
-		$year_issue = self::validate_years_in_url_parts(
-			array( $slug ),
-			! empty( $input['allow_year_in_url'] ),
-			(string) ( $input['year_url_reason'] ?? '' )
-		);
-		if ( $year_issue ) {
-			return $year_issue;
-		}
-		if ( self::has_wordpress_duplicate_slug_suffix( $slug ) ) {
-			return self::error( 'Localized slug must not end with a WordPress duplicate suffix such as -2. Resolve the route collision instead.' );
-		}
-		$localized_path = '';
-		if ( 'post' === $target_post_type && ! empty( $input['localized_path'] ) ) {
-			$localized_path = trim( sanitize_text_field( (string) $input['localized_path'] ), '/' );
-			$path_year_issue = self::validate_years_in_url_parts(
-				explode( '/', $localized_path ),
-				! empty( $input['allow_year_in_url'] ),
-				(string) ( $input['year_url_reason'] ?? '' )
-			);
-			if ( $path_year_issue ) {
-				return $path_year_issue;
-			}
-		}
-		$parent_id = 0;
-		if ( 'page' === $target_post_type ) {
-			$parent_id = isset( $input['localized_parent_id'] ) ? absint( $input['localized_parent_id'] ) : 0;
-		}
-		if ( 'page' === $target_post_type && ! $parent_id && ! empty( $input['localized_parent_path'] ) ) {
-			$parent_path_issue = self::validate_localized_parent_path( (string) $input['localized_parent_path'], $language, $source, $allow_source_slug_in_url, $source_slug_reason );
-			if ( $parent_path_issue ) {
-				return $parent_path_issue;
-			}
-			$parent_status = self::sanitize_post_status( (string) ( $input['parent_status'] ?? 'draft' ), 'draft' );
-			$parent_result = self::ensure_parent_path( $language, (string) $input['localized_parent_path'], $parent_status );
-			if ( ! $parent_result['success'] ) {
-				return $parent_result;
-			}
-			$parent_id = (int) $parent_result['parent_id'];
-		} elseif ( 'page' === $target_post_type && ! $parent_id ) {
-			$parent_id = self::default_translation_parent_id( $source, $language );
 		}
 
 		$previous_review_hash = '';
@@ -13155,6 +13167,93 @@ final class Devenia_AI_Translations {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Normalize a localized parent path under the language prefix.
+	 */
+	private static function normalize_localized_parent_path( string $parent_path, string $language ): string {
+		$path = trim( sanitize_text_field( $parent_path ), '/' );
+		if ( '' === $path ) {
+			return '';
+		}
+
+		return self::strip_language_prefix_from_path( $path, $language );
+	}
+
+	/**
+	 * Remove the configured language prefix from a localized path.
+	 */
+	private static function strip_language_prefix_from_path( string $path, string $language ): string {
+		$path   = trim( $path, '/' );
+		$prefix = trim( self::language_prefix( $language ), '/' );
+		if ( '' === $prefix || '' === $path ) {
+			return $path;
+		}
+		if ( $path === $prefix ) {
+			return '';
+		}
+		if ( 0 === strpos( $path, $prefix . '/' ) ) {
+			return trim( substr( $path, strlen( $prefix ) + 1 ), '/' );
+		}
+
+		return $path;
+	}
+
+	/**
+	 * Enforce that a translated page remains under the translated source parent.
+	 */
+	private static function authoritative_source_parent_for_translation( WP_Post $source, string $language, int $requested_parent_id = 0, string $requested_parent_path = '' ): array {
+		if ( 'page' !== (string) $source->post_type || ! $source->post_parent ) {
+			return array( 'success' => true, 'parent_id' => $requested_parent_id );
+		}
+
+		$translated_parent_id = self::find_translation_id( (int) $source->post_parent, $language, self::translation_workflow_post_statuses( false ) );
+		if ( ! $translated_parent_id ) {
+			return array(
+				'success'          => false,
+				'message'          => 'Translated source parent is missing. Create or publish the translated parent page before saving this child translation; the workflow will not move the child to another hierarchy.',
+				'code'             => 'translated_source_parent_missing',
+				'source_parent_id' => absint( $source->post_parent ),
+				'language'         => sanitize_key( $language ),
+			);
+		}
+
+		$expected_parent_path = self::localized_parent_path_for_post( $translated_parent_id, $language );
+		if ( $requested_parent_id && $requested_parent_id !== $translated_parent_id ) {
+			return array(
+				'success'                       => false,
+				'message'                       => 'Localized parent ID does not match the translated source parent. Use the translated source parent to preserve the page hierarchy.',
+				'code'                          => 'localized_parent_id_mismatch',
+				'requested_parent_id'           => $requested_parent_id,
+				'expected_parent_id'            => $translated_parent_id,
+				'expected_localized_parent_path' => $expected_parent_path,
+				'source_parent_id'              => absint( $source->post_parent ),
+				'language'                      => sanitize_key( $language ),
+			);
+		}
+
+		if ( '' !== $requested_parent_path && $requested_parent_path !== $expected_parent_path ) {
+			return array(
+				'success'                       => false,
+				'message'                       => 'Localized parent path does not match the translated source parent. Use the expected translated parent path to preserve the page hierarchy.',
+				'code'                          => 'localized_parent_path_mismatch',
+				'requested_localized_parent_path' => $requested_parent_path,
+				'expected_localized_parent_path'  => $expected_parent_path,
+				'expected_parent_id'            => $translated_parent_id,
+				'source_parent_id'              => absint( $source->post_parent ),
+				'language'                      => sanitize_key( $language ),
+			);
+		}
+
+		return array( 'success' => true, 'parent_id' => $translated_parent_id );
+	}
+
+	/**
+	 * Localized page path without the language prefix.
+	 */
+	private static function localized_parent_path_for_post( int $post_id, string $language ): string {
+		return self::strip_language_prefix_from_path( self::localized_path_for_post( $post_id, $language ), $language );
 	}
 
 	/**
