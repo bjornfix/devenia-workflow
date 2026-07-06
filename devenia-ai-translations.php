@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.429
+ * Version: 0.1.430
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.429';
+	const VERSION = '0.1.430';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -166,6 +166,7 @@ final class Devenia_AI_Translations {
 		add_action( 'template_redirect', array( __CLASS__, 'redirect_translated_posts_page_first_page_query' ), 1 );
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_start_not_found_localization' ), 20 );
 		add_action( 'template_redirect', array( __CLASS__, 'redirect_localized_source_paths_with_language_prefix' ), 2 );
+		add_action( 'template_redirect', array( __CLASS__, 'maybe_start_author_archive_url_localization' ), 98 );
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_start_frontend_text_localization' ), 99 );
 		add_action( 'shutdown', array( __CLASS__, 'record_slow_frontend_request' ), 0 );
 		add_action( 'wp_abilities_api_init', array( __CLASS__, 'register_abilities' ) );
@@ -506,6 +507,7 @@ final class Devenia_AI_Translations {
 				'author_name'                     => (string) $author_match['user_nicename'],
 				'devenia_author_archive_language' => (string) $author_match['language'],
 				'devenia_author_archive_author_id' => absint( $author_match['author_id'] ),
+				'paged'                            => absint( $author_match['paged'] ?? 1 ),
 			);
 			return;
 		}
@@ -610,7 +612,7 @@ final class Devenia_AI_Translations {
 	 * Author archive translations are runtime WordPress data, not packaged
 	 * language-file values. The plugin only owns routing and lookup.
 	 *
-	 * @return array{language:string,author_id:int,user_nicename:string}|array<string,mixed>
+	 * @return array{language:string,author_id:int,user_nicename:string,paged:int}|array<string,mixed>
 	 */
 	private static function translated_author_archive_request_for_path( string $path ): array {
 		$clean_path = trim( $path, '/' );
@@ -624,7 +626,15 @@ final class Devenia_AI_Translations {
 					continue;
 				}
 
-				if ( trim( (string) $translation['path'], '/' ) !== $clean_path ) {
+				$translation_path = trim( (string) $translation['path'], '/' );
+				$paged            = 1;
+				$path_to_match    = $clean_path;
+				if ( preg_match( '#^(.+?)/page/([0-9]+)/?$#', $clean_path, $page_match ) ) {
+					$path_to_match = trim( (string) $page_match[1], '/' );
+					$paged         = max( 1, absint( $page_match[2] ) );
+				}
+
+				if ( $translation_path !== $path_to_match ) {
 					continue;
 				}
 
@@ -637,6 +647,7 @@ final class Devenia_AI_Translations {
 					'language'      => sanitize_key( (string) $language ),
 					'author_id'     => (int) $author_id,
 					'user_nicename' => (string) $user->user_nicename,
+					'paged'         => $paged,
 				);
 			}
 		}
@@ -17798,6 +17809,55 @@ final class Devenia_AI_Translations {
 		$path     = trim( (string) $path, '/' );
 
 		return '' === $path ? '' : home_url( '/' . $path . '/' );
+	}
+
+	/**
+	 * Start narrow URL normalization for localized author archive pagination/head links.
+	 */
+	public static function maybe_start_author_archive_url_localization(): void {
+		if ( ! self::is_frontend_runtime_request() || ! is_author() ) {
+			return;
+		}
+
+		$language  = sanitize_key( (string) get_query_var( 'devenia_author_archive_language' ) );
+		$author_id = absint( get_query_var( 'devenia_author_archive_author_id' ) );
+		if ( ! $author_id || ! self::is_translation_language( $language ) ) {
+			return;
+		}
+
+		ob_start( array( __CLASS__, 'localize_author_archive_urls_html' ) );
+	}
+
+	/**
+	 * Replace malformed source author pagination URLs on localized author archives.
+	 */
+	public static function localize_author_archive_urls_html( string $html ): string {
+		$language  = sanitize_key( (string) get_query_var( 'devenia_author_archive_language' ) );
+		$author_id = absint( get_query_var( 'devenia_author_archive_author_id' ) );
+		if ( '' === $html || ! $author_id || ! self::is_translation_language( $language ) ) {
+			return $html;
+		}
+
+		$localized_base = self::author_archive_url( $author_id, $language );
+		if ( '' === $localized_base ) {
+			return $html;
+		}
+
+		$source_base = trailingslashit( home_url( '/author/' ) );
+		$html        = preg_replace_callback(
+			'#' . preg_quote( trailingslashit( home_url( '/author/page/' ) ), '#' ) . '([0-9]+)/#',
+			static function ( array $match ) use ( $localized_base ): string {
+				$page = max( 1, absint( $match[1] ?? 1 ) );
+				return trailingslashit( $localized_base ) . 'page/' . $page . '/';
+			},
+			$html
+		) ?: $html;
+
+		return str_replace(
+			array( '"' . $source_base . '"', "'" . $source_base . "'" ),
+			array( '"' . $localized_base . '"', "'" . $localized_base . "'" ),
+			$html
+		);
 	}
 
 	/**
