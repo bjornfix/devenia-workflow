@@ -196,6 +196,28 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		if ( empty( $records ) ) {
 			return;
 		}
+		$stored = self::stored_localized_source_design_fragments( $translation_id );
+		if ( ! empty( $stored['fragments'] ) && is_array( $stored['fragments'] ) ) {
+			$merged = array();
+			foreach ( $stored['fragments'] as $record ) {
+				if ( ! is_array( $record ) ) {
+					continue;
+				}
+				$key = self::source_design_fragment_key_from_input( (string) ( $record['key'] ?? '' ) );
+				if ( '' !== $key ) {
+					$record['key'] = $key;
+					$merged[ $key ] = $record;
+				}
+			}
+			foreach ( $records as $record ) {
+				$key = self::source_design_fragment_key_from_input( (string) ( $record['key'] ?? '' ) );
+				if ( '' !== $key ) {
+					$record['key'] = $key;
+					$merged[ $key ] = $record;
+				}
+			}
+			$records = array_values( $merged );
+		}
 
 		$design_hash = self::expected_source_design_signature_hash( (string) $source->post_content, $language );
 
