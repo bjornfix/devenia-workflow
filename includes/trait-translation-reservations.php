@@ -22,6 +22,15 @@ trait Devenia_AI_Translations_Translation_Reservations {
 					'type'        => 'integer',
 					'description' => 'Original WordPress page or post ID to reserve translation work for.',
 				),
+				'work_scope'  => array(
+					'type'        => 'string',
+					'default'     => 'translation',
+					'description' => 'Reservation scope. Use translation for source/language work or source for source-only work.',
+				),
+				'work_type'   => array(
+					'type'        => 'string',
+					'description' => 'Optional first-class work item type, such as source_design_repair.',
+				),
 				'language'    => array(
 					'type'        => 'string',
 					'description' => 'Single target language to reserve. Use languages for several languages.',
@@ -74,6 +83,15 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'required'             => array( 'source_id' ),
 			'properties'           => array(
 				'source_id'   => array( 'type' => 'integer' ),
+				'work_scope'  => array(
+					'type'        => 'string',
+					'default'     => 'translation',
+					'description' => 'Reservation scope. Use source to release source-only work reservations.',
+				),
+				'work_type'   => array(
+					'type'        => 'string',
+					'description' => 'Optional first-class work item type, such as source_design_repair.',
+				),
 				'language'    => array( 'type' => 'string' ),
 				'languages'   => array(
 					'type'  => 'array',
@@ -117,6 +135,14 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'type'                 => 'object',
 			'properties'           => array(
 				'source_id'       => array( 'type' => 'integer' ),
+				'work_scope'      => array(
+					'type'        => 'string',
+					'description' => 'Optional reservation scope filter: translation or source.',
+				),
+				'work_type'       => array(
+					'type'        => 'string',
+					'description' => 'Optional first-class work item type filter.',
+				),
 				'language'        => array( 'type' => 'string' ),
 				'include_expired' => array(
 					'type'    => 'boolean',
@@ -135,6 +161,10 @@ trait Devenia_AI_Translations_Translation_Reservations {
 		$source    = get_post( $source_id );
 		if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
 			return self::error( 'Source content not found.' );
+		}
+
+		if ( self::is_source_work_scope( (string) ( $input['work_scope'] ?? '' ) ) ) {
+			return self::reserve_source_work( $source, $input );
 		}
 
 		$languages = self::translation_reservation_languages_from_input( $input );
@@ -216,6 +246,10 @@ trait Devenia_AI_Translations_Translation_Reservations {
 		$source_id = absint( $input['source_id'] ?? 0 );
 		if ( ! $source_id || ! get_post( $source_id ) ) {
 			return self::error( 'Source content not found.' );
+		}
+
+		if ( self::is_source_work_scope( (string) ( $input['work_scope'] ?? '' ) ) ) {
+			return self::release_source_work_reservation( $input );
 		}
 
 		$languages = self::translation_reservation_languages_from_input( $input );
@@ -305,37 +339,49 @@ trait Devenia_AI_Translations_Translation_Reservations {
 
 		$source_id       = absint( $input['source_id'] ?? 0 );
 		$language        = sanitize_key( (string) ( $input['language'] ?? '' ) );
+		$work_scope      = sanitize_key( (string) ( $input['work_scope'] ?? '' ) );
+		$raw_work_type   = sanitize_key( (string) ( $input['work_type'] ?? '' ) );
+		$work_type       = '' !== $raw_work_type ? self::sanitize_work_type( $raw_work_type ) : '';
 		$include_expired = ! empty( $input['include_expired'] );
-		$prefix          = self::OPTION_TRANSLATION_CLAIM_PREFIX;
-		$like            = $wpdb->esc_like( $prefix ) . '%';
+		$prefixes        = 'source' === $work_scope
+			? array( self::OPTION_WORK_CLAIM_PREFIX )
+			: ( 'translation' === $work_scope ? array( self::OPTION_TRANSLATION_CLAIM_PREFIX ) : array( self::OPTION_TRANSLATION_CLAIM_PREFIX, self::OPTION_WORK_CLAIM_PREFIX ) );
+		$reservations    = array();
+
+		foreach ( $prefixes as $prefix ) {
+			$like            = $wpdb->esc_like( $prefix ) . '%';
 		$option_names    = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 			$wpdb->prepare(
 				"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s ORDER BY option_id DESC LIMIT 500",
 				$like
 			)
 		);
-		$reservations = array();
 
 		foreach ( $option_names as $option_name ) {
 			$claim = get_option( (string) $option_name, array() );
 			if ( ! is_array( $claim ) ) {
 				continue;
 			}
-			$claim = self::sanitize_translation_reservation( $claim );
+				$is_source_reservation = self::OPTION_WORK_CLAIM_PREFIX === $prefix;
+				$claim = $is_source_reservation ? self::sanitize_source_work_reservation( $claim ) : self::sanitize_translation_reservation( $claim );
 			if ( ! $claim ) {
 				continue;
 			}
 			if ( $source_id && (int) $claim['source_id'] !== $source_id ) {
 				continue;
 			}
-			if ( '' !== $language && (string) $claim['language'] !== $language ) {
+				if ( '' !== $language && (string) ( $claim['language'] ?? '' ) !== $language ) {
+					continue;
+				}
+				if ( '' !== $work_type && (string) ( $claim['work_type'] ?? '' ) !== $work_type ) {
 				continue;
 			}
 			if ( ! $include_expired && ! empty( $claim['expired'] ) ) {
 				delete_option( (string) $option_name );
 				continue;
 			}
-			$reservations[] = self::public_translation_reservation( $claim );
+				$reservations[] = $is_source_reservation ? self::public_source_work_reservation( $claim ) : self::public_translation_reservation( $claim );
+			}
 		}
 
 		return array(
@@ -379,6 +425,10 @@ trait Devenia_AI_Translations_Translation_Reservations {
 	 */
 	private static function translation_reservation_option_name( int $source_id, string $language ): string {
 		return self::OPTION_TRANSLATION_CLAIM_PREFIX . absint( $source_id ) . '_' . sanitize_key( $language );
+	}
+
+	private static function source_work_reservation_option_name( int $source_id, string $work_type ): string {
+		return self::OPTION_WORK_CLAIM_PREFIX . absint( $source_id ) . '_' . self::sanitize_work_type( $work_type );
 	}
 
 	private static function translation_reservation_session_binding_hash( string $token ): string {
@@ -446,8 +496,195 @@ trait Devenia_AI_Translations_Translation_Reservations {
 	 */
 	private static function public_translation_reservation( array $claim ): array {
 		return array(
+			'work_scope' => 'translation',
+			'work_type'  => 'translation',
 			'source_id'  => absint( $claim['source_id'] ?? 0 ),
 			'language'   => sanitize_key( (string) ( $claim['language'] ?? '' ) ),
+			'owner'      => sanitize_text_field( (string) ( $claim['owner'] ?? '' ) ),
+			'note'       => sanitize_textarea_field( (string) ( $claim['note'] ?? '' ) ),
+			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $claim['codex_thread_id'] ?? '' ) ),
+			'has_session_binding' => ! empty( $claim['session_binding_hash'] ),
+			'session_binding_created_at' => sanitize_text_field( (string) ( $claim['session_binding_created_at'] ?? '' ) ),
+			'actor_id'   => sanitize_key( (string) ( $claim['actor_id'] ?? '' ) ),
+			'claimed_at' => sanitize_text_field( (string) ( $claim['claimed_at'] ?? '' ) ),
+			'expires_at' => sanitize_text_field( (string) ( $claim['expires_at'] ?? '' ) ),
+			'expired'    => ! empty( $claim['expired'] ),
+		);
+	}
+
+	private static function is_source_work_scope( string $scope ): bool {
+		return 'source' === sanitize_key( $scope );
+	}
+
+	private static function sanitize_work_type( string $work_type ): string {
+		$work_type = sanitize_key( $work_type );
+		return '' !== $work_type ? $work_type : 'source_design_repair';
+	}
+
+	private static function reserve_source_work( WP_Post $source, array $input ): array {
+		$source_id = (int) $source->ID;
+		$work_type = self::sanitize_work_type( (string) ( $input['work_type'] ?? 'source_design_repair' ) );
+		$ttl_seconds = isset( $input['ttl_seconds'] )
+			? max( 60, min( self::MAX_TRANSLATION_CLAIM_TTL, absint( $input['ttl_seconds'] ) ) )
+			: self::DEFAULT_TRANSLATION_CLAIM_TTL;
+		$force      = ! empty( $input['force'] );
+		$owner      = ! empty( $input['owner'] ) ? sanitize_text_field( (string) $input['owner'] ) : 'AI Translation Workflow';
+		$note       = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
+		$codex_thread_id = ! empty( $input['codex_thread_id'] ) ? self::normalize_control_scope_id( (string) $input['codex_thread_id'] ) : '';
+		$session_binding_token = sanitize_text_field( (string) ( $input['session_binding_token'] ?? '' ) );
+		$session_binding_hash = '' !== $session_binding_token ? self::translation_reservation_session_binding_hash( $session_binding_token ) : '';
+		$actor_id   = ! empty( $input['actor_id'] ) ? sanitize_key( (string) $input['actor_id'] ) : '';
+		$now        = time();
+		$token      = wp_generate_password( 32, false, false );
+		$existing   = self::source_work_reservation_for_type( $source_id, $work_type );
+		if ( $existing && ! $force ) {
+			return array(
+				'success'        => false,
+				'message'        => 'Source work is already reserved.',
+				'source'         => self::source_summary_payload( $source ),
+				'claim_token'    => '',
+				'ttl_seconds'    => $ttl_seconds,
+				'claims'         => array(),
+				'conflicts'      => array(
+					array(
+						'work_scope'  => 'source',
+						'work_type'   => $work_type,
+						'reservation' => self::public_source_work_reservation( $existing ),
+					),
+				),
+				'conflict_count' => 1,
+			);
+		}
+
+		$claim = array(
+			'work_scope' => 'source',
+			'work_type'  => $work_type,
+			'source_id'  => $source_id,
+			'token'      => $token,
+			'owner'      => $owner,
+			'note'       => $note,
+			'codex_thread_id' => $codex_thread_id,
+			'session_binding_hash' => $session_binding_hash,
+			'session_binding_created_at' => '' !== $session_binding_hash ? gmdate( 'c', $now ) : '',
+			'actor_id'   => $actor_id,
+			'claimed_at' => gmdate( 'c', $now ),
+			'expires_at' => gmdate( 'c', $now + $ttl_seconds ),
+		);
+		$key = self::source_work_reservation_option_name( $source_id, $work_type );
+		$saved = $force ? update_option( $key, $claim, false ) : add_option( $key, $claim, '', 'no' );
+		if ( ! $saved ) {
+			update_option( $key, $claim, false );
+		}
+
+		return array(
+			'success'        => true,
+			'message'        => 'Source work reserved.',
+			'source'         => self::source_summary_payload( $source ),
+			'claim_token'    => $token,
+			'ttl_seconds'    => $ttl_seconds,
+			'claims'         => array( self::public_source_work_reservation( $claim ) ),
+			'conflicts'      => array(),
+			'conflict_count' => 0,
+		);
+	}
+
+	private static function release_source_work_reservation( array $input ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		$work_type = self::sanitize_work_type( (string) ( $input['work_type'] ?? 'source_design_repair' ) );
+		$token     = (string) ( $input['claim_token'] ?? '' );
+		$force     = ! empty( $input['force'] );
+		$codex_thread_id = ! empty( $input['codex_thread_id'] ) ? self::normalize_control_scope_id( (string) $input['codex_thread_id'] ) : '';
+		$session_binding_token = sanitize_text_field( (string) ( $input['session_binding_token'] ?? '' ) );
+		$key      = self::source_work_reservation_option_name( $source_id, $work_type );
+		$existing = self::source_work_reservation_for_type( $source_id, $work_type, true );
+		if ( ! $existing ) {
+			return array(
+				'success' => true,
+				'message' => 'No active source work reservation found.',
+				'released' => array(),
+				'conflicts' => array(),
+			);
+		}
+
+		if ( ! $force ) {
+			if ( '' !== self::normalize_control_scope_id( (string) ( $existing['codex_thread_id'] ?? '' ) ) && $codex_thread_id !== self::normalize_control_scope_id( (string) ( $existing['codex_thread_id'] ?? '' ) ) ) {
+				return self::error( 'Source work reservation is owned by another worker session.', 'reservation_owner_mismatch', array( 'reservation' => self::public_source_work_reservation( $existing ) ) );
+			}
+			$session_binding_hash = sanitize_text_field( (string) ( $existing['session_binding_hash'] ?? '' ) );
+			if ( '' !== $session_binding_hash && ( '' === $session_binding_token || ! hash_equals( $session_binding_hash, self::translation_reservation_session_binding_hash( $session_binding_token ) ) ) ) {
+				return self::error( 'Source work reservation requires matching session binding proof.', 'reservation_session_binding_mismatch', array( 'reservation' => self::public_source_work_reservation( $existing ) ) );
+			}
+			if ( '' === $token || ! hash_equals( (string) ( $existing['token'] ?? '' ), $token ) ) {
+				return self::error( 'Source work is currently reserved by another worker.', 'reservation_claim_token_mismatch', array( 'reservation' => self::public_source_work_reservation( $existing ) ) );
+			}
+		}
+
+		delete_option( $key );
+		return array(
+			'success' => true,
+			'message' => 'Source work reservation released.',
+			'released' => array( $work_type ),
+			'conflicts' => array(),
+		);
+	}
+
+	private static function source_work_reservation_for_type( int $source_id, string $work_type, bool $include_expired = false ): array {
+		$key = self::source_work_reservation_option_name( $source_id, $work_type );
+		$claim = get_option( $key, array() );
+		if ( ! is_array( $claim ) ) {
+			return array();
+		}
+
+		$claim = self::sanitize_source_work_reservation( $claim );
+		if ( ! $claim ) {
+			delete_option( $key );
+			return array();
+		}
+		if ( ! $include_expired && ! empty( $claim['expired'] ) ) {
+			delete_option( $key );
+			return array();
+		}
+
+		return $claim;
+	}
+
+	private static function sanitize_source_work_reservation( array $claim ): array {
+		$source_id = absint( $claim['source_id'] ?? 0 );
+		$work_type = self::sanitize_work_type( (string) ( $claim['work_type'] ?? '' ) );
+		$token = sanitize_text_field( (string) ( $claim['token'] ?? '' ) );
+		if ( ! $source_id || '' === $work_type || '' === $token ) {
+			return array();
+		}
+
+		$expires_at = (string) ( $claim['expires_at'] ?? '' );
+		$expires_ts = $expires_at ? strtotime( $expires_at ) : 0;
+		if ( ! $expires_ts ) {
+			$expires_ts = time() - 1;
+		}
+
+		return array(
+			'work_scope' => 'source',
+			'work_type'  => $work_type,
+			'source_id'  => $source_id,
+			'token'      => $token,
+			'owner'      => sanitize_text_field( (string) ( $claim['owner'] ?? '' ) ),
+			'note'       => sanitize_textarea_field( (string) ( $claim['note'] ?? '' ) ),
+			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $claim['codex_thread_id'] ?? '' ) ),
+			'session_binding_hash' => sanitize_text_field( (string) ( $claim['session_binding_hash'] ?? '' ) ),
+			'session_binding_created_at' => sanitize_text_field( (string) ( $claim['session_binding_created_at'] ?? '' ) ),
+			'actor_id'   => sanitize_key( (string) ( $claim['actor_id'] ?? '' ) ),
+			'claimed_at' => sanitize_text_field( (string) ( $claim['claimed_at'] ?? '' ) ),
+			'expires_at' => gmdate( 'c', $expires_ts ),
+			'expired'    => $expires_ts <= time(),
+		);
+	}
+
+	private static function public_source_work_reservation( array $claim ): array {
+		return array(
+			'work_scope' => 'source',
+			'work_type'  => self::sanitize_work_type( (string) ( $claim['work_type'] ?? '' ) ),
+			'source_id'  => absint( $claim['source_id'] ?? 0 ),
+			'language'   => '',
 			'owner'      => sanitize_text_field( (string) ( $claim['owner'] ?? '' ) ),
 			'note'       => sanitize_textarea_field( (string) ( $claim['note'] ?? '' ) ),
 			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $claim['codex_thread_id'] ?? '' ) ),

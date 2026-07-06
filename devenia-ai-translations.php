@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.450
+ * Version: 0.1.451
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.449';
+	const VERSION = '0.1.451';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -37,6 +37,7 @@ final class Devenia_AI_Translations {
 	const OPTION_HEARTBEATS = 'devenia_ai_translations_heartbeats';
 	const OPTION_RUNTIME_MUTATION_PROVENANCE = 'devenia_ai_translations_runtime_mutation_provenance';
 	const OPTION_TRANSLATION_CLAIM_PREFIX = 'devenia_ai_translation_claim_';
+	const OPTION_WORK_CLAIM_PREFIX = 'devenia_ai_work_claim_';
 	const DEFAULT_TRANSLATION_CLAIM_TTL = 1800;
 	const MAX_TRANSLATION_CLAIM_TTL = 14400;
 	const TRANSLATION_INDEX_SCHEMA_VERSION = '2';
@@ -9827,7 +9828,7 @@ final class Devenia_AI_Translations {
 				),
 				'statuses'         => array(
 					'type'        => 'array',
-					'description' => 'Optional queue states to include: missing, stale, draft, needs_review, needs_linguistic_review, ready_to_publish, reserved, complete.',
+					'description' => 'Optional queue states to include: source_design_repair, missing, stale, draft, needs_review, needs_linguistic_review, ready_to_publish, reserved, complete.',
 					'items'       => array( 'type' => 'string' ),
 				),
 			),
@@ -15659,6 +15660,254 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Return candidate source posts/pages for work-item planning.
+	 *
+	 * @return array<int,WP_Post>
+	 */
+	private static function workflow_source_candidates( int $source_id = 0, int $limit = 100 ): array {
+		$sources = array();
+
+		if ( $source_id ) {
+			$source = get_post( $source_id );
+			if ( $source && self::is_translatable_post_type( (string) $source->post_type ) && ! self::is_translation_post( $source_id ) ) {
+				$sources[] = $source;
+			}
+			return $sources;
+		}
+
+		$query = self::source_page_query(
+			array(
+				'post_status'    => 'publish',
+				'posts_per_page' => 1000,
+				'orderby'        => 'modified',
+				'order'          => 'DESC',
+			)
+		);
+		foreach ( $query->posts as $candidate ) {
+			if ( self::is_translation_post( (int) $candidate->ID ) ) {
+				continue;
+			}
+			$sources[] = $candidate;
+			if ( count( $sources ) >= $limit ) {
+				break;
+			}
+		}
+
+		return $sources;
+	}
+
+	/**
+	 * Work Item Catalog for heartbeat and queue surfaces.
+	 *
+	 * This is the single Interface that names workflow work. Callers should not
+	 * infer actions independently from translation rows.
+	 *
+	 * @param array<int,WP_Post> $sources Source posts/pages.
+	 * @return array{totals:array<string,int>,items:array<int,array<string,mixed>>}
+	 */
+	private static function workflow_work_items_for_sources( array $sources, bool $include_items = true ): array {
+		$totals = array(
+			'sources_scanned'            => count( $sources ),
+			'source_design_repair'       => 0,
+			'translations_seen'          => 0,
+			'missing_translations'       => 0,
+			'needs_source_reprojection'  => 0,
+			'needs_draft_work'           => 0,
+			'needs_route_repair'         => 0,
+			'needs_linguistic_review'    => 0,
+			'needs_quality_review'       => 0,
+			'needs_final_review'         => 0,
+			'ready_to_publish'           => 0,
+			'published'                  => 0,
+			'blocked_from_publish'       => 0,
+		);
+		$items = array();
+
+		foreach ( $sources as $source ) {
+			if ( ! $source instanceof WP_Post ) {
+				continue;
+			}
+
+			$source_design_item = self::source_design_repair_work_item( $source );
+			if ( $source_design_item ) {
+				++$totals['source_design_repair'];
+				++$totals['needs_draft_work'];
+				if ( $include_items ) {
+					$items[] = $source_design_item;
+				}
+				continue;
+			}
+
+			$current_source_hash    = self::source_hash( $source );
+			$source_language_tokens = self::source_language_slug_tokens_for_post( $source );
+			$translations_by_language = array();
+			foreach ( self::heartbeat_translation_rows_for_source( (int) $source->ID ) as $translation ) {
+				$translation_language = sanitize_key( (string) ( $translation['language'] ?? '' ) );
+				if ( '' !== $translation_language ) {
+					$translations_by_language[ $translation_language ] = $translation;
+				}
+			}
+
+			foreach ( self::target_languages() as $language => $config ) {
+				$language    = sanitize_key( (string) $language );
+				$translation = $translations_by_language[ $language ] ?? array();
+				if ( empty( $translation ) ) {
+					++$totals['missing_translations'];
+					++$totals['needs_draft_work'];
+					if ( $include_items ) {
+						$items[] = self::workflow_work_item(
+							'draft_write',
+							'translation',
+							(int) $source->ID,
+							0,
+							$language,
+							array(
+								'source_title' => get_the_title( $source ),
+								'language_name' => sanitize_text_field( (string) ( $config['name'] ?? strtoupper( $language ) ) ),
+								'post_status' => '',
+								'writer_token_label' => '',
+								'linguistic' => 'missing_translation',
+								'quality' => 'missing_translation',
+								'final' => 'missing_translation',
+							)
+						);
+					}
+					continue;
+				}
+
+				$translation_id = absint( $translation['id'] ?? 0 );
+				if ( ! $translation_id ) {
+					continue;
+				}
+				++$totals['translations_seen'];
+
+				$post_status = sanitize_key( (string) ( $translation['status'] ?? '' ) );
+				$source_hash = (string) ( $translation['source_hash'] ?? '' );
+				$linguistic_reviewed_at = (string) ( $translation['linguistic_reviewed_at'] ?? '' );
+				$quality_reviewed_at = (string) ( $translation['quality_reviewed_at'] ?? '' );
+				$final_reviewed_at = (string) ( $translation['final_reviewed_at'] ?? '' );
+				$slug = sanitize_title( (string) ( $translation['slug'] ?? '' ) );
+				$obligations = array();
+				$linguistic_state = '' === $linguistic_reviewed_at ? 'needs_linguistic_review' : 'reviewed_recorded';
+				$quality_state = '' === $quality_reviewed_at ? 'needs_quality_review' : 'quality_review_recorded';
+				$final_state = '' === $final_reviewed_at ? 'needs_final_review' : 'final_review_recorded';
+				$route_issue = self::heartbeat_translation_slug_language_issue( $slug, $language, $source, $source_language_tokens );
+
+				if ( $route_issue ) {
+					++$totals['needs_route_repair'];
+					++$totals['needs_draft_work'];
+					$obligations[]   = 'route_repair';
+					$linguistic_state = 'route_repair_required';
+				} elseif ( '' !== $source_hash && '' !== $current_source_hash && $source_hash !== $current_source_hash ) {
+					++$totals['needs_source_reprojection'];
+					++$totals['needs_draft_work'];
+					$obligations[] = 'source_reprojection';
+				} elseif ( '' === $linguistic_reviewed_at ) {
+					++$totals['needs_linguistic_review'];
+					$obligations[] = 'linguistic_review';
+				}
+				if ( '' === $quality_reviewed_at ) {
+					++$totals['needs_quality_review'];
+					$obligations[] = 'quality_review';
+				}
+				if ( '' === $final_reviewed_at ) {
+					++$totals['needs_final_review'];
+					$obligations[] = 'final_review';
+				}
+
+				if ( 'publish' === $post_status ) {
+					++$totals['published'];
+				} elseif ( empty( $obligations ) ) {
+					++$totals['ready_to_publish'];
+				} else {
+					++$totals['blocked_from_publish'];
+				}
+
+				if ( $include_items && $obligations ) {
+					$items[] = self::workflow_work_item(
+						$obligations[0],
+						'translation',
+						(int) $source->ID,
+						$translation_id,
+						$language,
+						array(
+							'source_title' => get_the_title( $source ),
+							'post_status' => $post_status,
+							'writer_token_label' => sanitize_key( (string) ( $translation['writer_token_label'] ?? '' ) ),
+							'obligations' => array_values( array_unique( $obligations ) ),
+							'linguistic' => $linguistic_state,
+							'quality' => $quality_state,
+							'final' => $final_state,
+						)
+					);
+				}
+			}
+		}
+
+		return array(
+			'totals' => $totals,
+			'items'  => $include_items ? $items : array(),
+		);
+	}
+
+	private static function source_design_repair_work_item( WP_Post $source ): array {
+		if ( 'post' !== (string) $source->post_type ) {
+			return array();
+		}
+
+		$validation = self::source_editorial_design_validation( $source, (string) $source->post_content );
+		if ( ! empty( $validation['passed'] ) ) {
+			return array();
+		}
+
+		return self::workflow_work_item(
+			'source_design_repair',
+			'source',
+			(int) $source->ID,
+			0,
+			'',
+			array(
+				'source_title' => get_the_title( $source ),
+				'post_status' => sanitize_key( (string) $source->post_status ),
+				'editorial_source_validation' => self::source_editorial_design_validation_summary( $validation ),
+				'obligations' => array( 'source_design_repair' ),
+				'linguistic' => 'source_design_repair_required',
+				'quality' => 'source_design_repair_required',
+				'final' => 'source_design_repair_required',
+			)
+		);
+	}
+
+	private static function workflow_work_item( string $work_type, string $scope, int $source_id, int $translation_id, string $language, array $extra = array() ): array {
+		$work_type = sanitize_key( $work_type );
+		$scope     = 'source' === sanitize_key( $scope ) ? 'source' : 'translation';
+		$item = array(
+			'work_type'      => $work_type,
+			'work_scope'     => $scope,
+			'reservation_key'=> 'source' === $scope ? self::source_work_reservation_option_name( $source_id, $work_type ) : self::translation_reservation_option_name( $source_id, $language ),
+			'source_id'      => $source_id,
+			'source_title'   => sanitize_text_field( (string) ( $extra['source_title'] ?? '' ) ),
+			'translation_id' => $translation_id,
+			'language'       => sanitize_key( $language ),
+			'post_status'    => sanitize_key( (string) ( $extra['post_status'] ?? '' ) ),
+			'writer_token_label' => sanitize_key( (string) ( $extra['writer_token_label'] ?? '' ) ),
+			'obligations'    => isset( $extra['obligations'] ) && is_array( $extra['obligations'] ) ? array_values( array_unique( array_map( 'sanitize_key', $extra['obligations'] ) ) ) : array( $work_type ),
+			'linguistic'     => sanitize_key( (string) ( $extra['linguistic'] ?? '' ) ),
+			'quality'        => sanitize_key( (string) ( $extra['quality'] ?? '' ) ),
+			'final'          => sanitize_key( (string) ( $extra['final'] ?? '' ) ),
+		);
+
+		if ( isset( $extra['language_name'] ) ) {
+			$item['language_name'] = sanitize_text_field( (string) $extra['language_name'] );
+		}
+		if ( isset( $extra['editorial_source_validation'] ) && is_array( $extra['editorial_source_validation'] ) ) {
+			$item['editorial_source_validation'] = $extra['editorial_source_validation'];
+		}
+
+		return $item;
+	}
+
+	/**
 	 * Return one safe next action for a real independent heartbeat session.
 	 *
 	 * This is intentionally conservative. It centralizes the work-selection
@@ -15711,11 +15960,15 @@ final class Devenia_AI_Translations {
 			$translation_id = absint( $item['translation_id'] ?? 0 );
 			$source_id = absint( $item['source_id'] ?? 0 );
 			$language = sanitize_key( (string) ( $item['language'] ?? '' ) );
-			if ( ! $source_id || ! self::is_translation_language( $language ) ) {
+			$work_scope = 'source' === sanitize_key( (string) ( $item['work_scope'] ?? '' ) ) ? 'source' : 'translation';
+			$work_type  = sanitize_key( (string) ( $item['work_type'] ?? '' ) );
+			if ( ! $source_id || ( 'translation' === $work_scope && ! self::is_translation_language( $language ) ) ) {
 				continue;
 			}
 
-			$reservation = self::translation_reservation_for_language( $source_id, $language );
+			$reservation = 'source' === $work_scope
+				? self::source_work_reservation_for_type( $source_id, $work_type )
+				: self::translation_reservation_for_language( $source_id, $language );
 			if ( $reservation ) {
 				$skipped[] = self::heartbeat_skip_summary( $item, 'reserved' );
 				continue;
@@ -15727,7 +15980,7 @@ final class Devenia_AI_Translations {
 			}
 
 			foreach ( $item_obligations as $obligation ) {
-				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair' ), true )
+				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair', 'source_design_repair' ), true )
 					? self::heartbeat_draft_work_eligibility( $identity )
 					: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
 				if ( empty( $eligibility['success'] ) ) {
@@ -15744,6 +15997,8 @@ final class Devenia_AI_Translations {
 					'action' => $action['action'],
 					'workflow_step' => $action['workflow_step'],
 					'required_ability' => $action['required_ability'],
+					'work_scope' => $work_scope,
+					'work_type' => $work_type,
 					'source_id' => $source_id,
 					'source_title' => sanitize_text_field( (string) ( $item['source_title'] ?? '' ) ),
 					'translation_id' => $translation_id,
@@ -15762,6 +16017,8 @@ final class Devenia_AI_Translations {
 					$claim_result = self::reserve_translation_work(
 						array(
 							'source_id' => $source_id,
+							'work_scope' => $work_scope,
+							'work_type' => $work_type,
 							'language' => $language,
 							'owner' => 'heartbeat:' . (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? 'unknown' ),
 							'note' => '' !== $note ? $note : 'Reserved by next-heartbeat-action.',
@@ -15829,154 +16086,17 @@ final class Devenia_AI_Translations {
 		$source_id     = absint( $input['source_id'] ?? 0 );
 		$limit         = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 100;
 		$include_items = array_key_exists( 'include_items', $input ) ? (bool) $input['include_items'] : true;
-		$sources       = array();
-
-		if ( $source_id ) {
-			$source = get_post( $source_id );
-			if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
-				return self::error( 'Source content not found.' );
-			}
-			$sources[] = $source;
-		} else {
-			$query = self::source_page_query(
-				array(
-					'post_status'    => 'publish',
-					'posts_per_page' => 1000,
-					'orderby'        => 'modified',
-					'order'          => 'DESC',
-				)
-			);
-			foreach ( $query->posts as $candidate ) {
-				if ( ! self::is_translation_post( (int) $candidate->ID ) ) {
-					$sources[] = $candidate;
-					if ( count( $sources ) >= $limit ) {
-						break;
-					}
-				}
-			}
+		$sources       = self::workflow_source_candidates( $source_id, $limit );
+		if ( $source_id && empty( $sources ) ) {
+			return self::error( 'Source content not found.' );
 		}
-
-		$totals = array(
-			'sources_scanned'          => count( $sources ),
-			'translations_seen'        => 0,
-			'missing_translations'     => 0,
-			'needs_source_reprojection' => 0,
-			'needs_draft_work'        => 0,
-			'needs_route_repair'      => 0,
-			'needs_linguistic_review' => 0,
-			'needs_quality_review'    => 0,
-			'needs_final_review'      => 0,
-			'ready_to_publish'        => 0,
-			'published'               => 0,
-			'blocked_from_publish'    => 0,
-		);
-		$items = array();
-
-		foreach ( $sources as $source ) {
-			$current_source_hash  = self::source_hash( $source );
-			$source_language_tokens = self::source_language_slug_tokens_for_post( $source );
-			$translations_by_language = array();
-			foreach ( self::heartbeat_translation_rows_for_source( (int) $source->ID ) as $translation ) {
-				$translation_language = sanitize_key( (string) ( $translation['language'] ?? '' ) );
-				if ( '' !== $translation_language ) {
-					$translations_by_language[ $translation_language ] = $translation;
-				}
-			}
-
-			foreach ( self::target_languages() as $language => $config ) {
-				$language    = sanitize_key( (string) $language );
-				$translation = $translations_by_language[ $language ] ?? array();
-				if ( empty( $translation ) ) {
-					++$totals['missing_translations'];
-					++$totals['needs_draft_work'];
-					if ( $include_items ) {
-						$items[] = array(
-							'source_id' => (int) $source->ID,
-							'source_title' => get_the_title( $source ),
-							'translation_id' => 0,
-							'language' => $language,
-							'language_name' => sanitize_text_field( (string) ( $config['name'] ?? strtoupper( $language ) ) ),
-							'post_status' => '',
-							'writer_token_label' => '',
-							'obligations' => array( 'draft_write' ),
-							'linguistic' => 'missing_translation',
-							'quality' => 'missing_translation',
-							'final' => 'missing_translation',
-						);
-					}
-					continue;
-				}
-
-				$translation_id = absint( $translation['id'] ?? 0 );
-				if ( ! $translation_id ) {
-					continue;
-				}
-				++$totals['translations_seen'];
-
-				$post_status = sanitize_key( (string) ( $translation['status'] ?? '' ) );
-				$source_hash = (string) ( $translation['source_hash'] ?? '' );
-				$linguistic_reviewed_at = (string) ( $translation['linguistic_reviewed_at'] ?? '' );
-				$quality_reviewed_at = (string) ( $translation['quality_reviewed_at'] ?? '' );
-				$final_reviewed_at = (string) ( $translation['final_reviewed_at'] ?? '' );
-				$slug = sanitize_title( (string) ( $translation['slug'] ?? '' ) );
-				$obligations = array();
-				$linguistic_state = '' === $linguistic_reviewed_at ? 'needs_linguistic_review' : 'reviewed_recorded';
-				$quality_state = '' === $quality_reviewed_at ? 'needs_quality_review' : 'quality_review_recorded';
-				$final_state = '' === $final_reviewed_at ? 'needs_final_review' : 'final_review_recorded';
-				$route_issue = self::heartbeat_translation_slug_language_issue( $slug, $language, $source, $source_language_tokens );
-
-				if ( $route_issue ) {
-					++$totals['needs_route_repair'];
-					++$totals['needs_draft_work'];
-					$obligations[]   = 'route_repair';
-					$linguistic_state = 'route_repair_required';
-				} elseif ( '' !== $source_hash && '' !== $current_source_hash && $source_hash !== $current_source_hash ) {
-					++$totals['needs_source_reprojection'];
-					++$totals['needs_draft_work'];
-					$obligations[] = 'source_reprojection';
-				} elseif ( '' === $linguistic_reviewed_at ) {
-					++$totals['needs_linguistic_review'];
-					$obligations[] = 'linguistic_review';
-				}
-				if ( '' === $quality_reviewed_at ) {
-					++$totals['needs_quality_review'];
-					$obligations[] = 'quality_review';
-				}
-				if ( '' === $final_reviewed_at ) {
-					++$totals['needs_final_review'];
-					$obligations[] = 'final_review';
-				}
-
-				if ( 'publish' === $post_status ) {
-					++$totals['published'];
-				} elseif ( empty( $obligations ) ) {
-					++$totals['ready_to_publish'];
-				} else {
-					++$totals['blocked_from_publish'];
-				}
-
-				if ( $include_items && $obligations ) {
-					$items[] = array(
-						'source_id' => (int) $source->ID,
-						'source_title' => get_the_title( $source ),
-						'translation_id' => $translation_id,
-						'language' => $language,
-						'post_status' => $post_status,
-						'writer_token_label' => sanitize_key( (string) ( $translation['writer_token_label'] ?? '' ) ),
-						'obligations' => array_values( array_unique( $obligations ) ),
-						'linguistic' => $linguistic_state,
-						'quality' => $quality_state,
-						'final' => $final_state,
-					);
-				}
-			}
-		}
+		$catalog = self::workflow_work_items_for_sources( $sources, $include_items );
 
 		return array(
 			'success' => true,
-			'totals'  => $totals,
-			'items'   => $include_items ? $items : array(),
-			'read_model' => 'heartbeat_fast_index',
+			'totals'  => $catalog['totals'],
+			'items'   => $include_items ? $catalog['items'] : array(),
+			'read_model' => 'work_item_catalog',
 		);
 	}
 
@@ -16058,7 +16178,7 @@ final class Devenia_AI_Translations {
 		if ( ! is_array( $obligations ) ) {
 			return array();
 		}
-		$allowed = array( 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
+		$allowed = array( 'source_design_repair', 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
 		$ordered = array();
 		foreach ( $allowed as $obligation ) {
 			if ( in_array( $obligation, $obligations, true ) ) {
@@ -16089,6 +16209,13 @@ final class Devenia_AI_Translations {
 			),
 		);
 		$map = array(
+			'source_design_repair' => array(
+				'action' => 'repair_source_design',
+				'workflow_step' => 'draft_write',
+				'required_ability' => 'devenia-site-presentation/apply-article-contract-pattern',
+				'design_ownership' => $design_ownership,
+				'instructions' => 'The source post itself does not pass the Devenia editorial article design contract. Fetch the Site Presentation article contract, inspect the source article and public render, rebuild the source through devenia-site-presentation/apply-article-contract-pattern with explicit source fragments, validate with stamp-article-contract dry-run, then stop before reviewing or publishing any downstream translation work. After the source is repaired, translations will enter source-design reprojection work.',
+			),
 			'linguistic_review' => array(
 				'action' => 'review_translation_linguistic',
 				'workflow_step' => 'linguistic_review',
@@ -16721,6 +16848,7 @@ final class Devenia_AI_Translations {
 
 		$items  = array();
 		$totals = array(
+			'source_design_repair'       => 0,
 			'missing'                 => 0,
 			'stale'                   => 0,
 			'draft'                   => 0,
@@ -16733,6 +16861,11 @@ final class Devenia_AI_Translations {
 
 		foreach ( $sources as $source ) {
 			$item = self::queue_item_for_source( $source, $status_filter, $detail_level );
+			foreach ( $item['source_work_items'] ?? array() as $source_work_item ) {
+				if ( isset( $totals[ $source_work_item['state'] ] ) ) {
+					++$totals[ $source_work_item['state'] ];
+				}
+			}
 			foreach ( $item['languages'] as $language_row ) {
 				if ( isset( $totals[ $language_row['state'] ] ) ) {
 					++$totals[ $language_row['state'] ];
@@ -17702,8 +17835,23 @@ final class Devenia_AI_Translations {
 			}
 		}
 
+		$source_work_items = array();
+		$source_design_item = self::source_design_repair_work_item( $source );
+		if ( $source_design_item ) {
+			$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'source_design_repair' );
+			$source_state = $source_reservation ? 'reserved' : 'source_design_repair';
+			if ( empty( $status_filter ) || in_array( $source_state, $status_filter, true ) ) {
+				$source_work_items[] = array(
+					'state'       => $source_state,
+					'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'repair_source_design',
+					'work_item'   => $source_design_item,
+					'reservation' => $source_reservation ? self::public_source_work_reservation( $source_reservation ) : null,
+				);
+			}
+		}
+
 		$language_rows = array();
-		$action_count  = 0;
+		$action_count  = count( $source_work_items );
 		foreach ( self::target_languages() as $language => $config ) {
 			$translation = $translations[ $language ] ?? array();
 			$state       = self::queue_state_for_translation( $translation );
@@ -17735,6 +17883,7 @@ final class Devenia_AI_Translations {
 		return array(
 			'source'      => self::source_summary_payload( $source ),
 			'source_hash' => self::source_hash( $source ),
+			'source_work_items' => $source_work_items,
 			'languages'   => $language_rows,
 			'action_count'=> $action_count,
 		);
@@ -20763,7 +20912,7 @@ final class Devenia_AI_Translations {
 			return array();
 		}
 
-		$allowed = array( 'missing', 'stale', 'draft', 'needs_review', 'needs_linguistic_review', 'ready_to_publish', 'reserved', 'complete' );
+		$allowed = array( 'source_design_repair', 'missing', 'stale', 'draft', 'needs_review', 'needs_linguistic_review', 'ready_to_publish', 'reserved', 'complete' );
 		$clean   = array();
 		foreach ( $statuses as $status ) {
 			$status = sanitize_key( (string) $status );
