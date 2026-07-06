@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.442
+ * Version: 0.1.443
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.442';
+	const VERSION = '0.1.443';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -28589,6 +28589,17 @@ final class Devenia_AI_Translations {
 					);
 					continue;
 				}
+				if ( 'link_count' === $key && self::source_link_coverage_is_preserved( $source_content, $content ) ) {
+					$warnings[] = self::qa_item(
+						'source_link_count_semantic_coverage_preserved',
+						'Translation keeps the source internal link coverage and action links, but the raw href count differs. Review repeated link placement before publishing.',
+						array(
+							'source'      => $source[ $key ],
+							'translation' => $target[ $key ],
+						)
+					);
+					continue;
+				}
 				$issues[] = self::qa_item(
 					'source_' . $key . '_mismatch',
 					'Translated page must keep the same ' . str_replace( '_', ' ', $key ) . ' as the source page.',
@@ -28709,6 +28720,45 @@ final class Devenia_AI_Translations {
 			}
 
 			if ( ! self::source_id_from_internal_url( $url ) ) {
+				$count++;
+			}
+		}
+
+		return $count;
+	}
+
+	/**
+	 * Allow raw href-count drift only when meaningful source link coverage remains.
+	 */
+	private static function source_link_coverage_is_preserved( string $source_content, string $target_content ): bool {
+		$source_linked = self::linked_source_ids_for_content( $source_content );
+		$target_linked = self::linked_source_ids_for_content( $target_content );
+		if ( empty( $source_linked ) ) {
+			return false;
+		}
+
+		foreach ( array_keys( $source_linked ) as $linked_source_id ) {
+			if ( empty( $target_linked[ $linked_source_id ] ) ) {
+				return false;
+			}
+		}
+
+		return self::action_link_count( $target_content ) >= self::action_link_count( $source_content )
+			&& self::non_content_link_count( $target_content ) <= self::non_content_link_count( $source_content );
+	}
+
+	/**
+	 * Count non-navigation action links that should not disappear in translation.
+	 */
+	private static function action_link_count( string $content ): int {
+		if ( '' === $content || ! preg_match_all( '/\bhref=([\"\'])([^\"\']+)\1/i', $content, $matches ) ) {
+			return 0;
+		}
+
+		$count = 0;
+		foreach ( $matches[2] as $raw_url ) {
+			$url = trim( html_entity_decode( (string) $raw_url, ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ) );
+			if ( preg_match( '/^(mailto|tel|sms):/i', $url ) ) {
 				$count++;
 			}
 		}
