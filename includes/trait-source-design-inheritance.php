@@ -55,10 +55,14 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		$content = '' !== $content ? $content : self::normalize_gutenberg_content_for_storage( (string) $source->post_content );
-		static $cache = array();
-		$cache_key = (int) $source->ID . ':' . hash( 'sha256', $content );
-		if ( isset( $cache[ $cache_key ] ) ) {
-			return $cache[ $cache_key ];
+		$cache_parts = array(
+			(int) $source->ID,
+			(string) $source->post_modified_gmt,
+			hash( 'sha256', $content ),
+		);
+		$cached = self::request_analysis_cache_get( 'source_editorial_design_validation', $cache_parts );
+		if ( is_array( $cached ) ) {
+			return $cached;
 		}
 
 		$context = array(
@@ -85,17 +89,19 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		if ( ! is_array( $result ) || empty( $result['available'] ) ) {
-			$cache[ $cache_key ] = array(
+			return self::request_analysis_cache_set(
+				'source_editorial_design_validation',
+				$cache_parts,
+				array(
 				'available' => false,
 				'passed'    => false,
 				'code'      => 'source_editorial_validation_unavailable',
 				'message'   => 'Devenia editorial source-post validation is unavailable. Activate the block-editor validation adapter before source design can be inherited.',
+				)
 			);
-			return $cache[ $cache_key ];
 		}
 
-		$cache[ $cache_key ] = $result;
-		return $cache[ $cache_key ];
+		return self::request_analysis_cache_set( 'source_editorial_design_validation', $cache_parts, $result );
 	}
 
 	/**

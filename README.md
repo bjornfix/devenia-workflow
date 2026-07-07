@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.464
+**Stable tag:** 0.1.465
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,14 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.465
+
+* Deepens the MCP ability registry/dispatch seam so ability callbacks are
+  derived from one operation handler catalogue.
+* Adds a shared request-local analysis cache for repeated Gutenberg and
+  editorial/content-integrity checks.
+* Makes workflow-status compact by default with an explicit full detail mode.
 
 ### 0.1.464
 

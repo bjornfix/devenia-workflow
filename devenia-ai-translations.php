@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.464
+ * Version: 0.1.465
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,14 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.464';
+	const VERSION = '0.1.465';
+
+	/**
+	 * Request-local analysis cache for one WordPress/MCP request.
+	 *
+	 * @var array<string,mixed>
+	 */
+	private static $request_analysis_cache = array();
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -5995,37 +6002,35 @@ final class Devenia_AI_Translations {
 	 * @return array<string,mixed>
 	 */
 	private static function ability_dispatch_integrity_status(): array {
-		$source = is_readable( __FILE__ ) ? (string) file_get_contents( __FILE__ ) : '';
-		if ( '' === $source ) {
-			return array(
-				'passed' => false,
-				'issues' => array(
-					array(
-						'code'    => 'ability_dispatch_source_unreadable',
-						'message' => 'Plugin source could not be read for ability dispatch integrity.',
-					),
-				),
-			);
+		$issues   = array();
+		$handlers = self::ability_operation_handlers();
+
+		foreach ( $handlers as $operation => $method ) {
+			if ( ! method_exists( __CLASS__, $method ) ) {
+				$issues[] = array(
+					'code'      => 'ability_dispatch_method_missing',
+					'operation' => sanitize_key( (string) $operation ),
+					'method'    => (string) $method,
+				);
+			}
 		}
 
-		$issues = array();
-		if ( preg_match_all( "/case\\s+'([^']+)'\\s*:\\s*\\R\\s*return\\s+self::([A-Za-z0-9_]+)\\s*\\(/", $source, $matches, PREG_SET_ORDER ) ) {
-			foreach ( $matches as $match ) {
-				$operation = sanitize_key( (string) $match[1] );
-				$method    = (string) $match[2];
-				if ( ! method_exists( __CLASS__, $method ) ) {
-					$issues[] = array(
-						'code'      => 'ability_dispatch_method_missing',
-						'operation' => $operation,
-						'method'    => $method,
-					);
-				}
+		foreach ( self::ability_catalogue() as $name => $args ) {
+			$operation = sanitize_key( (string) ( $args['operation'] ?? self::ability_operation_from_name( (string) $name ) ) );
+			if ( empty( $handlers[ $operation ] ) ) {
+				$issues[] = array(
+					'code'      => 'ability_catalogue_operation_missing_handler',
+					'ability'   => (string) $name,
+					'operation' => $operation,
+				);
 			}
 		}
 
 		return array(
 			'passed'      => empty( $issues ),
 			'issue_count' => count( $issues ),
+			'handler_count' => count( $handlers ),
+			'ability_count' => count( self::ability_catalogue() ),
 			'issues'      => $issues,
 		);
 	}
@@ -6836,6 +6841,186 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Operation handler catalogue for MCP abilities.
+	 *
+	 * This is the deep dispatch Interface. Public ability names, callback
+	 * registration, and integrity checks all resolve through this catalogue
+	 * instead of duplicating operation-to-method knowledge.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function ability_operation_handlers(): array {
+		return array(
+			'list_languages'                  => 'run_list_languages_operation',
+			'get_presentation_surface'        => 'run_get_presentation_surface_operation',
+			'translation_fitness_status'      => 'translation_fitness_regression_status',
+			'lifecycle_regression_status'     => 'translation_lifecycle_regression_status',
+			'language_packs_status'           => 'run_language_packs_status_operation',
+			'translation_index_status'        => 'translation_index_status',
+			'translation_fitness_scan'        => 'translation_fitness_scan',
+			'wrong_language_carryover_scan'   => 'wrong_language_carryover_scan',
+			'gutenberg_content_safety_scan'   => 'gutenberg_content_safety_scan',
+			'frontend_performance_status'     => 'frontend_performance_status',
+			'frontend_integrity_status'       => 'frontend_integrity_status',
+			'warm_cache'                      => 'warm_translation_cache',
+			'update_runtime_text'             => 'update_runtime_language_text',
+			'update_featured_image_alt'       => 'update_featured_image_alt',
+			'get_quality_profile'             => 'get_runtime_quality_profile',
+			'update_quality_profile'          => 'update_runtime_quality_profile',
+			'record_language_rule_event'      => 'record_language_rule_event',
+			'list_language_rule_events'       => 'list_language_rule_events',
+			'learning_inbox'                  => 'learning_inbox',
+			'review_learning_event'           => 'review_learning_event',
+			'language_policy_status'          => 'language_policy_status',
+			'agency_copy_brief'               => 'agency_copy_brief',
+			'record_copy_feedback'            => 'record_copy_feedback',
+			'get_reviewer_style_profile'      => 'get_reviewer_style_profile',
+			'record_reviewer_style_edit'      => 'record_reviewer_style_edit',
+			'repair_term_archive_self_redirects' => 'repair_term_archive_seo_self_redirects',
+			'update_source_qa_options'        => 'update_source_qa_options',
+			'authored_original_intake_queue'  => 'authored_original_intake_queue',
+			'update_authored_original_intake' => 'update_authored_original_intake',
+			'create_source_from_authored_original' => 'create_source_from_authored_original',
+			'mark_source_generation_reviewed' => 'mark_source_generation_reviewed',
+			'get_source'                      => 'run_get_source_operation',
+			'reserve_work'                    => 'reserve_translation_work',
+			'reserve_translation_work'        => 'reserve_translation_work',
+			'release_reservation'             => 'release_translation_reservation',
+			'release_translation_reservation' => 'release_translation_reservation',
+			'list_reservations'               => 'list_translation_reservations',
+			'list_translation_reservations'   => 'list_translation_reservations',
+			'upsert_page'                     => 'upsert_translation',
+			'repair_translation_author'       => 'repair_translation_author',
+			'reproject_source_design'         => 'reproject_source_design',
+			'migrate_source_design_fragments' => 'migrate_source_design_fragments',
+			'list_translations'               => 'list_translations',
+			'mark_reviewed'                   => 'run_mark_reviewed_operation',
+			'qa_translation'                  => 'qa_translation',
+			'mark_linguistic_reviewed'        => 'mark_linguistic_reviewed',
+			'publish_translation'             => 'publish_translation',
+			'verify_live_translation'         => 'verify_live_translation',
+			'workflow_status'                 => 'workflow_status_from_input',
+			'workflow_obligations'            => 'workflow_obligations',
+			'production_flow'                 => 'production_flow',
+			'next_heartbeat_action'           => 'next_heartbeat_action',
+			'heartbeat_status'                => 'heartbeat_status',
+			'queue'                           => 'translation_queue',
+			'review_queue'                    => 'review_queue',
+			'author_archive_queue'            => 'author_archive_queue',
+			'update_author_archive_translation' => 'update_author_archive_translation',
+			'quality_review_queue'            => 'quality_review_queue',
+			'quality_verdict'                 => 'quality_verdict',
+			'internal_link_opportunities'     => 'internal_link_opportunities',
+			'mark_quality_reviewed'           => 'mark_quality_reviewed',
+			'mark_final_reviewed'             => 'mark_final_reviewed',
+			'sync_menu'                       => 'sync_language_menu',
+			'repair_url_hierarchy'            => 'repair_url_hierarchy',
+			'repair_internal_links'           => 'repair_internal_links',
+			'repair_featured_images'          => 'repair_featured_images',
+		);
+	}
+
+	/**
+	 * Convert public ability name to its operation key.
+	 */
+	private static function ability_operation_from_name( string $name ): string {
+		$prefix = 'ai-translations/';
+		if ( 0 === strpos( $name, $prefix ) ) {
+			$name = substr( $name, strlen( $prefix ) );
+		}
+
+		return sanitize_key( str_replace( '-', '_', $name ) );
+	}
+
+	/**
+	 * Build the callback used by public ability catalogue entries.
+	 */
+	private static function ability_operation_callback( string $operation ): callable {
+		return static function ( $input = array() ) use ( $operation ): array {
+			return Devenia_AI_Translations::run_ability_operation( $operation, $input );
+		};
+	}
+
+	/**
+	 * Normalize ability metadata through the operation handler catalogue.
+	 *
+	 * @param array<string,array<string,mixed>> $catalogue Raw ability catalogue.
+	 * @return array<string,array<string,mixed>>
+	 */
+	private static function normalize_ability_catalogue( array $catalogue ): array {
+		$handlers = self::ability_operation_handlers();
+		foreach ( $catalogue as $name => $args ) {
+			$operation = self::ability_operation_from_name( (string) $name );
+			if ( isset( $handlers[ $operation ] ) ) {
+				$args['operation']        = $operation;
+				$args['execute_callback'] = self::ability_operation_callback( $operation );
+			}
+			$catalogue[ $name ] = $args;
+		}
+
+		return $catalogue;
+	}
+
+	/**
+	 * Run list-languages operation.
+	 */
+	private static function run_list_languages_operation( array $input ): array {
+		$configuration = self::language_configuration_status();
+		$detail_level  = self::language_list_detail_level( $input );
+		$languages     = 'full' === $detail_level ? self::languages() : self::compact_language_registry();
+
+		return array(
+			'success'               => true,
+			'languages'              => $languages,
+			'configuration'          => $configuration['languages'],
+			'configuration_complete' => $configuration['complete'],
+			'missing_configuration'  => $configuration['missing'],
+			'detail_level'           => $detail_level,
+		);
+	}
+
+	/**
+	 * Run presentation surface operation.
+	 */
+	private static function run_get_presentation_surface_operation( array $input ): array {
+		$presentation = self::presentation_surface( $input );
+		if ( empty( $presentation ) ) {
+			return self::error( 'Presentation surface not found.' );
+		}
+
+		return array(
+			'success'      => true,
+			'presentation' => $presentation,
+		);
+	}
+
+	/**
+	 * Run WordPress language pack status operation.
+	 */
+	private static function run_language_packs_status_operation( array $input ): array {
+		return self::wordpress_language_pack_status( ! empty( $input['install_missing'] ) );
+	}
+
+	/**
+	 * Run get-source operation.
+	 */
+	private static function run_get_source_operation( array $input ): array {
+		return self::get_source_payload( (int) ( $input['source_id'] ?? 0 ) );
+	}
+
+	/**
+	 * Run legacy mark-reviewed operation.
+	 */
+	private static function run_mark_reviewed_operation( array $input ): array {
+		return self::mark_reviewed(
+			(int) ( $input['translation_id'] ?? 0 ),
+			(string) ( $input['translation_status'] ?? '' ),
+			(string) ( $input['claim_token'] ?? '' ),
+			$input
+		);
+	}
+
+	/**
 	 * Return the first positive integer from a known alias list.
 	 *
 	 * @param array<string,mixed> $input Input payload.
@@ -6853,6 +7038,43 @@ final class Devenia_AI_Translations {
 		}
 
 		return 0;
+	}
+
+	/**
+	 * Request-local analysis cache.
+	 *
+	 * Broad queue/status calls can ask several Modules to inspect the same block
+	 * tree or source design contract. This seam keeps that expensive analysis
+	 * local to one request without making callers own cache keys.
+	 *
+	 * @param array<int,mixed> $parts Stable cache-key parts.
+	 * @return mixed|null
+	 */
+	private static function request_analysis_cache_get( string $group, array $parts ) {
+		$key = self::request_analysis_cache_key( $group, $parts );
+		return array_key_exists( $key, self::$request_analysis_cache ) ? self::$request_analysis_cache[ $key ] : null;
+	}
+
+	/**
+	 * Store one request-local analysis result.
+	 *
+	 * @param array<int,mixed> $parts Stable cache-key parts.
+	 * @param mixed            $value Value to store.
+	 * @return mixed
+	 */
+	private static function request_analysis_cache_set( string $group, array $parts, $value ) {
+		$key = self::request_analysis_cache_key( $group, $parts );
+		self::$request_analysis_cache[ $key ] = $value;
+		return $value;
+	}
+
+	/**
+	 * Produce a deterministic request-cache key.
+	 *
+	 * @param array<int,mixed> $parts Stable cache-key parts.
+	 */
+	private static function request_analysis_cache_key( string $group, array $parts ): string {
+		return sanitize_key( $group ) . ':' . hash( 'sha256', wp_json_encode( $parts ) ?: serialize( $parts ) );
 	}
 
 	/**
@@ -7240,152 +7462,10 @@ final class Devenia_AI_Translations {
 		$input = is_array( $input ) ? $input : array();
 		$input = self::normalize_ability_input( $operation, $input );
 
-		switch ( $operation ) {
-		case 'list_languages':
-			$configuration = self::language_configuration_status();
-			$detail_level  = self::language_list_detail_level( $input );
-			$languages     = 'full' === $detail_level ? self::languages() : self::compact_language_registry();
-
-			return array(
-				'success'               => true,
-				'languages'              => $languages,
-				'configuration'          => $configuration['languages'],
-				'configuration_complete' => $configuration['complete'],
-				'missing_configuration'  => $configuration['missing'],
-				'detail_level'           => $detail_level,
-			);
-		case 'get_presentation_surface':
-			$presentation = self::presentation_surface( $input );
-			if ( empty( $presentation ) ) {
-				return self::error( 'Presentation surface not found.' );
-			}
-
-			return array(
-				'success'      => true,
-				'presentation' => $presentation,
-			);
-		case 'translation_fitness_status':
-			return self::translation_fitness_regression_status( $input );
-		case 'lifecycle_regression_status':
-			return self::translation_lifecycle_regression_status( $input );
-		case 'language_packs_status':
-			return self::wordpress_language_pack_status( ! empty( $input['install_missing'] ) );
-		case 'translation_index_status':
-			return self::translation_index_status( $input );
-		case 'translation_fitness_scan':
-			return self::translation_fitness_scan( $input );
-		case 'wrong_language_carryover_scan':
-			return self::wrong_language_carryover_scan( $input );
-		case 'gutenberg_content_safety_scan':
-			return self::gutenberg_content_safety_scan( $input );
-		case 'frontend_performance_status':
-			return self::frontend_performance_status( $input );
-		case 'frontend_integrity_status':
-			return self::frontend_integrity_status( $input );
-		case 'warm_cache':
-			return self::warm_translation_cache( $input );
-		case 'update_runtime_text':
-			return self::update_runtime_language_text( $input );
-		case 'update_featured_image_alt':
-			return self::update_featured_image_alt( $input );
-		case 'get_quality_profile':
-			return self::get_runtime_quality_profile( $input );
-		case 'update_quality_profile':
-			return self::update_runtime_quality_profile( $input );
-		case 'record_language_rule_event':
-			return self::record_language_rule_event( $input );
-		case 'list_language_rule_events':
-			return self::list_language_rule_events( $input );
-		case 'learning_inbox':
-			return self::learning_inbox( $input );
-		case 'review_learning_event':
-			return self::review_learning_event( $input );
-		case 'language_policy_status':
-			return self::language_policy_status( $input );
-		case 'agency_copy_brief':
-			return self::agency_copy_brief( $input );
-		case 'record_copy_feedback':
-			return self::record_copy_feedback( $input );
-		case 'get_reviewer_style_profile':
-			return self::get_reviewer_style_profile( $input );
-		case 'record_reviewer_style_edit':
-			return self::record_reviewer_style_edit( $input );
-		case 'repair_term_archive_self_redirects':
-			return self::repair_term_archive_seo_self_redirects( $input );
-		case 'update_source_qa_options':
-			return self::update_source_qa_options( $input );
-		case 'authored_original_intake_queue':
-			return self::authored_original_intake_queue( $input );
-		case 'update_authored_original_intake':
-			return self::update_authored_original_intake( $input );
-		case 'create_source_from_authored_original':
-			return self::create_source_from_authored_original( $input );
-		case 'mark_source_generation_reviewed':
-			return self::mark_source_generation_reviewed( $input );
-		case 'get_source':
-			return self::get_source_payload( (int) ( $input['source_id'] ?? 0 ) );
-		case 'reserve_translation_work':
-			return self::reserve_translation_work( $input );
-		case 'release_translation_reservation':
-			return self::release_translation_reservation( $input );
-		case 'list_translation_reservations':
-			return self::list_translation_reservations( $input );
-		case 'upsert_page':
-			return self::upsert_translation( $input );
-		case 'repair_translation_author':
-			return self::repair_translation_author( $input );
-		case 'reproject_source_design':
-			return self::reproject_source_design( $input );
-		case 'migrate_source_design_fragments':
-			return self::migrate_source_design_fragments( $input );
-		case 'list_translations':
-			return self::list_translations( $input );
-		case 'mark_reviewed':
-			return self::mark_reviewed( (int) ( $input['translation_id'] ?? 0 ), (string) ( $input['translation_status'] ?? '' ), (string) ( $input['claim_token'] ?? '' ), $input );
-		case 'qa_translation':
-			return self::qa_translation( $input );
-		case 'mark_linguistic_reviewed':
-			return self::mark_linguistic_reviewed( $input );
-		case 'publish_translation':
-			return self::publish_translation( $input );
-		case 'verify_live_translation':
-			return self::verify_live_translation( $input );
-		case 'workflow_status':
-			return self::workflow_status( (int) ( $input['source_id'] ?? 0 ) );
-		case 'workflow_obligations':
-			return self::workflow_obligations( $input );
-		case 'production_flow':
-			return self::production_flow( $input );
-		case 'next_heartbeat_action':
-			return self::next_heartbeat_action( $input );
-		case 'heartbeat_status':
-			return self::heartbeat_status( $input );
-		case 'queue':
-			return self::translation_queue( $input );
-		case 'review_queue':
-			return self::review_queue( $input );
-		case 'author_archive_queue':
-			return self::author_archive_queue( $input );
-		case 'update_author_archive_translation':
-			return self::update_author_archive_translation( $input );
-		case 'quality_review_queue':
-			return self::quality_review_queue( $input );
-		case 'quality_verdict':
-			return self::quality_verdict( $input );
-		case 'internal_link_opportunities':
-			return self::internal_link_opportunities( $input );
-		case 'mark_quality_reviewed':
-			return self::mark_quality_reviewed( $input );
-		case 'mark_final_reviewed':
-			return self::mark_final_reviewed( $input );
-		case 'sync_menu':
-			return self::sync_language_menu( $input );
-		case 'repair_url_hierarchy':
-			return self::repair_url_hierarchy( $input );
-		case 'repair_internal_links':
-			return self::repair_internal_links( $input );
-		case 'repair_featured_images':
-			return self::repair_featured_images( $input );
+		$handlers = self::ability_operation_handlers();
+		$handler  = $handlers[ $operation ] ?? '';
+		if ( '' !== $handler && method_exists( __CLASS__, $handler ) ) {
+			return self::{$handler}( $input );
 		}
 
 		return self::error( 'Unknown translation operation.' );
@@ -7398,7 +7478,8 @@ final class Devenia_AI_Translations {
 	 * callbacks are reviewable without scanning hook wiring.
 	 */
 	private static function ability_catalogue(): array {
-		return array(
+		return self::normalize_ability_catalogue(
+			array(
 			'ai-translations/list-languages' => array(
 				'label'            => 'List Translation Languages',
 				'description'      => 'Returns the configured AI Translation Workflow translation language registry. Defaults to compact registry data; pass detail_level=full only when runtime text/profile payloads are needed.',
@@ -7915,15 +7996,8 @@ final class Devenia_AI_Translations {
 			),
 			'ai-translations/workflow-status' => array(
 				'label'            => 'Get Translation Workflow Status',
-				'description'      => 'Returns per-language translation status for source content.',
-				'input_schema'     => array(
-					'type'                 => 'object',
-					'required'             => array( 'source_id' ),
-					'properties'           => array(
-						'source_id' => array( 'type' => 'integer' ),
-					),
-					'additionalProperties' => false,
-				),
+				'description'      => 'Returns per-language translation status for source content. Defaults to compact indexed rows; pass detail_level=full for legacy full translation payloads.',
+				'input_schema'     => self::workflow_status_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
 					return self::run_ability_operation( 'workflow_status', $input );
@@ -8154,6 +8228,7 @@ final class Devenia_AI_Translations {
 				},
 				'meta'             => self::ability_meta( false, false, true ),
 			),
+			)
 		);
 	}
 
@@ -9205,6 +9280,30 @@ final class Devenia_AI_Translations {
 					'minimum'     => 3,
 					'maximum'     => 30,
 					'description' => 'Per-request timeout in seconds.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for translation queue ability.
+	 */
+	private static function workflow_status_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'source_id' ),
+			'properties'           => array(
+				'source_id'    => array(
+					'type'        => 'integer',
+					'minimum'     => 1,
+					'description' => 'Source post/page ID.',
+				),
+				'detail_level' => array(
+					'type'        => 'string',
+					'enum'        => array( 'compact', 'full' ),
+					'default'     => 'compact',
+					'description' => 'compact returns indexed workflow-ready rows. full includes the heavier legacy translation payload for debugging.',
 				),
 			),
 			'additionalProperties' => false,
@@ -14718,15 +14817,31 @@ final class Devenia_AI_Translations {
 	/**
 	 * Return per-language workflow status for a source page.
 	 */
-	private static function workflow_status( int $source_id ): array {
+	private static function workflow_status_from_input( array $input ): array {
+		return self::workflow_status( absint( $input['source_id'] ?? 0 ), self::queue_detail_level( $input ) );
+	}
+
+	/**
+	 * Return per-language workflow status for a source page.
+	 */
+	private static function workflow_status( int $source_id, string $detail_level = 'compact' ): array {
 		$source = get_post( $source_id );
 		if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
 			return self::error( 'Source content not found.' );
 		}
 
 		$translations = array();
-		foreach ( self::translation_rows_for_source( $source_id ) as $row ) {
-			$translations[ $row['language'] ] = $row;
+		if ( 'full' === $detail_level ) {
+			foreach ( self::translation_rows_for_source( $source_id ) as $row ) {
+				$translations[ $row['language'] ] = $row;
+			}
+		} else {
+			foreach ( self::heartbeat_translation_rows_for_source( $source_id ) as $workflow_row ) {
+				$row = self::compact_translation_queue_payload_from_workflow_row( $workflow_row, $source );
+				if ( ! empty( $row['language'] ) ) {
+					$translations[ $row['language'] ] = $row;
+				}
+			}
 		}
 
 		$languages = self::languages();
@@ -14754,9 +14869,11 @@ final class Devenia_AI_Translations {
 
 		return array(
 			'success'     => true,
-			'source'      => self::post_payload( $source ),
+			'source'      => 'full' === $detail_level ? self::post_payload( $source ) : self::source_summary_payload( $source ),
 			'source_hash' => self::source_hash( $source ),
 			'languages'   => $rows,
+			'detail_level'=> $detail_level,
+			'read_model'  => 'full' === $detail_level ? 'translation_payload' : 'work_item_catalog',
 		);
 	}
 
@@ -15317,6 +15434,16 @@ final class Devenia_AI_Translations {
 	}
 
 	private static function source_content_integrity_validation( WP_Post $post ): array {
+		$cache_parts = array(
+			(int) $post->ID,
+			(string) $post->post_modified_gmt,
+			hash( 'sha256', (string) $post->post_content ),
+		);
+		$cached = self::request_analysis_cache_get( 'source_content_integrity', $cache_parts );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
 		$guardrails = self::gutenberg_guardrails( (string) $post->post_content );
 		$issues     = array();
 
@@ -15341,7 +15468,10 @@ final class Devenia_AI_Translations {
 			$issues[] = $issue;
 		}
 
-		return array(
+		return self::request_analysis_cache_set(
+			'source_content_integrity',
+			$cache_parts,
+			array(
 			'passed'      => empty( $issues ),
 			'issue_count' => count( $issues ),
 			'issues'      => $issues,
@@ -15354,6 +15484,7 @@ final class Devenia_AI_Translations {
 				)
 			),
 			'checked_at'  => gmdate( 'c' ),
+			)
 		);
 	}
 
@@ -30738,10 +30869,10 @@ final class Devenia_AI_Translations {
 	 * Run technical Gutenberg/editor guardrails for translated page content.
 	 */
 	private static function gutenberg_guardrails( string $content ): array {
-		static $cache = array();
-		$cache_key = hash( 'sha256', $content );
-		if ( isset( $cache[ $cache_key ] ) ) {
-			return $cache[ $cache_key ];
+		$cache_parts = array( hash( 'sha256', $content ) );
+		$cached = self::request_analysis_cache_get( 'gutenberg_guardrails', $cache_parts );
+		if ( is_array( $cached ) ) {
+			return $cached;
 		}
 
 		$issues   = array();
@@ -30832,15 +30963,18 @@ final class Devenia_AI_Translations {
 			$warnings[] = self::qa_item( 'large_editor_payload', 'Translated page content is large and may make the block editor slow to open.', array( 'bytes' => $summary['content_length'] ) );
 		}
 
-		$cache[ $cache_key ] = array(
-			'passed'        => empty( $issues ),
-			'issues'        => $issues,
-			'warnings'      => $warnings,
-			'issue_count'   => count( $issues ),
-			'warning_count' => count( $warnings ),
-			'summary'       => $summary,
+		return self::request_analysis_cache_set(
+			'gutenberg_guardrails',
+			$cache_parts,
+			array(
+				'passed'        => empty( $issues ),
+				'issues'        => $issues,
+				'warnings'      => $warnings,
+				'issue_count'   => count( $issues ),
+				'warning_count' => count( $warnings ),
+				'summary'       => $summary,
+			)
 		);
-		return $cache[ $cache_key ];
 	}
 
 	/**
