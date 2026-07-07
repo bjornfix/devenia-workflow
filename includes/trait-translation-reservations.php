@@ -45,13 +45,17 @@ trait Devenia_AI_Translations_Translation_Reservations {
 					'description' => 'Human-readable owner, such as the agent/session name.',
 				),
 				'note'        => array( 'type' => 'string' ),
-				'codex_thread_id' => array(
+				'agent_session_id' => array(
 					'type'        => 'string',
-					'description' => 'Stable worker session identifier that owns the reservation.',
+					'description' => 'Stable agent/client session identifier that owns the reservation.',
 				),
+				'llm_vendor' => self::agent_session_input_schema_properties()['llm_vendor'],
+				'llm_client' => self::agent_session_input_schema_properties()['llm_client'],
+				'authority_vendor' => self::agent_session_input_schema_properties()['authority_vendor'],
+				'authority_client' => self::agent_session_input_schema_properties()['authority_client'],
 				'session_binding_token' => array(
 					'type'        => 'string',
-					'description' => 'Persona/session secret proof for the worker session that owns this reservation.',
+					'description' => 'Agent/session secret proof for the worker session that owns this reservation.',
 				),
 				'actor_id'    => array(
 					'type'        => 'string',
@@ -101,13 +105,17 @@ trait Devenia_AI_Translations_Translation_Reservations {
 					'type'        => 'string',
 					'description' => 'Token returned by reserve-work. Required unless force is true.',
 				),
-				'codex_thread_id' => array(
+				'agent_session_id' => array(
 					'type'        => 'string',
-					'description' => 'Stable worker session identifier that owns the reservation. Required to release reservations that were created with a worker session binding.',
+					'description' => 'Stable agent/client session identifier that owns the reservation. Required to release reservations that were created with a worker session binding.',
 				),
+				'llm_vendor' => self::agent_session_input_schema_properties()['llm_vendor'],
+				'llm_client' => self::agent_session_input_schema_properties()['llm_client'],
+				'authority_vendor' => self::agent_session_input_schema_properties()['authority_vendor'],
+				'authority_client' => self::agent_session_input_schema_properties()['authority_client'],
 				'session_binding_token' => array(
 					'type'        => 'string',
-					'description' => 'Persona/session secret proof for the worker session that owns this reservation.',
+					'description' => 'Agent/session secret proof for the worker session that owns this reservation.',
 				),
 				'force'       => array(
 					'type'        => 'boolean',
@@ -178,7 +186,7 @@ trait Devenia_AI_Translations_Translation_Reservations {
 		$force      = ! empty( $input['force'] );
 		$owner      = ! empty( $input['owner'] ) ? sanitize_text_field( (string) $input['owner'] ) : 'AI Translation Workflow';
 		$note       = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
-		$codex_thread_id = ! empty( $input['codex_thread_id'] ) ? self::normalize_control_scope_id( (string) $input['codex_thread_id'] ) : '';
+		$agent_session_id = self::agent_session_id_from_input( $input );
 		$session_binding_token = sanitize_text_field( (string) ( $input['session_binding_token'] ?? '' ) );
 		$session_binding_hash = '' !== $session_binding_token ? self::translation_reservation_session_binding_hash( $session_binding_token ) : '';
 		$actor_id   = ! empty( $input['actor_id'] ) ? sanitize_key( (string) $input['actor_id'] ) : '';
@@ -203,7 +211,11 @@ trait Devenia_AI_Translations_Translation_Reservations {
 				'token'      => $token,
 				'owner'      => $owner,
 				'note'       => $note,
-				'codex_thread_id' => $codex_thread_id,
+				'agent_session_id' => $agent_session_id,
+				'llm_vendor' => sanitize_text_field( (string) ( $input['llm_vendor'] ?? '' ) ),
+				'llm_client' => sanitize_text_field( (string) ( $input['llm_client'] ?? '' ) ),
+				'authority_vendor' => sanitize_text_field( (string) ( $input['authority_vendor'] ?? '' ) ),
+				'authority_client' => sanitize_text_field( (string) ( $input['authority_client'] ?? '' ) ),
 				'session_binding_hash' => $session_binding_hash,
 				'session_binding_created_at' => '' !== $session_binding_hash ? gmdate( 'c', $now ) : '',
 				'actor_id'   => $actor_id,
@@ -259,7 +271,7 @@ trait Devenia_AI_Translations_Translation_Reservations {
 
 		$token     = (string) ( $input['claim_token'] ?? '' );
 		$force     = ! empty( $input['force'] );
-		$codex_thread_id = ! empty( $input['codex_thread_id'] ) ? self::normalize_control_scope_id( (string) $input['codex_thread_id'] ) : '';
+		$agent_session_id = self::agent_session_id_from_input( $input );
 		$session_binding_token = sanitize_text_field( (string) ( $input['session_binding_token'] ?? '' ) );
 		$released  = array();
 		$conflicts = array();
@@ -284,8 +296,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 				$missing[] = $language;
 				continue;
 			}
-			$owner_thread_id = self::normalize_control_scope_id( (string) ( $existing['codex_thread_id'] ?? '' ) );
-			if ( ! $force && '' !== $owner_thread_id && ! hash_equals( $owner_thread_id, $codex_thread_id ) ) {
+			$owner_session_id = self::normalize_control_scope_id( (string) ( $existing['agent_session_id'] ?? '' ) );
+			if ( ! $force && '' !== $owner_session_id && ! hash_equals( $owner_session_id, $agent_session_id ) ) {
 				$conflicts[] = array(
 					'language'    => $language,
 					'code'        => 'reservation_owner_mismatch',
@@ -481,7 +493,11 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'token'      => $token,
 			'owner'      => sanitize_text_field( (string) ( $claim['owner'] ?? '' ) ),
 			'note'       => sanitize_textarea_field( (string) ( $claim['note'] ?? '' ) ),
-			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $claim['codex_thread_id'] ?? '' ) ),
+			'agent_session_id' => self::normalize_control_scope_id( (string) ( $claim['agent_session_id'] ?? '' ) ),
+			'llm_vendor' => sanitize_text_field( (string) ( $claim['llm_vendor'] ?? '' ) ),
+			'llm_client' => sanitize_text_field( (string) ( $claim['llm_client'] ?? '' ) ),
+			'authority_vendor' => sanitize_text_field( (string) ( $claim['authority_vendor'] ?? '' ) ),
+			'authority_client' => sanitize_text_field( (string) ( $claim['authority_client'] ?? '' ) ),
 			'session_binding_hash' => sanitize_text_field( (string) ( $claim['session_binding_hash'] ?? '' ) ),
 			'session_binding_created_at' => sanitize_text_field( (string) ( $claim['session_binding_created_at'] ?? '' ) ),
 			'actor_id'   => sanitize_key( (string) ( $claim['actor_id'] ?? '' ) ),
@@ -502,7 +518,11 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'language'   => sanitize_key( (string) ( $claim['language'] ?? '' ) ),
 			'owner'      => sanitize_text_field( (string) ( $claim['owner'] ?? '' ) ),
 			'note'       => sanitize_textarea_field( (string) ( $claim['note'] ?? '' ) ),
-			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $claim['codex_thread_id'] ?? '' ) ),
+			'agent_session_id' => self::normalize_control_scope_id( (string) ( $claim['agent_session_id'] ?? '' ) ),
+			'llm_vendor' => sanitize_text_field( (string) ( $claim['llm_vendor'] ?? '' ) ),
+			'llm_client' => sanitize_text_field( (string) ( $claim['llm_client'] ?? '' ) ),
+			'authority_vendor' => sanitize_text_field( (string) ( $claim['authority_vendor'] ?? '' ) ),
+			'authority_client' => sanitize_text_field( (string) ( $claim['authority_client'] ?? '' ) ),
 			'has_session_binding' => ! empty( $claim['session_binding_hash'] ),
 			'session_binding_created_at' => sanitize_text_field( (string) ( $claim['session_binding_created_at'] ?? '' ) ),
 			'actor_id'   => sanitize_key( (string) ( $claim['actor_id'] ?? '' ) ),
@@ -530,7 +550,7 @@ trait Devenia_AI_Translations_Translation_Reservations {
 		$force      = ! empty( $input['force'] );
 		$owner      = ! empty( $input['owner'] ) ? sanitize_text_field( (string) $input['owner'] ) : 'AI Translation Workflow';
 		$note       = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
-		$codex_thread_id = ! empty( $input['codex_thread_id'] ) ? self::normalize_control_scope_id( (string) $input['codex_thread_id'] ) : '';
+		$agent_session_id = self::agent_session_id_from_input( $input );
 		$session_binding_token = sanitize_text_field( (string) ( $input['session_binding_token'] ?? '' ) );
 		$session_binding_hash = '' !== $session_binding_token ? self::translation_reservation_session_binding_hash( $session_binding_token ) : '';
 		$actor_id   = ! empty( $input['actor_id'] ) ? sanitize_key( (string) $input['actor_id'] ) : '';
@@ -563,7 +583,11 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'token'      => $token,
 			'owner'      => $owner,
 			'note'       => $note,
-			'codex_thread_id' => $codex_thread_id,
+			'agent_session_id' => $agent_session_id,
+			'llm_vendor' => sanitize_text_field( (string) ( $input['llm_vendor'] ?? '' ) ),
+			'llm_client' => sanitize_text_field( (string) ( $input['llm_client'] ?? '' ) ),
+			'authority_vendor' => sanitize_text_field( (string) ( $input['authority_vendor'] ?? '' ) ),
+			'authority_client' => sanitize_text_field( (string) ( $input['authority_client'] ?? '' ) ),
 			'session_binding_hash' => $session_binding_hash,
 			'session_binding_created_at' => '' !== $session_binding_hash ? gmdate( 'c', $now ) : '',
 			'actor_id'   => $actor_id,
@@ -593,7 +617,7 @@ trait Devenia_AI_Translations_Translation_Reservations {
 		$work_type = self::sanitize_work_type( (string) ( $input['work_type'] ?? 'source_design_repair' ) );
 		$token     = (string) ( $input['claim_token'] ?? '' );
 		$force     = ! empty( $input['force'] );
-		$codex_thread_id = ! empty( $input['codex_thread_id'] ) ? self::normalize_control_scope_id( (string) $input['codex_thread_id'] ) : '';
+		$agent_session_id = self::agent_session_id_from_input( $input );
 		$session_binding_token = sanitize_text_field( (string) ( $input['session_binding_token'] ?? '' ) );
 		$key      = self::source_work_reservation_option_name( $source_id, $work_type );
 		$existing = self::source_work_reservation_for_type( $source_id, $work_type, true );
@@ -607,7 +631,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 		}
 
 		if ( ! $force ) {
-			if ( '' !== self::normalize_control_scope_id( (string) ( $existing['codex_thread_id'] ?? '' ) ) && $codex_thread_id !== self::normalize_control_scope_id( (string) ( $existing['codex_thread_id'] ?? '' ) ) ) {
+			$owner_session_id = self::normalize_control_scope_id( (string) ( $existing['agent_session_id'] ?? '' ) );
+			if ( '' !== $owner_session_id && $agent_session_id !== $owner_session_id ) {
 				return self::error( 'Source work reservation is owned by another worker session.', 'reservation_owner_mismatch', array( 'reservation' => self::public_source_work_reservation( $existing ) ) );
 			}
 			$session_binding_hash = sanitize_text_field( (string) ( $existing['session_binding_hash'] ?? '' ) );
@@ -669,7 +694,11 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'token'      => $token,
 			'owner'      => sanitize_text_field( (string) ( $claim['owner'] ?? '' ) ),
 			'note'       => sanitize_textarea_field( (string) ( $claim['note'] ?? '' ) ),
-			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $claim['codex_thread_id'] ?? '' ) ),
+			'agent_session_id' => self::normalize_control_scope_id( (string) ( $claim['agent_session_id'] ?? '' ) ),
+			'llm_vendor' => sanitize_text_field( (string) ( $claim['llm_vendor'] ?? '' ) ),
+			'llm_client' => sanitize_text_field( (string) ( $claim['llm_client'] ?? '' ) ),
+			'authority_vendor' => sanitize_text_field( (string) ( $claim['authority_vendor'] ?? '' ) ),
+			'authority_client' => sanitize_text_field( (string) ( $claim['authority_client'] ?? '' ) ),
 			'session_binding_hash' => sanitize_text_field( (string) ( $claim['session_binding_hash'] ?? '' ) ),
 			'session_binding_created_at' => sanitize_text_field( (string) ( $claim['session_binding_created_at'] ?? '' ) ),
 			'actor_id'   => sanitize_key( (string) ( $claim['actor_id'] ?? '' ) ),
@@ -687,7 +716,11 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'language'   => '',
 			'owner'      => sanitize_text_field( (string) ( $claim['owner'] ?? '' ) ),
 			'note'       => sanitize_textarea_field( (string) ( $claim['note'] ?? '' ) ),
-			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $claim['codex_thread_id'] ?? '' ) ),
+			'agent_session_id' => self::normalize_control_scope_id( (string) ( $claim['agent_session_id'] ?? '' ) ),
+			'llm_vendor' => sanitize_text_field( (string) ( $claim['llm_vendor'] ?? '' ) ),
+			'llm_client' => sanitize_text_field( (string) ( $claim['llm_client'] ?? '' ) ),
+			'authority_vendor' => sanitize_text_field( (string) ( $claim['authority_vendor'] ?? '' ) ),
+			'authority_client' => sanitize_text_field( (string) ( $claim['authority_client'] ?? '' ) ),
 			'has_session_binding' => ! empty( $claim['session_binding_hash'] ),
 			'session_binding_created_at' => sanitize_text_field( (string) ( $claim['session_binding_created_at'] ?? '' ) ),
 			'actor_id'   => sanitize_key( (string) ( $claim['actor_id'] ?? '' ) ),
@@ -716,9 +749,9 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			);
 		}
 
-		$owner_thread_id = self::normalize_control_scope_id( (string) ( $reservation['codex_thread_id'] ?? '' ) );
-		$codex_thread_id = self::normalize_control_scope_id( (string) ( $input['codex_thread_id'] ?? '' ) );
-		if ( '' !== $owner_thread_id && ! hash_equals( $owner_thread_id, $codex_thread_id ) ) {
+		$owner_session_id = self::normalize_control_scope_id( (string) ( $reservation['agent_session_id'] ?? '' ) );
+		$agent_session_id = self::agent_session_id_from_input( $input );
+		if ( '' !== $owner_session_id && ! hash_equals( $owner_session_id, $agent_session_id ) ) {
 			return array(
 				'success'     => false,
 				'message'     => 'Translation work is reserved by a different worker session.',

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.465
+ * Version: 0.1.466
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.465';
+	const VERSION = '0.1.466';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -6106,9 +6106,9 @@ final class Devenia_AI_Translations {
 		if ( empty( $fixture['success'] ) ) {
 			return $fixture;
 		}
-		$codex_thread_id = sanitize_text_field( (string) ( $input['codex_thread_id'] ?? '' ) );
-		if ( '' === $codex_thread_id ) {
-			return self::error( 'codex_thread_id is required when run_write_test is true so lifecycle regression can exercise the same workflow authority seam as production upserts.' );
+		$agent_session_id = self::agent_session_id_from_input( $input );
+		if ( '' === $agent_session_id ) {
+			return self::error( 'agent_session_id is required when run_write_test is true so lifecycle regression can exercise the same workflow authority seam as production upserts.' );
 		}
 
 		$created = array(
@@ -6157,7 +6157,7 @@ final class Devenia_AI_Translations {
 						'excerpt'            => (string) $fixture['excerpt'],
 						'status'             => 'draft',
 						'translation_status' => 'needs_review',
-						'codex_thread_id'    => $codex_thread_id,
+						'agent_session_id'   => $agent_session_id,
 					)
 				);
 				self::add_lifecycle_check(
@@ -6180,7 +6180,7 @@ final class Devenia_AI_Translations {
 						'excerpt'            => (string) $fixture['excerpt'],
 						'status'             => 'draft',
 						'translation_status' => 'needs_review',
-						'codex_thread_id'    => $codex_thread_id,
+						'agent_session_id'   => $agent_session_id,
 					)
 				);
 				self::add_lifecycle_check(
@@ -6203,7 +6203,7 @@ final class Devenia_AI_Translations {
 					'excerpt'            => (string) $fixture['excerpt'],
 					'status'             => 'draft',
 					'translation_status' => 'needs_review',
-					'codex_thread_id'    => $codex_thread_id,
+					'agent_session_id'   => $agent_session_id,
 				)
 			);
 			self::add_lifecycle_check( $checks, $failed, 'translation_created', ! empty( $upsert['success'] ), self::lifecycle_compact_upsert_result( $upsert ) );
@@ -6224,7 +6224,7 @@ final class Devenia_AI_Translations {
 					'translation_id' => $created['translation_id'],
 					'verify_live'    => $verify_live,
 					'sync_menu'      => false,
-					'codex_thread_id' => $codex_thread_id,
+					'agent_session_id' => $agent_session_id,
 				)
 			);
 			self::add_lifecycle_check(
@@ -6242,7 +6242,7 @@ final class Devenia_AI_Translations {
 						'reviewer'       => 'Lifecycle regression',
 						'note'           => 'Temporary lifecycle regression proof.',
 						'run_qa'         => true,
-						'codex_thread_id' => $codex_thread_id,
+						'agent_session_id' => $agent_session_id,
 					),
 					self::review_check_input( self::required_linguistic_review_checks( $language ) )
 				)
@@ -6271,7 +6271,7 @@ final class Devenia_AI_Translations {
 					'status'               => 'publish',
 					'translation_status'   => 'published',
 					'allow_update_published' => true,
-					'codex_thread_id'      => $codex_thread_id,
+					'agent_session_id'     => $agent_session_id,
 				)
 			);
 			self::add_lifecycle_check(
@@ -6837,7 +6837,74 @@ final class Devenia_AI_Translations {
 			unset( $input['live_verification_timeout'] );
 		}
 
+		return self::normalize_agent_session_input( $input );
+	}
+
+	/**
+	 * Normalize LLM/client and authority session fields behind a vendor-neutral Interface.
+	 *
+	 * New callers must use agent_session_id.
+	 *
+	 * @param array<string,mixed> $input Raw ability input.
+	 * @return array<string,mixed>
+	 */
+	private static function normalize_agent_session_input( array $input ): array {
+		$agent_session_id = self::normalize_control_scope_id( (string) ( $input['agent_session_id'] ?? '' ) );
+		if ( '' !== $agent_session_id ) {
+			$input['agent_session_id'] = $agent_session_id;
+		}
+
+		foreach ( array( 'llm_vendor', 'llm_client', 'authority_vendor', 'authority_client' ) as $key ) {
+			if ( array_key_exists( $key, $input ) ) {
+				$input[ $key ] = sanitize_text_field( (string) $input[ $key ] );
+			}
+		}
+
 		return $input;
+	}
+
+	private static function agent_session_id_from_input( array $input ): string {
+		$input = self::normalize_agent_session_input( $input );
+		return self::normalize_control_scope_id( (string) ( $input['agent_session_id'] ?? '' ) );
+	}
+
+	private static function agent_session_input_schema_properties(): array {
+		return array(
+			'agent_session_id' => array(
+				'type'        => 'string',
+				'description' => 'Vendor-neutral stable agent/client session identifier required for protected workflow calls.',
+			),
+			'llm_vendor' => array(
+				'type'        => 'string',
+				'description' => 'Optional LLM or client vendor label, such as codex, claude, openai, gemini, or local.',
+			),
+			'llm_client' => array(
+				'type'        => 'string',
+				'description' => 'Optional calling application/client label.',
+			),
+			'authority_vendor' => array(
+				'type'        => 'string',
+				'description' => 'Optional workflow authority adapter label. The translation workflow treats this as metadata; the installed authority adapter verifies the lease.',
+			),
+			'authority_client' => array(
+				'type'        => 'string',
+				'description' => 'Optional authority adapter/client label.',
+			),
+		);
+	}
+
+	private static function neutralize_agent_session_schema( array $schema ): array {
+		if ( isset( $schema['properties'] ) && is_array( $schema['properties'] ) && array_key_exists( 'agent_session_id', $schema['properties'] ) ) {
+			unset( $schema['properties']['agent_session_id'] );
+			$schema['properties'] = array_merge( $schema['properties'], self::agent_session_input_schema_properties() );
+			if ( isset( $schema['required'] ) && is_array( $schema['required'] ) ) {
+				$schema['required'] = array_values( array_unique( array_map( 'strval', $schema['required'] ) ) );
+				$schema['required'] = array_values( array_diff( $schema['required'], array( 'agent_session_id' ) ) );
+				$schema['required'][] = 'agent_session_id';
+			}
+		}
+
+		return $schema;
 	}
 
 	/**
@@ -6954,6 +7021,9 @@ final class Devenia_AI_Translations {
 			if ( isset( $handlers[ $operation ] ) ) {
 				$args['operation']        = $operation;
 				$args['execute_callback'] = self::ability_operation_callback( $operation );
+			}
+			if ( isset( $args['input_schema'] ) && is_array( $args['input_schema'] ) ) {
+				$args['input_schema'] = self::neutralize_agent_session_schema( $args['input_schema'] );
 			}
 			$catalogue[ $name ] = $args;
 		}
@@ -7461,7 +7531,6 @@ final class Devenia_AI_Translations {
 	private static function run_ability_operation( string $operation, $input = array() ): array {
 		$input = is_array( $input ) ? $input : array();
 		$input = self::normalize_ability_input( $operation, $input );
-
 		$handlers = self::ability_operation_handlers();
 		$handler  = $handlers[ $operation ] ?? '';
 		if ( '' !== $handler && method_exists( __CLASS__, $handler ) ) {
@@ -8080,7 +8149,7 @@ final class Devenia_AI_Translations {
 			),
 			'ai-translations/next-heartbeat-action' => array(
 				'label'            => 'Get Next Heartbeat Action',
-				'description'      => 'Returns one safe, server-selected next action for a real independent Codex heartbeat session. It observes by default and only reserves the item when claim=true.',
+				'description'      => 'Returns one safe, server-selected next action for a real independent agent heartbeat session. It observes by default and only reserves the item when claim=true.',
 				'input_schema'     => self::heartbeat_action_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
@@ -8090,7 +8159,7 @@ final class Devenia_AI_Translations {
 			),
 			'ai-translations/heartbeat-status' => array(
 				'label'            => 'Get Heartbeat Status',
-				'description'      => 'Returns read-only server-side heartbeat health for independent Codex sessions that have called next-heartbeat-action.',
+				'description'      => 'Returns read-only server-side heartbeat health for independent agent sessions that have called next-heartbeat-action.',
 				'input_schema'     => self::heartbeat_status_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
@@ -8607,9 +8676,9 @@ final class Devenia_AI_Translations {
 					'default'     => true,
 					'description' => 'Delete temporary source and translation posts after the write regression.',
 				),
-				'codex_thread_id' => array(
+				'agent_session_id' => array(
 					'type'        => 'string',
-					'description' => 'Required when run_write_test is true. Use the exact CODEX_THREAD_ID value so lifecycle regression exercises the same workflow authority seam as production upserts.',
+					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
 				),
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'source_title' => array(
@@ -8655,7 +8724,7 @@ final class Devenia_AI_Translations {
 	private static function runtime_text_input_schema(): array {
 		return array(
 		'type'                 => 'object',
-		'required'             => array( 'language', 'section', 'source', 'codex_thread_id' ),
+		'required'             => array( 'language', 'section', 'source' ),
 		'properties'           => array(
 			'language'   => array(
 				'type'        => 'string',
@@ -8679,14 +8748,14 @@ final class Devenia_AI_Translations {
 				'default'     => false,
 				'description' => 'Remove this runtime text override.',
 			),
-			'codex_thread_id' => array(
+			'agent_session_id' => array(
 				'type'        => 'string',
-				'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value.',
+				'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
 			),
 			'session_binding_token' => self::session_binding_token_input_schema(),
 			'writer_process_id' => array(
 				'type'        => 'string',
-				'description' => 'Optional stable identifier for the process/session updating the runtime text. Defaults to codex_thread_id.',
+				'description' => 'Optional stable identifier for the process/session updating the runtime text. Defaults to agent_session_id.',
 			),
 			'writer_actor' => array(
 				'type'        => 'string',
@@ -8703,7 +8772,7 @@ final class Devenia_AI_Translations {
 	private static function featured_image_alt_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'translation_id', 'featured_image_alt', 'codex_thread_id' ),
+			'required'             => array( 'translation_id', 'featured_image_alt' ),
 			'properties'           => array(
 				'translation_id'     => array(
 					'type'        => 'integer',
@@ -8728,14 +8797,14 @@ final class Devenia_AI_Translations {
 					'default'     => false,
 					'description' => 'Remove the localized override and fall back to attachment alt/title.',
 				),
-				'codex_thread_id'    => array(
+				'agent_session_id'    => array(
 					'type'        => 'string',
-					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value.',
+					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
 				),
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id'  => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session updating the alt text. Defaults to codex_thread_id.',
+					'description' => 'Optional stable identifier for the process/session updating the alt text. Defaults to agent_session_id.',
 				),
 				'writer_actor'       => array(
 					'type'        => 'string',
@@ -9355,7 +9424,7 @@ final class Devenia_AI_Translations {
 	private static function session_binding_token_input_schema(): array {
 		return array(
 			'type'        => 'string',
-			'description' => 'Persona/session secret proof from heartbeat bootstrap. Required when the server-side workflow lease is session-bound.',
+			'description' => 'Agent/session secret proof from heartbeat bootstrap. Required when the server-side workflow lease is session-bound.',
 		);
 	}
 
@@ -9365,12 +9434,20 @@ final class Devenia_AI_Translations {
 	private static function heartbeat_action_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'codex_thread_id' ),
+			'required'             => array(),
 			'properties'           => array(
-				'codex_thread_id' => array(
+				'agent_session_id' => array(
 					'type'        => 'string',
-					'description' => 'Required. Set this to the exact CODEX_THREAD_ID environment value for the real independent heartbeat session.',
+					'description' => 'Required stable agent/client session identifier for the real independent heartbeat session. Legacy agent_session_id is accepted as an alias.',
 				),
+				'agent_session_id' => array(
+					'type'        => 'string',
+					'description' => 'Legacy alias for agent_session_id.',
+				),
+				'llm_vendor' => self::agent_session_input_schema_properties()['llm_vendor'],
+				'llm_client' => self::agent_session_input_schema_properties()['llm_client'],
+				'authority_vendor' => self::agent_session_input_schema_properties()['authority_vendor'],
+				'authority_client' => self::agent_session_input_schema_properties()['authority_client'],
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'limit' => array(
 					'type'        => 'integer',
@@ -9645,14 +9722,14 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
 				),
-				'codex_thread_id' => array(
+				'agent_session_id' => array(
 					'type'        => 'string',
-					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
+					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
 				),
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional for translated content: stable identifier for the separate reviewer process/session. Defaults to codex_thread_id and must differ from the writer process.',
+					'description' => 'Optional for translated content: stable identifier for the separate reviewer process/session. Defaults to agent_session_id and must differ from the writer process.',
 				),
 				'reviewer' => array(
 					'type'        => 'string',
@@ -9824,21 +9901,21 @@ final class Devenia_AI_Translations {
 	private static function final_review_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'translation_id', 'codex_thread_id' ),
+			'required'             => array( 'translation_id' ),
 			'properties'           => array(
 				'translation_id' => array( 'type' => 'integer' ),
 				'claim_token' => array(
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
 				),
-				'codex_thread_id' => array(
+				'agent_session_id' => array(
 					'type'        => 'string',
-					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
+					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
 				),
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the separate final reviewer process/session. Defaults to codex_thread_id.',
+					'description' => 'Optional stable identifier for the separate final reviewer process/session. Defaults to agent_session_id.',
 				),
 				'reviewer' => array( 'type' => 'string' ),
 				'note' => array( 'type' => 'string' ),
@@ -9916,7 +9993,7 @@ final class Devenia_AI_Translations {
 	private static function upsert_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-				'required'             => array( 'source_id', 'language', 'localized_slug', 'title', 'codex_thread_id' ),
+				'required'             => array( 'source_id', 'language', 'localized_slug', 'title' ),
 			'properties'           => array(
 				'source_id'         => array( 'type' => 'integer' ),
 				'language'          => array( 'type' => 'string' ),
@@ -10059,9 +10136,9 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
 				),
-				'codex_thread_id'   => array(
+				'agent_session_id'   => array(
 					'type'        => 'string',
-					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
+					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
 				),
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'allow_update_published' => array(
@@ -10070,7 +10147,7 @@ final class Devenia_AI_Translations {
 				),
 				'writer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session that authored this translation draft. Defaults to codex_thread_id; reviewer processes must be different.',
+					'description' => 'Optional stable identifier for the process/session that authored this translation draft. Defaults to agent_session_id; reviewer processes must be different.',
 				),
 				'writer_actor' => array(
 					'type'        => 'string',
@@ -10087,7 +10164,7 @@ final class Devenia_AI_Translations {
 	private static function repair_translation_author_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'translation_id', 'codex_thread_id' ),
+			'required'             => array( 'translation_id' ),
 			'properties'           => array(
 				'translation_id' => array(
 					'type'        => 'integer',
@@ -10119,14 +10196,14 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work.',
 				),
-				'codex_thread_id' => array(
+				'agent_session_id' => array(
 					'type'        => 'string',
-					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. Required when apply=true.',
+					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
 				),
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session doing this metadata write. Defaults to codex_thread_id.',
+					'description' => 'Optional stable identifier for the process/session doing this metadata write. Defaults to agent_session_id.',
 				),
 				'writer_actor'   => array(
 					'type'        => 'string',
@@ -10143,7 +10220,7 @@ final class Devenia_AI_Translations {
 	private static function reproject_source_design_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-				'required'             => array( 'source_id', 'codex_thread_id' ),
+				'required'             => array( 'source_id' ),
 			'properties'           => array(
 				'source_id' => array(
 					'type'        => 'integer',
@@ -10178,14 +10255,14 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work.',
 				),
-				'codex_thread_id' => array(
+				'agent_session_id' => array(
 					'type'        => 'string',
-					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. Required when apply=true.',
+					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
 				),
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session doing the reprojection write. Defaults to codex_thread_id.',
+					'description' => 'Optional stable identifier for the process/session doing the reprojection write. Defaults to agent_session_id.',
 				),
 				'writer_actor' => array(
 					'type'        => 'string',
@@ -10202,7 +10279,7 @@ final class Devenia_AI_Translations {
 	private static function migrate_source_design_fragments_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'source_id', 'codex_thread_id' ),
+			'required'             => array( 'source_id' ),
 			'properties'           => array(
 				'source_id' => array(
 					'type'        => 'integer',
@@ -10280,14 +10357,14 @@ final class Devenia_AI_Translations {
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work.',
 				),
-				'codex_thread_id' => array(
+				'agent_session_id' => array(
 					'type'        => 'string',
-					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. Required when apply=true.',
+					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
 				),
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session doing the migration write. Defaults to codex_thread_id.',
+					'description' => 'Optional stable identifier for the process/session doing the migration write. Defaults to agent_session_id.',
 				),
 				'writer_actor' => array(
 					'type'        => 'string',
@@ -10590,16 +10667,16 @@ final class Devenia_AI_Translations {
 	private static function publish_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'translation_id', 'codex_thread_id' ),
+			'required'             => array( 'translation_id' ),
 			'properties'           => array(
 				'translation_id'       => array( 'type' => 'integer' ),
 				'reviewer_process_id'  => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the separate reviewer process/session. Defaults to codex_thread_id and must differ from the writer process.',
+					'description' => 'Optional stable identifier for the separate reviewer process/session. Defaults to agent_session_id and must differ from the writer process.',
 				),
-				'codex_thread_id'      => array(
+				'agent_session_id'      => array(
 					'type'        => 'string',
-					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
+					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
 				),
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'claim_token'          => array(
@@ -10663,16 +10740,16 @@ final class Devenia_AI_Translations {
 	private static function linguistic_review_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-			'required'             => array( 'translation_id', 'codex_thread_id' ),
+			'required'             => array( 'translation_id' ),
 			'properties'           => array(
 				'translation_id' => array( 'type' => 'integer' ),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the separate reviewer process/session. Defaults to codex_thread_id and must differ from the writer process.',
+					'description' => 'Optional stable identifier for the separate reviewer process/session. Defaults to agent_session_id and must differ from the writer process.',
 				),
-				'codex_thread_id' => array(
+				'agent_session_id' => array(
 					'type'        => 'string',
-					'description' => 'Required normal workflow identity: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side lease.',
+					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
 				),
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'claim_token'    => array(
@@ -15595,7 +15672,7 @@ final class Devenia_AI_Translations {
 				'success' => false,
 				'action'  => 'escalate',
 				'code'    => sanitize_key( (string) ( $identity['code'] ?? 'workflow_identity_not_confirmed' ) ),
-				'message' => (string) ( $identity['message'] ?? 'Heartbeat identity is not confirmed by the token authority.' ),
+				'message' => (string) ( $identity['message'] ?? 'Heartbeat identity is not confirmed by the workflow authority adapter.' ),
 				'identity' => self::public_heartbeat_identity( is_array( $identity ) ? $identity : array() ),
 			);
 		}
@@ -15681,7 +15758,11 @@ final class Devenia_AI_Translations {
 							'language' => $language,
 							'owner' => 'heartbeat:' . (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? 'unknown' ),
 							'note' => '' !== $note ? $note : 'Reserved by next-heartbeat-action.',
-							'codex_thread_id' => (string) ( $identity['codex_thread_id'] ?? $input['codex_thread_id'] ?? '' ),
+							'agent_session_id' => (string) ( $identity['agent_session_id'] ?? $input['agent_session_id'] ?? '' ),
+							'llm_vendor' => (string) ( $input['llm_vendor'] ?? $identity['llm_vendor'] ?? '' ),
+							'llm_client' => (string) ( $input['llm_client'] ?? $identity['llm_client'] ?? '' ),
+							'authority_vendor' => (string) ( $input['authority_vendor'] ?? $identity['authority_vendor'] ?? $identity['authority'] ?? '' ),
+							'authority_client' => (string) ( $input['authority_client'] ?? $identity['authority_client'] ?? '' ),
 							'session_binding_token' => (string) ( $input['session_binding_token'] ?? '' ),
 							'actor_id' => (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? '' ),
 							'ttl_seconds' => $ttl_seconds,
@@ -16151,16 +16232,16 @@ final class Devenia_AI_Translations {
 	}
 
 	private static function heartbeat_repeats_previous_item_without_change( array $input, array $identity, int $translation_id, int $source_id, string $language, string $action ): bool {
-		$codex_thread_id = self::normalize_control_scope_id( (string) ( $input['codex_thread_id'] ?? $identity['codex_thread_id'] ?? $identity['control_scope_id'] ?? '' ) );
-		if ( '' === $codex_thread_id ) {
+		$agent_session_id = self::normalize_control_scope_id( (string) ( $input['agent_session_id'] ?? $identity['agent_session_id'] ?? $identity['control_scope_id'] ?? '' ) );
+		if ( '' === $agent_session_id ) {
 			return false;
 		}
 
 		$heartbeats = get_option( self::OPTION_HEARTBEATS, array() );
-		if ( ! is_array( $heartbeats ) || empty( $heartbeats[ $codex_thread_id ] ) || ! is_array( $heartbeats[ $codex_thread_id ] ) ) {
+		if ( ! is_array( $heartbeats ) || empty( $heartbeats[ $agent_session_id ] ) || ! is_array( $heartbeats[ $agent_session_id ] ) ) {
 			return false;
 		}
-		$previous = $heartbeats[ $codex_thread_id ];
+		$previous = $heartbeats[ $agent_session_id ];
 		if ( absint( $previous['last_source_id'] ?? 0 ) !== $source_id ) {
 			return false;
 		}
@@ -16201,9 +16282,9 @@ final class Devenia_AI_Translations {
 			return true;
 		}
 
-		$reviewer_codex_thread = self::normalize_control_scope_id( (string) ( $reviewer['codex_thread_id'] ?? '' ) );
-		$provenance_codex_thread = self::normalize_control_scope_id( (string) ( $provenance['codex_thread_id'] ?? '' ) );
-		if ( '' !== $reviewer_codex_thread && '' !== $provenance_codex_thread && $reviewer_codex_thread === $provenance_codex_thread ) {
+		$reviewer_agent_session = self::normalize_control_scope_id( (string) ( $reviewer['agent_session_id'] ?? '' ) );
+		$provenance_agent_session = self::normalize_control_scope_id( (string) ( $provenance['agent_session_id'] ?? '' ) );
+		if ( '' !== $reviewer_agent_session && '' !== $provenance_agent_session && $reviewer_agent_session === $provenance_agent_session ) {
 			return true;
 		}
 
@@ -16249,7 +16330,11 @@ final class Devenia_AI_Translations {
 			'step_token_label' => sanitize_key( (string) ( $identity['step_token_label'] ?? '' ) ),
 			'process_id' => self::normalize_process_id( (string) ( $identity['process_id'] ?? '' ) ),
 			'control_scope_id' => self::normalize_control_scope_id( (string) ( $identity['control_scope_id'] ?? '' ) ),
-			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $identity['codex_thread_id'] ?? '' ) ),
+			'agent_session_id' => self::normalize_control_scope_id( (string) ( $identity['agent_session_id'] ?? '' ) ),
+			'llm_vendor' => sanitize_text_field( (string) ( $identity['llm_vendor'] ?? '' ) ),
+			'llm_client' => sanitize_text_field( (string) ( $identity['llm_client'] ?? '' ) ),
+			'authority_vendor' => sanitize_text_field( (string) ( $identity['authority_vendor'] ?? $identity['authority'] ?? '' ) ),
+			'authority_client' => sanitize_text_field( (string) ( $identity['authority_client'] ?? '' ) ),
 			'session_origin' => self::normalize_session_origin( (string) ( $identity['session_origin'] ?? '' ) ),
 		);
 	}
@@ -16294,8 +16379,8 @@ final class Devenia_AI_Translations {
 			if ( ! is_array( $heartbeat ) ) {
 				continue;
 			}
-			$codex_thread_id = self::normalize_control_scope_id( (string) ( $heartbeat['codex_thread_id'] ?? $thread_id ) );
-			if ( '' === $codex_thread_id ) {
+			$agent_session_id = self::normalize_control_scope_id( (string) ( $heartbeat['agent_session_id'] ?? $thread_id ) );
+			if ( '' === $agent_session_id ) {
 				continue;
 			}
 			$actor = sanitize_key( (string) ( $heartbeat['actor_id'] ?? $heartbeat['step_token_label'] ?? '' ) );
@@ -16305,14 +16390,18 @@ final class Devenia_AI_Translations {
 			$fresh = null !== $age_seconds && $age_seconds <= $max_age_seconds;
 
 			if ( $fresh && '' !== $actor ) {
-				$fresh_actor_threads[ $actor ][] = $codex_thread_id;
+				$fresh_actor_threads[ $actor ][] = $agent_session_id;
 			}
 			if ( $fresh ) {
-				$fresh_thread_actors[ $codex_thread_id ][] = '' !== $actor ? $actor : '(unknown)';
+				$fresh_thread_actors[ $agent_session_id ][] = '' !== $actor ? $actor : '(unknown)';
 			}
 
 			$sessions[] = array(
-				'codex_thread_id' => $codex_thread_id,
+				'agent_session_id' => $agent_session_id,
+				'llm_vendor' => sanitize_text_field( (string) ( $heartbeat['llm_vendor'] ?? '' ) ),
+				'llm_client' => sanitize_text_field( (string) ( $heartbeat['llm_client'] ?? '' ) ),
+				'authority_vendor' => sanitize_text_field( (string) ( $heartbeat['authority_vendor'] ?? '' ) ),
+				'authority_client' => sanitize_text_field( (string) ( $heartbeat['authority_client'] ?? '' ) ),
 				'actor' => $actor,
 				'step_token_label' => sanitize_key( (string) ( $heartbeat['step_token_label'] ?? '' ) ),
 				'session_origin' => self::normalize_session_origin( (string) ( $heartbeat['session_origin'] ?? '' ) ),
@@ -16386,7 +16475,7 @@ final class Devenia_AI_Translations {
 			if ( count( $actors ) > 1 ) {
 				sort( $actors );
 				$thread_collisions[] = array(
-					'codex_thread_id' => self::normalize_control_scope_id( (string) $thread_id ),
+					'agent_session_id' => self::normalize_control_scope_id( (string) $thread_id ),
 					'actors' => $actors,
 				);
 			}
@@ -16444,7 +16533,7 @@ final class Devenia_AI_Translations {
 			'stale_sessions' => array_map(
 				static function ( array $session ): array {
 					return array(
-						'codex_thread_id' => $session['codex_thread_id'],
+						'agent_session_id' => $session['agent_session_id'],
 						'actor' => $session['actor'],
 						'last_seen_at' => $session['last_seen_at'],
 						'latest_age_seconds' => $session['latest_age_seconds'],
@@ -16458,16 +16547,20 @@ final class Devenia_AI_Translations {
 	}
 
 	private static function record_heartbeat_state( array $input, array $selected, array $identity ): void {
-		$codex_thread_id = self::normalize_control_scope_id( (string) ( $input['codex_thread_id'] ?? $identity['codex_thread_id'] ?? '' ) );
-		if ( '' === $codex_thread_id ) {
+		$agent_session_id = self::normalize_control_scope_id( (string) ( $input['agent_session_id'] ?? $identity['agent_session_id'] ?? '' ) );
+		if ( '' === $agent_session_id ) {
 			return;
 		}
 		$heartbeats = get_option( self::OPTION_HEARTBEATS, array() );
 		if ( ! is_array( $heartbeats ) ) {
 			$heartbeats = array();
 		}
-		$heartbeats[ $codex_thread_id ] = array(
-			'codex_thread_id' => $codex_thread_id,
+		$heartbeats[ $agent_session_id ] = array(
+			'agent_session_id' => $agent_session_id,
+			'llm_vendor' => sanitize_text_field( (string) ( $input['llm_vendor'] ?? $identity['llm_vendor'] ?? '' ) ),
+			'llm_client' => sanitize_text_field( (string) ( $input['llm_client'] ?? $identity['llm_client'] ?? '' ) ),
+			'authority_vendor' => sanitize_text_field( (string) ( $input['authority_vendor'] ?? $identity['authority_vendor'] ?? $identity['authority'] ?? '' ) ),
+			'authority_client' => sanitize_text_field( (string) ( $input['authority_client'] ?? $identity['authority_client'] ?? '' ) ),
 			'actor_id' => sanitize_key( (string) ( $identity['actor_id'] ?? '' ) ),
 			'step_token_label' => sanitize_key( (string) ( $identity['step_token_label'] ?? '' ) ),
 			'session_origin' => self::normalize_session_origin( (string) ( $identity['session_origin'] ?? '' ) ),
@@ -18368,7 +18461,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Canonical workflow step identifiers protected by the external token authority.
+	 * Canonical workflow step identifiers protected by the workflow authority adapter.
 	 *
 	 * @return string[]
 	 */
@@ -18390,12 +18483,12 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		$codex_thread_id = self::normalize_control_scope_id( (string) ( $input['codex_thread_id'] ?? '' ) );
-		if ( '' === $codex_thread_id ) {
+		$agent_session_id = self::agent_session_id_from_input( $input );
+		if ( '' === $agent_session_id ) {
 			return array(
 				'success' => false,
 				'code'    => 'workflow_authority_identity_required',
-				'message' => 'Provide codex_thread_id from CODEX_THREAD_ID so the token authority can verify the server-side workflow lease.',
+				'message' => 'Provide agent_session_id so the workflow authority adapter can verify the server-side workflow lease.',
 				'step'    => $step,
 			);
 		}
@@ -18405,7 +18498,7 @@ final class Devenia_AI_Translations {
 				return array(
 					'success' => false,
 					'code'    => 'workflow_process_id_required',
-					'message' => 'A stable writer_process_id, reviewer_process_id, or codex_thread_id is required so the token authority can bind the workflow operation to one process/session.',
+					'message' => 'A stable writer_process_id, reviewer_process_id, or agent_session_id is required so the workflow authority adapter can bind the operation to one process/session.',
 					'step'    => $step,
 				);
 			}
@@ -18419,7 +18512,11 @@ final class Devenia_AI_Translations {
 				'input'       => $input,
 				'token_label' => $token_label,
 				'process_id'  => $process_id,
-				'codex_thread_id' => $codex_thread_id,
+				'agent_session_id' => $agent_session_id,
+				'llm_vendor' => sanitize_text_field( (string) ( $input['llm_vendor'] ?? '' ) ),
+				'llm_client' => sanitize_text_field( (string) ( $input['llm_client'] ?? '' ) ),
+				'authority_vendor' => sanitize_text_field( (string) ( $input['authority_vendor'] ?? '' ) ),
+				'authority_client' => sanitize_text_field( (string) ( $input['authority_client'] ?? '' ) ),
 				'actor'       => self::current_operator_label(),
 				'plugin'      => 'devenia-ai-translations',
 				'version'     => self::VERSION,
@@ -18430,7 +18527,7 @@ final class Devenia_AI_Translations {
 			return array(
 				'success' => false,
 				'code'    => 'step_token_authority_missing',
-				'message' => 'The external translation token authority did not answer. Activate and configure the token authority plugin before running this workflow step.',
+				'message' => 'The translation workflow authority adapter did not answer. Activate and configure an authority adapter before running this workflow step.',
 				'step'    => $step,
 			);
 		}
@@ -18445,7 +18542,7 @@ final class Devenia_AI_Translations {
 			return array(
 				'success' => false,
 				'code'    => 'verified_process_id_required',
-				'message' => 'The token authority must return the verified lease process ID for this workflow step.',
+				'message' => 'The workflow authority adapter must return the verified lease process ID for this workflow step.',
 				'step'    => $step,
 			);
 		}
@@ -18455,7 +18552,7 @@ final class Devenia_AI_Translations {
 			return array(
 				'success' => false,
 				'code'    => 'verified_workflow_step_mismatch',
-				'message' => 'The token authority returned a different workflow step than the requested operation.',
+				'message' => 'The workflow authority adapter returned a different workflow step than the requested operation.',
 				'step'    => $step,
 				'verified_step' => $verified_step,
 			);
@@ -18467,31 +18564,35 @@ final class Devenia_AI_Translations {
 			'step_token_label' => $verified_token_label,
 			'process_id' => $verified_process_id,
 			'control_scope_id' => self::normalize_control_scope_id( (string) ( $decision['control_scope_id'] ?? '' ) ),
-			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $decision['codex_thread_id'] ?? $codex_thread_id ) ),
+			'agent_session_id' => self::normalize_control_scope_id( (string) ( $decision['agent_session_id'] ?? $agent_session_id ) ),
+			'llm_vendor' => sanitize_text_field( (string) ( $decision['llm_vendor'] ?? $input['llm_vendor'] ?? '' ) ),
+			'llm_client' => sanitize_text_field( (string) ( $decision['llm_client'] ?? $input['llm_client'] ?? '' ) ),
+			'authority_vendor' => sanitize_text_field( (string) ( $decision['authority_vendor'] ?? $input['authority_vendor'] ?? $decision['authority'] ?? '' ) ),
+			'authority_client' => sanitize_text_field( (string) ( $decision['authority_client'] ?? $input['authority_client'] ?? '' ) ),
 			'session_origin' => self::normalize_session_origin( (string) ( $decision['session_origin'] ?? '' ) ),
 			'parent_process_id' => self::normalize_process_id( (string) ( $decision['parent_process_id'] ?? '' ) ),
 			'controller_process_id' => self::normalize_process_id( (string) ( $decision['controller_process_id'] ?? '' ) ),
 			'actor' => sanitize_text_field( (string) ( $decision['actor'] ?? ( 'token_label:' . $verified_token_label ) ) ),
 			'actor_id' => sanitize_key( (string) ( $decision['actor_id'] ?? '' ) ),
-			'authority' => sanitize_text_field( (string) ( $decision['authority'] ?? 'external' ) ),
+			'authority' => sanitize_text_field( (string) ( $decision['authority'] ?? $decision['authority_vendor'] ?? 'external' ) ),
 		);
 	}
 
 	/**
-	 * Process/session ID that must match the active token-authority lease.
+	 * Process/session ID that must match the active workflow authority lease.
 	 */
 	private static function step_token_process_id( string $step, array $input ): string {
 			if ( 'draft_write' === $step ) {
 				$process_id = self::normalize_process_id( (string) ( $input['writer_process_id'] ?? '' ) );
 				if ( '' === $process_id ) {
-					$process_id = self::normalize_process_id( (string) ( $input['codex_thread_id'] ?? '' ) );
+					$process_id = self::normalize_process_id( self::agent_session_id_from_input( $input ) );
 				}
 				return $process_id;
 			}
 
 		$process_id = self::normalize_process_id( (string) ( $input['reviewer_process_id'] ?? '' ) );
 		if ( '' === $process_id ) {
-			$process_id = self::normalize_process_id( (string) ( $input['codex_thread_id'] ?? '' ) );
+			$process_id = self::normalize_process_id( self::agent_session_id_from_input( $input ) );
 		}
 		return $process_id;
 	}
@@ -18502,7 +18603,6 @@ final class Devenia_AI_Translations {
 	private static function record_translation_writer_provenance( int $translation_id, array $verified_identity ): void {
 		$process_id = self::normalize_process_id( (string) ( $verified_identity['process_id'] ?? '' ) );
 		$control_scope_id = self::normalize_control_scope_id( (string) ( $verified_identity['control_scope_id'] ?? '' ) );
-		$codex_thread_id = self::normalize_control_scope_id( (string) ( $verified_identity['codex_thread_id'] ?? '' ) );
 		$session_origin = self::normalize_session_origin( (string) ( $verified_identity['session_origin'] ?? '' ) );
 		$parent_process_id = self::normalize_process_id( (string) ( $verified_identity['parent_process_id'] ?? '' ) );
 		$controller_process_id = self::normalize_process_id( (string) ( $verified_identity['controller_process_id'] ?? '' ) );
@@ -18559,7 +18659,11 @@ final class Devenia_AI_Translations {
 		return array(
 			'process_id' => self::normalize_process_id( (string) ( $verified_identity['process_id'] ?? '' ) ),
 			'control_scope_id' => self::normalize_control_scope_id( (string) ( $verified_identity['control_scope_id'] ?? '' ) ),
-			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $verified_identity['codex_thread_id'] ?? '' ) ),
+			'agent_session_id' => self::normalize_control_scope_id( (string) ( $verified_identity['agent_session_id'] ?? '' ) ),
+			'llm_vendor' => sanitize_text_field( (string) ( $verified_identity['llm_vendor'] ?? '' ) ),
+			'llm_client' => sanitize_text_field( (string) ( $verified_identity['llm_client'] ?? '' ) ),
+			'authority_vendor' => sanitize_text_field( (string) ( $verified_identity['authority_vendor'] ?? $verified_identity['authority'] ?? '' ) ),
+			'authority_client' => sanitize_text_field( (string) ( $verified_identity['authority_client'] ?? '' ) ),
 			'session_origin' => self::normalize_session_origin( (string) ( $verified_identity['session_origin'] ?? '' ) ),
 			'parent_process_id' => self::normalize_process_id( (string) ( $verified_identity['parent_process_id'] ?? '' ) ),
 			'controller_process_id' => self::normalize_process_id( (string) ( $verified_identity['controller_process_id'] ?? '' ) ),
@@ -18684,7 +18788,11 @@ final class Devenia_AI_Translations {
 		return array(
 			'process_id' => self::normalize_process_id( (string) ( $decoded['process_id'] ?? '' ) ),
 			'control_scope_id' => self::normalize_control_scope_id( (string) ( $decoded['control_scope_id'] ?? '' ) ),
-			'codex_thread_id' => self::normalize_control_scope_id( (string) ( $decoded['codex_thread_id'] ?? '' ) ),
+			'agent_session_id' => self::normalize_control_scope_id( (string) ( $decoded['agent_session_id'] ?? '' ) ),
+			'llm_vendor' => sanitize_text_field( (string) ( $decoded['llm_vendor'] ?? '' ) ),
+			'llm_client' => sanitize_text_field( (string) ( $decoded['llm_client'] ?? '' ) ),
+			'authority_vendor' => sanitize_text_field( (string) ( $decoded['authority_vendor'] ?? $decoded['authority'] ?? '' ) ),
+			'authority_client' => sanitize_text_field( (string) ( $decoded['authority_client'] ?? '' ) ),
 			'session_origin' => self::normalize_session_origin( (string) ( $decoded['session_origin'] ?? '' ) ),
 			'parent_process_id' => self::normalize_process_id( (string) ( $decoded['parent_process_id'] ?? '' ) ),
 			'controller_process_id' => self::normalize_process_id( (string) ( $decoded['controller_process_id'] ?? '' ) ),
@@ -18731,6 +18839,7 @@ final class Devenia_AI_Translations {
 		return array(
 			'process_id'  => (string) get_post_meta( $translation_id, self::META_WRITER_PROCESS, true ),
 			'control_scope_id' => self::normalize_control_scope_id( (string) get_post_meta( $translation_id, self::META_WRITER_CONTROL_SCOPE, true ) ),
+			'agent_session_id' => self::normalize_control_scope_id( (string) get_post_meta( $translation_id, self::META_WRITER_CONTROL_SCOPE, true ) ),
 			'session_origin' => self::normalize_session_origin( (string) get_post_meta( $translation_id, self::META_WRITER_SESSION_ORIGIN, true ) ),
 			'parent_process_id' => self::normalize_process_id( (string) get_post_meta( $translation_id, self::META_WRITER_PARENT_PROCESS, true ) ),
 			'controller_process_id' => self::normalize_process_id( (string) get_post_meta( $translation_id, self::META_WRITER_CONTROLLER_PROCESS, true ) ),
@@ -18747,6 +18856,7 @@ final class Devenia_AI_Translations {
 	private static function reviewer_provenance_from_verified_identity( array $verified_identity, int $translation_id ): array {
 		$process_id = self::normalize_process_id( (string) ( $verified_identity['process_id'] ?? '' ) );
 		$control_scope_id = self::normalize_control_scope_id( (string) ( $verified_identity['control_scope_id'] ?? '' ) );
+		$agent_session_id = self::normalize_control_scope_id( (string) ( $verified_identity['agent_session_id'] ?? $control_scope_id ) );
 		$session_origin = self::normalize_session_origin( (string) ( $verified_identity['session_origin'] ?? '' ) );
 		$parent_process_id = self::normalize_process_id( (string) ( $verified_identity['parent_process_id'] ?? '' ) );
 		$controller_process_id = self::normalize_process_id( (string) ( $verified_identity['controller_process_id'] ?? '' ) );
@@ -18763,7 +18873,11 @@ final class Devenia_AI_Translations {
 		return array(
 			'process_id'  => $process_id,
 			'control_scope_id' => $control_scope_id,
-			'codex_thread_id' => $codex_thread_id,
+			'agent_session_id' => $agent_session_id,
+			'llm_vendor' => sanitize_text_field( (string) ( $verified_identity['llm_vendor'] ?? '' ) ),
+			'llm_client' => sanitize_text_field( (string) ( $verified_identity['llm_client'] ?? '' ) ),
+			'authority_vendor' => sanitize_text_field( (string) ( $verified_identity['authority_vendor'] ?? $verified_identity['authority'] ?? '' ) ),
+			'authority_client' => sanitize_text_field( (string) ( $verified_identity['authority_client'] ?? '' ) ),
 			'session_origin' => $session_origin,
 			'parent_process_id' => $parent_process_id,
 			'controller_process_id' => $controller_process_id,
@@ -18806,7 +18920,7 @@ final class Devenia_AI_Translations {
 			return array(
 				'success' => false,
 				'code'    => 'reviewer_control_scope_required',
-				'message' => 'Reviewer control scope is required. A reviewer token must carry the Ydepi-signed independent execution context.',
+				'message' => 'Reviewer control scope is required. A reviewer token must carry an authority-signed independent execution context.',
 				'operator_warning' => self::self_review_override_warning(),
 				'stage'   => sanitize_key( $stage ),
 				'reviewer' => $reviewer,

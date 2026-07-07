@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.465
+**Stable tag:** 0.1.466
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,16 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.466
+
+* Adds a vendor-neutral agent session Interface for protected workflow abilities:
+  new clients can send `agent_session_id`, `llm_vendor`, `llm_client`,
+  `authority_vendor`, and `authority_client`.
+* Removes Codex-specific public workflow identity from heartbeat, reservation,
+  and protected workflow ability contracts.
+* Treats LLM clients and workflow authorities as replaceable vendors instead of
+  baking Codex or Ydepi into the translation workflow interface.
 
 ### 0.1.465
 
@@ -484,7 +494,7 @@ Before changing the plugin:
 
 ### 0.1.417
 
-- Passes `codex_thread_id` through lifecycle regression write tests so the
+- Passes `agent_session_id` through lifecycle regression write tests so the
   regression exercises the same workflow authority seam as production upserts.
 
 ### 0.1.416
@@ -713,7 +723,7 @@ Before changing the plugin:
 ### 0.1.377
 
 - Adds a conservative heartbeat work-assignment ability that returns one safe
-  next action for an independent Codex session.
+  next action for an independent agent session.
 
 ### 0.1.376
 
@@ -724,13 +734,13 @@ Before changing the plugin:
 
 - Removes local workflow token fields from protected write, review, and publish
   ability schemas.
-- Requires `codex_thread_id` from `CODEX_THREAD_ID` as the workflow authority
+- Requires `agent_session_id` from `AGENT_SESSION_ID` as the workflow authority
   identity.
 
 ### 0.1.372
 
-- Lets protected write, review, and publish abilities use `codex_thread_id`
-  from `CODEX_THREAD_ID` as the normal server-side workflow authority identity.
+- Lets protected write, review, and publish abilities use `agent_session_id`
+  from `AGENT_SESSION_ID` as the normal server-side workflow authority identity.
 - Makes legacy `step_token` and `step_token_label` optional compatibility
   inputs instead of required local bearer-token fields.
 

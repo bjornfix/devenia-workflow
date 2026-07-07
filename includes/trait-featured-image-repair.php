@@ -37,13 +37,17 @@ trait Devenia_AI_Translations_Featured_Image_Repair {
 					'type'        => 'string',
 					'description' => 'Optional reservation token from ai-translations/reserve-work. Used when repairing one claimed source/language item.',
 				),
-				'codex_thread_id'                  => array(
+				'agent_session_id'                 => array(
 					'type'        => 'string',
-					'description' => 'Required for writes: the exact CODEX_THREAD_ID environment value. The token authority uses it to verify the server-side workflow lease.',
+					'description' => 'Required for writes: stable agent/client session identifier.',
 				),
+				'llm_vendor'                       => self::agent_session_input_schema_properties()['llm_vendor'],
+				'llm_client'                       => self::agent_session_input_schema_properties()['llm_client'],
+				'authority_vendor'                 => self::agent_session_input_schema_properties()['authority_vendor'],
+				'authority_client'                 => self::agent_session_input_schema_properties()['authority_client'],
 				'writer_process_id'                => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session doing this visible media repair. Defaults to codex_thread_id.',
+					'description' => 'Optional stable identifier for the process/session doing this visible media repair. Defaults to agent_session_id.',
 				),
 				'writer_actor'                     => array(
 					'type'        => 'string',

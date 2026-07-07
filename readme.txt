@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.465
+Stable tag: 0.1.466
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,11 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.466 =
+* Requires a vendor-neutral agent session Interface for protected workflow abilities: clients send agent_session_id, llm_vendor, llm_client, authority_vendor, and authority_client.
+* Removes Codex-specific public workflow identity from heartbeat, reservation, and protected workflow ability contracts.
+* Treats LLM clients and workflow authorities as replaceable vendors instead of baking Codex or Ydepi into the translation workflow interface.
 
 = 0.1.465 =
 * Deepens the ability registry and dispatch seam so callbacks come from one operation handler catalogue.
@@ -250,7 +255,7 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 * Updates lifecycle regression to match the independent-review workflow: the write test now proves writer upsert, QA, publish blocking, self-review blocking, and writer publish-update blocking in one actor session.
 
 = 0.1.417 =
-* Passes codex_thread_id through lifecycle regression write tests so the regression exercises the same workflow authority seam as production upserts.
+* Passes agent_session_id through lifecycle regression write tests so the regression exercises the same workflow authority seam as production upserts.
 
 = 0.1.416 =
 * Rejects source-language URL vocabulary for languages that require transliterated URLs, so drafts must use target-language transliteration instead of English/source-based ASCII slugs.
@@ -375,7 +380,7 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 * Adds a read-only server-side heartbeat status ability for independent session health checks.
 
 = 0.1.377 =
-* Adds a conservative heartbeat work-assignment ability that returns one safe next action for an independent Codex session.
+* Adds a conservative heartbeat work-assignment ability that returns one safe next action for an independent agent session.
 
 = 0.1.376 =
 * Keeps draft translations with needs-review workflow status visible in the review queue.
@@ -388,10 +393,10 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 = 0.1.373 =
 * Removes local workflow token fields from protected write/review/publish ability schemas.
-* Requires `codex_thread_id` from `CODEX_THREAD_ID` as the only normal workflow authority identity.
+* Requires `agent_session_id` from `AGENT_SESSION_ID` as the only normal workflow authority identity.
 
 = 0.1.372 =
-* Lets protected write/review/publish abilities use `codex_thread_id` from `CODEX_THREAD_ID` as the normal server-side workflow authority identity.
+* Lets protected write/review/publish abilities use `agent_session_id` from `AGENT_SESSION_ID` as the normal server-side workflow authority identity.
 * Makes legacy `step_token` and `step_token_label` optional compatibility inputs instead of required local bearer-token fields.
 
 = 0.1.371 =
