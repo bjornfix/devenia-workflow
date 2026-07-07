@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.461
+Stable tag: 0.1.462
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.462 =
+* Removes the old runtime blog path readiness contract and the update-blog-taxonomy-paths ability.
+* Uses the published translated posts page as the blog archive route source instead of runtime blog_path and blog_taxonomy_paths fields.
 
 = 0.1.461 =
 * Removes packaged language JSON files and their seed, validation, and release paths.

@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.461
+**Stable tag:** 0.1.462
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,13 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.462
+
+* Removes the old runtime blog path readiness contract and the
+  `update-blog-taxonomy-paths` ability.
+* Uses the published translated posts page as the blog archive route source
+  instead of runtime `blog_path` and `blog_taxonomy_paths` fields.
 
 ### 0.1.461
 

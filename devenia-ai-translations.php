@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.461
+ * Version: 0.1.462
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.461';
+	const VERSION = '0.1.462';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -5469,75 +5469,6 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Update language-specific blog category/tag URL path segments in WordPress options.
-	 *
-	 * @param array<string,mixed> $input Ability input.
-	 * @return array<string,mixed>
-	 */
-	private static function update_blog_taxonomy_paths( array $input ): array {
-		$language = sanitize_key( (string) ( $input['language'] ?? '' ) );
-		if ( '' === $language || ! isset( self::languages()[ $language ] ) ) {
-			return self::error( 'Unknown language.' );
-		}
-
-		$delete = ! empty( $input['delete'] );
-		$blog_path = isset( $input['blog_path'] ) ? trim( sanitize_text_field( (string) $input['blog_path'] ), '/' ) : '';
-		$category  = isset( $input['category'] ) ? sanitize_title( (string) $input['category'] ) : '';
-		$tag       = isset( $input['tag'] ) ? sanitize_title( (string) $input['tag'] ) : '';
-		if ( ! $delete && ( '' === $category || '' === $tag ) ) {
-			return self::error( 'Both category and tag path segments are required.' );
-		}
-		if ( ! $delete && '' === $blog_path ) {
-			$blog_path = self::detect_localized_blog_base_path( $language );
-		}
-		if ( ! $delete && '' === $blog_path ) {
-			return self::error( 'Blog path is required for post translation readiness.' );
-		}
-
-		if ( ! $delete && self::language_requires_transliterated_urls( $language ) ) {
-			foreach ( array( 'blog_path' => $blog_path, 'category' => $category, 'tag' => $tag ) as $key => $segment ) {
-				$segments = 'blog_path' === $key ? explode( '/', trim( $segment, '/' ) ) : array( $segment );
-				foreach ( $segments as $path_segment ) {
-					if ( '' === $path_segment || ! preg_match( '/^[A-Za-z0-9_-]+$/', $path_segment ) ) {
-						return self::error( 'Blog taxonomy path segment must be transliterated ASCII for this language: ' . $key );
-					}
-				}
-			}
-		}
-
-		$languages = get_option( self::OPTION_LANGUAGES );
-		if ( ! is_array( $languages ) ) {
-			$languages = array();
-		}
-		if ( ! isset( $languages[ $language ] ) || ! is_array( $languages[ $language ] ) ) {
-			$languages[ $language ] = array();
-		}
-
-		if ( $delete ) {
-			unset( $languages[ $language ]['blog_taxonomy_paths'] );
-			unset( $languages[ $language ]['blog_path'] );
-		} else {
-			$languages[ $language ]['blog_path'] = $blog_path;
-			$languages[ $language ]['blog_taxonomy_paths'] = array(
-				'category' => $category,
-				'tag'      => $tag,
-			);
-		}
-
-		update_option( self::OPTION_LANGUAGES, $languages, false );
-		self::languages( true );
-
-		return array(
-			'success'             => true,
-			'language'            => $language,
-			'deleted'             => $delete,
-			'blog_path'           => $delete ? null : $languages[ $language ]['blog_path'],
-			'blog_taxonomy_paths' => $delete ? null : $languages[ $language ]['blog_taxonomy_paths'],
-			'message'             => $delete ? 'Blog taxonomy paths removed.' : 'Blog taxonomy paths updated.',
-		);
-	}
-
-	/**
 	 * Runtime language configuration status for operational checks.
 	 *
 	 * @return array{complete:bool,missing:array<string,array<int,string>>,languages:array<string,array<string,mixed>>}
@@ -5549,30 +5480,17 @@ final class Devenia_AI_Translations {
 
 		foreach ( $languages as $language => $config ) {
 			$is_source = ! empty( $config['source'] );
-			$blog_path = isset( $config['blog_path'] ) ? trim( sanitize_text_field( (string) $config['blog_path'] ), '/' ) : '';
-			$paths     = isset( $config['blog_taxonomy_paths'] ) && is_array( $config['blog_taxonomy_paths'] ) ? $config['blog_taxonomy_paths'] : array();
-			$category  = isset( $paths['category'] ) ? sanitize_title( (string) $paths['category'] ) : '';
-			$tag       = isset( $paths['tag'] ) ? sanitize_title( (string) $paths['tag'] ) : '';
+			$blog_path = self::detect_localized_blog_base_path( (string) $language );
 			$row       = array(
-				'is_source'                      => $is_source,
-				'post_translation_ready'         => $is_source || ( '' !== $blog_path && '' !== $category && '' !== $tag ),
-				'blog_path_configured'           => $is_source || '' !== $blog_path,
-				'blog_path'                      => '' !== $blog_path ? $blog_path : null,
-				'blog_taxonomy_paths_configured' => $is_source || ( '' !== $category && '' !== $tag ),
-				'blog_taxonomy_paths'            => ( '' !== $category || '' !== $tag )
-					? array(
-						'category' => $category,
-						'tag'      => $tag,
-					)
-					: null,
-				'missing'                        => array(),
+				'is_source'              => $is_source,
+				'post_translation_ready' => $is_source || '' !== $blog_path,
+				'blog_archive_detected'  => $is_source || '' !== $blog_path,
+				'blog_archive_path'      => '' !== $blog_path ? $blog_path : null,
+				'missing'                => array(),
 			);
 
-			if ( ! $is_source && ! $row['blog_path_configured'] ) {
-				$row['missing'][] = 'blog_path';
-			}
-			if ( ! $is_source && ! $row['blog_taxonomy_paths_configured'] ) {
-				$row['missing'][] = 'blog_taxonomy_paths';
+			if ( ! $is_source && ! $row['blog_archive_detected'] ) {
+				$row['missing'][] = 'translated_posts_page';
 			}
 			if ( ! $is_source && $row['missing'] ) {
 				$missing[ $language ] = $row['missing'];
@@ -5610,11 +5528,8 @@ final class Devenia_AI_Translations {
 		$row    = isset( $status['languages'][ $language ] ) && is_array( $status['languages'][ $language ] ) ? $status['languages'][ $language ] : array();
 		$missing = array();
 		if ( 'post' === $post_type ) {
-			if ( empty( $row['blog_path_configured'] ) ) {
-				$missing[] = 'blog_path';
-			}
-			if ( empty( $row['blog_taxonomy_paths_configured'] ) ) {
-				$missing[] = 'blog_taxonomy_paths';
+			if ( empty( $row['blog_archive_detected'] ) ) {
+				$missing[] = 'translated_posts_page';
 			}
 		}
 
@@ -7350,8 +7265,6 @@ final class Devenia_AI_Translations {
 			return self::get_reviewer_style_profile( $input );
 		case 'record_reviewer_style_edit':
 			return self::record_reviewer_style_edit( $input );
-		case 'update_blog_taxonomy_paths':
-			return self::update_blog_taxonomy_paths( $input );
 		case 'repair_term_archive_self_redirects':
 			return self::repair_term_archive_seo_self_redirects( $input );
 		case 'update_source_qa_options':
@@ -7593,7 +7506,7 @@ final class Devenia_AI_Translations {
 						),
 				'ai-translations/update-runtime-text' => array(
 						'label'            => 'Update Runtime Translation Text',
-					'description'      => 'Updates small runtime translation text stored in WordPress options, such as shared widget, 404, or short menu labels. Use this for typo/copy fixes instead of editing packaged language JSON files or releasing the plugin.',
+					'description'      => 'Updates small runtime translation text stored in WordPress options, such as shared widget, 404, or short menu labels. Use this for typo/copy fixes instead of releasing the plugin.',
 					'input_schema'     => self::runtime_text_input_schema(),
 					'output_schema'    => self::generic_output_schema(),
 					'execute_callback' => function ( $input ) {
@@ -7613,7 +7526,7 @@ final class Devenia_AI_Translations {
 				),
 				'ai-translations/get-quality-profile' => array(
 					'label'            => 'Get Translation Quality Profile',
-					'description'      => 'Returns packaged, runtime, and effective language quality profiles used by translation QA.',
+					'description'      => 'Returns runtime, learned, and effective language quality profiles used by translation QA.',
 					'input_schema'     => self::quality_profile_get_input_schema(),
 					'output_schema'    => self::generic_output_schema(),
 					'execute_callback' => function ( $input ) {
@@ -7623,7 +7536,7 @@ final class Devenia_AI_Translations {
 				),
 				'ai-translations/update-quality-profile' => array(
 					'label'            => 'Update Translation Quality Profile',
-					'description'      => 'Updates runtime language quality profile overrides in WordPress options. Use this for glossary, terminology, agency-copy, review-pattern, and script-signal corrections instead of editing packaged language JSON files.',
+					'description'      => 'Updates runtime language quality profiles in WordPress options. Use this for glossary, terminology, agency-copy, review-pattern, and script-signal corrections.',
 					'input_schema'     => self::quality_profile_update_input_schema(),
 					'output_schema'    => self::generic_output_schema(),
 					'execute_callback' => function ( $input ) {
@@ -7633,7 +7546,7 @@ final class Devenia_AI_Translations {
 				),
 				'ai-translations/record-language-rule-event' => array(
 					'label'            => 'Record Language Rule Event',
-					'description'      => 'Stores a language QA rule, human feedback decision, or reviewer learning event in the audited rule-event table instead of hardcoding it in PHP or packaged language files.',
+					'description'      => 'Stores a language QA rule, human feedback decision, or reviewer learning event in the audited rule-event table instead of hardcoding it in PHP or packaged JSON.',
 					'input_schema'     => self::language_rule_event_input_schema(),
 					'output_schema'    => self::generic_output_schema(),
 					'execute_callback' => function ( $input ) {
@@ -7673,7 +7586,7 @@ final class Devenia_AI_Translations {
 				),
 				'ai-translations/language-policy-status' => array(
 					'label'            => 'Check Language Rule Policy',
-					'description'      => 'Fails when language-specific QA rules are hardcoded in PHP or placed in packaged language files instead of the rule registry/runtime/event store.',
+					'description'      => 'Fails when language-specific QA rules are hardcoded in PHP or placed in packaged JSON instead of runtime profiles or audited rule events.',
 					'input_schema'     => self::empty_input_schema(),
 					'output_schema'    => self::generic_output_schema(),
 					'execute_callback' => function ( $input ) {
@@ -7721,16 +7634,6 @@ final class Devenia_AI_Translations {
 					},
 					'meta'             => self::ability_meta( false, false, true ),
 					),
-					'ai-translations/update-blog-taxonomy-paths' => array(
-					'label'            => 'Update Blog Taxonomy Paths',
-					'description'      => 'Updates language-specific blog category/tag URL path segments in WordPress runtime options. Use this when adding or correcting a language; do not hardcode these paths in PHP.',
-					'input_schema'     => self::blog_taxonomy_paths_input_schema(),
-					'output_schema'    => self::generic_output_schema(),
-					'execute_callback' => function ( $input ) {
-						return self::run_ability_operation( 'update_blog_taxonomy_paths', $input );
-					},
-					'meta'             => self::ability_meta( false, false, true ),
-				),
 				'ai-translations/repair-term-archive-self-redirects' => array(
 					'label'            => 'Repair Term Archive Self Redirects',
 					'description'      => 'Finds and optionally removes SEO-plugin self-redirects that mask localized category and tag archive URLs.',
@@ -7743,7 +7646,7 @@ final class Devenia_AI_Translations {
 				),
 				'ai-translations/update-source-qa-options' => array(
 					'label'            => 'Update Source Translation QA Options',
-					'description'      => 'Updates page-specific translation QA options stored on the source WordPress page. Use this for source-carryover preserve terms instead of editing packaged language JSON files.',
+					'description'      => 'Updates page-specific translation QA options stored on the source WordPress page. Use this for source-carryover preserve terms.',
 					'input_schema'     => self::source_qa_options_input_schema(),
 					'output_schema'    => self::generic_output_schema(),
 					'execute_callback' => function ( $input ) {
@@ -9112,40 +9015,6 @@ final class Devenia_AI_Translations {
 					'type'        => 'array',
 					'items'       => array( 'type' => 'string' ),
 					'description' => 'Terms or phrasings this reviewer rejects for the language.',
-				),
-			),
-			'additionalProperties' => false,
-		);
-	}
-
-	/**
-	 * Input schema for blog taxonomy path updates.
-	 */
-	private static function blog_taxonomy_paths_input_schema(): array {
-		return array(
-			'type'                 => 'object',
-			'required'             => array( 'language' ),
-			'properties'           => array(
-				'language' => array(
-					'type'        => 'string',
-					'description' => 'Configured language code, for example nb, de, ar.',
-				),
-				'blog_path' => array(
-					'type'        => 'string',
-					'description' => 'Full language-specific blog archive path, for example nb/blogg or ar/almudawana. If omitted, the plugin will use the translated posts page path when available.',
-				),
-				'category' => array(
-					'type'        => 'string',
-					'description' => 'Language-specific category URL segment for translated blog archives.',
-				),
-				'tag'      => array(
-					'type'        => 'string',
-					'description' => 'Language-specific tag URL segment for translated blog archives.',
-				),
-				'delete'   => array(
-					'type'        => 'boolean',
-					'default'     => false,
-					'description' => 'Remove the configured blog taxonomy path segments for this language.',
 				),
 			),
 			'additionalProperties' => false,
@@ -20910,7 +20779,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Return a short localized menu label from the packaged language file.
+	 * Return a short localized menu label from runtime language data.
 	 */
 	private static function localized_menu_item_title( object $item, string $language, string $fallback ): string {
 		$languages = self::languages();
@@ -24914,9 +24783,6 @@ final class Devenia_AI_Translations {
 			if ( '' !== $blog_path && '' !== $slug ) {
 				return trim( $blog_path . '/' . $slug, '/' );
 			}
-			if ( $prefix && '' !== $slug ) {
-				return trim( $prefix . '/blog/' . $slug, '/' );
-			}
 
 			$stored = trim( (string) get_post_meta( $post_id, self::META_LOCALIZED_PATH, true ), '/' );
 			if ( '' !== $stored ) {
@@ -24951,31 +24817,7 @@ final class Devenia_AI_Translations {
 	 * Localized blog archive path used as the default parent path for translated posts.
 	 */
 	private static function localized_blog_base_path( string $language ): string {
-		$blog_path = self::runtime_configured_blog_base_path( $language );
-		if ( '' !== $blog_path ) {
-			return $blog_path;
-		}
-
-		$detected = self::detect_localized_blog_base_path( $language );
-		if ( '' !== $detected ) {
-			return $detected;
-		}
-
-		$prefix = self::language_prefix( $language );
-		return $prefix ? trim( $prefix . '/blog', '/' ) : 'blog';
-	}
-
-	/**
-	 * Runtime-configured blog archive path from WordPress options.
-	 */
-	private static function runtime_configured_blog_base_path( string $language ): string {
-		$languages = get_option( self::OPTION_LANGUAGES );
-		if ( ! is_array( $languages ) ) {
-			return '';
-		}
-
-		$config = isset( $languages[ $language ] ) && is_array( $languages[ $language ] ) ? $languages[ $language ] : array();
-		return isset( $config['blog_path'] ) ? trim( sanitize_text_field( (string) $config['blog_path'] ), '/' ) : '';
+		return self::detect_localized_blog_base_path( $language );
 	}
 
 	/**
@@ -25058,18 +24900,10 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Localized category/tag URL segment from language registry data.
+	 * Localized category/tag URL segment from WordPress rewrite settings.
 	 */
 	private static function localized_taxonomy_segment( string $language, string $taxonomy ): string {
-		$languages = self::languages();
-		$config    = isset( $languages[ $language ] ) && is_array( $languages[ $language ] ) ? $languages[ $language ] : array();
-		$paths     = isset( $config['blog_taxonomy_paths'] ) && is_array( $config['blog_taxonomy_paths'] ) ? $config['blog_taxonomy_paths'] : array();
-		$key       = 'post_tag' === $taxonomy ? 'tag' : 'category';
-		$segment   = isset( $paths[ $key ] ) ? sanitize_title( (string) $paths[ $key ] ) : '';
-		if ( '' !== $segment ) {
-			return $segment;
-		}
-
+		unset( $language );
 		global $wp_rewrite;
 		if ( 'post_tag' === $taxonomy ) {
 			$base = is_object( $wp_rewrite ) && ! empty( $wp_rewrite->tag_base ) ? (string) $wp_rewrite->tag_base : 'tag';
