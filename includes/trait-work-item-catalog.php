@@ -178,12 +178,12 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				'editorial_source_validation' => $editorial_validation,
 				'safe_to_apply_source_update_now' => ( ! $source_changes || 0 === count( $requires ) ) && ! $editorial_blocks,
 				'blocking_reason' => $editorial_blocks
-					? 'proposed_source_update_fails_devenia_editorial_design_gate'
+					? 'proposed_source_update_fails_devenia_presentation_contract'
 					: ( ( $source_changes && $requires )
 						? 'proposed_source_update_would_make_existing_translations_stale'
 						: null ),
 				'next_action' => $editorial_blocks
-					? 'fix_source_design_until_gutenberg_validate_devenia_editorial_post_passes'
+					? 'fix_source_design_until_selected_devenia_presentation_contract_passes'
 					: ( ( $source_changes && $requires )
 						? 'prepare_localized_fragments_and_reproject_translations_before_or_with_source_update'
 						: null ),
@@ -639,6 +639,8 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			return array();
 		}
 
+		$validation_summary = self::source_editorial_design_validation_summary( $validation );
+
 		return self::workflow_work_item(
 			'source_design_repair',
 			'source',
@@ -648,7 +650,11 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			array(
 				'source_title' => get_the_title( $source ),
 				'post_status' => sanitize_key( (string) $source->post_status ),
-				'editorial_source_validation' => self::source_editorial_design_validation_summary( $validation ),
+				'article_type' => sanitize_key( (string) ( $validation_summary['article_type'] ?? '' ) ),
+				'template_id' => sanitize_text_field( (string) ( $validation_summary['template_id'] ?? '' ) ),
+				'template_slug' => sanitize_text_field( (string) ( $validation_summary['template_slug'] ?? '' ) ),
+				'template_version' => sanitize_text_field( (string) ( $validation_summary['template_version'] ?? '' ) ),
+				'editorial_source_validation' => $validation_summary,
 				'obligations' => array( 'source_design_repair' ),
 				'linguistic' => 'source_design_repair_required',
 				'quality' => 'source_design_repair_required',
@@ -678,6 +684,13 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 
 		if ( isset( $extra['language_name'] ) ) {
 			$item['language_name'] = sanitize_text_field( (string) $extra['language_name'] );
+		}
+		foreach ( array( 'article_type', 'template_id', 'template_slug', 'template_version' ) as $contract_field ) {
+			if ( isset( $extra[ $contract_field ] ) ) {
+				$item[ $contract_field ] = 'article_type' === $contract_field
+					? sanitize_key( (string) $extra[ $contract_field ] )
+					: sanitize_text_field( (string) $extra[ $contract_field ] );
+			}
 		}
 		if ( isset( $extra['editorial_source_validation'] ) && is_array( $extra['editorial_source_validation'] ) ) {
 			$item['editorial_source_validation'] = $extra['editorial_source_validation'];

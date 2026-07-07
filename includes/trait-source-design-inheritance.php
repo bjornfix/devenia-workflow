@@ -31,6 +31,16 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'design_hash'                  => self::source_design_signature_hash( $content ),
 			'fragment_count'               => count( $fragments ),
 			'fragments'                    => $fragments,
+			'article_type'                 => sanitize_key( (string) ( $editorial_validation['article_type'] ?? '' ) ),
+			'template_id'                  => sanitize_text_field( (string) ( $editorial_validation['template_id'] ?? '' ) ),
+			'template_slug'                => sanitize_text_field( (string) ( $editorial_validation['template_slug'] ?? '' ) ),
+			'template_version'             => sanitize_text_field( (string) ( $editorial_validation['template_version'] ?? '' ) ),
+			'required_visual_evidence'     => isset( $editorial_validation['required_visual_evidence'] ) && is_array( $editorial_validation['required_visual_evidence'] )
+				? array_values( array_map( 'sanitize_key', $editorial_validation['required_visual_evidence'] ) )
+				: array(),
+			'required_design_review_questions' => isset( $editorial_validation['required_design_review_questions'] ) && is_array( $editorial_validation['required_design_review_questions'] )
+				? array_values( array_map( 'sanitize_text_field', $editorial_validation['required_design_review_questions'] ) )
+				: array(),
 			'editorial_source_validation'  => $editorial_validation,
 		);
 	}
@@ -120,7 +130,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'code'       => empty( $validation['available'] ) ? 'source_editorial_validation_unavailable' : 'source_editorial_design_gate_failed',
 			'message'    => empty( $validation['available'] )
 				? 'Source design inheritance is blocked because Devenia editorial source-post validation is unavailable.'
-				: 'Source design inheritance is blocked because the source post does not pass the Devenia editorial design gate.',
+				: 'Source design inheritance is blocked because the source post does not pass the selected Devenia presentation contract.',
 			'source_id'  => (int) $source->ID,
 			'validation' => $validation,
 		);
@@ -657,6 +667,10 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 					'schema_version' => absint( $contract['schema_version'] ?? 1 ),
 					'design_hash' => (string) ( $contract['design_hash'] ?? '' ),
 					'fragment_count' => absint( $contract['fragment_count'] ?? 0 ),
+					'article_type' => sanitize_key( (string) ( $contract['article_type'] ?? '' ) ),
+					'template_id' => sanitize_text_field( (string) ( $contract['template_id'] ?? '' ) ),
+					'template_slug' => sanitize_text_field( (string) ( $contract['template_slug'] ?? '' ) ),
+					'template_version' => sanitize_text_field( (string) ( $contract['template_version'] ?? '' ) ),
 					'editorial_source_validation' => self::source_editorial_design_validation_summary( isset( $contract['editorial_source_validation'] ) && is_array( $contract['editorial_source_validation'] ) ? $contract['editorial_source_validation'] : array() ),
 				),
 				'source_design' => ! empty( $input['include_source_design'] ) ? $contract : null,
@@ -809,8 +823,17 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'available' => ! empty( $validation['available'] ),
 			'passed' => ! empty( $validation['passed'] ),
 			'adapter' => sanitize_text_field( (string) ( $validation['adapter'] ?? '' ) ),
+			'article_type' => sanitize_key( (string) ( $validation['article_type'] ?? '' ) ),
+			'expected_article_type' => sanitize_key( (string) ( $validation['expected_article_type'] ?? '' ) ),
 			'template_id' => sanitize_text_field( (string) ( $validation['template_id'] ?? '' ) ),
+			'template_slug' => sanitize_text_field( (string) ( $validation['template_slug'] ?? '' ) ),
 			'template_version' => sanitize_text_field( (string) ( $validation['template_version'] ?? '' ) ),
+			'required_visual_evidence' => isset( $validation['required_visual_evidence'] ) && is_array( $validation['required_visual_evidence'] )
+				? array_values( array_map( 'sanitize_key', $validation['required_visual_evidence'] ) )
+				: array(),
+			'required_design_review_questions' => isset( $validation['required_design_review_questions'] ) && is_array( $validation['required_design_review_questions'] )
+				? array_values( array_map( 'sanitize_text_field', $validation['required_design_review_questions'] ) )
+				: array(),
 			'issue_count' => absint( $validation['issue_count'] ?? 0 ),
 			'warning_count' => absint( $validation['warning_count'] ?? 0 ),
 			'issue_codes' => isset( $validation['issue_codes'] ) && is_array( $validation['issue_codes'] )

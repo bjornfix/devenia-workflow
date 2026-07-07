@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.469
+**Stable tag:** 0.1.473
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,29 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.473
+
+* Requires source-design repair workers to inspect the live Gutenberg style guide,
+  available patterns, GenerateBlocks pattern libraries, and a comparable live
+  Devenia page before rebuilding article designs.
+
+### 0.1.472
+
+* Carries selected article type and presentation contract metadata through
+  source-design work items and source-design summaries.
+* Updates heartbeat instructions so workers fetch the selected Site Presentation
+  contract instead of assuming every post is a full editorial article.
+
+### 0.1.471
+
+* Adds the translated archive page number to Rank Math SEO titles on paginated
+  translated blog archive pages.
+
+### 0.1.470
+
+* Uses the actual translated blog archive page number when generating Rank Math
+  canonical URLs for paginated archive pages.
 
 ### 0.1.469
 
