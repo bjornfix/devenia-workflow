@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.458
+ * Version: 0.1.459
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.458';
+	const VERSION = '0.1.459';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -25480,11 +25480,6 @@ final class Devenia_AI_Translations {
 	private static function localized_path_for_post( int $post_id, string $language ): string {
 		$post = get_post( $post_id );
 		if ( $post && 'post' === $post->post_type ) {
-			$stored = trim( (string) get_post_meta( $post_id, self::META_LOCALIZED_PATH, true ), '/' );
-			if ( '' !== $stored ) {
-				return $stored;
-			}
-
 			$prefix = self::language_prefix( $language );
 			$blog_path = self::localized_blog_base_path( $language );
 			$slug = $post->post_name ?: sanitize_title( get_the_title( $post ) );
@@ -25493,6 +25488,11 @@ final class Devenia_AI_Translations {
 			}
 			if ( $prefix && '' !== $slug ) {
 				return trim( $prefix . '/blog/' . $slug, '/' );
+			}
+
+			$stored = trim( (string) get_post_meta( $post_id, self::META_LOCALIZED_PATH, true ), '/' );
+			if ( '' !== $stored ) {
+				return $stored;
 			}
 		}
 
