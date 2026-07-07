@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.466
+ * Version: 0.1.467
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.466';
+	const VERSION = '0.1.467';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -9438,11 +9438,7 @@ final class Devenia_AI_Translations {
 			'properties'           => array(
 				'agent_session_id' => array(
 					'type'        => 'string',
-					'description' => 'Required stable agent/client session identifier for the real independent heartbeat session. Legacy agent_session_id is accepted as an alias.',
-				),
-				'agent_session_id' => array(
-					'type'        => 'string',
-					'description' => 'Legacy alias for agent_session_id.',
+					'description' => 'Required stable agent/client session identifier for the real independent heartbeat session.',
 				),
 				'llm_vendor' => self::agent_session_input_schema_properties()['llm_vendor'],
 				'llm_client' => self::agent_session_input_schema_properties()['llm_client'],
