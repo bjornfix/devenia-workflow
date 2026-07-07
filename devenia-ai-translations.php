@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.469
+ * Version: 0.1.471
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -21441,6 +21441,46 @@ final class Devenia_AI_Translations {
 		}
 
 		return trailingslashit( $base_url ) . user_trailingslashit( 'page/' . $page, 'paged' );
+	}
+
+	/**
+	 * Return the current translated posts-page archive page number.
+	 */
+	public static function translated_posts_page_current_page(): int {
+		$page_from_query = max( absint( get_query_var( 'paged' ) ), absint( get_query_var( 'page' ) ) );
+		$page_from_get   = filter_input( INPUT_GET, 'devenia_blog_page', FILTER_UNSAFE_RAW, FILTER_REQUIRE_SCALAR );
+
+		if ( false === $page_from_get || null === $page_from_get ) {
+			$page_from_get = 0;
+		}
+
+		return max( 1, $page_from_query, absint( $page_from_get ) );
+	}
+
+	/**
+	 * Return the canonical translated posts-page URL for the current archive page.
+	 */
+	public static function translated_posts_page_canonical_url(): string {
+		$base_url = self::translated_posts_page_base_url();
+		if ( '' === $base_url ) {
+			return '';
+		}
+
+		return self::translated_posts_page_url( $base_url, self::translated_posts_page_current_page() );
+	}
+
+	/**
+	 * Return the localized archive page label used by translated blog pagination.
+	 */
+	public static function translated_posts_page_page_label( string $language ): string {
+		return self::presentation_label_from_sources(
+			sanitize_key( $language ),
+			array(
+				array( 'blog_archive_text', 'page_label' ),
+				array( 'widget_text', 'Page' ),
+			),
+			__( 'Page', 'devenia-ai-translations' )
+		);
 	}
 
 	/**

@@ -215,6 +215,11 @@ final class AI_Translation_Workflow_RankMath_Addon {
 			return $canonical;
 		}
 
+		if ( method_exists( 'Devenia_AI_Translations', 'translated_posts_page_canonical_url' ) ) {
+			$canonical_url = Devenia_AI_Translations::translated_posts_page_canonical_url();
+			return $canonical_url ?: $canonical;
+		}
+
 		$base_url = Devenia_AI_Translations::translated_posts_page_base_url();
 		return $base_url ?: $canonical;
 	}
@@ -227,6 +232,19 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		$post_title = trim( wp_strip_all_tags( get_the_title( get_queried_object_id() ) ) );
 		if ( '' === $post_title ) {
 			$post_title = __( 'Blog', 'devenia-ai-translations' );
+		}
+
+		if ( method_exists( 'Devenia_AI_Translations', 'translated_posts_page_current_page' ) && method_exists( 'Devenia_AI_Translations', 'translated_posts_page_page_label' ) ) {
+			$page = Devenia_AI_Translations::translated_posts_page_current_page();
+			if ( $page > 1 ) {
+				$page_label = Devenia_AI_Translations::translated_posts_page_page_label( Devenia_AI_Translations::frontend_language() );
+				$post_title = sprintf(
+					'%1$s - %2$s %3$d',
+					$post_title,
+					'' !== $page_label ? $page_label : __( 'Page', 'devenia-ai-translations' ),
+					$page
+				);
+			}
 		}
 
 		return Devenia_AI_Translations::title_from_template_option(

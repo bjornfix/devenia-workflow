@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.469
+Stable tag: 0.1.471
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,12 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.471 =
+* Adds the translated archive page number to Rank Math SEO titles on paginated translated blog archive pages.
+
+= 0.1.470 =
+* Uses the actual translated blog archive page number when generating Rank Math canonical URLs for paginated archive pages.
 
 = 0.1.469 =
 * Moves workflow work-item planning, queue/status read models, translation payload read models, and provenance helpers into dedicated internal modules.
