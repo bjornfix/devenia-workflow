@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.462
+**Stable tag:** 0.1.464
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,15 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.464
+
+* Makes `ai-translations/list-languages` compact by default, with an explicit
+  full detail mode for runtime text and quality profile payloads.
+* Moves workflow obligations onto the shared work-item read model so dashboard
+  and coordinator calls avoid rebuilding heavy translation rows.
+* Adds request-local caching for Gutenberg guardrails and source editorial
+  design validation.
 
 ### 0.1.462
 

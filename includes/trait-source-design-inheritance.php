@@ -55,6 +55,12 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		$content = '' !== $content ? $content : self::normalize_gutenberg_content_for_storage( (string) $source->post_content );
+		static $cache = array();
+		$cache_key = (int) $source->ID . ':' . hash( 'sha256', $content );
+		if ( isset( $cache[ $cache_key ] ) ) {
+			return $cache[ $cache_key ];
+		}
+
 		$context = array(
 			'caller'    => 'devenia-ai-translations',
 			'operation' => 'source_design_inheritance',
@@ -79,15 +85,17 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		if ( ! is_array( $result ) || empty( $result['available'] ) ) {
-			return array(
+			$cache[ $cache_key ] = array(
 				'available' => false,
 				'passed'    => false,
 				'code'      => 'source_editorial_validation_unavailable',
 				'message'   => 'Devenia editorial source-post validation is unavailable. Activate the block-editor validation adapter before source design can be inherited.',
 			);
+			return $cache[ $cache_key ];
 		}
 
-		return $result;
+		$cache[ $cache_key ] = $result;
+		return $cache[ $cache_key ];
 	}
 
 	/**
