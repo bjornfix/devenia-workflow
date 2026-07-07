@@ -118,7 +118,6 @@
     "/plugins/",
     "/contact/"
   ],
-  "blog_path": "it/blog",
   "blog_taxonomy_paths": {
     "category": "categoria",
     "tag": "tag"

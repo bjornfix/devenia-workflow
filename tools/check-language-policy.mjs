@@ -42,6 +42,15 @@ for (const fileName of fs.readdirSync(path.join(base, "languages")).filter((name
     continue;
   }
 
+  if (Object.prototype.hasOwnProperty.call(decoded, "blog_path")) {
+    issues.push({
+      file: relativePath,
+      code: "blog_path_in_packaged_language_file",
+      field: "blog_path",
+      message: "Blog archive paths are live WordPress routing data and must not be seeded from packaged language files.",
+    });
+  }
+
   const profile = decoded.language_profile && typeof decoded.language_profile === "object"
     ? decoded.language_profile
     : {};

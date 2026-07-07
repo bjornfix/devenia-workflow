@@ -120,7 +120,6 @@
   ],
   "script": "zh-Hans",
   "menu_region": "Asia",
-  "blog_path": "zh/blog",
   "blog_taxonomy_paths": {
     "category": "fenlei",
     "tag": "biaoqian"

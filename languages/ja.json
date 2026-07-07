@@ -119,7 +119,6 @@
     "/contact/"
   ],
   "menu_region": "Asia",
-  "blog_path": "ja/blog",
   "blog_taxonomy_paths": {
     "category": "category",
     "tag": "tag"

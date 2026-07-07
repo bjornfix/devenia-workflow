@@ -118,7 +118,6 @@
     "/plugins/",
     "/contact/"
   ],
-  "blog_path": "nl/blog",
   "blog_taxonomy_paths": {
     "category": "categorie",
     "tag": "tag"

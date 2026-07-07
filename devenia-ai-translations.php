@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.456
+ * Version: 0.1.458
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.456';
+	const VERSION = '0.1.458';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -25523,9 +25523,7 @@ final class Devenia_AI_Translations {
 	 * Localized blog archive path used as the default parent path for translated posts.
 	 */
 	private static function localized_blog_base_path( string $language ): string {
-		$languages = self::languages();
-		$config    = isset( $languages[ $language ] ) && is_array( $languages[ $language ] ) ? $languages[ $language ] : array();
-		$blog_path = isset( $config['blog_path'] ) ? trim( sanitize_text_field( (string) $config['blog_path'] ), '/' ) : '';
+		$blog_path = self::runtime_configured_blog_base_path( $language );
 		if ( '' !== $blog_path ) {
 			return $blog_path;
 		}
@@ -25537,6 +25535,19 @@ final class Devenia_AI_Translations {
 
 		$prefix = self::language_prefix( $language );
 		return $prefix ? trim( $prefix . '/blog', '/' ) : 'blog';
+	}
+
+	/**
+	 * Runtime-configured blog archive path from WordPress options.
+	 */
+	private static function runtime_configured_blog_base_path( string $language ): string {
+		$languages = get_option( self::OPTION_LANGUAGES );
+		if ( ! is_array( $languages ) ) {
+			return '';
+		}
+
+		$config = isset( $languages[ $language ] ) && is_array( $languages[ $language ] ) ? $languages[ $language ] : array();
+		return isset( $config['blog_path'] ) ? trim( sanitize_text_field( (string) $config['blog_path'] ), '/' ) : '';
 	}
 
 	/**
@@ -30864,17 +30875,46 @@ final class Devenia_AI_Translations {
 	private static function language_links_for_blog_archive(): array {
 		$links = array();
 		foreach ( self::languages() as $language => $config ) {
-			$path = self::localized_blog_base_path( (string) $language );
-			if ( '' === $path ) {
+			$link = self::published_blog_archive_link_for_language( (string) $language );
+			if ( empty( $link['url'] ) ) {
 				continue;
 			}
-			$links[ $language ] = array(
-				'id'  => 'en' === $language ? absint( get_option( 'page_for_posts' ) ) : 0,
-				'url' => home_url( '/' . trim( $path, '/' ) . '/' ),
-			);
+			$links[ $language ] = $link;
 		}
 
 		return $links;
+	}
+
+	/**
+	 * Published blog archive link for public presentation surfaces.
+	 *
+	 * @return array{id:int,url:string}|array{}
+	 */
+	private static function published_blog_archive_link_for_language( string $language ): array {
+		$language      = sanitize_key( $language );
+		$posts_page_id = absint( get_option( 'page_for_posts' ) );
+		if ( ! $posts_page_id ) {
+			return array();
+		}
+
+		if ( 'en' === $language ) {
+			$url = get_permalink( $posts_page_id );
+			return $url ? array(
+				'id'  => $posts_page_id,
+				'url' => (string) $url,
+			) : array();
+		}
+
+		$translation_id = self::find_translation_id( $posts_page_id, $language, array( 'publish' ) );
+		if ( ! $translation_id ) {
+			return array();
+		}
+
+		$url = get_permalink( $translation_id );
+		return $url ? array(
+			'id'  => $translation_id,
+			'url' => (string) $url,
+		) : array();
 	}
 
 	/**

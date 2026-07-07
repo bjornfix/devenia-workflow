@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.453
+**Stable tag:** 0.1.458
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -205,6 +205,33 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.458
+
+* Removes packaged blog path defaults from language files so live WordPress
+  posts-page translations remain the source of truth for blog archive routes.
+
+### 0.1.457
+
+* Uses published translated posts-page permalinks for blog archive presentation
+  language links before falling back to packaged default blog paths.
+
+### 0.1.456
+
+* Adds compact source-design queue evidence for featured-image media contract
+  failures.
+
+### 0.1.455
+
+* Carries editorial vertical-centering design contract metrics into
+  source-design repair queue payloads so layout improvements remain
+  discoverable as queued work.
+
+### 0.1.454
+
+* Adds content-integrity repair queue support for source and translated
+  Gutenberg content, including Rank Math FAQ blocks with unparseable question
+  attributes or disallowed FAQ item links.
 
 ### 0.1.453
 
