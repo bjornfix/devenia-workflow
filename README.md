@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.460
+**Stable tag:** 0.1.461
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -117,8 +117,10 @@ resolved directly so localized URLs stay intentional.
 WordPress owns translated content, titles, slugs, URLs, taxonomies, menu labels,
 runtime text, and page-specific QA options once those entities exist.
 
-Packaged `languages/*.json` files are install-time defaults only. Do not use
-them for live copy fixes.
+There are no packaged language JSON defaults. Runtime text, translated routes,
+menus, slugs, URLs, and page-specific QA choices belong in WordPress content,
+WordPress options, or the relevant workflow metadata. Language-wide QA policy
+belongs in runtime quality profiles or audited language-rule events.
 
 Use these surfaces instead:
 
@@ -196,7 +198,7 @@ same design instead of being redesigned per language.
 Before changing the plugin:
 
 1. keep fixes in the module that owns the behavior
-2. do not edit `languages/*.json` for current live page text
+2. do not add packaged language JSON files for runtime text, routes, or QA rules
 3. run `node tools/check-php-syntax.mjs`
 4. run `node tools/check-language-policy.mjs`
 5. run `node tools/check-public-release.mjs`
@@ -205,6 +207,13 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.461
+
+* Removes packaged language JSON files and their seed, validation, and release
+  paths.
+* Removes the packaged language-quality JSON registry so language-specific QA
+  policy lives in runtime profiles or audited rule events.
 
 ### 0.1.460
 

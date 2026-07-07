@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.460
+ * Version: 0.1.461
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,12 +24,11 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.460';
+	const VERSION = '0.1.461';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
 	const OPTION_LANGUAGE_PACK_STATUS = 'devenia_ai_translations_language_pack_status';
-	const OPTION_LANGUAGE_TEXT_SEEDED = 'devenia_ai_translations_language_text_seeded';
 	const OPTION_TRANSLATION_INDEX_SCHEMA = 'devenia_ai_translations_index_schema';
 	const OPTION_FRONTEND_SLOW_LOG = 'devenia_ai_translations_frontend_slow_log';
 	const OPTION_REVIEWER_STYLE_PROFILES = 'devenia_ai_translations_reviewer_style_profiles';
@@ -1048,12 +1047,7 @@ final class Devenia_AI_Translations {
 		}
 
 		if ( '' === $stored_version || version_compare( $stored_version, '0.1.87', '<' ) ) {
-			self::validate_language_files();
 			self::ensure_supported_wordpress_language_packs();
-		}
-
-		if ( '' === $stored_version || version_compare( $stored_version, '0.1.104', '<' ) ) {
-			self::seed_runtime_language_text_options();
 		}
 
 		if ( ! $translation_index_schema_current ) {
@@ -2818,19 +2812,14 @@ final class Devenia_AI_Translations {
 		}
 
 		$defaults = self::default_languages();
-		self::maybe_seed_runtime_language_text_options();
-
-		$file_languages = self::strip_runtime_text_sections(
-			self::local_language_registry( array_keys( $defaults ) )
-		);
 		$languages = get_option( self::OPTION_LANGUAGES );
 
 		if ( ! is_array( $languages ) ) {
-			$cache = array_replace_recursive( $defaults, $file_languages );
+			$cache = $defaults;
 			return $cache;
 		}
 
-		$cache = array_replace_recursive( $defaults, $file_languages, $languages );
+		$cache = array_replace_recursive( $defaults, $languages );
 		return $cache;
 	}
 
@@ -2965,7 +2954,7 @@ final class Devenia_AI_Translations {
 	 * @return array<int,string>
 	 */
 	private static function runtime_text_sections(): array {
-		return array( 'menu_items', 'custom_menu_items', 'widget_text', 'not_found_text', 'share_text', 'comment_form_text', 'not_found_routes', 'blog_archive_text' );
+		return array( 'menu_items', 'custom_menu_items', 'widget_text', 'not_found_text', 'share_text', 'comment_form_text', 'blog_archive_text' );
 	}
 
 	/**
@@ -2978,130 +2967,12 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Remove mutable runtime text from packaged language-file data.
-	 *
-	 * Packaged JSON files are install/seed material. Runtime copy must come from
-	 * WordPress data so typo fixes do not require a plugin release.
-	 *
-	 * @param array<string,array<string,mixed>> $languages Language data.
-	 * @return array<string,array<string,mixed>>
-	 */
-	private static function strip_runtime_text_sections( array $languages ): array {
-		foreach ( $languages as $language => $config ) {
-			if ( ! is_array( $config ) ) {
-				continue;
-			}
-			foreach ( self::runtime_text_sections() as $section ) {
-				unset( $languages[ $language ][ $section ] );
-			}
-		}
-
-		return $languages;
-	}
-
-	/**
-	 * Seed packaged mutable text into WordPress options once.
-	 */
-	private static function maybe_seed_runtime_language_text_options(): void {
-		if ( '1' === (string) get_option( self::OPTION_LANGUAGE_TEXT_SEEDED, '' ) && ! self::runtime_language_text_seed_needed() ) {
-			return;
-		}
-
-		self::seed_runtime_language_text_options();
-	}
-
-	/**
-	 * Existing installs may already have seeded runtime text before a new
-	 * language was packaged. Detect missing language/section defaults without
-	 * overwriting operator-maintained runtime copy.
-	 */
-	private static function runtime_language_text_seed_needed(): bool {
-		$defaults      = self::default_languages();
-		$file_registry = self::local_language_registry( array_keys( $defaults ) );
-		$languages     = get_option( self::OPTION_LANGUAGES );
-
-		if ( ! is_array( $languages ) ) {
-			return ! empty( $file_registry );
-		}
-
-		foreach ( $file_registry as $language => $config ) {
-			if ( ! is_array( $config ) ) {
-				continue;
-			}
-			if ( ! isset( $languages[ $language ] ) || ! is_array( $languages[ $language ] ) ) {
-				return true;
-			}
-
-			foreach ( self::runtime_text_sections() as $section ) {
-				if ( empty( $config[ $section ] ) || ! is_array( $config[ $section ] ) ) {
-					continue;
-				}
-				if ( ! isset( $languages[ $language ][ $section ] ) || ! is_array( $languages[ $language ][ $section ] ) ) {
-					return true;
-				}
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Copy packaged mutable text into the runtime WordPress option without
-	 * overwriting existing operator edits.
-	 */
-	private static function seed_runtime_language_text_options(): void {
-		$defaults      = self::default_languages();
-		$file_registry = self::local_language_registry( array_keys( $defaults ) );
-		$languages     = get_option( self::OPTION_LANGUAGES );
-
-		if ( ! is_array( $languages ) ) {
-			$languages = array();
-		}
-
-		$changed = false;
-		foreach ( $file_registry as $language => $config ) {
-			if ( ! is_array( $config ) ) {
-				continue;
-			}
-			if ( ! isset( $languages[ $language ] ) || ! is_array( $languages[ $language ] ) ) {
-				$languages[ $language ] = array();
-				$changed = true;
-			}
-
-			foreach ( self::runtime_text_sections() as $section ) {
-				if ( empty( $config[ $section ] ) || ! is_array( $config[ $section ] ) ) {
-					continue;
-				}
-
-				$current = isset( $languages[ $language ][ $section ] ) && is_array( $languages[ $language ][ $section ] )
-					? $languages[ $language ][ $section ]
-					: array();
-
-				$merged = array_replace_recursive( $config[ $section ], $current );
-				if ( $merged !== $current ) {
-					$languages[ $language ][ $section ] = $merged;
-					$changed = true;
-				}
-			}
-		}
-
-		if ( $changed ) {
-			update_option( self::OPTION_LANGUAGES, $languages, false );
-		}
-		if ( '1' !== (string) get_option( self::OPTION_LANGUAGE_TEXT_SEEDED, '' ) ) {
-			update_option( self::OPTION_LANGUAGE_TEXT_SEEDED, '1', false );
-		}
-	}
-
-	/**
 	 * Update one small runtime text mapping in WordPress options.
 	 *
 	 * @param array<string,mixed> $input Ability input.
 	 * @return array<string,mixed>
 	 */
 	private static function update_runtime_language_text( array $input ): array {
-		self::maybe_seed_runtime_language_text_options();
-
 		$language = sanitize_key( (string) ( $input['language'] ?? '' ) );
 		$section  = sanitize_key( (string) ( $input['section'] ?? '' ) );
 		$source   = isset( $input['source'] ) ? trim( wp_kses_post( (string) $input['source'] ) ) : '';
@@ -3263,8 +3134,6 @@ final class Devenia_AI_Translations {
 	 * @return array<string,mixed>
 	 */
 	private static function update_runtime_quality_profile( array $input ): array {
-		self::maybe_seed_runtime_language_text_options();
-
 		$language = sanitize_key( (string) ( $input['language'] ?? '' ) );
 		if ( '' === $language || ! isset( self::languages()[ $language ] ) ) {
 			return self::error( 'Unknown language.' );
@@ -3335,8 +3204,6 @@ final class Devenia_AI_Translations {
 			}
 			$payload[ $code ] = array(
 				'language'         => $code,
-				'packaged_profile' => self::packaged_language_review_profile( $code ),
-				'packaged_rules'   => self::packaged_language_quality_rules( $code ),
 				'runtime_profile'  => self::runtime_language_review_profile( $code ),
 				'learned_profile'  => self::learned_language_rule_profile( $code ),
 				'effective_profile'=> self::effective_language_review_profile( $code ),
@@ -5029,58 +4896,6 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Packaged seed/default profile for one language.
-	 */
-	private static function packaged_language_review_profile( string $language ): array {
-		$language = sanitize_key( $language );
-		if ( '' === $language ) {
-			return array();
-		}
-
-		$registry = self::local_language_registry( array( $language ) );
-		return isset( $registry[ $language ]['language_profile'] ) && is_array( $registry[ $language ]['language_profile'] )
-			? $registry[ $language ]['language_profile']
-			: array();
-	}
-
-	/**
-	 * Packaged QA rules for one language from the language-quality registry.
-	 */
-	private static function packaged_language_quality_rules( string $language ): array {
-		$language = sanitize_key( $language );
-		if ( '' === $language ) {
-			return array();
-		}
-
-		$registry = self::language_quality_rule_registry();
-		return isset( $registry[ $language ] ) && is_array( $registry[ $language ] )
-			? self::compact_quality_profile( $registry[ $language ] )
-			: array();
-	}
-
-	/**
-	 * Load packaged language-quality rules.
-	 *
-	 * @return array<string,array<string,mixed>>
-	 */
-	private static function language_quality_rule_registry(): array {
-		static $cache = null;
-		if ( null !== $cache ) {
-			return $cache;
-		}
-
-		$file = plugin_dir_path( __FILE__ ) . 'quality-rules/language-quality.json';
-		if ( ! is_readable( $file ) ) {
-			$cache = array();
-			return $cache;
-		}
-
-		$decoded = json_decode( (string) file_get_contents( $file ), true );
-		$cache = isset( $decoded['languages'] ) && is_array( $decoded['languages'] ) ? $decoded['languages'] : array();
-		return $cache;
-	}
-
-	/**
 	 * Runtime profile override for one language from WordPress options.
 	 */
 	private static function runtime_language_review_profile( string $language ): array {
@@ -5096,7 +4911,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Effective profile used by QA after packaged and runtime data are merged.
+	 * Effective profile used by QA after runtime and learned data are merged.
 	 */
 	private static function effective_language_review_profile( string $language ): array {
 		$language = sanitize_key( $language );
@@ -5105,13 +4920,7 @@ final class Devenia_AI_Translations {
 		}
 
 		return self::merge_quality_profile_patch(
-			self::merge_quality_profile_patch(
-				self::merge_quality_profile_patch(
-					self::compact_quality_profile( self::packaged_language_review_profile( $language ) ),
-					self::packaged_language_quality_rules( $language )
-				),
-				self::runtime_language_review_profile( $language )
-			),
+			self::runtime_language_review_profile( $language ),
 			self::learned_language_rule_profile( $language )
 		);
 	}
@@ -5666,8 +5475,6 @@ final class Devenia_AI_Translations {
 	 * @return array<string,mixed>
 	 */
 	private static function update_blog_taxonomy_paths( array $input ): array {
-		self::maybe_seed_runtime_language_text_options();
-
 		$language = sanitize_key( (string) ( $input['language'] ?? '' ) );
 		if ( '' === $language || ! isset( self::languages()[ $language ] ) ) {
 			return self::error( 'Unknown language.' );
@@ -6100,108 +5907,6 @@ final class Devenia_AI_Translations {
 	private static function sanitize_source_qa_audience( string $audience ): string {
 		$audience = sanitize_key( $audience );
 		return in_array( $audience, array( 'individual_operator', 'business_team', 'general_reader' ), true ) ? $audience : '';
-	}
-
-	/**
-	 * Load packaged local language files.
-	 *
-	 * @param array<int,string> $language_codes Language codes to load.
-	 * @return array<string,array<string,mixed>>
-	 */
-	private static function local_language_registry( array $language_codes ): array {
-		static $cache = array();
-
-		$cache_key = implode( '|', array_map( 'sanitize_key', $language_codes ) );
-		if ( isset( $cache[ $cache_key ] ) ) {
-			return $cache[ $cache_key ];
-		}
-
-		$registry = array();
-
-		foreach ( $language_codes as $language ) {
-			$file = plugin_dir_path( __FILE__ ) . 'languages/' . sanitize_key( $language ) . '.json';
-			if ( ! is_readable( $file ) ) {
-				continue;
-			}
-
-			$decoded = json_decode( (string) file_get_contents( $file ), true );
-			if ( ! is_array( $decoded ) ) {
-				continue;
-			}
-
-			$registry[ sanitize_key( $language ) ] = $decoded;
-		}
-
-		$cache[ $cache_key ] = $registry;
-
-		return $registry;
-	}
-
-	/**
-	 * Report packaged language file coverage.
-	 */
-	private static function validate_language_files(): array {
-		$status = array();
-
-		foreach ( array_keys( self::default_languages() ) as $language ) {
-			$file    = plugin_dir_path( __FILE__ ) . 'languages/' . sanitize_key( $language ) . '.json';
-			$exists  = is_readable( $file );
-			$decoded = $exists ? json_decode( (string) file_get_contents( $file ), true ) : null;
-
-			$status[ $language ] = array(
-				'file'       => 'languages/' . sanitize_key( $language ) . '.json',
-				'exists'     => $exists,
-				'valid_json' => is_array( $decoded ),
-				'has_wordpress_locale' => is_array( $decoded ) && isset( $decoded['wordpress_locale'] ) && is_string( $decoded['wordpress_locale'] ) && '' !== trim( $decoded['wordpress_locale'] ),
-				'has_menu'   => is_array( $decoded ) && isset( $decoded['menu_items'] ) && is_array( $decoded['menu_items'] ),
-				'has_widget_text' => is_array( $decoded ) && isset( $decoded['widget_text'] ) && is_array( $decoded['widget_text'] ),
-				'has_not_found_text' => is_array( $decoded ) && isset( $decoded['not_found_text'] ) && is_array( $decoded['not_found_text'] ),
-				'has_comment_form_text' => is_array( $decoded ) && isset( $decoded['comment_form_text'] ) && is_array( $decoded['comment_form_text'] ),
-				'comment_form_text_issues' => is_array( $decoded ) ? self::validate_comment_form_text( $language, $decoded ) : array(),
-				'has_language_profile' => is_array( $decoded ) && isset( $decoded['language_profile'] ) && is_array( $decoded['language_profile'] ),
-				'language_profile_issues' => is_array( $decoded ) ? self::validate_language_profile( $language, $decoded ) : array(),
-				'widget_link_issues' => is_array( $decoded ) ? self::validate_widget_text_links( $language, $decoded ) : array(),
-				'link_issues' => is_array( $decoded ) ? self::validate_language_file_links( $language, $decoded ) : array(),
-			);
-		}
-
-		return $status;
-	}
-
-	/**
-	 * Validate packaged comment form runtime text.
-	 *
-	 * @param string              $language Language code.
-	 * @param array<string,mixed> $decoded  Decoded language file.
-	 * @return array<int,array<string,string>>
-	 */
-	private static function validate_comment_form_text( string $language, array $decoded ): array {
-		$issues = array();
-		$text   = isset( $decoded['comment_form_text'] ) && is_array( $decoded['comment_form_text'] ) ? $decoded['comment_form_text'] : array();
-		$keys   = array(
-			'title_reply',
-			'cancel_reply_link',
-			'comment',
-			'name',
-			'name_required',
-			'email',
-			'email_required',
-			'website',
-			'label_submit',
-			'comments_label',
-		);
-
-		foreach ( $keys as $key ) {
-			if ( ! isset( $text[ $key ] ) || ! is_string( $text[ $key ] ) || '' === trim( $text[ $key ] ) ) {
-				$issues[] = array(
-					'code'     => 'missing_comment_form_text',
-					'language' => sanitize_key( $language ),
-					'key'      => $key,
-				);
-			}
-		}
-
-		return $issues;
 	}
 
 	/**
@@ -7009,58 +6714,6 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Validate required language review profile fields.
-	 */
-	private static function validate_language_profile( string $language, array $decoded ): array {
-		$profile = isset( $decoded['language_profile'] ) && is_array( $decoded['language_profile'] ) ? $decoded['language_profile'] : array();
-		if ( ! $profile ) {
-			return array(
-				array(
-					'language' => $language,
-					'reason'   => 'missing_language_profile',
-				),
-			);
-		}
-
-		$issues = array();
-		foreach ( array( 'review_language', 'tone', 'formality', 'locale_guidance', 'preserve_terms', 'never_translate_terms', 'localized_terms' ) as $key ) {
-			if ( ! array_key_exists( $key, $profile ) ) {
-				$issues[] = array(
-					'language' => $language,
-					'field'    => $key,
-					'reason'   => 'missing_language_profile_field',
-				);
-				continue;
-			}
-			if ( in_array( $key, array( 'preserve_terms', 'never_translate_terms', 'localized_terms' ), true ) && ! is_array( $profile[ $key ] ) ) {
-				$issues[] = array(
-					'language' => $language,
-					'field'    => $key,
-					'reason'   => 'language_profile_field_must_be_array',
-				);
-			}
-		}
-		if ( array_key_exists( 'agency_copy', $profile ) && ! is_array( $profile['agency_copy'] ) ) {
-			$issues[] = array(
-				'language' => $language,
-				'field'    => 'agency_copy',
-				'reason'   => 'language_profile_field_must_be_array',
-			);
-		}
-		foreach ( array( 'review_patterns', 'naturalness_patterns', 'script_signals', 'source_carryover_homographs', 'language_identity_terms', 'wrong_language_markers' ) as $field ) {
-			if ( array_key_exists( $field, $profile ) ) {
-				$issues[] = array(
-					'language' => $language,
-					'field'    => $field,
-					'reason'   => 'language_quality_rule_in_packaged_language_file',
-				);
-			}
-		}
-
-		return $issues;
-	}
-
-	/**
 	 * Check that language QA rules live behind the rule repository surfaces.
 	 *
 	 * @param array<string,mixed> $input Ability input.
@@ -7097,36 +6750,27 @@ final class Devenia_AI_Translations {
 			}
 		}
 
-		foreach ( glob( $base . 'languages/*.json' ) ?: array() as $file ) {
-			$decoded = json_decode( (string) file_get_contents( $file ), true );
-			$profile = isset( $decoded['language_profile'] ) && is_array( $decoded['language_profile'] ) ? $decoded['language_profile'] : array();
-			foreach ( $qa_tokens as $field ) {
-				if ( array_key_exists( $field, $profile ) ) {
-					$issues[] = array(
-						'code' => 'language_quality_rule_in_packaged_language_file',
-						'file' => 'languages/' . basename( $file ),
-						'field' => $field,
-					);
-				}
-			}
+		$language_files = glob( $base . 'languages/*.json' ) ?: array();
+		foreach ( $language_files as $file ) {
+			$issues[] = array(
+				'code' => 'packaged_language_file_present',
+				'file' => 'languages/' . basename( $file ),
+				'message' => 'Packaged language JSON files are no longer part of the translation authority model.',
+			);
+		}
+		if ( is_readable( $base . 'quality-rules/language-quality.json' ) ) {
+			$issues[] = array(
+				'code' => 'packaged_language_quality_registry_present',
+				'file' => 'quality-rules/language-quality.json',
+				'message' => 'Language-specific QA policy belongs in runtime quality profiles or audited rule events, not packaged JSON files.',
+			);
 		}
 
-		$registry_status = self::language_quality_rule_registry_status();
-		foreach ( $registry_status['runtime_option_issues'] ?? array() as $runtime_option_issue ) {
-			$issues[] = $runtime_option_issue;
-		}
 		$event_table_ok  = self::language_rule_events_available();
 		if ( ! $event_table_ok ) {
 			$issues[] = array(
 				'code' => 'language_rule_events_table_missing',
 				'message' => 'The audited language-rule event table is not installed.',
-			);
-		}
-		if ( empty( $registry_status['valid'] ) ) {
-			$issues[] = array(
-				'code' => 'language_quality_registry_invalid',
-				'message' => 'The packaged language-quality rule registry is missing or invalid.',
-				'details' => $registry_status,
 			);
 		}
 
@@ -7135,7 +6779,6 @@ final class Devenia_AI_Translations {
 			'passed'        => empty( $issues ),
 			'issue_count'   => count( $issues ),
 			'issues'        => $issues,
-			'registry'      => $registry_status,
 			'event_table'   => array(
 				'available'       => $event_table_ok,
 				'schema_version'  => (string) get_option( self::OPTION_LANGUAGE_RULE_EVENTS_SCHEMA, '' ),
@@ -7145,153 +6788,10 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Packaged language-quality registry health.
-	 *
-	 * @return array<string,mixed>
-	 */
-	private static function language_quality_rule_registry_status(): array {
-		$registry = self::language_quality_rule_registry();
-		$configured = array_keys( self::languages() );
-		$missing = array();
-		$runtime_option_issues = array();
-		foreach ( $configured as $language ) {
-			if ( self::source_language_code() === $language ) {
-				continue;
-			}
-			if ( empty( $registry[ $language ] ) || ! is_array( $registry[ $language ] ) ) {
-				$missing[] = $language;
-			}
-		}
-		$runtime_script_signal_options = self::runtime_script_signal_option_keys();
-		foreach ( $registry as $language => $rules ) {
-			$signals = isset( $rules['script_signals'] ) && is_array( $rules['script_signals'] ) ? $rules['script_signals'] : array();
-			foreach ( $runtime_script_signal_options as $option_key ) {
-				if ( array_key_exists( $option_key, $signals ) ) {
-					$runtime_option_issues[] = array(
-						'code' => 'runtime_script_signal_option_in_packaged_registry',
-						'file' => 'quality-rules/language-quality.json',
-						'language' => (string) $language,
-						'field' => 'script_signals.' . $option_key,
-						'message' => 'Runtime script-signal mode decisions must be stored as audited language-rule events, not packaged registry rules.',
-					);
-				}
-			}
-		}
-
-		return array(
-			'valid' => empty( $missing ) && empty( $runtime_option_issues ) && ! empty( $registry ),
-			'language_count' => count( $registry ),
-			'missing_languages' => $missing,
-			'runtime_option_issues' => $runtime_option_issues,
-			'path' => 'quality-rules/language-quality.json',
-		);
-	}
-
-	/**
 	 * Return 1-based line number for a string offset.
 	 */
 	private static function line_number_for_offset( string $source, int $offset ): int {
 		return substr_count( substr( $source, 0, max( 0, $offset ) ), "\n" ) + 1;
-	}
-
-	/**
-	 * Validate configured widget link targets against published translations.
-	 *
-	 * @param string              $language Language code.
-	 * @param array<string,mixed> $decoded  Decoded language file.
-	 * @return array<int,array<string,mixed>>
-	 */
-	private static function validate_widget_text_links( string $language, array $decoded ): array {
-		$issues       = array();
-		$widget_text  = isset( $decoded['widget_text'] ) && is_array( $decoded['widget_text'] ) ? $decoded['widget_text'] : array();
-		$link_targets = isset( $decoded['widget_link_targets'] ) && is_array( $decoded['widget_link_targets'] ) ? $decoded['widget_link_targets'] : array();
-
-		foreach ( $link_targets as $source_url => $source_id ) {
-			$source_url = esc_url_raw( (string) $source_url );
-			$source_id  = absint( $source_id );
-			if ( '' === $source_url || ! $source_id ) {
-				$issues[] = array(
-					'source_url' => $source_url,
-					'source_id'  => $source_id,
-					'reason'     => 'invalid_link_target',
-				);
-				continue;
-			}
-
-			$expected_url = self::expected_translation_url_for_source( $source_id, $language );
-			if ( '' === $expected_url ) {
-				$issues[] = array(
-					'source_url' => $source_url,
-					'source_id'  => $source_id,
-					'reason'     => 'missing_published_translation_target',
-				);
-				continue;
-			}
-
-			foreach ( $widget_text as $source_text => $translated_text ) {
-				if ( ! is_string( $source_text ) || ! is_string( $translated_text ) || false === strpos( $source_text, $source_url ) ) {
-					continue;
-				}
-
-				$actual_urls = self::html_href_values( $translated_text );
-				if ( ! in_array( $expected_url, $actual_urls, true ) ) {
-					$issues[] = array(
-						'source_url'   => $source_url,
-						'source_id'    => $source_id,
-						'expected_url' => $expected_url,
-						'actual_urls'  => $actual_urls,
-						'reason'       => 'widget_link_target_mismatch',
-					);
-				}
-			}
-		}
-
-		return $issues;
-	}
-
-	/**
-	 * Validate every href stored in a language file value.
-	 *
-	 * @param string              $language Language code.
-	 * @param array<string,mixed> $decoded  Decoded language file.
-	 * @return array<int,array<string,mixed>>
-	 */
-	private static function validate_language_file_links( string $language, array $decoded ): array {
-		$issues = array();
-
-		foreach ( self::language_file_strings( $decoded ) as $path => $value ) {
-			foreach ( self::localized_link_issues_for_html( $value, $language ) as $issue ) {
-				$issue['language_file_path'] = $path;
-				$issues[] = $issue;
-			}
-		}
-
-		return $issues;
-	}
-
-	/**
-	 * Recursively collect string values from language-file data.
-	 *
-	 * @param mixed  $value Data value.
-	 * @param string $path  Dot path.
-	 * @return array<string,string>
-	 */
-	private static function language_file_strings( $value, string $path = '' ): array {
-		if ( is_string( $value ) ) {
-			return array( $path => $value );
-		}
-
-		if ( ! is_array( $value ) ) {
-			return array();
-		}
-
-		$strings = array();
-		foreach ( $value as $key => $child ) {
-			$child_path = '' === $path ? (string) $key : $path . '.' . (string) $key;
-			$strings    = array_merge( $strings, self::language_file_strings( $child, $child_path ) );
-		}
-
-		return $strings;
 	}
 
 	/**
@@ -7447,8 +6947,6 @@ final class Devenia_AI_Translations {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-ai-translations' ) );
 		}
-
-		self::maybe_seed_runtime_language_text_options();
 
 		$tab      = self::admin_current_tab();
 		$language = self::admin_current_language();
@@ -7796,21 +7294,6 @@ final class Devenia_AI_Translations {
 				'configuration_complete' => $configuration['complete'],
 				'missing_configuration'  => $configuration['missing'],
 			);
-		case 'language_files_status':
-			$status  = self::validate_language_files();
-			$missing = array();
-
-			foreach ( $status as $language => $row ) {
-				if ( empty( $row['exists'] ) || empty( $row['valid_json'] ) || empty( $row['has_wordpress_locale'] ) || empty( $row['has_menu'] ) || empty( $row['has_widget_text'] ) || empty( $row['has_not_found_text'] ) || empty( $row['has_comment_form_text'] ) || empty( $row['has_language_profile'] ) || ! empty( $row['comment_form_text_issues'] ) || ! empty( $row['language_profile_issues'] ) || ! empty( $row['widget_link_issues'] ) || ! empty( $row['link_issues'] ) ) {
-					$missing[] = $language;
-				}
-			}
-
-			return array(
-				'success'        => empty( $missing ),
-				'language_files' => $status,
-				'missing'        => $missing,
-			);
 		case 'get_presentation_surface':
 			$presentation = self::presentation_surface( $input );
 			if ( empty( $presentation ) ) {
@@ -7965,16 +7448,6 @@ final class Devenia_AI_Translations {
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input = array() ) {
 					return self::run_ability_operation( 'list_languages', $input );
-				},
-				'meta'             => self::ability_meta( true, false, true ),
-			),
-			'ai-translations/language-files-status' => array(
-				'label'            => 'Check Translation Language Files',
-				'description'      => 'Returns packaged local language file coverage for all supported AI Translation Workflow translation languages.',
-				'input_schema'     => self::empty_input_schema(),
-				'output_schema'    => self::generic_output_schema(),
-				'execute_callback' => function ( $input = array() ) {
-					return self::run_ability_operation( 'language_files_status', $input );
 				},
 				'meta'             => self::ability_meta( true, false, true ),
 			),
@@ -22971,51 +22444,7 @@ final class Devenia_AI_Translations {
 			}
 		}
 
-		$html = self::filter_not_found_route_cards( $html, $language );
-
 		return self::localize_internal_links_in_content( $html, $language );
-	}
-
-	/**
-	 * Remove 404 route cards that are not approved for the active language.
-	 */
-	private static function filter_not_found_route_cards( string $html, string $language ): string {
-		$languages = self::languages();
-		$routes    = isset( $languages[ $language ]['not_found_routes'] ) && is_array( $languages[ $language ]['not_found_routes'] )
-			? $languages[ $language ]['not_found_routes']
-			: array();
-
-		$allowed = array();
-		foreach ( $routes as $route ) {
-			$route = '/' . trim( (string) $route, '/' ) . '/';
-			if ( '//' !== $route ) {
-				$allowed[ $route ] = true;
-			}
-		}
-
-		if ( ! $allowed ) {
-			return $html;
-		}
-
-		return (string) preg_replace_callback(
-			'~<style>[^<]*\\.gb-container-dv-not-found-card-(\\d+)[\\s\\S]*?</div></div>~',
-			static function ( array $matches ) use ( $allowed ): string {
-				$card = (string) $matches[0];
-				if ( ! preg_match( '/\\bhref=([\"\'])([^\"\']+)\\1/i', $card, $href_match ) ) {
-					return $card;
-				}
-
-				$href = html_entity_decode( (string) $href_match[2], ENT_QUOTES );
-				$path = wp_parse_url( $href, PHP_URL_PATH );
-				$path = is_string( $path ) ? trailingslashit( '/' . trim( $path, '/' ) ) : '';
-				if ( isset( $allowed[ $path ] ) ) {
-					return $card;
-				}
-
-				return '';
-			},
-			$html
-		);
 	}
 
 	/**
@@ -30416,8 +29845,7 @@ final class Devenia_AI_Translations {
 		);
 		$surface['navigation']['language_links'] = self::language_links_presentation_payload( self::language_links_for_not_found(), $language );
 		$surface['archive'] = array(
-			'type'   => 'not_found',
-			'routes' => isset( $config['not_found_routes'] ) && is_array( $config['not_found_routes'] ) ? array_values( array_map( 'strval', $config['not_found_routes'] ) ) : array(),
+			'type' => 'not_found',
 		);
 
 		return apply_filters( 'ai_translation_workflow_presentation_surface', $surface, array() );

@@ -5,95 +5,29 @@ import { fileURLToPath } from "node:url";
 
 const base = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
-const languageProfileRuleFields = [
-  "review_patterns",
-  "naturalness_patterns",
-  "script_signals",
-  "source_carryover_homographs",
-  "shadow_exclusions",
-  "shadow_context_exclusions",
-];
-
-const runtimeScriptSignalOptions = [
-  "infer_text_shadow_terms",
-  "shadow_context_exclusions",
-];
-
 const issues = [];
-const forbiddenTopLevelRouteFields = [
-  "blog_path",
-  "blog_taxonomy_paths",
-  "not_found_routes",
-  "blocked_source_paths",
-];
 
-function readJson(relativePath) {
-  const absolutePath = path.join(base, relativePath);
-  try {
-    return JSON.parse(fs.readFileSync(absolutePath, "utf8"));
-  } catch (error) {
+const languagesDir = path.join(base, "languages");
+if (fs.existsSync(languagesDir)) {
+  const languageFiles = fs.readdirSync(languagesDir)
+    .filter((name) => name.endsWith(".json"))
+    .sort();
+  for (const fileName of languageFiles) {
     issues.push({
-      file: relativePath,
-      code: "invalid_json",
-      message: error instanceof Error ? error.message : String(error),
+      file: path.join("languages", fileName),
+      code: "packaged_language_file_present",
+      message: "Packaged language JSON files have been removed. Store runtime text in WordPress options and language QA policy in runtime profiles or audited rule events.",
     });
-    return null;
-  }
-}
-
-for (const fileName of fs.readdirSync(path.join(base, "languages")).filter((name) => name.endsWith(".json")).sort()) {
-  const relativePath = path.join("languages", fileName);
-  const decoded = readJson(relativePath);
-  if (!decoded || typeof decoded !== "object") {
-    continue;
-  }
-
-  for (const field of forbiddenTopLevelRouteFields) {
-    if (Object.prototype.hasOwnProperty.call(decoded, field)) {
-      issues.push({
-        file: relativePath,
-        code: "route_data_in_packaged_language_file",
-        field,
-        message: "Routes, URL paths, archive paths, and site-specific path filtering are live WordPress routing data and must not be seeded from packaged language files.",
-      });
-    }
-  }
-
-  const profile = decoded.language_profile && typeof decoded.language_profile === "object"
-    ? decoded.language_profile
-    : {};
-  for (const field of languageProfileRuleFields) {
-    if (Object.prototype.hasOwnProperty.call(profile, field)) {
-      issues.push({
-        file: relativePath,
-        code: "language_quality_rule_in_packaged_language_file",
-        field: `language_profile.${field}`,
-      });
-    }
   }
 }
 
 const registryPath = "quality-rules/language-quality.json";
-const registry = readJson(registryPath);
-if (registry && typeof registry === "object") {
-  const registryLanguages = registry.languages && typeof registry.languages === "object"
-    ? registry.languages
-    : {};
-  for (const [language, rules] of Object.entries(registryLanguages)) {
-    const signals = rules && typeof rules === "object" && rules.script_signals && typeof rules.script_signals === "object"
-      ? rules.script_signals
-      : {};
-    for (const optionKey of runtimeScriptSignalOptions) {
-      if (Object.prototype.hasOwnProperty.call(signals, optionKey)) {
-        issues.push({
-          file: registryPath,
-          code: "runtime_script_signal_option_in_packaged_registry",
-          language,
-          field: `script_signals.${optionKey}`,
-        });
-      }
-    }
-  }
+if (fs.existsSync(path.join(base, registryPath))) {
+  issues.push({
+    file: registryPath,
+    code: "packaged_language_quality_registry_present",
+    message: "Language-specific QA policy belongs in runtime quality profiles or audited language-rule events, not packaged JSON files.",
+  });
 }
 
 if (issues.length > 0) {
