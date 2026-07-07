@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.468
+**Stable tag:** 0.1.469
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,21 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.469
+
+* Moves workflow work-item planning, queue/status read models, translation
+  payload read models, and provenance helpers into dedicated internal modules.
+* Keeps queue, workflow-status, heartbeat, and production-flow surfaces on the
+  shared Work Item Catalog/read-model seam.
+
+### 0.1.468
+
+* Splits heartbeat work selection and vendor-neutral agent-session
+  identity/provenance handling into dedicated workflow modules.
+* Centralizes public agent session schema and provenance shaping so protected
+  abilities, reservations, heartbeat, and review checks use the same identity
+  contract.
 
 ### 0.1.467
 

@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.468
+Stable tag: 0.1.469
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.469 =
+* Moves workflow work-item planning, queue/status read models, translation payload read models, and provenance helpers into dedicated internal modules.
+* Keeps queue, workflow-status, heartbeat, and production-flow surfaces on the shared Work Item Catalog/read-model seam.
 
 = 0.1.468 =
 * Splits heartbeat work selection and vendor-neutral agent-session identity/provenance handling into dedicated workflow modules.
