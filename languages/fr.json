@@ -111,13 +111,6 @@
       ]
     }
   },
-  "not_found_routes": [
-    "/",
-    "/services/",
-    "/learn/",
-    "/plugins/",
-    "/contact/"
-  ],
   "comment_form_text": {
     "title_reply": "Laisser un commentaire",
     "cancel_reply_link": "Annuler la réponse",

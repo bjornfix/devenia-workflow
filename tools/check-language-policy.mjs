@@ -20,6 +20,12 @@ const runtimeScriptSignalOptions = [
 ];
 
 const issues = [];
+const forbiddenTopLevelRouteFields = [
+  "blog_path",
+  "blog_taxonomy_paths",
+  "not_found_routes",
+  "blocked_source_paths",
+];
 
 function readJson(relativePath) {
   const absolutePath = path.join(base, relativePath);
@@ -42,13 +48,15 @@ for (const fileName of fs.readdirSync(path.join(base, "languages")).filter((name
     continue;
   }
 
-  if (Object.prototype.hasOwnProperty.call(decoded, "blog_path")) {
-    issues.push({
-      file: relativePath,
-      code: "blog_path_in_packaged_language_file",
-      field: "blog_path",
-      message: "Blog archive paths are live WordPress routing data and must not be seeded from packaged language files.",
-    });
+  for (const field of forbiddenTopLevelRouteFields) {
+    if (Object.prototype.hasOwnProperty.call(decoded, field)) {
+      issues.push({
+        file: relativePath,
+        code: "route_data_in_packaged_language_file",
+        field,
+        message: "Routes, URL paths, archive paths, and site-specific path filtering are live WordPress routing data and must not be seeded from packaged language files.",
+      });
+    }
   }
 
   const profile = decoded.language_profile && typeof decoded.language_profile === "object"

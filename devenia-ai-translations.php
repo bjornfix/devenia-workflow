@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.459
+ * Version: 0.1.460
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Translation_Reservations;
 
-	const VERSION = '0.1.459';
+	const VERSION = '0.1.460';
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
@@ -6156,7 +6156,6 @@ final class Devenia_AI_Translations {
 				'has_menu'   => is_array( $decoded ) && isset( $decoded['menu_items'] ) && is_array( $decoded['menu_items'] ),
 				'has_widget_text' => is_array( $decoded ) && isset( $decoded['widget_text'] ) && is_array( $decoded['widget_text'] ),
 				'has_not_found_text' => is_array( $decoded ) && isset( $decoded['not_found_text'] ) && is_array( $decoded['not_found_text'] ),
-				'has_not_found_routes' => is_array( $decoded ) && isset( $decoded['not_found_routes'] ) && is_array( $decoded['not_found_routes'] ),
 				'has_comment_form_text' => is_array( $decoded ) && isset( $decoded['comment_form_text'] ) && is_array( $decoded['comment_form_text'] ),
 				'comment_form_text_issues' => is_array( $decoded ) ? self::validate_comment_form_text( $language, $decoded ) : array(),
 				'has_language_profile' => is_array( $decoded ) && isset( $decoded['language_profile'] ) && is_array( $decoded['language_profile'] ),
@@ -7802,7 +7801,7 @@ final class Devenia_AI_Translations {
 			$missing = array();
 
 			foreach ( $status as $language => $row ) {
-				if ( empty( $row['exists'] ) || empty( $row['valid_json'] ) || empty( $row['has_wordpress_locale'] ) || empty( $row['has_menu'] ) || empty( $row['has_widget_text'] ) || empty( $row['has_not_found_text'] ) || empty( $row['has_not_found_routes'] ) || empty( $row['has_comment_form_text'] ) || empty( $row['has_language_profile'] ) || ! empty( $row['comment_form_text_issues'] ) || ! empty( $row['language_profile_issues'] ) || ! empty( $row['widget_link_issues'] ) || ! empty( $row['link_issues'] ) ) {
+				if ( empty( $row['exists'] ) || empty( $row['valid_json'] ) || empty( $row['has_wordpress_locale'] ) || empty( $row['has_menu'] ) || empty( $row['has_widget_text'] ) || empty( $row['has_not_found_text'] ) || empty( $row['has_comment_form_text'] ) || empty( $row['has_language_profile'] ) || ! empty( $row['comment_form_text_issues'] ) || ! empty( $row['language_profile_issues'] ) || ! empty( $row['widget_link_issues'] ) || ! empty( $row['link_issues'] ) ) {
 					$missing[] = $language;
 				}
 			}

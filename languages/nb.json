@@ -111,13 +111,6 @@
       ]
     }
   },
-  "not_found_routes": [
-    "/",
-    "/services/",
-    "/learn/",
-    "/plugins/",
-    "/contact/"
-  ],
   "comment_form_text": {
     "title_reply": "Legg igjen en kommentar",
     "cancel_reply_link": "Avbryt svar",

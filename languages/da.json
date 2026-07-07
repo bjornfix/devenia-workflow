@@ -111,13 +111,6 @@
       ]
     }
   },
-  "not_found_routes": [
-    "/",
-    "/services/",
-    "/learn/",
-    "/plugins/",
-    "/contact/"
-  ],
   "comment_form_text": {
     "title_reply": "Skriv et svar",
     "cancel_reply_link": "Annuller svar",

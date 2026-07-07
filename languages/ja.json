@@ -111,18 +111,7 @@
       ]
     }
   },
-  "not_found_routes": [
-    "/",
-    "/services/",
-    "/learn/",
-    "/plugins/",
-    "/contact/"
-  ],
   "menu_region": "Asia",
-  "blog_taxonomy_paths": {
-    "category": "category",
-    "tag": "tag"
-  },
   "comment_form_text": {
     "title_reply": "コメントを残す",
     "cancel_reply_link": "返信をキャンセル",

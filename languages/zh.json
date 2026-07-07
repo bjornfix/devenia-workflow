@@ -111,19 +111,8 @@
       ]
     }
   },
-  "not_found_routes": [
-    "/",
-    "/services/",
-    "/learn/",
-    "/plugins/",
-    "/contact/"
-  ],
   "script": "zh-Hans",
   "menu_region": "Asia",
-  "blog_taxonomy_paths": {
-    "category": "fenlei",
-    "tag": "biaoqian"
-  },
   "comment_form_text": {
     "title_reply": "发表评论",
     "cancel_reply_link": "取消回复",

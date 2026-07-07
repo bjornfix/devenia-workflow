@@ -111,18 +111,7 @@
       ]
     }
   },
-  "not_found_routes": [
-    "/",
-    "/services/",
-    "/learn/",
-    "/plugins/",
-    "/contact/"
-  ],
   "menu_region": "Europe",
-  "blog_taxonomy_paths": {
-    "category": "categoria",
-    "tag": "etiqueta"
-  },
   "comment_form_text": {
     "title_reply": "Deixe uma resposta",
     "cancel_reply_link": "Cancelar resposta",

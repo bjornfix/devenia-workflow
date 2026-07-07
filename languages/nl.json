@@ -111,17 +111,6 @@
       ]
     }
   },
-  "not_found_routes": [
-    "/",
-    "/services/",
-    "/learn/",
-    "/plugins/",
-    "/contact/"
-  ],
-  "blog_taxonomy_paths": {
-    "category": "categorie",
-    "tag": "tag"
-  },
   "comment_form_text": {
     "title_reply": "Laat een reactie achter",
     "cancel_reply_link": "Reactie annuleren",
