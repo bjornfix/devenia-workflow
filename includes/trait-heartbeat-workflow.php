@@ -11,7 +11,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 	 * provenance, reservations, and self-review constraints.
 	 */
 	private static function next_heartbeat_action( array $input ): array {
-		$limit = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 100;
+		$limit = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 500;
 		$claim = ! empty( $input['claim'] );
 		$ttl_seconds = isset( $input['ttl_seconds'] )
 			? max( 60, min( self::MAX_TRANSLATION_CLAIM_TTL, absint( $input['ttl_seconds'] ) ) )
@@ -175,22 +175,22 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 	 *
 	 * The full workflow_obligations response intentionally expands rich review
 	 * state for dashboards. Heartbeat assignment only needs the next safe item,
-	 * so this path uses indexed rows and cheap meta reads first. It does not
-	 * assign publish work from the fast path; publication still uses the full
-	 * publish gate.
+	 * so this path uses indexed rows and cheap meta reads first. Publication
+	 * remains guarded by the normal publish ability and reviewer provenance.
 	 *
 	 * @param array<string,mixed> $input Ability input.
 	 * @return array<string,mixed>
 	 */
 	private static function heartbeat_obligations( array $input ): array {
 		$source_id     = absint( $input['source_id'] ?? 0 );
-		$limit         = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 100;
+		$limit         = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 500;
 		$include_items = array_key_exists( 'include_items', $input ) ? (bool) $input['include_items'] : true;
+		$include_publish_items = array_key_exists( 'include_publish_items', $input ) ? (bool) $input['include_publish_items'] : true;
 		$sources       = self::workflow_source_candidates( $source_id, $limit );
 		if ( $source_id && empty( $sources ) ) {
 			return self::error( 'Source content not found.' );
 		}
-		$catalog = self::workflow_work_items_for_sources( $sources, $include_items, false );
+		$catalog = self::workflow_work_items_for_sources( $sources, $include_items, $include_publish_items );
 
 		return array(
 			'success' => true,
@@ -198,6 +198,159 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			'items'   => $include_items ? $catalog['items'] : array(),
 			'read_model' => 'work_item_catalog',
 		);
+	}
+
+	/**
+	 * Audit whether visible obligations are reachable by the heartbeat assignment Interface.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>
+	 */
+	private static function heartbeat_assignment_coverage( array $input ): array {
+		$limit = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 500;
+		$include_items = ! empty( $input['include_items'] );
+		$obligations = self::heartbeat_obligations(
+			array(
+				'limit' => $limit,
+				'include_items' => true,
+				'include_publish_items' => true,
+			)
+		);
+		if ( empty( $obligations['success'] ) ) {
+			return $obligations;
+		}
+
+		$supported_obligations = array( 'content_integrity_repair', 'source_design_repair', 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
+		$coverage = array(
+			'items_seen' => 0,
+			'actionable_items' => 0,
+			'reserved_items' => 0,
+			'uncovered_items' => 0,
+			'claimable_for_actor' => null,
+			'skipped_for_actor' => null,
+			'by_obligation' => array_fill_keys( $supported_obligations, 0 ),
+			'claimable_by_obligation' => array_fill_keys( $supported_obligations, 0 ),
+			'uncovered_by_obligation' => array_fill_keys( $supported_obligations, 0 ),
+			'skipped_by_reason' => array(),
+		);
+		$identity = array();
+		$identity_error = null;
+		$needs_identity = ! empty( $input['agent_session_id'] ) || ! empty( $input['session_binding_token'] );
+		if ( $needs_identity ) {
+			$identity_result = self::translation_step_token_gate( 'quality_review', $input );
+			if ( ! empty( $identity_result['success'] ) ) {
+				$identity = $identity_result;
+				$coverage['claimable_for_actor'] = 0;
+				$coverage['skipped_for_actor'] = 0;
+			} else {
+				$identity_error = array(
+					'code' => sanitize_key( (string) ( $identity_result['code'] ?? 'workflow_identity_not_confirmed' ) ),
+					'message' => sanitize_text_field( (string) ( $identity_result['message'] ?? 'Heartbeat identity is not confirmed by the workflow authority adapter.' ) ),
+				);
+			}
+		}
+
+		$uncovered_samples = array();
+		$skipped_samples = array();
+		foreach ( $obligations['items'] ?? array() as $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
+			$coverage['items_seen']++;
+			$item_obligations = self::heartbeat_actionable_obligations( $item['obligations'] ?? array() );
+			if ( empty( $item_obligations ) ) {
+				continue;
+			}
+			$coverage['actionable_items']++;
+
+			$source_id = absint( $item['source_id'] ?? 0 );
+			$translation_id = absint( $item['translation_id'] ?? 0 );
+			$language = sanitize_key( (string) ( $item['language'] ?? '' ) );
+			$work_scope = 'source' === sanitize_key( (string) ( $item['work_scope'] ?? '' ) ) ? 'source' : 'translation';
+			$work_type = sanitize_key( (string) ( $item['work_type'] ?? '' ) );
+			$reservation = 'source' === $work_scope
+				? self::source_work_reservation_for_type( $source_id, $work_type )
+				: self::translation_reservation_for_language( $source_id, $language );
+			$is_reserved = ! empty( $reservation );
+			if ( $is_reserved ) {
+				$coverage['reserved_items']++;
+			}
+
+			$item_uncovered = false;
+			$item_claimable = false;
+			$actor_skip_reason = '';
+			foreach ( $item_obligations as $obligation ) {
+				if ( ! isset( $coverage['by_obligation'][ $obligation ] ) ) {
+					continue;
+				}
+				$coverage['by_obligation'][ $obligation ]++;
+				$action = self::heartbeat_action_for_obligation( $obligation );
+				if ( 'wait' === sanitize_key( (string) ( $action['action'] ?? '' ) ) || '' === (string) ( $action['required_ability'] ?? '' ) ) {
+					$item_uncovered = true;
+					$coverage['uncovered_by_obligation'][ $obligation ]++;
+					continue;
+				}
+
+				if ( empty( $identity ) ) {
+					continue;
+				}
+				if ( $is_reserved ) {
+					$actor_skip_reason = 'reserved';
+					continue;
+				}
+				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair', 'source_design_repair', 'content_integrity_repair' ), true )
+					? self::heartbeat_draft_work_eligibility( $identity )
+					: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
+				if ( empty( $eligibility['success'] ) ) {
+					$actor_skip_reason = sanitize_key( (string) ( $eligibility['code'] ?? 'not_eligible' ) . '_' . $obligation );
+					continue;
+				}
+				if ( self::heartbeat_repeats_previous_item_without_change( $input, $identity, $translation_id, $source_id, $language, sanitize_key( (string) $action['action'] ) ) ) {
+					$actor_skip_reason = 'repeated_same_item_for_actor_' . $obligation;
+					continue;
+				}
+
+				$item_claimable = true;
+				$coverage['claimable_by_obligation'][ $obligation ]++;
+				break;
+			}
+
+			if ( $item_uncovered ) {
+				$coverage['uncovered_items']++;
+				if ( $include_items && count( $uncovered_samples ) < 20 ) {
+					$uncovered_samples[] = self::heartbeat_skip_summary( $item, 'unsupported_assignment_mapping' );
+				}
+			}
+			if ( ! empty( $identity ) ) {
+				if ( $item_claimable ) {
+					$coverage['claimable_for_actor']++;
+				} else {
+					$coverage['skipped_for_actor']++;
+					$reason = '' !== $actor_skip_reason ? $actor_skip_reason : 'not_eligible';
+					$coverage['skipped_by_reason'][ $reason ] = absint( $coverage['skipped_by_reason'][ $reason ] ?? 0 ) + 1;
+					if ( $include_items && count( $skipped_samples ) < 20 ) {
+						$skipped_samples[] = self::heartbeat_skip_summary( $item, $reason );
+					}
+				}
+			}
+		}
+
+		$result = array(
+			'success' => true,
+			'read_model' => 'heartbeat_assignment_coverage',
+			'limit' => $limit,
+			'totals' => $obligations['totals'] ?? array(),
+			'coverage' => $coverage,
+			'identity' => ! empty( $identity ) ? self::public_heartbeat_identity( $identity ) : null,
+			'identity_error' => $identity_error,
+			'heartbeat_policy' => self::heartbeat_policy(),
+		);
+		if ( $include_items ) {
+			$result['uncovered_sample'] = $uncovered_samples;
+			$result['skipped_sample'] = $skipped_samples;
+		}
+
+		return $result;
 	}
 
 	/**
@@ -708,6 +861,8 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			'subagent_review' => 'forbidden_unless_session_origin_is_independent_session',
 			'watcher_role' => 'observe_only_no_review_or_publish_signature',
 			'backoff_on_wait_or_escalate' => true,
+			'assignment_coverage_audit' => 'ai-translations/heartbeat-assignment-coverage',
+			'publish_assignment' => 'eligible_after_current_independent_reviews_and_publish_gate',
 		);
 	}
 

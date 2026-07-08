@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.479
+ * Version: 0.1.480
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -34,7 +34,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.479';
+	const VERSION = '0.1.480';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -6913,6 +6913,7 @@ final class Devenia_AI_Translations {
 			'workflow_obligations'            => 'workflow_obligations',
 			'production_flow'                 => 'production_flow',
 			'next_heartbeat_action'           => 'next_heartbeat_action',
+			'heartbeat_assignment_coverage'   => 'heartbeat_assignment_coverage',
 			'heartbeat_status'                => 'heartbeat_status',
 			'queue'                           => 'translation_queue',
 			'review_queue'                    => 'review_queue',
@@ -8099,6 +8100,16 @@ final class Devenia_AI_Translations {
 					return self::run_ability_operation( 'next_heartbeat_action', $input );
 				},
 				'meta'             => self::ability_meta( false, false, true ),
+			),
+			'ai-translations/heartbeat-assignment-coverage' => array(
+				'label'            => 'Audit Heartbeat Assignment Coverage',
+				'description'      => 'Read-only audit that compares workflow obligations with heartbeat assignment coverage so visible queue work cannot silently fall out of the assignment path.',
+				'input_schema'     => self::heartbeat_assignment_coverage_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'heartbeat_assignment_coverage', $input );
+				},
+				'meta'             => self::ability_meta( true, false, true ),
 			),
 			'ai-translations/heartbeat-status' => array(
 				'label'            => 'Get Heartbeat Status',
@@ -9390,7 +9401,7 @@ final class Devenia_AI_Translations {
 				'session_binding_token' => self::session_binding_token_input_schema(),
 				'limit' => array(
 					'type'        => 'integer',
-					'default'     => 100,
+					'default'     => 500,
 					'minimum'     => 1,
 					'maximum'     => 500,
 					'description' => 'Maximum source posts/pages to scan while choosing one action.',
@@ -9410,6 +9421,39 @@ final class Devenia_AI_Translations {
 				'note' => array(
 					'type'        => 'string',
 					'description' => 'Optional heartbeat note stored in health state and reservations.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for assignment coverage audits.
+	 */
+	private static function heartbeat_assignment_coverage_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'agent_session_id' => array(
+					'type'        => 'string',
+					'description' => 'Optional stable agent/client session identifier. When present, the audit includes current-actor eligibility and skip reasons.',
+				),
+				'llm_vendor' => self::agent_session_input_schema_properties()['llm_vendor'],
+				'llm_client' => self::agent_session_input_schema_properties()['llm_client'],
+				'authority_vendor' => self::agent_session_input_schema_properties()['authority_vendor'],
+				'authority_client' => self::agent_session_input_schema_properties()['authority_client'],
+				'session_binding_token' => self::session_binding_token_input_schema(),
+				'limit' => array(
+					'type'        => 'integer',
+					'default'     => 500,
+					'minimum'     => 1,
+					'maximum'     => 500,
+					'description' => 'Maximum source posts/pages to inspect.',
+				),
+				'include_items' => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'Include compact uncovered/skipped item samples.',
 				),
 			),
 			'additionalProperties' => false,
