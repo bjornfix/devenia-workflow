@@ -1314,8 +1314,12 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		if ( ! $dry_run ) {
-			$status = $changed ? 'needs_review' : self::sanitize_translation_status( (string) get_post_meta( $translation_id, self::META_STATUS, true ) );
-			update_post_meta( $translation_id, self::META_SOURCE_HASH, self::source_hash( $source ) );
+			$previous_source_hash = (string) get_post_meta( $translation_id, self::META_SOURCE_HASH, true );
+			$current_source_hash  = self::source_hash( $source );
+			$current_status       = self::sanitize_translation_status( (string) get_post_meta( $translation_id, self::META_STATUS, true ) );
+			$source_was_stale     = '' !== $previous_source_hash && '' !== $current_source_hash && $previous_source_hash !== $current_source_hash;
+			$status               = ( $changed || $source_was_stale || 'stale' === $current_status ) ? 'needs_review' : $current_status;
+			update_post_meta( $translation_id, self::META_SOURCE_HASH, $current_source_hash );
 			update_post_meta( $translation_id, self::META_STATUS, $status );
 			self::store_localized_source_design_fragments( $translation_id, $source, $language, $fragments, isset( $projection['source_design'] ) && is_array( $projection['source_design'] ) ? $projection['source_design'] : array() );
 			self::sync_source_presentation_meta( $translation_id, $source );
