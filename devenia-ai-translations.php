@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.478
+ * Version: 0.1.479
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -34,7 +34,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.478';
+	const VERSION = '0.1.479';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -27337,7 +27337,25 @@ final class Devenia_AI_Translations {
 	 * Localized label used by presentation templates.
 	 */
 	private static function presentation_label( string $language, string $key, string $fallback ): string {
-		return self::presentation_label_from_sources( $language, array( array( 'blog_archive_text', $key ) ), $fallback );
+		$base_key     = preg_replace( '/_label$/', '', sanitize_key( $key ) );
+		$source_label = trim( wp_strip_all_tags( $fallback ) );
+		$sources      = array(
+			array( 'blog_archive_text', $key ),
+		);
+
+		if ( is_string( $base_key ) && '' !== $base_key && $base_key !== $key ) {
+			$sources[] = array( 'blog_archive_text', 'labels.' . $base_key );
+			$sources[] = array( 'blog_archive_text', $base_key );
+		}
+
+		if ( '' !== $source_label ) {
+			$sources[] = array( 'blog_archive_text', $source_label );
+			$sources[] = array( 'widget_text', $source_label );
+			$sources[] = array( 'share_text', $source_label );
+			$sources[] = array( 'comment_form_text', $source_label );
+		}
+
+		return self::presentation_label_from_sources( $language, $sources, $fallback );
 	}
 
 	/**
