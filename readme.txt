@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.486
+Stable tag: 0.1.487
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.487 =
+* Fixes source-design fragment role guardrails so Chinese, Japanese, and Korean localized fragments are measured by CJK text units instead of whitespace-delimited words, preventing false short-fragment blockers on valid translations.
 
 = 0.1.486 =
 * Adds a read-only translation-aware taxonomy term listing ability for source categories, tags, localized mappings, expected slugs, and archive descriptions, and points draft-write assignments to it before taxonomy mirroring.

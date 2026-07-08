@@ -1093,6 +1093,15 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		if ( '' === $text ) {
 			return 0;
 		}
+
+		$cjk_count = preg_match_all( '/[\x{3400}-\x{9FFF}\x{F900}-\x{FAFF}\x{3040}-\x{30FF}\x{AC00}-\x{D7AF}]/u', $text, $cjk_matches );
+		if ( $cjk_count ) {
+			$non_cjk_text = preg_replace( '/[\x{3400}-\x{9FFF}\x{F900}-\x{FAFF}\x{3040}-\x{30FF}\x{AC00}-\x{D7AF}]+/u', ' ', $text ) ?? '';
+			$non_cjk_count = preg_match_all( '/[\\p{L}\\p{N}]+/u', $non_cjk_text, $non_cjk_matches );
+
+			return (int) $cjk_count + ( $non_cjk_count ? (int) $non_cjk_count : 0 );
+		}
+
 		if ( preg_match_all( '/[\\p{L}\\p{N}]+/u', $text, $matches ) ) {
 			return count( $matches[0] );
 		}

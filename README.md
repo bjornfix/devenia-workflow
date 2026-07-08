@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.486
+**Stable tag:** 0.1.487
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,10 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.487
+
+- Fixes source-design fragment role guardrails so Chinese, Japanese, and Korean localized fragments are measured by CJK text units instead of whitespace-delimited words, preventing false short-fragment blockers on valid translations.
 
 ### 0.1.486
 
