@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.483
+Stable tag: 0.1.484
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.484 =
+* Uses full runtime mailto href overrides before falling back to subject/body replacements so localized footer contact links do not keep English payload text.
 
 = 0.1.483 =
 * Requires workers to confirm source category fit before mirroring categories to translated posts, and broadens runtime mailto localization beyond share buttons.

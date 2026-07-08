@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.483
+ * Version: 0.1.484
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -34,7 +34,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.483';
+	const VERSION = '0.1.484';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -19878,6 +19878,11 @@ final class Devenia_AI_Translations {
 			'/(<a\b[^>]*\bhref=)(["\'])(mailto:[^"\']*)\2/isu',
 			static function ( array $match ) use ( $runtime ): string {
 				$href  = html_entity_decode( (string) $match[3], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$full_href = self::runtime_mailto_href_replacement( $href, $runtime );
+				if ( $full_href !== $href ) {
+					return (string) $match[1] . (string) $match[2] . esc_url( $full_href, array( 'mailto' ) ) . (string) $match[2];
+				}
+
 				$parts = wp_parse_url( $href );
 				$query = isset( $parts['query'] ) && is_string( $parts['query'] ) ? $parts['query'] : '';
 				if ( '' === $query ) {
@@ -19912,6 +19917,43 @@ final class Devenia_AI_Translations {
 			},
 			$html
 		);
+	}
+
+	/**
+	 * Match complete mailto href runtime overrides before falling back to query-piece replacements.
+	 *
+	 * @param array{search:array<int,string>,replace:array<int,string>,has_replacements:bool} $runtime Runtime replacement map.
+	 */
+	private static function runtime_mailto_href_replacement( string $href, array $runtime ): string {
+		$search  = isset( $runtime['search'] ) && is_array( $runtime['search'] ) ? array_values( $runtime['search'] ) : array();
+		$replace = isset( $runtime['replace'] ) && is_array( $runtime['replace'] ) ? array_values( $runtime['replace'] ) : array();
+		$needle_href = self::normalize_runtime_mailto_href( $href );
+		if ( '' === $needle_href ) {
+			return $href;
+		}
+
+		foreach ( $search as $index => $candidate ) {
+			$candidate = self::normalize_runtime_mailto_href( (string) $candidate );
+			if ( '' === $candidate || $candidate !== $needle_href ) {
+				continue;
+			}
+
+			$replacement = isset( $replace[ $index ] ) ? (string) $replace[ $index ] : '';
+			$replacement = html_entity_decode( $replacement, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+			return 0 === stripos( $replacement, 'mailto:' ) ? $replacement : $href;
+		}
+
+		return $href;
+	}
+
+	private static function normalize_runtime_mailto_href( string $href ): string {
+		$href = trim( html_entity_decode( $href, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+		$href = str_replace( '&amp;', '&', $href );
+		if ( 0 !== stripos( $href, 'mailto:' ) ) {
+			return '';
+		}
+
+		return $href;
 	}
 
 	/**
