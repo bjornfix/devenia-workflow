@@ -42,6 +42,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				? array_values( array_map( 'sanitize_text_field', $editorial_validation['required_design_review_questions'] ) )
 				: array(),
 			'worker_decision_brief'        => self::source_design_worker_decision_brief( $editorial_validation ),
+			'reader_action_candidates'     => self::source_design_reader_action_candidates( $editorial_validation ),
 			'editorial_source_validation'  => $editorial_validation,
 		);
 	}
@@ -836,6 +837,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				? array_values( array_map( 'sanitize_text_field', $validation['required_design_review_questions'] ) )
 				: array(),
 			'worker_decision_brief' => self::source_design_worker_decision_brief( $validation ),
+			'reader_action_candidates' => self::source_design_reader_action_candidates( $validation ),
 			'issue_count' => absint( $validation['issue_count'] ?? 0 ),
 			'warning_count' => absint( $validation['warning_count'] ?? 0 ),
 			'issue_codes' => isset( $validation['issue_codes'] ) && is_array( $validation['issue_codes'] )
@@ -898,6 +900,46 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		return $sanitized;
+	}
+
+	/**
+	 * Return reader-action destination candidates from the presentation adapter.
+	 *
+	 * @param array<string,mixed> $validation Full presentation validation result.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function source_design_reader_action_candidates( array $validation ): array {
+		if ( empty( $validation['reader_action_candidates'] ) || ! is_array( $validation['reader_action_candidates'] ) ) {
+			return array();
+		}
+
+		$candidates = array();
+		$seen       = array();
+		foreach ( $validation['reader_action_candidates'] as $candidate ) {
+			if ( ! is_array( $candidate ) ) {
+				continue;
+			}
+			$url = esc_url_raw( (string) ( $candidate['url'] ?? '' ) );
+			if ( '' === $url || isset( $seen[ $url ] ) ) {
+				continue;
+			}
+			$seen[ $url ] = true;
+			$matched_terms = isset( $candidate['matched_terms'] ) && is_array( $candidate['matched_terms'] )
+				? array_values( array_map( 'sanitize_text_field', $candidate['matched_terms'] ) )
+				: array();
+			$candidates[] = array(
+				'title'         => sanitize_text_field( (string) ( $candidate['title'] ?? '' ) ),
+				'url'           => $url,
+				'post_id'       => absint( $candidate['post_id'] ?? 0 ),
+				'source'        => sanitize_key( (string) ( $candidate['source'] ?? '' ) ),
+				'confidence'    => max( 0, min( 100, absint( $candidate['confidence'] ?? 0 ) ) ),
+				'matched_terms' => $matched_terms,
+				'reason'        => sanitize_text_field( (string) ( $candidate['reason'] ?? '' ) ),
+				'usage_hint'    => sanitize_text_field( (string) ( $candidate['usage_hint'] ?? '' ) ),
+			);
+		}
+
+		return array_slice( $candidates, 0, 8 );
 	}
 
 	/**
