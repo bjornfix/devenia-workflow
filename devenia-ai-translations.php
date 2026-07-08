@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.477
+ * Version: 0.1.478
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -34,7 +34,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.477';
+	const VERSION = '0.1.478';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -2959,7 +2959,7 @@ final class Devenia_AI_Translations {
 		$profile   = self::language_review_profile( $language );
 		$replacements = array();
 
-		foreach ( array( 'widget_text', 'not_found_text', 'share_text', 'comment_form_text' ) as $section ) {
+		foreach ( array( 'widget_text', 'not_found_text', 'share_text' ) as $section ) {
 			if ( isset( $config[ $section ] ) && is_array( $config[ $section ] ) ) {
 				foreach ( $config[ $section ] as $source => $translated ) {
 					if ( is_string( $source ) && is_string( $translated ) && '' !== $source ) {
@@ -19406,7 +19406,7 @@ final class Devenia_AI_Translations {
 		$html = self::localize_read_more_html( $html, $language );
 		$html = self::localize_archive_entry_meta_labels_html( $html, $language );
 		$html = self::localize_scriptless_social_sharing_html( $html, $runtime, $language );
-		$html = self::localize_akismet_privacy_notice_html( $html, $runtime );
+		$html = self::localize_akismet_privacy_notice_html( $html, $runtime, $language );
 
 		return self::rewrite_visible_text_segments(
 			$html,
@@ -19813,13 +19813,16 @@ final class Devenia_AI_Translations {
 	 *
 	 * @param array{search:array<int,string>,replace:array<int,string>,has_replacements:bool} $runtime Runtime replacement map.
 	 */
-	private static function localize_akismet_privacy_notice_html( string $html, array $runtime ): string {
+	private static function localize_akismet_privacy_notice_html( string $html, array $runtime, string $language ): string {
+		$comment_form_runtime = self::comment_form_phrase_replacements_for_language( $language );
+
 		return (string) preg_replace_callback(
 			'/(<p\b[^>]*class=(["\'])[^"\']*\bakismet_comment_form_privacy_notice\b[^"\']*\2[^>]*>)(.*?)(<\/p>)/isu',
-			static function ( array $match ) use ( $runtime ): string {
+			static function ( array $match ) use ( $runtime, $comment_form_runtime ): string {
 				$content = self::rewrite_visible_text_segments(
 					(string) $match[3],
-					static function ( string $text ) use ( $runtime ): string {
+					static function ( string $text ) use ( $runtime, $comment_form_runtime ): string {
+						$text = self::apply_runtime_text_replacements( $text, $comment_form_runtime );
 						return self::apply_runtime_text_replacements( $text, $runtime );
 					}
 				);
@@ -19827,6 +19830,49 @@ final class Devenia_AI_Translations {
 				return (string) $match[1] . $content . (string) $match[4];
 			},
 			$html
+		);
+	}
+
+	/**
+	 * Phrase-level comment-form replacements for injected notices.
+	 *
+	 * Short field labels such as "Name" or "Comment" are deliberately excluded;
+	 * using them as prose replacements can corrupt unrelated sentence text.
+	 *
+	 * @return array{search:array<int,string>,replace:array<int,string>,has_replacements:bool}
+	 */
+	private static function comment_form_phrase_replacements_for_language( string $language ): array {
+		$language = sanitize_key( $language );
+		$languages = self::languages();
+		$config = isset( $languages[ $language ]['comment_form_text'] ) && is_array( $languages[ $language ]['comment_form_text'] )
+			? $languages[ $language ]['comment_form_text']
+			: array();
+		$replacements = array();
+
+		foreach ( $config as $source => $translated ) {
+			if ( ! is_string( $source ) || ! is_string( $translated ) ) {
+				continue;
+			}
+
+			$source = trim( $source );
+			if ( '' === $source || ! preg_match( '/\s/u', $source ) ) {
+				continue;
+			}
+
+			$replacements[ $source ] = trim( $translated );
+		}
+
+		uksort(
+			$replacements,
+			static function ( string $a, string $b ): int {
+				return strlen( $b ) <=> strlen( $a );
+			}
+		);
+
+		return array(
+			'search'           => array_keys( $replacements ),
+			'replace'          => array_values( $replacements ),
+			'has_replacements' => ! empty( $replacements ),
 		);
 	}
 
