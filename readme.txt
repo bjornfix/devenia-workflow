@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.473
+Stable tag: 0.1.474
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.474 =
+* Adds a content-hash-bound source publish gate handoff so validated Site Presentation pattern repairs can save without weakening the public source design gate.
 
 = 0.1.473 =
 * Adds a required Devenia design-source gate for source-design repair: workers must inspect the live Gutenberg style guide, available patterns, GenerateBlocks pattern libraries, and a comparable live Devenia page before rebuilding article designs.

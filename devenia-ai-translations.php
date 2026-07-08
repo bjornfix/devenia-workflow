@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.473
+ * Version: 0.1.474
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -34,7 +34,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.473';
+	const VERSION = '0.1.474';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -20489,14 +20489,30 @@ final class Devenia_AI_Translations {
 			return $data;
 		}
 
-		$content = self::pending_source_publish_guard_content( $data, $postarr, $post_id );
-		if ( '' === $content && $post_id > 0 ) {
-			$content = (string) get_post_field( 'post_content', $post_id );
-		}
+			$content = self::pending_source_publish_guard_content( $data, $postarr, $post_id );
+			if ( '' === $content && $post_id > 0 ) {
+				$content = (string) get_post_field( 'post_content', $post_id );
+			}
 
 		$guard_post = self::source_publish_guard_post_object( $data, $postarr, $content );
 		$validation = self::source_editorial_design_validation( $guard_post, $content );
 		if ( ! empty( $validation['passed'] ) ) {
+			if ( (int) $guard_post->ID > 0 ) {
+				delete_post_meta( (int) $guard_post->ID, '_devenia_source_publish_design_blocked' );
+			}
+			return $data;
+		}
+		$allow_validated_source_design_save = apply_filters(
+			'devenia_ai_translations_allow_source_publish_design_gate_failure',
+			false,
+			array(
+				'post_id'      => (int) $guard_post->ID,
+				'content_hash' => hash( 'sha256', $content ),
+				'guardrail'    => 'source_publish_design_gate',
+				'validation'   => $validation,
+			)
+		);
+		if ( true === $allow_validated_source_design_save ) {
 			if ( (int) $guard_post->ID > 0 ) {
 				delete_post_meta( (int) $guard_post->ID, '_devenia_source_publish_design_blocked' );
 			}
