@@ -88,12 +88,17 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 	 */
 	private static function validate_translated_post_terms_before_save( WP_Post $source, string $language, $taxonomy_input ): array {
 		if ( 'post' !== $source->post_type || ! self::is_translation_language( $language ) ) {
-			return array( 'success' => true, 'checked' => array(), 'description_decisions' => array() );
+			return array( 'success' => true, 'checked' => array(), 'description_decisions' => array(), 'category_assignment_review' => null );
 		}
 
 		$taxonomy_input = is_array( $taxonomy_input ) ? $taxonomy_input : array();
 		$checked = array();
 		$description_decisions = array();
+		$category_assignment_review = self::validate_source_category_assignment_review( $source, $language, $taxonomy_input );
+		if ( empty( $category_assignment_review['success'] ) ) {
+			$category_assignment_review['stage'] = 'taxonomy_preflight';
+			return $category_assignment_review;
+		}
 
 		foreach ( array( 'category', 'post_tag' ) as $taxonomy ) {
 			$source_terms = wp_get_post_terms( (int) $source->ID, $taxonomy, array( 'hide_empty' => false ) );
@@ -133,6 +138,80 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 			'success'               => true,
 			'checked'               => $checked,
 			'description_decisions' => $description_decisions,
+			'category_assignment_review' => $category_assignment_review['review'] ?? null,
+		);
+	}
+
+	/**
+	 * Require a conscious category-fit check before source categories are mirrored.
+	 *
+	 * @param array<string,mixed> $taxonomy_input Normalized raw taxonomy input.
+	 * @return array<string,mixed>
+	 */
+	private static function validate_source_category_assignment_review( WP_Post $source, string $language, array $taxonomy_input ): array {
+		$source_terms = wp_get_post_terms( (int) $source->ID, 'category', array( 'hide_empty' => false ) );
+		if ( is_wp_error( $source_terms ) ) {
+			return self::error( $source_terms->get_error_message() );
+		}
+		$source_categories = array_values(
+			array_map(
+				static function ( WP_Term $term ): array {
+					return array(
+						'id'          => (int) $term->term_id,
+						'name'        => (string) $term->name,
+						'slug'        => (string) $term->slug,
+						'description' => trim( wp_strip_all_tags( (string) $term->description ) ),
+					);
+				},
+				array_filter(
+					is_array( $source_terms ) ? $source_terms : array(),
+					static function ( $term ): bool {
+						return $term instanceof WP_Term;
+					}
+				)
+			)
+		);
+		if ( empty( $source_categories ) ) {
+			return array( 'success' => true, 'review' => null );
+		}
+
+		$review = isset( $taxonomy_input['category_assignment_review'] ) && is_array( $taxonomy_input['category_assignment_review'] )
+			? $taxonomy_input['category_assignment_review']
+			: array();
+		$note = isset( $review['note'] ) ? trim( wp_strip_all_tags( (string) $review['note'] ) ) : '';
+		$fits = array_key_exists( 'source_categories_fit', $review ) ? rest_sanitize_boolean( $review['source_categories_fit'] ) : null;
+
+		if ( true !== $fits ) {
+			return array(
+				'success'           => false,
+				'message'           => 'Before translated post categories are mirrored, confirm that the source categories actually fit this article. If they do not fit, stop and report the source category assignment problem instead of copying it into another language.',
+				'code'              => 'source_category_assignment_review_required',
+				'language'          => sanitize_key( $language ),
+				'source_id'         => (int) $source->ID,
+				'source_categories' => $source_categories,
+				'required_next_step'=> 'Set taxonomies.category_assignment_review.source_categories_fit=true with a concrete note, or report that the English source categories need correction.',
+			);
+		}
+
+		if ( strlen( $note ) < 24 ) {
+			return array(
+				'success'           => false,
+				'message'           => 'Category assignment confirmation needs a concrete note, not just a checkbox.',
+				'code'              => 'source_category_assignment_note_required',
+				'language'          => sanitize_key( $language ),
+				'source_id'         => (int) $source->ID,
+				'source_categories' => $source_categories,
+				'required_next_step'=> 'Explain why the source categories fit this article before mirroring them to the translated post.',
+			);
+		}
+
+		return array(
+			'success' => true,
+			'review'  => array(
+				'source_categories_fit' => true,
+				'note'                  => $note,
+				'source_categories'     => $source_categories,
+			),
 		);
 	}
 
