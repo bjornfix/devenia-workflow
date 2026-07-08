@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.480
+ * Version: 0.1.481
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -34,7 +34,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.480';
+	const VERSION = '0.1.481';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -15224,22 +15224,34 @@ final class Devenia_AI_Translations {
 		$languages  = self::repair_language_filter( $input['languages'] ?? array() );
 		$source_ids = self::repair_source_filter( $input['source_ids'] ?? array() );
 
-		$query = self::translation_page_query(
-			array(
-					'post_status'    => self::translation_workflow_post_statuses( false ),
-				'posts_per_page' => 1000,
-			)
-		);
-
-		$posts = array_values(
-			array_filter(
-				$query->posts,
-				static function ( WP_Post $post ): bool {
-					return '' !== (string) get_post_meta( $post->ID, self::META_LANGUAGE, true )
-						&& 0 < absint( get_post_meta( $post->ID, self::META_SOURCE_ID, true ) );
+		if ( $source_ids ) {
+			$posts = array();
+			foreach ( $source_ids as $source_id ) {
+				foreach ( self::translation_posts_for_source( absint( $source_id ), self::translation_workflow_post_statuses( false ) ) as $post ) {
+					if ( $post instanceof WP_Post ) {
+						$posts[ (int) $post->ID ] = $post;
+					}
 				}
-			)
-		);
+			}
+			$posts = array_values( $posts );
+		} else {
+			$query = self::translation_page_query(
+				array(
+					'post_status'    => self::translation_workflow_post_statuses( false ),
+					'posts_per_page' => -1,
+				)
+			);
+
+			$posts = array_values(
+				array_filter(
+					$query->posts,
+					static function ( WP_Post $post ): bool {
+						return '' !== (string) get_post_meta( $post->ID, self::META_LANGUAGE, true )
+							&& 0 < absint( get_post_meta( $post->ID, self::META_SOURCE_ID, true ) );
+					}
+				)
+			);
+		}
 		usort(
 			$posts,
 			static function ( WP_Post $a, WP_Post $b ): int {
@@ -19862,7 +19874,12 @@ final class Devenia_AI_Translations {
 
 		return (string) preg_replace_callback(
 			'/(<p\b[^>]*class=(["\'])[^"\']*\bakismet_comment_form_privacy_notice\b[^"\']*\2[^>]*>)(.*?)(<\/p>)/isu',
-			static function ( array $match ) use ( $runtime, $comment_form_runtime ): string {
+			static function ( array $match ) use ( $runtime, $comment_form_runtime, $language ): string {
+				$localized_notice = self::localized_akismet_notice_content( (string) $match[3], $language );
+				if ( '' !== $localized_notice ) {
+					return (string) $match[1] . $localized_notice . (string) $match[4];
+				}
+
 				$content = self::rewrite_visible_text_segments(
 					(string) $match[3],
 					static function ( string $text ) use ( $runtime, $comment_form_runtime ): string {
@@ -19875,6 +19892,41 @@ final class Devenia_AI_Translations {
 			},
 			$html
 		);
+	}
+
+	/**
+	 * Localize Akismet's split privacy notice as one reader-facing sentence.
+	 */
+	private static function localized_akismet_notice_content( string $html, string $language ): string {
+		$text = trim( preg_replace( '/\s+/u', ' ', html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) ?? '' );
+		if ( '' === $text || false === stripos( $text, 'akismet' ) || false === stripos( $text, 'comment data is processed' ) ) {
+			return '';
+		}
+
+		$languages = self::languages();
+		$config = isset( $languages[ $language ]['comment_form_text'] ) && is_array( $languages[ $language ]['comment_form_text'] )
+			? $languages[ $language ]['comment_form_text']
+			: array();
+		$sources = array(
+			'This site uses Akismet to reduce spam. Learn how your comment data is processed.',
+			'This site uses Akismet to reduce spam. Learn how your comment data is processed',
+		);
+		$translation = '';
+		foreach ( $sources as $source ) {
+			if ( isset( $config[ $source ] ) && is_string( $config[ $source ] ) && '' !== trim( $config[ $source ] ) ) {
+				$translation = trim( $config[ $source ] );
+				break;
+			}
+		}
+		if ( '' === $translation ) {
+			return '';
+		}
+
+		if ( preg_match( '/(<a\b[^>]*>)(.*?)(<\/a>)/isu', $html, $anchor ) && preg_match( '/^(.+?[.!?。！？])\s*(.+)$/u', $translation, $parts ) ) {
+			return esc_html( trim( (string) $parts[1] ) ) . ' ' . (string) $anchor[1] . esc_html( trim( (string) $parts[2] ) ) . (string) $anchor[3];
+		}
+
+		return esc_html( $translation );
 	}
 
 	/**
