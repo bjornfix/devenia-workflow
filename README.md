@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.487
+**Stable tag:** 0.1.488
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.488
+
+- Adds a first-class source taxonomy review queue item and mark-source-taxonomy-reviewed ability so source post categories/tags are checked for topical fit, singleton terms, existing-term reuse, and avoidable term sprawl before translations mirror them.
+- Blocks translation taxonomy mirroring when the source taxonomy review is missing or stale, and requires concrete keep/replace/remove evidence for assigned singleton terms before the source review can be marked complete.
 
 ### 0.1.487
 

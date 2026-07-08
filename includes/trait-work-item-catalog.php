@@ -133,17 +133,17 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			);
 		}
 
-		$proposed_title   = array_key_exists( 'proposed_source_title', $input ) ? (string) $input['proposed_source_title'] : (string) $source->post_title;
-		$proposed_excerpt = array_key_exists( 'proposed_source_excerpt', $input ) ? (string) $input['proposed_source_excerpt'] : (string) $source->post_excerpt;
-			$proposed_content = self::normalize_gutenberg_content_for_storage( (string) $input['proposed_source_content'] );
-			$editorial_validation = self::source_editorial_design_validation( $source, $proposed_content );
-			$editorial_blocks = empty( $editorial_validation['passed'] );
-			$current_hash     = self::source_hash( $source );
-			$proposed_hash    = self::source_hash_from_values( $proposed_title, $proposed_excerpt, $proposed_content );
-			$source_changes   = $proposed_hash !== $current_hash;
-		$translations     = self::translation_rows_for_source( $source_id );
-		$requires         = array();
-		$published_count  = 0;
+		$proposed_title       = array_key_exists( 'proposed_source_title', $input ) ? (string) $input['proposed_source_title'] : (string) $source->post_title;
+		$proposed_excerpt     = array_key_exists( 'proposed_source_excerpt', $input ) ? (string) $input['proposed_source_excerpt'] : (string) $source->post_excerpt;
+		$proposed_content     = self::normalize_gutenberg_content_for_storage( (string) $input['proposed_source_content'] );
+		$editorial_validation = self::source_editorial_design_validation( $source, $proposed_content );
+		$editorial_blocks     = empty( $editorial_validation['passed'] );
+		$current_hash         = self::source_hash( $source );
+		$proposed_hash        = self::source_hash_from_values( $proposed_title, $proposed_excerpt, $proposed_content );
+		$source_changes       = $proposed_hash !== $current_hash;
+		$translations         = self::translation_rows_for_source( $source_id );
+		$requires             = array();
+		$published_count      = 0;
 
 		foreach ( $translations as $translation ) {
 			$translation_id = absint( $translation['id'] ?? 0 );
@@ -172,24 +172,24 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			'source_changes' => $source_changes,
 			'current_source_hash' => $current_hash,
 			'proposed_source_hash' => $proposed_hash,
-			'existing_translation_count' => count( $translations ),
-				'published_translation_count' => $published_count,
-				'requires_reprojection_count' => count( $requires ),
-				'editorial_source_validation' => $editorial_validation,
-				'safe_to_apply_source_update_now' => ( ! $source_changes || 0 === count( $requires ) ) && ! $editorial_blocks,
-				'blocking_reason' => $editorial_blocks
-					? 'proposed_source_update_fails_devenia_presentation_contract'
-					: ( ( $source_changes && $requires )
-						? 'proposed_source_update_would_make_existing_translations_stale'
-						: null ),
-				'next_action' => $editorial_blocks
-					? 'fix_source_design_until_selected_devenia_presentation_contract_passes'
-					: ( ( $source_changes && $requires )
-						? 'prepare_localized_fragments_and_reproject_translations_before_or_with_source_update'
-						: null ),
-				'items' => $obligation_items ? $requires : array(),
-			);
-		}
+			'existing_translation_count'      => count( $translations ),
+			'published_translation_count'     => $published_count,
+			'requires_reprojection_count'     => count( $requires ),
+			'editorial_source_validation'     => $editorial_validation,
+			'safe_to_apply_source_update_now' => ( ! $source_changes || 0 === count( $requires ) ) && ! $editorial_blocks,
+			'blocking_reason'                 => $editorial_blocks
+				? 'proposed_source_update_fails_devenia_presentation_contract'
+				: ( ( $source_changes && $requires )
+					? 'proposed_source_update_would_make_existing_translations_stale'
+					: null ),
+			'next_action'                     => $editorial_blocks
+				? 'fix_source_design_until_selected_devenia_presentation_contract_passes'
+				: ( ( $source_changes && $requires )
+					? 'prepare_localized_fragments_and_reproject_translations_before_or_with_source_update'
+					: null ),
+			'items'                           => $obligation_items ? $requires : array(),
+		);
+	}
 
 	/**
 	 * One compact workflow dashboard for agents: production keeps moving, review
@@ -288,6 +288,13 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			}
 		}
 
+		foreach ( self::source_taxonomy_workflow_source_candidates( $scan_limit ) as $candidate ) {
+			self::add_workflow_source_candidate( $sources, $candidate, $limit );
+			if ( count( $sources ) >= $limit ) {
+				return $sources;
+			}
+		}
+
 		foreach ( self::translation_workflow_source_candidates( $scan_limit ) as $candidate ) {
 			self::add_workflow_source_candidate( $sources, $candidate, $limit );
 			if ( count( $sources ) >= $limit ) {
@@ -370,6 +377,42 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	}
 
 	/**
+	 * Candidate source posts that need category/tag assignment review.
+	 *
+	 * @return array<int,WP_Post>
+	 */
+	private static function source_taxonomy_workflow_source_candidates( int $scan_limit ): array {
+		$query = self::source_content_query(
+			array(
+				'post_type'      => 'post',
+				'post_status'    => 'publish',
+				'posts_per_page' => max( 1, min( 2000, $scan_limit ) ),
+				'orderby'        => 'modified',
+				'order'          => 'DESC',
+				'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Source taxonomy queue must include original posts whose taxonomy review is missing or stale.
+					array(
+						'key'     => self::META_SOURCE_ID,
+						'compare' => 'NOT EXISTS',
+					),
+				),
+			)
+		);
+
+		$sources = array();
+		foreach ( $query->posts as $candidate ) {
+			if ( ! $candidate instanceof WP_Post ) {
+				continue;
+			}
+			if ( ! self::source_taxonomy_review_work_item( $candidate ) ) {
+				continue;
+			}
+			$sources[] = $candidate;
+		}
+
+		return $sources;
+	}
+
+	/**
 	 * Candidate source content for translation workflow work.
 	 *
 	 * @return array<int,WP_Post>
@@ -430,6 +473,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			'sources_scanned'            => count( $sources ),
 			'content_integrity_repair'   => 0,
 			'source_design_repair'       => 0,
+			'source_taxonomy_review'     => 0,
 			'translations_seen'          => 0,
 			'missing_translations'       => 0,
 			'needs_source_reprojection'  => 0,
@@ -465,6 +509,16 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				++$totals['needs_draft_work'];
 				if ( $include_items ) {
 					$items[] = $source_design_item;
+				}
+				continue;
+			}
+
+			$source_taxonomy_item = self::source_taxonomy_review_work_item( $source );
+			if ( $source_taxonomy_item ) {
+				++$totals['source_taxonomy_review'];
+				++$totals['needs_draft_work'];
+				if ( $include_items ) {
+					$items[] = $source_taxonomy_item;
 				}
 				continue;
 			}
@@ -663,6 +717,34 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		);
 	}
 
+	private static function source_taxonomy_review_work_item( WP_Post $source ): array {
+		if ( 'post' !== (string) $source->post_type ) {
+			return array();
+		}
+
+		$review = self::source_taxonomy_review_state( $source );
+		if ( ! empty( $review['passed'] ) ) {
+			return array();
+		}
+
+		return self::workflow_work_item(
+			'source_taxonomy_review',
+			'source',
+			(int) $source->ID,
+			0,
+			'',
+			array(
+				'source_title' => get_the_title( $source ),
+				'post_status' => sanitize_key( (string) $source->post_status ),
+				'source_taxonomy' => $review,
+				'obligations' => array( 'source_taxonomy_review' ),
+				'linguistic' => 'source_taxonomy_review_required',
+				'quality' => 'source_taxonomy_review_required',
+				'final' => 'source_taxonomy_review_required',
+			)
+		);
+	}
+
 	private static function workflow_work_item( string $work_type, string $scope, int $source_id, int $translation_id, string $language, array $extra = array() ): array {
 		$work_type = sanitize_key( $work_type );
 		$scope     = 'source' === sanitize_key( $scope ) ? 'source' : 'translation';
@@ -698,6 +780,9 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		if ( isset( $extra['content_integrity'] ) && is_array( $extra['content_integrity'] ) ) {
 			$item['content_integrity'] = $extra['content_integrity'];
 		}
+		if ( isset( $extra['source_taxonomy'] ) && is_array( $extra['source_taxonomy'] ) ) {
+			$item['source_taxonomy'] = $extra['source_taxonomy'];
+		}
 
 		return $item;
 	}
@@ -725,9 +810,10 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 
 		$items  = array();
 		$totals = array(
-			'content_integrity_repair'   => 0,
-			'source_design_repair'       => 0,
-			'missing'                 => 0,
+			'content_integrity_repair' => 0,
+			'source_design_repair'     => 0,
+			'source_taxonomy_review'   => 0,
+			'missing'                  => 0,
 			'stale'                   => 0,
 			'draft'                   => 0,
 			'needs_review'            => 0,
@@ -1032,29 +1118,43 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		}
 
 		$source_work_items = array();
-			$source_content_item = self::source_content_integrity_repair_work_item( $source );
-			if ( $source_content_item ) {
-				$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'content_integrity_repair' );
-				$source_state = $source_reservation ? 'reserved' : 'content_integrity_repair';
+		$source_content_item = self::source_content_integrity_repair_work_item( $source );
+		if ( $source_content_item ) {
+			$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'content_integrity_repair' );
+			$source_state = $source_reservation ? 'reserved' : 'content_integrity_repair';
+			if ( empty( $status_filter ) || in_array( $source_state, $status_filter, true ) ) {
+				$source_work_items[] = array(
+					'state'       => $source_state,
+					'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'repair_content_integrity',
+					'work_item'   => $source_content_item,
+					'reservation' => $source_reservation ? self::public_source_work_reservation( $source_reservation ) : null,
+				);
+			}
+		}
+
+		$source_design_item = self::source_design_repair_work_item( $source );
+			if ( $source_design_item ) {
+				$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'source_design_repair' );
+				$source_state = $source_reservation ? 'reserved' : 'source_design_repair';
 				if ( empty( $status_filter ) || in_array( $source_state, $status_filter, true ) ) {
 					$source_work_items[] = array(
 						'state'       => $source_state,
-						'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'repair_content_integrity',
-						'work_item'   => $source_content_item,
+						'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'repair_source_design',
+						'work_item'   => $source_design_item,
 						'reservation' => $source_reservation ? self::public_source_work_reservation( $source_reservation ) : null,
 					);
 				}
 			}
 
-			$source_design_item = self::source_design_repair_work_item( $source );
-			if ( $source_design_item ) {
-			$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'source_design_repair' );
-			$source_state = $source_reservation ? 'reserved' : 'source_design_repair';
+		$source_taxonomy_item = self::source_taxonomy_review_work_item( $source );
+		if ( $source_taxonomy_item ) {
+			$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'source_taxonomy_review' );
+			$source_state = $source_reservation ? 'reserved' : 'source_taxonomy_review';
 			if ( empty( $status_filter ) || in_array( $source_state, $status_filter, true ) ) {
 				$source_work_items[] = array(
 					'state'       => $source_state,
-					'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'repair_source_design',
-					'work_item'   => $source_design_item,
+					'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'review_source_taxonomy',
+					'work_item'   => $source_taxonomy_item,
 					'reservation' => $source_reservation ? self::public_source_work_reservation( $source_reservation ) : null,
 				);
 			}

@@ -76,7 +76,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			}
 
 			foreach ( $item_obligations as $obligation ) {
-				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair', 'source_design_repair', 'content_integrity_repair' ), true )
+				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair', 'source_design_repair', 'source_taxonomy_review', 'content_integrity_repair' ), true )
 					? self::heartbeat_draft_work_eligibility( $identity )
 					: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
 				if ( empty( $eligibility['success'] ) ) {
@@ -220,7 +220,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			return $obligations;
 		}
 
-		$supported_obligations = array( 'content_integrity_repair', 'source_design_repair', 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
+		$supported_obligations = array( 'content_integrity_repair', 'source_design_repair', 'source_taxonomy_review', 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
 		$coverage = array(
 			'items_seen' => 0,
 			'actionable_items' => 0,
@@ -298,7 +298,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 					$actor_skip_reason = 'reserved';
 					continue;
 				}
-				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair', 'source_design_repair', 'content_integrity_repair' ), true )
+				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair', 'source_design_repair', 'source_taxonomy_review', 'content_integrity_repair' ), true )
 					? self::heartbeat_draft_work_eligibility( $identity )
 					: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
 				if ( empty( $eligibility['success'] ) ) {
@@ -446,7 +446,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 		if ( ! is_array( $obligations ) ) {
 			return array();
 		}
-		$allowed = array( 'content_integrity_repair', 'source_design_repair', 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
+		$allowed = array( 'content_integrity_repair', 'source_design_repair', 'source_taxonomy_review', 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
 		$ordered = array();
 		foreach ( $allowed as $obligation ) {
 			if ( in_array( $obligation, $obligations, true ) ) {
@@ -490,6 +490,12 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 				'required_ability' => 'devenia-site-presentation/apply-article-contract-pattern',
 				'design_ownership' => $design_ownership,
 				'instructions' => 'The source post itself does not pass the selected Devenia presentation contract. Before designing or rebuilding anything, fetch the live design sources through MCP: the Gutenberg style guide, registered block patterns, and any relevant block pattern library abilities exposed for the article type and section role. Use the article_type/template fields on the work item when fetching devenia-site-presentation/get-article-contract; do not assume editorial_post. Inspect the source, at least one comparable live Devenia page, and the public render. Rebuild through devenia-site-presentation/apply-article-contract-pattern with explicit fragments for that contract, validate with stamp-article-contract dry-run, then browser-check against the comparable page. Stop before reviewing or publishing any downstream translation work. After the source is repaired, translations will enter source-design reprojection work.',
+			),
+			'source_taxonomy_review' => array(
+				'action' => 'review_source_taxonomy',
+				'workflow_step' => 'draft_write',
+				'required_ability' => 'ai-translations/mark-source-taxonomy-reviewed',
+				'instructions' => 'Review the English source post categories and tags before they are mirrored into translations. Read what the post is actually about, inspect assigned categories/tags, and use the source_taxonomy payload for singleton/sprawl signals and existing reuse candidates. Prefer reusing or consolidating existing terms when they cover the same reader intent; keep a narrow one-post term only when it is genuinely useful as a reader archive. If terms need changing, use content/update-post with category_ids/tag_ids first. Then mark this review complete with ai-translations/mark-source-taxonomy-reviewed, including concrete topical-fit notes and a term_decisions row for each assigned singleton term: keep, replace, or remove with rationale. Stop before reviewing or publishing downstream translations.',
 			),
 			'linguistic_review' => array(
 				'action' => 'review_translation_linguistic',

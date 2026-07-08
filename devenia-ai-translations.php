@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.487
+ * Version: 0.1.488
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -34,7 +34,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.487';
+	const VERSION = '0.1.488';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -64,6 +64,11 @@ final class Devenia_AI_Translations {
 	const META_LANGUAGE       = '_devenia_translation_language';
 	const META_SOURCE_HASH    = '_devenia_translation_source_hash';
 	const META_SOURCE_DESIGN_HASH = '_devenia_translation_source_design_hash';
+	const META_SOURCE_TAXONOMY_REVIEW_HASH = '_devenia_translation_source_taxonomy_review_hash';
+	const META_SOURCE_TAXONOMY_REVIEWED_AT = '_devenia_translation_source_taxonomy_reviewed_at';
+	const META_SOURCE_TAXONOMY_REVIEWER = '_devenia_translation_source_taxonomy_reviewer';
+	const META_SOURCE_TAXONOMY_REVIEW_NOTE = '_devenia_translation_source_taxonomy_review_note';
+	const META_SOURCE_TAXONOMY_REVIEW_EVIDENCE = '_devenia_translation_source_taxonomy_review_evidence';
 	const META_LOCALIZED_FRAGMENTS = '_devenia_translation_localized_fragments';
 	const META_STATUS         = '_devenia_translation_status';
 	const META_LOCALIZED_PATH = '_devenia_translation_localized_path';
@@ -6888,6 +6893,7 @@ final class Devenia_AI_Translations {
 			'record_reviewer_style_edit'      => 'record_reviewer_style_edit',
 			'repair_term_archive_self_redirects' => 'repair_term_archive_seo_self_redirects',
 			'list_taxonomy_terms'             => 'list_translation_taxonomy_terms',
+			'mark_source_taxonomy_reviewed'   => 'mark_source_taxonomy_reviewed',
 			'update_source_qa_options'        => 'update_source_qa_options',
 			'authored_original_intake_queue'  => 'authored_original_intake_queue',
 			'update_authored_original_intake' => 'update_authored_original_intake',
@@ -7903,6 +7909,16 @@ final class Devenia_AI_Translations {
 					return self::run_ability_operation( 'upsert_page', $input );
 				},
 				'meta'             => self::ability_meta( false, false, false ),
+			),
+			'ai-translations/mark-source-taxonomy-reviewed' => array(
+				'label'            => 'Mark Source Taxonomy Reviewed',
+				'description'      => 'Marks a source post category/tag assignment review complete after checking topical fit, tag/category sprawl, singleton terms, and whether existing terms should be reused or consolidated.',
+				'input_schema'     => self::source_taxonomy_review_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'mark_source_taxonomy_reviewed', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
 			),
 			'ai-translations/repair-translation-author' => array(
 				'label'            => 'Repair Translation Author',
@@ -9411,7 +9427,7 @@ final class Devenia_AI_Translations {
 				),
 				'statuses'         => array(
 					'type'        => 'array',
-					'description' => 'Optional queue states to include: content_integrity_repair, source_design_repair, missing, stale, draft, needs_review, needs_linguistic_review, ready_to_publish, reserved, complete.',
+					'description' => 'Optional queue states to include: content_integrity_repair, source_design_repair, source_taxonomy_review, missing, stale, draft, needs_review, needs_linguistic_review, ready_to_publish, reserved, complete.',
 					'items'       => array( 'type' => 'string' ),
 				),
 				'detail_level'     => array(
@@ -10468,6 +10484,88 @@ final class Devenia_AI_Translations {
 					'type'        => 'boolean',
 					'default'     => false,
 					'description' => 'Include completed items when no explicit statuses filter is supplied.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function source_taxonomy_review_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'source_id', 'categories_fit', 'tags_fit', 'no_term_sprawl_reviewed', 'singleton_terms_reviewed', 'existing_terms_considered', 'note', 'term_sprawl_note', 'term_decisions' ),
+			'properties'           => array(
+				'source_id' => array(
+					'type'        => 'integer',
+					'description' => 'English source post ID whose categories and tags were reviewed.',
+				),
+				'categories_fit' => array(
+					'type'        => 'boolean',
+					'description' => 'True only after confirming assigned categories match what the post is actually about.',
+				),
+				'tags_fit' => array(
+					'type'        => 'boolean',
+					'description' => 'True only after confirming assigned tags match concrete recurring topics in the post.',
+				),
+				'no_term_sprawl_reviewed' => array(
+					'type'        => 'boolean',
+					'description' => 'True only after checking that the assignment does not create or preserve avoidable one-post category/tag sprawl.',
+				),
+				'singleton_terms_reviewed' => array(
+					'type'        => 'boolean',
+					'description' => 'True only after reviewing assigned terms whose archive count is one or zero.',
+				),
+				'existing_terms_considered' => array(
+					'type'        => 'boolean',
+					'description' => 'True only after considering whether an existing broader term should be reused instead of creating/preserving a narrow term.',
+				),
+				'changes_made' => array(
+					'type'        => 'string',
+					'description' => 'What category/tag changes were made through content/update-post, or why no change was needed.',
+				),
+				'note' => array(
+					'type'        => 'string',
+					'description' => 'Concrete topical-fit review note covering the post subject and assigned categories/tags.',
+				),
+				'term_sprawl_note' => array(
+					'type'        => 'string',
+					'description' => 'Concrete note about singleton terms, archive usefulness, and any reuse/consolidation decisions.',
+				),
+				'term_decisions' => array(
+					'type'        => 'array',
+					'description' => 'Per-term evidence for assigned singleton or narrow terms. Every assigned source term with count <= 1 must have a keep, replace, or remove decision.',
+					'items'       => array(
+						'type'                 => 'object',
+						'required'             => array( 'taxonomy', 'source_term_id', 'decision', 'rationale' ),
+						'properties'           => array(
+							'taxonomy' => array(
+								'type' => 'string',
+								'enum' => array( 'category', 'post_tag' ),
+							),
+							'source_term_id' => array(
+								'type'        => 'integer',
+								'description' => 'Assigned English source term ID being reviewed.',
+							),
+							'decision' => array(
+								'type'        => 'string',
+								'enum'        => array( 'keep', 'replace', 'remove' ),
+								'description' => 'keep when the archive is genuinely useful, replace when a broader existing term should be used, remove when no term should remain.',
+							),
+							'replacement_term_id' => array(
+								'type'        => 'integer',
+								'description' => 'Required when decision is replace; must be an existing broader source term in the same taxonomy.',
+							),
+							'rationale' => array(
+								'type'        => 'string',
+								'description' => 'Concrete reader-value rationale for the decision.',
+							),
+						),
+						'additionalProperties' => false,
+					),
+				),
+				'reviewer' => array(
+					'type'        => 'string',
+					'description' => 'Optional reviewer/operator label.',
 				),
 			),
 			'additionalProperties' => false,
@@ -18295,7 +18393,7 @@ final class Devenia_AI_Translations {
 			return array();
 		}
 
-		$allowed = array( 'content_integrity_repair', 'source_design_repair', 'missing', 'stale', 'draft', 'needs_review', 'needs_linguistic_review', 'ready_to_publish', 'reserved', 'complete' );
+		$allowed = array( 'content_integrity_repair', 'source_design_repair', 'source_taxonomy_review', 'missing', 'stale', 'draft', 'needs_review', 'needs_linguistic_review', 'ready_to_publish', 'reserved', 'complete' );
 		$clean   = array();
 		foreach ( $statuses as $status ) {
 			$status = sanitize_key( (string) $status );
