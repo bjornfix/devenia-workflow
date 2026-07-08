@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.485
+ * Version: 0.1.486
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -34,7 +34,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.485';
+	const VERSION = '0.1.486';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -6887,6 +6887,7 @@ final class Devenia_AI_Translations {
 			'get_reviewer_style_profile'      => 'get_reviewer_style_profile',
 			'record_reviewer_style_edit'      => 'record_reviewer_style_edit',
 			'repair_term_archive_self_redirects' => 'repair_term_archive_seo_self_redirects',
+			'list_taxonomy_terms'             => 'list_translation_taxonomy_terms',
 			'update_source_qa_options'        => 'update_source_qa_options',
 			'authored_original_intake_queue'  => 'authored_original_intake_queue',
 			'update_authored_original_intake' => 'update_authored_original_intake',
@@ -7782,6 +7783,16 @@ final class Devenia_AI_Translations {
 						return self::run_ability_operation( 'repair_term_archive_self_redirects', $input );
 					},
 					'meta'             => self::ability_meta( false, false, true ),
+				),
+				'ai-translations/list-taxonomy-terms' => array(
+					'label'            => 'List Translation Taxonomy Terms',
+					'description'      => 'Lists source categories/tags and their localized term mappings for translation work. Use this before mirroring categories or tags so contributors do not guess source term IDs, localized slugs, descriptions, or existing language variants.',
+					'input_schema'     => self::taxonomy_terms_list_input_schema(),
+					'output_schema'    => self::generic_output_schema(),
+					'execute_callback' => function ( $input = array() ) {
+						return self::run_ability_operation( 'list_taxonomy_terms', $input );
+					},
+					'meta'             => self::ability_meta( true, false, true ),
 				),
 				'ai-translations/update-source-qa-options' => array(
 					'label'            => 'Update Source Translation QA Options',
@@ -9211,6 +9222,48 @@ final class Devenia_AI_Translations {
 					'type'        => 'boolean',
 					'default'     => true,
 					'description' => 'When true, report conflicts without deleting SEO-plugin redirects.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/**
+	 * Input schema for translation-aware category/tag listing.
+	 */
+	private static function taxonomy_terms_list_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'source_id' => array(
+					'type'        => 'integer',
+					'minimum'     => 1,
+					'description' => 'Optional source post ID. When provided, only categories/tags assigned to that source post are returned.',
+				),
+				'taxonomy'  => array(
+					'type'        => 'string',
+					'enum'        => array( 'category', 'post_tag' ),
+					'description' => 'Optional taxonomy. Omit to return both categories and tags.',
+				),
+				'language'  => array(
+					'type'        => 'string',
+					'description' => 'Optional target language code. Omit to include localized mappings for all configured translation languages.',
+				),
+				'hide_empty' => array(
+					'type'        => 'boolean',
+					'default'     => false,
+					'description' => 'When source_id is omitted, hide source terms with no posts.',
+				),
+				'search'    => array(
+					'type'        => 'string',
+					'description' => 'Optional source term name or slug search when source_id is omitted.',
+				),
+				'limit'     => array(
+					'type'        => 'integer',
+					'default'     => 200,
+					'minimum'     => 1,
+					'maximum'     => 500,
+					'description' => 'Maximum source terms to return when source_id is omitted.',
 				),
 			),
 			'additionalProperties' => false,

@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.485
+**Stable tag:** 0.1.486
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,10 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.486
+
+- Adds a read-only translation-aware taxonomy term listing ability for source categories, tags, localized mappings, expected slugs, and archive descriptions, and points draft-write assignments to it before taxonomy mirroring.
 
 ### 0.1.485
 

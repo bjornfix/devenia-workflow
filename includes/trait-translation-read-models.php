@@ -243,4 +243,171 @@ trait Devenia_AI_Translations_Translation_Read_Models {
 		return $out;
 	}
 
+	/**
+	 * Translation-aware source category/tag list for contributor guidance.
+	 *
+	 * @param array<string,mixed> $input Ability input.
+	 * @return array<string,mixed>
+	 */
+	private static function list_translation_taxonomy_terms( array $input ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		$taxonomy  = sanitize_key( (string) ( $input['taxonomy'] ?? '' ) );
+		$language  = sanitize_key( (string) ( $input['language'] ?? '' ) );
+		$limit     = isset( $input['limit'] ) ? min( 500, max( 1, absint( $input['limit'] ) ) ) : 200;
+		$search    = sanitize_text_field( (string) ( $input['search'] ?? '' ) );
+
+		if ( '' !== $taxonomy && ! in_array( $taxonomy, array( 'category', 'post_tag' ), true ) ) {
+			return self::error( 'Invalid taxonomy.' );
+		}
+		if ( '' !== $language && ! self::is_translation_language( $language ) ) {
+			return self::error( 'Invalid translation language.' );
+		}
+
+		$source = null;
+		if ( $source_id ) {
+			$source = get_post( $source_id );
+			if ( ! $source instanceof WP_Post || 'post' !== (string) $source->post_type ) {
+				return self::error( 'Source post not found or does not support categories/tags.' );
+			}
+		}
+
+		$taxonomies = '' !== $taxonomy ? array( $taxonomy ) : array( 'category', 'post_tag' );
+		$languages  = '' !== $language ? array( $language ) : array_keys(
+			array_filter(
+				self::compact_language_registry(),
+				static function ( array $config ): bool {
+					return empty( $config['source'] );
+				}
+			)
+		);
+
+		$out = array();
+		foreach ( $taxonomies as $tax ) {
+			$terms = $source instanceof WP_Post
+				? wp_get_post_terms( (int) $source->ID, $tax, array( 'hide_empty' => false ) )
+				: self::source_taxonomy_terms_for_listing( $tax, $limit, ! empty( $input['hide_empty'] ), $search );
+
+			if ( is_wp_error( $terms ) ) {
+				return self::error( $terms->get_error_message() );
+			}
+
+			$out[ $tax ] = array_values(
+				array_map(
+					static function ( WP_Term $term ) use ( $languages ): array {
+						return self::translation_source_taxonomy_term_payload( $term, $languages );
+					},
+					is_array( $terms ) ? $terms : array()
+				)
+			);
+		}
+
+		return array(
+			'success'     => true,
+			'source_id'   => $source_id,
+			'language'    => $language,
+			'taxonomies'  => $taxonomies,
+			'languages'   => array_values( $languages ),
+			'terms'       => $out,
+			'instructions'=> 'Use terms.<taxonomy>[].source_term_id in ai-translations/upsert-page taxonomies.category[] or taxonomies.post_tag[]. For existing localized terms, reuse the listed name/slug/description when they fit. For missing localized terms, provide a useful localized name, the expected language-prefixed slug, and either a reader-useful description or description_not_useful_reason.',
+		);
+	}
+
+	/**
+	 * Source terms for translation taxonomy listing.
+	 *
+	 * @return WP_Term[]
+	 */
+	private static function source_taxonomy_terms_for_listing( string $taxonomy, int $limit, bool $hide_empty, string $search ) {
+		$args = array(
+			'taxonomy'   => $taxonomy,
+			'hide_empty' => $hide_empty,
+			'number'     => $limit,
+			'orderby'    => 'name',
+			'order'      => 'ASC',
+		);
+		if ( '' !== $search ) {
+			$args['search'] = $search;
+		}
+
+		$terms = get_terms( $args );
+		if ( is_wp_error( $terms ) ) {
+			return $terms;
+		}
+
+		return array_values(
+			array_filter(
+				is_array( $terms ) ? $terms : array(),
+				static function ( $term ): bool {
+					if ( ! $term instanceof WP_Term ) {
+						return false;
+					}
+					$language       = sanitize_key( (string) get_term_meta( (int) $term->term_id, self::TERM_META_LANGUAGE, true ) );
+					$source_term_id = absint( get_term_meta( (int) $term->term_id, self::TERM_META_SOURCE_ID, true ) );
+					return '' === $language && ( 0 === $source_term_id || $source_term_id === (int) $term->term_id );
+				}
+			)
+		);
+	}
+
+	/**
+	 * Source term plus localized variants for one term.
+	 *
+	 * @param string[] $languages Target languages to include.
+	 * @return array<string,mixed>
+	 */
+	private static function translation_source_taxonomy_term_payload( WP_Term $term, array $languages ): array {
+		$translations = array();
+		foreach ( $languages as $language ) {
+			$language = sanitize_key( (string) $language );
+			if ( '' === $language || ! self::is_translation_language( $language ) ) {
+				continue;
+			}
+
+			$translated_id = self::find_translated_term_id( (int) $term->term_id, $language, (string) $term->taxonomy );
+			$translated    = $translated_id ? get_term( $translated_id, (string) $term->taxonomy ) : null;
+			$expected_slug = sanitize_title( $language . '-' . (string) $term->slug );
+			$item          = array(
+				'language'      => $language,
+				'exists'        => $translated instanceof WP_Term && ! is_wp_error( $translated ),
+				'expected_slug' => $expected_slug,
+				'slug_contract' => 'language code, hyphen, source slug',
+			);
+
+			if ( $translated instanceof WP_Term && ! is_wp_error( $translated ) ) {
+				$url = get_term_link( $translated );
+				$item = array_merge(
+					$item,
+					array(
+						'id'             => (int) $translated->term_id,
+						'name'           => (string) $translated->name,
+						'slug'           => (string) $translated->slug,
+						'description'    => (string) $translated->description,
+						'description_present' => '' !== trim( (string) $translated->description ),
+						'count'          => (int) $translated->count,
+						'url'            => is_wp_error( $url ) ? '' : (string) $url,
+						'source_term_id' => absint( get_term_meta( (int) $translated->term_id, self::TERM_META_SOURCE_ID, true ) ),
+					)
+				);
+			}
+
+			$translations[ $language ] = $item;
+		}
+
+		$source_url = get_term_link( $term );
+
+		return array(
+			'source_term_id' => (int) $term->term_id,
+			'id'             => (int) $term->term_id,
+			'name'           => (string) $term->name,
+			'slug'           => (string) $term->slug,
+			'description'    => (string) $term->description,
+			'description_present' => '' !== trim( (string) $term->description ),
+			'taxonomy'       => (string) $term->taxonomy,
+			'parent'         => (int) $term->parent,
+			'count'          => (int) $term->count,
+			'url'            => is_wp_error( $source_url ) ? '' : (string) $source_url,
+			'translations'   => $translations,
+		);
+	}
+
 }
