@@ -18,11 +18,12 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 	 */
 	private static function sync_translated_post_terms( int $translation_id, WP_Post $source, string $language, $taxonomy_input ): array {
 		if ( 'post' !== $source->post_type || ! self::is_translation_language( $language ) ) {
-			return array( 'success' => true, 'synced' => array() );
+			return array( 'success' => true, 'synced' => array(), 'description_decisions' => array() );
 		}
 
 		$taxonomy_input = is_array( $taxonomy_input ) ? $taxonomy_input : array();
 		$synced = array();
+		$description_decisions = array();
 
 		foreach ( array( 'category', 'post_tag' ) as $taxonomy ) {
 			$source_terms = wp_get_post_terms( (int) $source->ID, $taxonomy, array( 'hide_empty' => false ) );
@@ -43,6 +44,11 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 				if ( $term_issue ) {
 					return $term_issue;
 				}
+				$description_decision = self::translated_taxonomy_description_decision( $source_term, $language, $term_data, $existing_term_id );
+				if ( empty( $description_decision['success'] ) ) {
+					return $description_decision;
+				}
+				$description_decisions[] = $description_decision['decision'];
 				$term_id = self::ensure_translated_term( $source_term, $language, $term_data );
 				if ( ! $term_id ) {
 					return array(
@@ -68,8 +74,9 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 		}
 
 		return array(
-			'success' => true,
-			'synced'  => $synced,
+			'success'               => true,
+			'synced'                => $synced,
+			'description_decisions' => $description_decisions,
 		);
 	}
 
@@ -81,11 +88,12 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 	 */
 	private static function validate_translated_post_terms_before_save( WP_Post $source, string $language, $taxonomy_input ): array {
 		if ( 'post' !== $source->post_type || ! self::is_translation_language( $language ) ) {
-			return array( 'success' => true, 'checked' => array() );
+			return array( 'success' => true, 'checked' => array(), 'description_decisions' => array() );
 		}
 
 		$taxonomy_input = is_array( $taxonomy_input ) ? $taxonomy_input : array();
 		$checked = array();
+		$description_decisions = array();
 
 		foreach ( array( 'category', 'post_tag' ) as $taxonomy ) {
 			$source_terms = wp_get_post_terms( (int) $source->ID, $taxonomy, array( 'hide_empty' => false ) );
@@ -107,6 +115,12 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 					$term_issue['stage'] = 'taxonomy_preflight';
 					return $term_issue;
 				}
+				$description_decision = self::translated_taxonomy_description_decision( $source_term, $language, $term_data, $existing_term_id );
+				if ( empty( $description_decision['success'] ) ) {
+					$description_decision['stage'] = 'taxonomy_preflight';
+					return $description_decision;
+				}
+				$description_decisions[] = $description_decision['decision'];
 
 				$checked[ $taxonomy ][] = array(
 					'source_term_id'  => (int) $source_term->term_id,
@@ -116,8 +130,9 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 		}
 
 		return array(
-			'success' => true,
-			'checked' => $checked,
+			'success'               => true,
+			'checked'               => $checked,
+			'description_decisions' => $description_decisions,
 		);
 	}
 
@@ -125,7 +140,7 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 	 * Normalize optional taxonomy input by source term ID.
 	 *
 	 * @param mixed $terms Raw taxonomy terms.
-	 * @return array<int,array{name?:string,slug?:string,description?:string}>
+	 * @return array<int,array{name?:string,slug?:string,description?:string,description_not_useful_reason?:string}>
 	 */
 	private static function taxonomy_input_by_source_term( $terms ): array {
 		if ( ! is_array( $terms ) ) {
@@ -155,6 +170,9 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 			if ( isset( $term['description'] ) ) {
 				$row['description'] = wp_kses_post( (string) $term['description'] );
 			}
+			if ( isset( $term['description_not_useful_reason'] ) ) {
+				$row['description_not_useful_reason'] = sanitize_textarea_field( (string) $term['description_not_useful_reason'] );
+			}
 			$normalized[ $source_term_id ] = $row;
 		}
 
@@ -162,9 +180,69 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 	}
 
 	/**
+	 * Require an explicit reader-value decision for translated taxonomy archive descriptions.
+	 *
+	 * @param array{name?:string,slug?:string,description?:string,description_not_useful_reason?:string} $term_data Client-provided localized term data.
+	 * @return array<string,mixed>
+	 */
+	private static function translated_taxonomy_description_decision( WP_Term $source_term, string $language, array $term_data, int $existing_term_id = 0 ): array {
+		$provided_description = isset( $term_data['description'] ) ? trim( wp_strip_all_tags( (string) $term_data['description'] ) ) : '';
+		$existing_description = '';
+		if ( $existing_term_id ) {
+			$existing_term = get_term( $existing_term_id, (string) $source_term->taxonomy );
+			if ( $existing_term instanceof WP_Term ) {
+				$existing_description = trim( wp_strip_all_tags( (string) $existing_term->description ) );
+			}
+		}
+
+		if ( '' !== $provided_description || '' !== $existing_description ) {
+			return array(
+				'success'  => true,
+				'decision' => array(
+					'taxonomy'                     => (string) $source_term->taxonomy,
+					'source_term_id'                => (int) $source_term->term_id,
+					'language'                      => sanitize_key( $language ),
+					'decision'                      => 'description_present',
+					'provided_description_present'  => '' !== $provided_description,
+					'existing_description_present'  => '' !== $existing_description,
+				),
+			);
+		}
+
+		$reason = isset( $term_data['description_not_useful_reason'] )
+			? trim( wp_strip_all_tags( (string) $term_data['description_not_useful_reason'] ) )
+			: '';
+		if ( strlen( $reason ) >= 24 ) {
+			return array(
+				'success'  => true,
+				'decision' => array(
+					'taxonomy'                      => (string) $source_term->taxonomy,
+					'source_term_id'                 => (int) $source_term->term_id,
+					'language'                       => sanitize_key( $language ),
+					'decision'                       => 'intentionally_undescribed',
+					'description_not_useful_reason' => $reason,
+				),
+			);
+		}
+
+		return array(
+			'success'        => false,
+			'message'        => 'Translated category/tag archives need an explicit reader-value decision. Add a useful localized archive description, or provide description_not_useful_reason explaining why this term should intentionally have no archive description.',
+			'code'           => 'taxonomy_description_decision_required',
+			'language'       => sanitize_key( $language ),
+			'taxonomy'       => (string) $source_term->taxonomy,
+			'source_term_id' => (int) $source_term->term_id,
+			'source_name'    => trim( wp_strip_all_tags( (string) $source_term->name ) ),
+			'source_slug'    => sanitize_title( (string) $source_term->slug ),
+			'reader_value'   => 'Archive descriptions help readers understand why this category or tag exists instead of making them infer it from a title and post list.',
+			'required_next_step' => 'Provide taxonomies.category[].description or taxonomies.post_tag[].description when the archive has reader value; otherwise provide description_not_useful_reason with the concrete editorial reason.',
+		);
+	}
+
+	/**
 	 * Find or create one language-scoped category/tag term for a source term.
 	 *
-	 * @param array{name?:string,slug?:string,description?:string} $term_data Client-provided localized term data.
+	 * @param array{name?:string,slug?:string,description?:string,description_not_useful_reason?:string} $term_data Client-provided localized term data.
 	 */
 	private static function ensure_translated_term( WP_Term $source_term, string $language, array $term_data ): int {
 		$existing_id = self::find_translated_term_id( (int) $source_term->term_id, $language, (string) $source_term->taxonomy );
@@ -229,7 +307,7 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 	/**
 	 * Update mutable localized term fields for an existing translated term.
 	 *
-	 * @param array{name?:string,slug?:string,description?:string} $term_data Client-provided localized term data.
+	 * @param array{name?:string,slug?:string,description?:string,description_not_useful_reason?:string} $term_data Client-provided localized term data.
 	 */
 	private static function update_translated_term_details( int $term_id, WP_Term $source_term, array $term_data ): void {
 		$args = array();
@@ -250,7 +328,7 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 	/**
 	 * Block untranslated category/tag data before terms are created.
 	 *
-	 * @param array{name?:string,slug?:string,description?:string} $term_data Client-provided localized term data.
+	 * @param array{name?:string,slug?:string,description?:string,description_not_useful_reason?:string} $term_data Client-provided localized term data.
 	 */
 	private static function translated_taxonomy_term_guardrail( WP_Term $source_term, string $language, array $term_data, int $existing_term_id = 0 ): array {
 		$source_name = trim( wp_strip_all_tags( (string) $source_term->name ) );

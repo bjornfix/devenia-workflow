@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.481
+ * Version: 0.1.482
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -34,7 +34,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.481';
+	const VERSION = '0.1.482';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -10541,7 +10541,11 @@ final class Devenia_AI_Translations {
 				),
 				'description'    => array(
 					'type'        => 'string',
-					'description' => 'Localized category/tag archive description. Used by archive presentation when available.',
+					'description' => 'Localized category/tag archive description. Provide this when the public archive helps readers understand what they will find.',
+				),
+				'description_not_useful_reason' => array(
+					'type'        => 'string',
+					'description' => 'Concrete reason for intentionally leaving this translated category/tag archive without a description. Required when no description is provided or already stored.',
 				),
 			),
 			'additionalProperties' => false,

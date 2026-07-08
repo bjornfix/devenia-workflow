@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.481
+**Stable tag:** 0.1.482
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,22 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.482
+
+* Requires an explicit reader-value decision for translated category and tag
+  archive descriptions: provide useful localized descriptions, or explain why a
+  term should intentionally remain undescribed.
+
+### 0.1.481
+
+* Fixes URL-hierarchy repair coverage for older translated posts and localizes
+  split Akismet comment notices as one runtime-text surface.
+
+### 0.1.480
+
+* Broadens heartbeat assignment scans and adds an assignment-coverage audit so
+  visible workflow obligations cannot silently fall out of the assignment path.
 
 ### 0.1.479
 
