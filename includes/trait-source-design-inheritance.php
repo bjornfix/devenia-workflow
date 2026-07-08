@@ -41,6 +41,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'required_design_review_questions' => isset( $editorial_validation['required_design_review_questions'] ) && is_array( $editorial_validation['required_design_review_questions'] )
 				? array_values( array_map( 'sanitize_text_field', $editorial_validation['required_design_review_questions'] ) )
 				: array(),
+			'worker_decision_brief'        => self::source_design_worker_decision_brief( $editorial_validation ),
 			'editorial_source_validation'  => $editorial_validation,
 		);
 	}
@@ -834,12 +835,69 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'required_design_review_questions' => isset( $validation['required_design_review_questions'] ) && is_array( $validation['required_design_review_questions'] )
 				? array_values( array_map( 'sanitize_text_field', $validation['required_design_review_questions'] ) )
 				: array(),
+			'worker_decision_brief' => self::source_design_worker_decision_brief( $validation ),
 			'issue_count' => absint( $validation['issue_count'] ?? 0 ),
 			'warning_count' => absint( $validation['warning_count'] ?? 0 ),
 			'issue_codes' => isset( $validation['issue_codes'] ) && is_array( $validation['issue_codes'] )
 				? array_values( array_map( 'sanitize_key', $validation['issue_codes'] ) )
 				: array(),
 		);
+	}
+
+	/**
+	 * Return compact worker guidance from the selected presentation contract.
+	 *
+	 * The presentation adapter owns the design language; AI Translations only
+	 * sanitizes and transports it to worker-facing payloads.
+	 *
+	 * @param array<string,mixed> $validation Full presentation validation result.
+	 * @return array<string,mixed>
+	 */
+	private static function source_design_worker_decision_brief( array $validation ): array {
+		if ( empty( $validation['worker_decision_brief'] ) || ! is_array( $validation['worker_decision_brief'] ) ) {
+			return array();
+		}
+
+		return self::sanitize_worker_decision_brief( $validation['worker_decision_brief'] );
+	}
+
+	/**
+	 * @param array<string,mixed> $brief Raw brief payload.
+	 * @return array<string,mixed>
+	 */
+	private static function sanitize_worker_decision_brief( array $brief ): array {
+		$sanitized = array();
+		foreach ( $brief as $key => $value ) {
+			$key = sanitize_key( (string) $key );
+			if ( '' === $key ) {
+				continue;
+			}
+			if ( is_array( $value ) ) {
+				$sanitized[ $key ] = self::sanitize_worker_decision_brief_list( $value );
+			} elseif ( is_scalar( $value ) ) {
+				$sanitized[ $key ] = sanitize_text_field( (string) $value );
+			}
+		}
+
+		return $sanitized;
+	}
+
+	/**
+	 * @param array<mixed> $items Raw list.
+	 * @return array<int|string,mixed>
+	 */
+	private static function sanitize_worker_decision_brief_list( array $items ): array {
+		$sanitized = array();
+		foreach ( $items as $key => $value ) {
+			$output_key = is_int( $key ) ? $key : sanitize_key( (string) $key );
+			if ( is_array( $value ) ) {
+				$sanitized[ $output_key ] = self::sanitize_worker_decision_brief_list( $value );
+			} elseif ( is_scalar( $value ) ) {
+				$sanitized[ $output_key ] = sanitize_text_field( (string) $value );
+			}
+		}
+
+		return $sanitized;
 	}
 
 	/**
