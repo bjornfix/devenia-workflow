@@ -761,16 +761,19 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				'work_type'  => 'content_integrity_repair',
 				'action'     => 'repair_content_integrity',
 				'scan_floor' => '2000',
+				'builder'    => 'source_content_integrity_repair_work_item',
 			),
 			array(
 				'work_type' => 'source_design_repair',
 				'action'    => 'repair_source_design',
 				'post_type' => 'post',
+				'builder'   => 'source_design_repair_work_item',
 			),
 			array(
 				'work_type' => 'source_taxonomy_review',
 				'action'    => 'review_source_taxonomy',
 				'post_type' => 'post',
+				'builder'   => 'source_taxonomy_review_work_item',
 			),
 		);
 	}
@@ -797,16 +800,14 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	 * @return array<string,mixed>
 	 */
 	private static function source_work_item_for_type( WP_Post $source, string $work_type ): array {
-		switch ( $work_type ) {
-			case 'content_integrity_repair':
-				return self::source_content_integrity_repair_work_item( $source );
-			case 'source_design_repair':
-				return self::source_design_repair_work_item( $source );
-			case 'source_taxonomy_review':
-				return self::source_taxonomy_review_work_item( $source );
-			default:
-				return array();
+		$definition = self::source_work_queue_definition( $work_type );
+		$builder    = (string) ( $definition['builder'] ?? '' );
+		if ( '' === $builder || ! preg_match( '/^[A-Za-z0-9_]+$/', $builder ) || ! method_exists( __CLASS__, $builder ) ) {
+			return array();
 		}
+
+		$item = self::{$builder}( $source );
+		return is_array( $item ) ? $item : array();
 	}
 
 	/**
