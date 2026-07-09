@@ -210,7 +210,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			return $obligations;
 		}
 
-		$supported_obligations = array( 'content_integrity_repair', 'source_design_repair', 'source_taxonomy_review', 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
+		$supported_obligations = self::heartbeat_supported_obligations();
 		$coverage = array(
 			'items_seen' => 0,
 			'actionable_items' => 0,
@@ -436,7 +436,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 		if ( ! is_array( $obligations ) ) {
 			return array();
 		}
-		$allowed = array( 'content_integrity_repair', 'source_design_repair', 'source_taxonomy_review', 'route_repair', 'linguistic_review', 'quality_review', 'final_review', 'publish', 'source_reprojection', 'draft_write' );
+		$allowed = self::heartbeat_supported_obligations();
 		$ordered = array();
 		foreach ( $allowed as $obligation ) {
 			if ( in_array( $obligation, $obligations, true ) ) {
@@ -446,7 +446,11 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 		return $ordered;
 	}
 
-	private static function heartbeat_action_for_obligation( string $obligation ): array {
+	private static function heartbeat_supported_obligations(): array {
+		return array_keys( self::heartbeat_action_map() );
+	}
+
+	private static function heartbeat_action_map(): array {
 		$design_ownership = array(
 			'design_contract_required' => true,
 			'design_contract_ability'  => 'devenia-site-presentation/get-article-contract',
@@ -541,6 +545,12 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 				'instructions' => 'This language is missing for the source. Fetch the source, the workflow status, and the Site Presentation article contract for the source article_type. Create a real localized draft with inherited source design, localized slug/path, title, excerpt, SEO metadata, taxonomy where needed, and complete localized_fragments. If the source post has categories or tags, call ai-translations/list-taxonomy-terms with source_id and language before upsert so you can reuse existing localized terms, see required source_term_id values, and follow the expected localized slug contract instead of guessing. Before mirroring categories, check whether the source categories actually fit the article and include taxonomies.category_assignment_review with source_categories_fit=true and a concrete note; if they do not fit, stop and report the source category problem instead of copying it into another language. For category/tag terms, provide useful localized archive descriptions when the archive helps readers understand what they will find; if a term should intentionally have no archive description, include a concrete description_not_useful_reason instead of silently skipping it. For languages with transliterated URLs, use target-language transliteration in ASCII; do not use English/source-language route words. Use ai-translations/upsert-page with the claim token. Do not mark review or publish the draft you create.',
 			),
 		);
+
+		return $map;
+	}
+
+	private static function heartbeat_action_for_obligation( string $obligation ): array {
+		$map = self::heartbeat_action_map();
 		return $map[ $obligation ] ?? array(
 			'action' => 'wait',
 			'workflow_step' => '',
@@ -746,18 +756,9 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 	}
 
 	private static function heartbeat_obligation_uses_draft_work_identity( string $obligation ): bool {
-		return in_array(
-			$obligation,
-			array(
-				'draft_write',
-				'source_reprojection',
-				'route_repair',
-				'source_design_repair',
-				'source_taxonomy_review',
-				'content_integrity_repair',
-			),
-			true
-		);
+		$action = self::heartbeat_action_for_obligation( $obligation );
+		return 'draft_write' === sanitize_key( (string) ( $action['workflow_step'] ?? '' ) )
+			&& '' !== sanitize_text_field( (string) ( $action['required_ability'] ?? '' ) );
 	}
 
 	private static function heartbeat_repeats_previous_item_for_actor( array $input, array $identity, int $translation_id, int $source_id, string $language, string $action ): bool {
