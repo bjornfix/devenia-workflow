@@ -384,22 +384,24 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	 * @return array{totals:array<string,int>,items:array<int,array<string,mixed>>}
 	 */
 	private static function workflow_work_items_for_sources( array $sources, bool $include_items = true, bool $include_publish_items = true ): array {
-		$totals = array(
-			'sources_scanned'            => count( $sources ),
-			'content_integrity_repair'   => 0,
-			'source_design_repair'       => 0,
-			'source_taxonomy_review'     => 0,
-			'translations_seen'          => 0,
-			'missing_translations'       => 0,
-			'needs_source_reprojection'  => 0,
-			'needs_draft_work'           => 0,
-			'needs_route_repair'         => 0,
-			'needs_linguistic_review'    => 0,
-			'needs_quality_review'       => 0,
-			'needs_final_review'         => 0,
-			'ready_to_publish'           => 0,
-			'published'                  => 0,
-			'blocked_from_publish'       => 0,
+		$totals = array_merge(
+			array(
+				'sources_scanned' => count( $sources ),
+			),
+			self::source_work_totals(),
+			array(
+				'translations_seen'         => 0,
+				'missing_translations'      => 0,
+				'needs_source_reprojection' => 0,
+				'needs_draft_work'          => 0,
+				'needs_route_repair'        => 0,
+				'needs_linguistic_review'   => 0,
+				'needs_quality_review'      => 0,
+				'needs_final_review'        => 0,
+				'ready_to_publish'          => 0,
+				'published'                 => 0,
+				'blocked_from_publish'      => 0,
+			)
 		);
 		$items = array();
 
@@ -408,32 +410,15 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				continue;
 			}
 
-			$source_content_item = self::source_content_integrity_repair_work_item( $source );
-			if ( $source_content_item ) {
-				++$totals['content_integrity_repair'];
-				++$totals['needs_draft_work'];
-				if ( $include_items ) {
-					$items[] = $source_content_item;
+			$source_work_item = self::first_source_work_item_for_source( $source );
+			if ( $source_work_item ) {
+				$source_work_type = sanitize_key( (string) ( $source_work_item['work_type'] ?? '' ) );
+				if ( isset( $totals[ $source_work_type ] ) ) {
+					++$totals[ $source_work_type ];
 				}
-				continue;
-			}
-
-			$source_design_item = self::source_design_repair_work_item( $source );
-			if ( $source_design_item ) {
-				++$totals['source_design_repair'];
 				++$totals['needs_draft_work'];
 				if ( $include_items ) {
-					$items[] = $source_design_item;
-				}
-				continue;
-			}
-
-			$source_taxonomy_item = self::source_taxonomy_review_work_item( $source );
-			if ( $source_taxonomy_item ) {
-				++$totals['source_taxonomy_review'];
-				++$totals['needs_draft_work'];
-				if ( $include_items ) {
-					$items[] = $source_taxonomy_item;
+					$items[] = $source_work_item;
 				}
 				continue;
 			}
@@ -795,6 +780,43 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	}
 
 	/**
+	 * Zeroed totals for all registered source-scoped work types.
+	 *
+	 * @return array<string,int>
+	 */
+	private static function source_work_totals(): array {
+		$totals = array();
+		foreach ( self::source_work_queue_definitions() as $definition ) {
+			$work_type = sanitize_key( (string) ( $definition['work_type'] ?? '' ) );
+			if ( '' !== $work_type ) {
+				$totals[ $work_type ] = 0;
+			}
+		}
+
+		return $totals;
+	}
+
+	/**
+	 * First source-scoped work item in queue priority order.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function first_source_work_item_for_source( WP_Post $source ): array {
+		foreach ( self::source_work_queue_definitions() as $definition ) {
+			$work_type = sanitize_key( (string) ( $definition['work_type'] ?? '' ) );
+			if ( '' === $work_type ) {
+				continue;
+			}
+			$item = self::source_work_item_for_type( $source, $work_type );
+			if ( ! empty( $item ) && is_array( $item ) ) {
+				return $item;
+			}
+		}
+
+		return array();
+	}
+
+	/**
 	 * Build one source-scoped work item by type.
 	 *
 	 * @return array<string,mixed>
@@ -832,18 +854,18 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		}
 
 		$items  = array();
-		$totals = array(
-			'content_integrity_repair' => 0,
-			'source_design_repair'     => 0,
-			'source_taxonomy_review'   => 0,
-			'missing'                  => 0,
-			'stale'                   => 0,
-			'draft'                   => 0,
-			'needs_review'            => 0,
-			'needs_linguistic_review' => 0,
-			'ready_to_publish'        => 0,
-			'reserved'                => 0,
-			'complete'                => 0,
+		$totals = array_merge(
+			self::source_work_totals(),
+			array(
+				'missing'                 => 0,
+				'stale'                   => 0,
+				'draft'                   => 0,
+				'needs_review'            => 0,
+				'needs_linguistic_review' => 0,
+				'ready_to_publish'        => 0,
+				'reserved'                => 0,
+				'complete'                => 0,
+			)
 		);
 
 		foreach ( $sources as $source ) {
@@ -1341,8 +1363,12 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	 * Suggested next action for a queue state.
 	 */
 	private static function queue_action_for_state( string $state ): string {
+		$source_work_definition = self::source_work_queue_definition( $state );
+		if ( ! empty( $source_work_definition['action'] ) ) {
+			return sanitize_key( (string) $source_work_definition['action'] );
+		}
+
 		$actions = array(
-			'content_integrity_repair'   => 'repair_content_integrity',
 			'missing'                 => 'create_translation',
 			'stale'                   => 'refresh_translation_from_source',
 			'draft'                   => 'finish_translation',
