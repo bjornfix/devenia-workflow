@@ -262,24 +262,16 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		}
 
 		$scan_limit = max( $limit, min( 2000, max( 500, $limit * 4 ) ) );
-		foreach ( self::source_content_integrity_workflow_source_candidates( $scan_limit ) as $candidate ) {
-			self::add_workflow_source_candidate( $sources, $candidate, $limit );
-			if ( count( $sources ) >= $limit ) {
-				return $sources;
+		foreach ( self::source_work_queue_definitions() as $definition ) {
+			$work_type = sanitize_key( (string) ( $definition['work_type'] ?? '' ) );
+			if ( '' === $work_type ) {
+				continue;
 			}
-		}
-
-		foreach ( self::source_design_workflow_source_candidates( $scan_limit ) as $candidate ) {
-			self::add_workflow_source_candidate( $sources, $candidate, $limit );
-			if ( count( $sources ) >= $limit ) {
-				return $sources;
-			}
-		}
-
-		foreach ( self::source_taxonomy_workflow_source_candidates( $scan_limit ) as $candidate ) {
-			self::add_workflow_source_candidate( $sources, $candidate, $limit );
-			if ( count( $sources ) >= $limit ) {
-				return $sources;
+			foreach ( self::source_workflow_source_candidates( $work_type, $scan_limit ) as $candidate ) {
+				self::add_workflow_source_candidate( $sources, $candidate, $limit );
+				if ( count( $sources ) >= $limit ) {
+					return $sources;
+				}
 			}
 		}
 
@@ -288,113 +280,6 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			if ( count( $sources ) >= $limit ) {
 				return $sources;
 			}
-		}
-
-		return $sources;
-	}
-
-	/**
-	 * Candidate source content that needs source content-integrity inspection.
-	 *
-	 * @return array<int,WP_Post>
-	 */
-	private static function source_content_integrity_workflow_source_candidates( int $scan_limit ): array {
-		$query = self::source_content_query(
-			array(
-				'post_status'    => 'publish',
-				'posts_per_page' => max( 1, min( 2000, max( $scan_limit, 2000 ) ) ),
-				'orderby'        => 'modified',
-				'order'          => 'DESC',
-				'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Integrity queue must include original source content only.
-					array(
-						'key'     => self::META_SOURCE_ID,
-						'compare' => 'NOT EXISTS',
-					),
-				),
-			)
-		);
-
-		$sources = array();
-		foreach ( $query->posts as $candidate ) {
-			if ( ! $candidate instanceof WP_Post ) {
-				continue;
-			}
-			if ( ! self::source_content_integrity_repair_work_item( $candidate ) ) {
-				continue;
-			}
-			$sources[] = $candidate;
-		}
-
-		return $sources;
-	}
-
-	/**
-	 * Candidate source posts that need source-design inspection, independent of translation rows.
-	 *
-	 * @return array<int,WP_Post>
-	 */
-	private static function source_design_workflow_source_candidates( int $scan_limit ): array {
-		$query = self::source_content_query(
-			array(
-				'post_type'      => 'post',
-				'post_status'    => 'publish',
-				'posts_per_page' => max( 1, min( 2000, $scan_limit ) ),
-				'orderby'        => 'modified',
-				'order'          => 'DESC',
-				'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Source-design queue must include legacy original posts, not translation posts.
-					array(
-						'key'     => self::META_SOURCE_ID,
-						'compare' => 'NOT EXISTS',
-					),
-				),
-			)
-		);
-
-		$sources = array();
-		foreach ( $query->posts as $candidate ) {
-			if ( ! $candidate instanceof WP_Post ) {
-				continue;
-			}
-			if ( ! self::source_design_repair_work_item( $candidate ) ) {
-				continue;
-			}
-			$sources[] = $candidate;
-		}
-
-		return $sources;
-	}
-
-	/**
-	 * Candidate source posts that need category/tag assignment review.
-	 *
-	 * @return array<int,WP_Post>
-	 */
-	private static function source_taxonomy_workflow_source_candidates( int $scan_limit ): array {
-		$query = self::source_content_query(
-			array(
-				'post_type'      => 'post',
-				'post_status'    => 'publish',
-				'posts_per_page' => max( 1, min( 2000, $scan_limit ) ),
-				'orderby'        => 'modified',
-				'order'          => 'DESC',
-				'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Source taxonomy queue must include original posts whose taxonomy review is missing or stale.
-					array(
-						'key'     => self::META_SOURCE_ID,
-						'compare' => 'NOT EXISTS',
-					),
-				),
-			)
-		);
-
-		$sources = array();
-		foreach ( $query->posts as $candidate ) {
-			if ( ! $candidate instanceof WP_Post ) {
-				continue;
-			}
-			if ( ! self::source_taxonomy_review_work_item( $candidate ) ) {
-				continue;
-			}
-			$sources[] = $candidate;
 		}
 
 		return $sources;
@@ -423,6 +308,48 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				}
 			)
 		);
+	}
+
+	/**
+	 * Candidate source content for one source-scoped work type.
+	 *
+	 * @return array<int,WP_Post>
+	 */
+	private static function source_workflow_source_candidates( string $work_type, int $scan_limit ): array {
+		$definition = self::source_work_queue_definition( $work_type );
+		if ( ! $definition ) {
+			return array();
+		}
+
+		$query_args = array(
+			'post_status'    => 'publish',
+			'posts_per_page' => max( 1, min( 2000, max( $scan_limit, absint( $definition['scan_floor'] ?? 0 ) ) ) ),
+			'orderby'        => 'modified',
+			'order'          => 'DESC',
+			'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Source work queues must include original source content only.
+				array(
+					'key'     => self::META_SOURCE_ID,
+					'compare' => 'NOT EXISTS',
+				),
+			),
+		);
+		if ( ! empty( $definition['post_type'] ) ) {
+			$query_args['post_type'] = sanitize_key( (string) $definition['post_type'] );
+		}
+
+		$query   = self::source_content_query( $query_args );
+		$sources = array();
+		foreach ( $query->posts as $candidate ) {
+			if ( ! $candidate instanceof WP_Post ) {
+				continue;
+			}
+			if ( ! self::source_work_item_for_type( $candidate, $work_type ) ) {
+				continue;
+			}
+			$sources[] = $candidate;
+		}
+
+		return $sources;
 	}
 
 	/**
@@ -831,18 +758,37 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	private static function source_work_queue_definitions(): array {
 		return array(
 			array(
-				'work_type' => 'content_integrity_repair',
-				'action'    => 'repair_content_integrity',
+				'work_type'  => 'content_integrity_repair',
+				'action'     => 'repair_content_integrity',
+				'scan_floor' => '2000',
 			),
 			array(
 				'work_type' => 'source_design_repair',
 				'action'    => 'repair_source_design',
+				'post_type' => 'post',
 			),
 			array(
 				'work_type' => 'source_taxonomy_review',
 				'action'    => 'review_source_taxonomy',
+				'post_type' => 'post',
 			),
 		);
+	}
+
+	/**
+	 * One source-scoped work definition by type.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function source_work_queue_definition( string $work_type ): array {
+		$work_type = sanitize_key( $work_type );
+		foreach ( self::source_work_queue_definitions() as $definition ) {
+			if ( $work_type === sanitize_key( (string) ( $definition['work_type'] ?? '' ) ) ) {
+				return $definition;
+			}
+		}
+
+		return array();
 	}
 
 	/**
