@@ -29,7 +29,7 @@ trait Devenia_AI_Translations_Translation_Reservations {
 				),
 				'work_type'   => array(
 					'type'        => 'string',
-					'description' => 'Optional first-class work item type, such as source_design_repair.',
+					'description' => self::source_work_types_description(),
 				),
 				'language'    => array(
 					'type'        => 'string',
@@ -94,7 +94,7 @@ trait Devenia_AI_Translations_Translation_Reservations {
 				),
 				'work_type'   => array(
 					'type'        => 'string',
-					'description' => 'Optional first-class work item type, such as source_design_repair.',
+					'description' => self::source_work_types_description(),
 				),
 				'language'    => array( 'type' => 'string' ),
 				'languages'   => array(
@@ -538,12 +538,12 @@ trait Devenia_AI_Translations_Translation_Reservations {
 
 	private static function sanitize_work_type( string $work_type ): string {
 		$work_type = sanitize_key( $work_type );
-		return '' !== $work_type ? $work_type : 'source_design_repair';
+		return '' !== $work_type ? $work_type : self::default_source_work_reservation_type();
 	}
 
 	private static function reserve_source_work( WP_Post $source, array $input ): array {
 		$source_id = (int) $source->ID;
-		$work_type = self::sanitize_work_type( (string) ( $input['work_type'] ?? 'source_design_repair' ) );
+		$work_type = self::sanitize_work_type( (string) ( $input['work_type'] ?? self::default_source_work_reservation_type() ) );
 		$ttl_seconds = isset( $input['ttl_seconds'] )
 			? max( 60, min( self::MAX_TRANSLATION_CLAIM_TTL, absint( $input['ttl_seconds'] ) ) )
 			: self::DEFAULT_TRANSLATION_CLAIM_TTL;
@@ -633,7 +633,7 @@ trait Devenia_AI_Translations_Translation_Reservations {
 
 	private static function release_source_work_reservation( array $input ): array {
 		$source_id = absint( $input['source_id'] ?? 0 );
-		$work_type = self::sanitize_work_type( (string) ( $input['work_type'] ?? 'source_design_repair' ) );
+		$work_type = self::sanitize_work_type( (string) ( $input['work_type'] ?? self::default_source_work_reservation_type() ) );
 		$token     = (string) ( $input['claim_token'] ?? '' );
 		$force     = ! empty( $input['force'] );
 		$agent_session_id = self::agent_session_id_from_input( $input );

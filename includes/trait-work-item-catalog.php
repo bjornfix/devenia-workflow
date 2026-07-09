@@ -852,6 +852,14 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		return 'Optional queue states to include: ' . implode( ', ', self::queue_states() ) . '.';
 	}
 
+	private static function source_work_types_description(): string {
+		return 'Optional first-class source work item type: ' . implode( ', ', self::source_work_queue_states() ) . '.';
+	}
+
+	private static function default_source_work_reservation_type(): string {
+		return 'source_design_repair';
+	}
+
 	/**
 	 * First source-scoped work item in queue priority order.
 	 *
