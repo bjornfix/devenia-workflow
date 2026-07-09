@@ -49,6 +49,7 @@ trait Devenia_AI_Translations_Ability_Platform {
 			'repair_term_archive_self_redirects' => 'repair_term_archive_seo_self_redirects',
 			'list_taxonomy_terms'             => 'list_translation_taxonomy_terms',
 			'mark_source_taxonomy_reviewed'   => 'mark_source_taxonomy_reviewed',
+			'mark_source_design_reviewed'     => 'mark_source_design_reviewed',
 			'update_source_qa_options'        => 'update_source_qa_options',
 			'authored_original_intake_queue'  => 'authored_original_intake_queue',
 			'update_authored_original_intake' => 'update_authored_original_intake',

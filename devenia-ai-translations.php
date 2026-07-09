@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.492
+ * Version: 0.1.493
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -44,7 +44,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.492';
+	const VERSION = '0.1.493';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -74,6 +74,11 @@ final class Devenia_AI_Translations {
 	const META_LANGUAGE       = '_devenia_translation_language';
 	const META_SOURCE_HASH    = '_devenia_translation_source_hash';
 	const META_SOURCE_DESIGN_HASH = '_devenia_translation_source_design_hash';
+	const META_SOURCE_DESIGN_REVIEW_HASH = '_devenia_translation_source_design_review_hash';
+	const META_SOURCE_DESIGN_REVIEWED_AT = '_devenia_translation_source_design_reviewed_at';
+	const META_SOURCE_DESIGN_REVIEWER = '_devenia_translation_source_design_reviewer';
+	const META_SOURCE_DESIGN_REVIEW_NOTE = '_devenia_translation_source_design_review_note';
+	const META_SOURCE_DESIGN_REVIEW_EVIDENCE = '_devenia_translation_source_design_review_evidence';
 	const META_SOURCE_TAXONOMY_REVIEW_HASH = '_devenia_translation_source_taxonomy_review_hash';
 	const META_SOURCE_TAXONOMY_REVIEWED_AT = '_devenia_translation_source_taxonomy_reviewed_at';
 	const META_SOURCE_TAXONOMY_REVIEWER = '_devenia_translation_source_taxonomy_reviewer';
@@ -7847,6 +7852,16 @@ final class Devenia_AI_Translations {
 				},
 				'meta'             => self::ability_meta( false, false, true ),
 			),
+			'ai-translations/mark-source-design-reviewed' => array(
+				'label'            => 'Mark Source Design Reviewed',
+				'description'      => 'Marks a source post design inspection complete without rewriting the source when the contributor has verified that the current rendered page already satisfies the intended publication experience.',
+				'input_schema'     => self::source_design_review_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'mark_source_design_reviewed', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
+			),
 			'ai-translations/repair-translation-author' => array(
 				'label'            => 'Repair Translation Author',
 				'description'      => 'Aligns an existing translated page or post author with its source author through the translation workflow, invalidating review evidence when the visible byline changes.',
@@ -10493,6 +10508,64 @@ final class Devenia_AI_Translations {
 				'reviewer' => array(
 					'type'        => 'string',
 					'description' => 'Optional reviewer/operator label.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function source_design_review_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'source_id', 'design_already_suitable', 'public_url', 'contract_notes', 'desktop_render_notes', 'mobile_render_notes', 'no_rewrite_reason', 'reviewer_statement' ),
+			'properties'           => array(
+				'source_id' => array(
+					'type'        => 'integer',
+					'description' => 'English source post ID whose rendered design was inspected.',
+				),
+				'design_already_suitable' => array(
+					'type'        => 'boolean',
+					'description' => 'True only when the current source page already satisfies the publication/design experience and should not be rewritten.',
+				),
+				'public_url' => array(
+					'type'        => 'string',
+					'description' => 'Public URL that was actually inspected in a browser.',
+				),
+				'article_type' => array(
+					'type'        => 'string',
+					'description' => 'Article type/contract used during review, such as editorial_post or release_note.',
+				),
+				'template_slug' => array(
+					'type'        => 'string',
+					'description' => 'Presentation template slug used during review when known.',
+				),
+				'contract_notes' => array(
+					'type'        => 'string',
+					'description' => 'Concrete notes comparing the current source page with the selected Site Presentation contract.',
+				),
+				'desktop_render_notes' => array(
+					'type'        => 'string',
+					'description' => 'Concrete desktop viewport observations from the rendered page.',
+				),
+				'mobile_render_notes' => array(
+					'type'        => 'string',
+					'description' => 'Concrete mobile viewport observations from the rendered page.',
+				),
+				'no_rewrite_reason' => array(
+					'type'        => 'string',
+					'description' => 'Why applying a source design repair would be unnecessary or harmful.',
+				),
+				'reviewer_statement' => array(
+					'type'        => 'string',
+					'description' => 'Statement that the contributor inspected the source and accepts responsibility for the no-rewrite design verdict.',
+				),
+				'claim_token' => array(
+					'type'        => 'string',
+					'description' => 'Reservation token from the active source_design_repair claim when one exists.',
+				),
+				'reviewer' => array(
+					'type'        => 'string',
+					'description' => 'Optional reviewer/contributor display name.',
 				),
 			),
 			'additionalProperties' => false,
