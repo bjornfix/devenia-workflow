@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.489
+Stable tag: 0.1.490
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.490 =
+* Preserves the last concrete heartbeat work item when a session receives wait or escalation state, preventing the same actor from being steered back to a source item it just released after a blocker or source-side fix.
 
 = 0.1.489 =
 * Hardens source work reservations against concurrent heartbeat claims so a failed atomic add returns a conflict instead of updating another contributor's source claim.

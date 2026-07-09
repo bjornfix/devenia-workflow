@@ -1090,6 +1090,16 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 		if ( ! is_array( $heartbeats ) ) {
 			$heartbeats = array();
 		}
+		$previous = isset( $heartbeats[ $agent_session_id ] ) && is_array( $heartbeats[ $agent_session_id ] )
+			? $heartbeats[ $agent_session_id ]
+			: array();
+		$selected_source_id = absint( $selected['source_id'] ?? 0 );
+		$selected_translation_id = absint( $selected['translation_id'] ?? 0 );
+		$selected_language = sanitize_key( (string) ( $selected['language'] ?? '' ) );
+		$selected_action = sanitize_key( (string) ( $selected['action'] ?? '' ) );
+		$selected_reason = sanitize_key( (string) ( $selected['reason'] ?? '' ) );
+		$has_concrete_item = 0 < $selected_source_id || 0 < $selected_translation_id || '' !== $selected_language;
+
 		$heartbeats[ $agent_session_id ] = array(
 			'agent_session_id' => $agent_session_id,
 			'llm_vendor' => sanitize_text_field( (string) ( $input['llm_vendor'] ?? $identity['llm_vendor'] ?? '' ) ),
@@ -1100,11 +1110,13 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			'step_token_label' => sanitize_key( (string) ( $identity['step_token_label'] ?? '' ) ),
 			'session_origin' => self::normalize_session_origin( (string) ( $identity['session_origin'] ?? '' ) ),
 			'last_seen_at' => gmdate( 'c' ),
-			'last_action' => sanitize_key( (string) ( $selected['action'] ?? '' ) ),
-			'last_source_id' => absint( $selected['source_id'] ?? 0 ),
-			'last_translation_id' => absint( $selected['translation_id'] ?? 0 ),
-			'last_language' => sanitize_key( (string) ( $selected['language'] ?? '' ) ),
-			'last_reason' => sanitize_key( (string) ( $selected['reason'] ?? '' ) ),
+			'last_action' => $has_concrete_item ? $selected_action : sanitize_key( (string) ( $previous['last_action'] ?? '' ) ),
+			'last_source_id' => $has_concrete_item ? $selected_source_id : absint( $previous['last_source_id'] ?? 0 ),
+			'last_translation_id' => $has_concrete_item ? $selected_translation_id : absint( $previous['last_translation_id'] ?? 0 ),
+			'last_language' => $has_concrete_item ? $selected_language : sanitize_key( (string) ( $previous['last_language'] ?? '' ) ),
+			'last_reason' => $has_concrete_item ? $selected_reason : sanitize_key( (string) ( $previous['last_reason'] ?? '' ) ),
+			'last_heartbeat_action' => $selected_action,
+			'last_heartbeat_reason' => $selected_reason,
 			'note' => ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '',
 		);
 
