@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.506
+ * Version: 0.1.507
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.506';
+	const VERSION = '0.1.507';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -9375,7 +9375,7 @@ final class Devenia_AI_Translations {
 				),
 				'statuses'         => array(
 					'type'        => 'array',
-					'description' => 'Optional queue states to include: content_integrity_repair, source_design_repair, source_taxonomy_review, missing, stale, draft, needs_review, needs_linguistic_review, ready_to_publish, reserved, complete.',
+					'description' => self::queue_states_description(),
 					'items'       => array( 'type' => 'string' ),
 				),
 				'detail_level'     => array(
@@ -18219,7 +18219,7 @@ final class Devenia_AI_Translations {
 			return array();
 		}
 
-		$allowed = array( 'content_integrity_repair', 'source_design_repair', 'source_taxonomy_review', 'missing', 'stale', 'draft', 'needs_review', 'needs_linguistic_review', 'ready_to_publish', 'reserved', 'complete' );
+		$allowed = self::queue_states();
 		$clean   = array();
 		foreach ( $statuses as $status ) {
 			$status = sanitize_key( (string) $status );

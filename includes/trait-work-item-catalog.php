@@ -797,14 +797,59 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	 */
 	private static function source_work_totals(): array {
 		$totals = array();
-		foreach ( self::source_work_queue_definitions() as $definition ) {
-			$work_type = sanitize_key( (string) ( $definition['work_type'] ?? '' ) );
-			if ( '' !== $work_type ) {
-				$totals[ $work_type ] = 0;
-			}
+		foreach ( self::source_work_queue_states() as $work_type ) {
+			$totals[ $work_type ] = 0;
 		}
 
 		return $totals;
+	}
+
+	/**
+	 * Source-scoped queue states in source-work priority order.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function source_work_queue_states(): array {
+		$states = array();
+		foreach ( self::source_work_queue_definitions() as $definition ) {
+			$work_type = sanitize_key( (string) ( $definition['work_type'] ?? '' ) );
+			if ( '' !== $work_type ) {
+				$states[] = $work_type;
+			}
+		}
+
+		return array_values( array_unique( $states ) );
+	}
+
+	/**
+	 * Translation queue states that are not source-scoped work items.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function translation_queue_states(): array {
+		return array(
+			'missing',
+			'stale',
+			'draft',
+			'needs_review',
+			'needs_linguistic_review',
+			'ready_to_publish',
+			'reserved',
+			'complete',
+		);
+	}
+
+	/**
+	 * All accepted queue status filters in public queue order.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function queue_states(): array {
+		return array_values( array_unique( array_merge( self::source_work_queue_states(), self::translation_queue_states() ) ) );
+	}
+
+	private static function queue_states_description(): string {
+		return 'Optional queue states to include: ' . implode( ', ', self::queue_states() ) . '.';
 	}
 
 	/**
@@ -867,16 +912,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		$items  = array();
 		$totals = array_merge(
 			self::source_work_totals(),
-			array(
-				'missing'                 => 0,
-				'stale'                   => 0,
-				'draft'                   => 0,
-				'needs_review'            => 0,
-				'needs_linguistic_review' => 0,
-				'ready_to_publish'        => 0,
-				'reserved'                => 0,
-				'complete'                => 0,
-			)
+			array_fill_keys( self::translation_queue_states(), 0 )
 		);
 
 		foreach ( $sources as $source ) {
