@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.510
+ * Version: 0.1.511
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.510';
+	const VERSION = '0.1.511';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -9460,13 +9460,13 @@ final class Devenia_AI_Translations {
 				'authority_vendor' => self::agent_session_input_schema_properties()['authority_vendor'],
 				'authority_client' => self::agent_session_input_schema_properties()['authority_client'],
 				'session_binding_token' => self::session_binding_token_input_schema(),
-				'limit' => array(
-					'type'        => 'integer',
-					'default'     => 500,
-					'minimum'     => 1,
-					'maximum'     => 500,
-					'description' => 'Maximum source posts/pages to scan while choosing one action.',
-				),
+					'limit' => array(
+						'type'        => 'integer',
+						'default'     => 100,
+						'minimum'     => 1,
+						'maximum'     => 200,
+						'description' => 'Maximum source posts/pages to scan while choosing one action.',
+					),
 				'claim' => array(
 					'type'        => 'boolean',
 					'default'     => false,
@@ -19459,6 +19459,9 @@ final class Devenia_AI_Translations {
 		if ( ! self::is_frontend_runtime_request() ) {
 			return;
 		}
+		if ( function_exists( 'wp_doing_cron' ) && wp_doing_cron() ) {
+			return;
+		}
 
 		$started = isset( $_SERVER['REQUEST_TIME_FLOAT'] ) ? (float) $_SERVER['REQUEST_TIME_FLOAT'] : 0.0;
 		if ( $started <= 0 ) {
@@ -19470,8 +19473,11 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		$language = self::frontend_language();
 		$path     = self::current_request_path();
+		if ( 'wp-cron.php' === trim( $path, '/' ) ) {
+			return;
+		}
+		$language = self::frontend_language();
 		$entry    = array(
 			'timestamp'     => current_time( 'mysql', true ),
 			'duration_ms'   => $duration_ms,

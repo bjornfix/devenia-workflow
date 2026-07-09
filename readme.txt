@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.510
+Stable tag: 0.1.511
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.511 =
+* Reduces heartbeat assignment scan breadth and source-work scan floors so frequent assignment checks do not create unnecessary origin load.
+* Keeps frontend slow-request logging focused on frontend requests by ignoring WordPress cron executions.
 
 = 0.1.510 =
 * Makes `ai-translations/warm-cache` batch-safe with `offset`, `next_offset`, and lower per-request limits so cache warming does not become a long-running frontend request.

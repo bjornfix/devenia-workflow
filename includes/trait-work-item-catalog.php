@@ -261,7 +261,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			return $sources;
 		}
 
-		$scan_limit = max( $limit, min( 2000, max( 500, $limit * 4 ) ) );
+		$scan_limit = max( $limit, min( 500, max( 100, $limit * 2 ) ) );
 		foreach ( self::source_work_queue_definitions() as $definition ) {
 			$work_type = sanitize_key( (string) ( $definition['work_type'] ?? '' ) );
 			if ( '' === $work_type ) {
@@ -323,7 +323,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 
 		$query_args = array(
 			'post_status'    => 'publish',
-			'posts_per_page' => max( 1, min( 2000, max( $scan_limit, absint( $definition['scan_floor'] ?? 0 ) ) ) ),
+				'posts_per_page' => max( 1, min( 500, max( $scan_limit, absint( $definition['scan_floor'] ?? 0 ) ) ) ),
 			'orderby'        => 'modified',
 			'order'          => 'DESC',
 			'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Source work queues must include original source content only.
@@ -747,7 +747,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				'action'           => 'repair_content_integrity',
 				'workflow_step'    => 'draft_write',
 				'required_ability' => 'content/update-post',
-				'scan_floor'       => '2000',
+				'scan_floor'       => '200',
 				'builder'          => 'source_content_integrity_repair_work_item',
 			),
 			array(

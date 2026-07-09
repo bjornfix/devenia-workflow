@@ -11,7 +11,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 	 * provenance, reservations, and self-review constraints.
 	 */
 	private static function next_heartbeat_action( array $input ): array {
-		$limit = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 500;
+		$limit = isset( $input['limit'] ) ? max( 1, min( 200, absint( $input['limit'] ) ) ) : 100;
 		$claim = ! empty( $input['claim'] );
 		$ttl_seconds = isset( $input['ttl_seconds'] )
 			? max( 60, min( self::MAX_TRANSLATION_CLAIM_TTL, absint( $input['ttl_seconds'] ) ) )
@@ -173,7 +173,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 	 */
 	private static function heartbeat_obligations( array $input ): array {
 		$source_id     = absint( $input['source_id'] ?? 0 );
-		$limit         = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 500;
+			$limit         = isset( $input['limit'] ) ? max( 1, min( 200, absint( $input['limit'] ) ) ) : 100;
 		$include_items = array_key_exists( 'include_items', $input ) ? (bool) $input['include_items'] : true;
 		$include_publish_items = array_key_exists( 'include_publish_items', $input ) ? (bool) $input['include_publish_items'] : true;
 		$sources       = self::workflow_source_candidates( $source_id, $limit );

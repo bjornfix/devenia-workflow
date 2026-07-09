@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.510
+**Stable tag:** 0.1.511
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.511
+
+- Reduces heartbeat assignment scan breadth and source-work scan floors so frequent assignment checks do not create unnecessary origin load.
+- Keeps frontend slow-request logging focused on frontend requests by ignoring WordPress cron executions.
 
 ### 0.1.510
 
