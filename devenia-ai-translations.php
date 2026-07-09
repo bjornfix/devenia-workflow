@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.513
+ * Version: 0.1.514
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.513';
+	const VERSION = '0.1.514';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -18033,7 +18033,7 @@ final class Devenia_AI_Translations {
 
 				$by_source[ $source_id ][ $lang ] = array(
 					'target_url' => (string) $url,
-					'variants'   => self::frontend_row_target_link_variants( $row ),
+					'variants'   => self::frontend_row_target_link_variants( $row, false ),
 				);
 				if ( 'publish' === (string) ( $row['post_status'] ?? $row['status'] ?? '' ) ) {
 					$published_by_source[ $source_id ][ $lang ] = $by_source[ $source_id ][ $lang ];
@@ -18127,10 +18127,11 @@ final class Devenia_AI_Translations {
 	/**
 	 * Known target URL/path variants for a frontend registry row.
 	 *
-	 * @param array<string,mixed> $row Frontend registry row.
+	 * @param array<string,mixed> $row                   Frontend registry row.
+	 * @param bool                $include_compatibility Include legacy slug and shortlink variants that require per-post lookups.
 	 * @return array<int,string>
 	 */
-	private static function frontend_row_target_link_variants( array $row ): array {
+	private static function frontend_row_target_link_variants( array $row, bool $include_compatibility = true ): array {
 		$variants = array(
 			(string) ( $row['target_url'] ?? '' ),
 			(string) ( $row['target_path'] ?? '' ),
@@ -18141,6 +18142,23 @@ final class Devenia_AI_Translations {
 			foreach ( $row['localized_path_variants'] as $variant ) {
 				$variants[] = (string) $variant;
 			}
+		}
+		if ( ! $include_compatibility ) {
+			return array_values(
+				array_unique(
+					array_filter(
+						array_map(
+							static function ( string $variant ): string {
+								return trim( $variant );
+							},
+							$variants
+						),
+						static function ( string $variant ): bool {
+							return '' !== $variant;
+						}
+					)
+				)
+			);
 		}
 		foreach ( self::frontend_row_old_slug_link_variants( $row ) as $variant ) {
 			$variants[] = $variant;
