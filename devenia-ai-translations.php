@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.509
+ * Version: 0.1.510
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.509';
+	const VERSION = '0.1.510';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -2102,9 +2102,11 @@ final class Devenia_AI_Translations {
 			$unique[ $normalized ] = $normalized;
 		}
 
-		$limit   = max( 1, min( 500, absint( $input['limit'] ?? 100 ) ) );
-		$timeout = max( 3, min( 30, absint( $input['timeout'] ?? 15 ) ) );
-		$urls    = array_slice( array_values( $unique ), 0, $limit );
+		$all_urls = array_values( $unique );
+		$offset   = max( 0, absint( $input['offset'] ?? 0 ) );
+		$limit    = max( 1, min( 50, absint( $input['limit'] ?? 25 ) ) );
+		$timeout  = max( 3, min( 15, absint( $input['timeout'] ?? 10 ) ) );
+		$urls     = array_slice( $all_urls, $offset, $limit );
 		$results = array();
 
 		foreach ( $urls as $url ) {
@@ -2144,9 +2146,14 @@ final class Devenia_AI_Translations {
 		}
 
 		return array(
-			'success'   => true,
-			'requested' => count( $urls ),
-			'results'   => $results,
+			'success'     => true,
+			'requested'   => count( $urls ),
+			'total_urls'  => count( $all_urls ),
+			'offset'      => $offset,
+			'limit'       => $limit,
+			'next_offset' => $offset + count( $urls ),
+			'has_more'    => ( $offset + count( $urls ) ) < count( $all_urls ),
+			'results'     => $results,
 		);
 	}
 
@@ -9333,25 +9340,31 @@ final class Devenia_AI_Translations {
 					'items'       => array( 'type' => 'string' ),
 					'description' => 'Optional explicit public URLs to warm before indexed translation URLs.',
 				),
-				'include_home' => array(
-					'type'        => 'boolean',
-					'default'     => true,
-					'description' => 'Include each language home URL before translated child pages.',
-				),
-				'limit'        => array(
-					'type'        => 'integer',
-					'default'     => 100,
-					'minimum'     => 1,
-					'maximum'     => 500,
-					'description' => 'Maximum number of URLs to request.',
-				),
-				'timeout'      => array(
-					'type'        => 'integer',
-					'default'     => 15,
-					'minimum'     => 3,
-					'maximum'     => 30,
-					'description' => 'Per-request timeout in seconds.',
-				),
+					'include_home' => array(
+						'type'        => 'boolean',
+						'default'     => true,
+						'description' => 'Include each language home URL before translated child pages.',
+					),
+					'offset'       => array(
+						'type'        => 'integer',
+						'default'     => 0,
+						'minimum'     => 0,
+						'description' => 'Zero-based URL offset for batched cache warming. Use next_offset from the previous response while has_more is true.',
+					),
+					'limit'        => array(
+						'type'        => 'integer',
+						'default'     => 25,
+						'minimum'     => 1,
+						'maximum'     => 50,
+						'description' => 'Maximum number of URLs to request in this batch.',
+					),
+					'timeout'      => array(
+						'type'        => 'integer',
+						'default'     => 10,
+						'minimum'     => 3,
+						'maximum'     => 15,
+						'description' => 'Per-request timeout in seconds.',
+					),
 			),
 			'additionalProperties' => false,
 		);
