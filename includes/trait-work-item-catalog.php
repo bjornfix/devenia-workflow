@@ -738,27 +738,38 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	/**
 	 * Source-scoped work definitions in queue priority order.
 	 *
-	 * @return array<int,array<string,string>>
+	 * @return array<int,array<string,mixed>>
 	 */
 	private static function source_work_queue_definitions(): array {
 		return array(
 			array(
-				'work_type'  => 'content_integrity_repair',
-				'action'     => 'repair_content_integrity',
-				'scan_floor' => '2000',
-				'builder'    => 'source_content_integrity_repair_work_item',
+				'work_type'        => 'content_integrity_repair',
+				'action'           => 'repair_content_integrity',
+				'workflow_step'    => 'draft_write',
+				'required_ability' => 'content/update-post',
+				'scan_floor'       => '2000',
+				'builder'          => 'source_content_integrity_repair_work_item',
 			),
 			array(
-				'work_type' => 'source_design_repair',
-				'action'    => 'repair_source_design',
-				'post_type' => 'post',
-				'builder'   => 'source_design_repair_work_item',
+				'work_type'            => 'source_design_repair',
+				'action'               => 'repair_source_design',
+				'workflow_step'        => 'draft_write',
+				'required_ability'     => 'devenia-site-presentation/apply-article-contract-pattern',
+				'completion_abilities' => array(
+					'ai-translations/mark-source-design-reviewed',
+					'devenia-site-presentation/apply-article-contract-pattern',
+				),
+				'completion_policy'    => 'Choose the smallest honest completion path. If rendered desktop/mobile inspection and the article contract show the current source page is already suitable, complete the item with ai-translations/mark-source-design-reviewed and concrete evidence. Use devenia-site-presentation/apply-article-contract-pattern only when the source actually needs a rewrite or native source design repair.',
+				'post_type'            => 'post',
+				'builder'              => 'source_design_repair_work_item',
 			),
 			array(
-				'work_type' => 'source_taxonomy_review',
-				'action'    => 'review_source_taxonomy',
-				'post_type' => 'post',
-				'builder'   => 'source_taxonomy_review_work_item',
+				'work_type'        => 'source_taxonomy_review',
+				'action'           => 'review_source_taxonomy',
+				'workflow_step'    => 'draft_write',
+				'required_ability' => 'ai-translations/mark-source-taxonomy-reviewed',
+				'post_type'        => 'post',
+				'builder'          => 'source_taxonomy_review_work_item',
 			),
 		);
 	}

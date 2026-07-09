@@ -471,30 +471,25 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			),
 		);
 		$map = array(
-			'content_integrity_repair' => array(
-				'action' => 'repair_content_integrity',
-				'workflow_step' => 'draft_write',
-				'required_ability' => 'content/update-post',
-				'design_ownership' => $design_ownership,
-				'instructions' => 'The assigned source or translation has invalid stored Gutenberg content that can break the public/rendered experience. Inspect the content_integrity issues on the work item, repair through the narrowest safe WordPress content ability, rerun the relevant QA/audit, then stop before reviewing or publishing your own correction.',
+			'content_integrity_repair' => self::heartbeat_source_work_action(
+				'content_integrity_repair',
+				array(
+					'design_ownership' => $design_ownership,
+					'instructions'      => 'The assigned source or translation has invalid stored Gutenberg content that can break the public/rendered experience. Inspect the content_integrity issues on the work item, repair through the narrowest safe WordPress content ability, rerun the relevant QA/audit, then stop before reviewing or publishing your own correction.',
+				)
 			),
-			'source_design_repair' => array(
-				'action' => 'repair_source_design',
-				'workflow_step' => 'draft_write',
-				'required_ability' => 'devenia-site-presentation/apply-article-contract-pattern',
-				'completion_abilities' => array(
-					'ai-translations/mark-source-design-reviewed',
-					'devenia-site-presentation/apply-article-contract-pattern',
-				),
-				'completion_policy' => 'Choose the smallest honest completion path. If rendered desktop/mobile inspection and the article contract show the current source page is already suitable, complete the item with ai-translations/mark-source-design-reviewed and concrete evidence. Use devenia-site-presentation/apply-article-contract-pattern only when the source actually needs a rewrite or native source design repair.',
-				'design_ownership' => $design_ownership,
-				'instructions' => 'The source post itself does not pass the selected Devenia presentation contract. Before designing or rebuilding anything, fetch the live design sources through MCP: the Gutenberg style guide, registered block patterns, and any relevant block pattern library abilities exposed for the article type and section role. Use the article_type/template fields on the work item when fetching devenia-site-presentation/get-article-contract; do not assume editorial_post. Inspect the source, at least one comparable live Devenia page, and the public render. If the current page is genuinely good and a rewrite would be unnecessary, call ai-translations/mark-source-design-reviewed with concrete desktop/mobile/contract evidence and the active claim token instead of rewriting the source. Otherwise rebuild through devenia-site-presentation/apply-article-contract-pattern with explicit fragments for that contract, validate with stamp-article-contract dry-run, then browser-check against the comparable page. Stop before reviewing or publishing any downstream translation work. After the source is repaired or marked reviewed, downstream translations can continue through normal source-design/review work.',
+			'source_design_repair' => self::heartbeat_source_work_action(
+				'source_design_repair',
+				array(
+					'design_ownership' => $design_ownership,
+					'instructions'      => 'The source post itself does not pass the selected Devenia presentation contract. Before designing or rebuilding anything, fetch the live design sources through MCP: the Gutenberg style guide, registered block patterns, and any relevant block pattern library abilities exposed for the article type and section role. Use the article_type/template fields on the work item when fetching devenia-site-presentation/get-article-contract; do not assume editorial_post. Inspect the source, at least one comparable live Devenia page, and the public render. If the current page is genuinely good and a rewrite would be unnecessary, call ai-translations/mark-source-design-reviewed with concrete desktop/mobile/contract evidence and the active claim token instead of rewriting the source. Otherwise rebuild through devenia-site-presentation/apply-article-contract-pattern with explicit fragments for that contract, validate with stamp-article-contract dry-run, then browser-check against the comparable page. Stop before reviewing or publishing any downstream translation work. After the source is repaired or marked reviewed, downstream translations can continue through normal source-design/review work.',
+				)
 			),
-			'source_taxonomy_review' => array(
-				'action' => 'review_source_taxonomy',
-				'workflow_step' => 'draft_write',
-				'required_ability' => 'ai-translations/mark-source-taxonomy-reviewed',
-				'instructions' => 'Review the English source post categories and tags before they are mirrored into translations. Use the article_type/template fields carried on this work item when fetching any Site Presentation contract; do not let tools default to editorial_post. Read what the post is actually about, inspect assigned categories/tags, and use the source_taxonomy payload for singleton/sprawl signals and existing reuse candidates. Prefer reusing or consolidating existing terms when they cover the same reader intent; keep a narrow one-post term only when it is genuinely useful as a reader archive. If terms need changing, use content/update-post with category_ids/tag_ids first. Then mark this review complete with ai-translations/mark-source-taxonomy-reviewed, including concrete topical-fit notes and a term_decisions row for each assigned singleton term: keep, replace, or remove with rationale. Stop before reviewing or publishing downstream translations.',
+			'source_taxonomy_review' => self::heartbeat_source_work_action(
+				'source_taxonomy_review',
+				array(
+					'instructions' => 'Review the English source post categories and tags before they are mirrored into translations. Use the article_type/template fields carried on this work item when fetching any Site Presentation contract; do not let tools default to editorial_post. Read what the post is actually about, inspect assigned categories/tags, and use the source_taxonomy payload for singleton/sprawl signals and existing reuse candidates. Prefer reusing or consolidating existing terms when they cover the same reader intent; keep a narrow one-post term only when it is genuinely useful as a reader archive. If terms need changing, use content/update-post with category_ids/tag_ids first. Then mark this review complete with ai-translations/mark-source-taxonomy-reviewed, including concrete topical-fit notes and a term_decisions row for each assigned singleton term: keep, replace, or remove with rationale. Stop before reviewing or publishing downstream translations.',
+				)
 			),
 			'linguistic_review' => array(
 				'action' => 'review_translation_linguistic',
@@ -547,6 +542,24 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 		);
 
 		return $map;
+	}
+
+	private static function heartbeat_source_work_action( string $work_type, array $extra = array() ): array {
+		$definition = self::source_work_queue_definition( $work_type );
+		$action = array(
+			'action'           => sanitize_key( (string) ( $definition['action'] ?? $work_type ) ),
+			'workflow_step'    => sanitize_key( (string) ( $definition['workflow_step'] ?? 'draft_write' ) ),
+			'required_ability' => sanitize_text_field( (string) ( $definition['required_ability'] ?? '' ) ),
+		);
+
+		if ( isset( $definition['completion_abilities'] ) && is_array( $definition['completion_abilities'] ) ) {
+			$action['completion_abilities'] = array_values( array_map( 'sanitize_text_field', $definition['completion_abilities'] ) );
+		}
+		if ( isset( $definition['completion_policy'] ) ) {
+			$action['completion_policy'] = sanitize_textarea_field( (string) $definition['completion_policy'] );
+		}
+
+		return array_merge( $action, $extra );
 	}
 
 	private static function heartbeat_action_for_obligation( string $obligation ): array {
