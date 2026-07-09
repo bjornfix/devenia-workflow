@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.511
+**Stable tag:** 0.1.520
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,44 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.520
+
+- Restores the source-design reprojection output contract with `translations` and `translation_count` aliases so clients can prove target selection after a successful run.
+
+### 0.1.519
+
+- Fixes source-design reprojection target selection so indexed page/post translations are not dropped by a stale postmeta-only source check.
+
+### 0.1.518
+
+- Fixes source content-integrity review evidence reads so no-rewrite completions immediately satisfy the queue gate.
+
+### 0.1.517
+
+- Fixes source content-integrity no-rewrite completion for page-based sources such as Learn and plugin pages.
+
+### 0.1.516
+
+- Adds a hash-bound source content-integrity no-op completion ability so already-clean or stale/false-positive repair assignments can be completed with evidence instead of forcing artificial content saves.
+
+### 0.1.515
+
+- Optimizes localized author archives by resolving translated post replacements from the indexed frontend rows once per language instead of running one translation lookup for every source post on each archive render.
+
+### 0.1.514
+
+- Keeps public frontend localized-link maps on the indexed read model instead of expanding historical slug and shortlink compatibility variants with per-post WordPress lookups on every translated render.
+
+### 0.1.513
+
+- Trusts the translation index localized path during frontend row shaping so public link-map reads do not run per-translation postmeta lookups on every translated origin render.
+
+### 0.1.512
+
+- Keeps glossary/review localized terms out of frontend runtime text replacement so translated page renders do not run broad QA-term regexes on every request.
+- Uses the translation index for legacy language-prefixed source-path redirects instead of scanning every published row for the language.
+- Lowers frontend performance logging to capture one-second translated origin renders during speed diagnosis.
 
 ### 0.1.511
 

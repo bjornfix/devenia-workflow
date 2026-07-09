@@ -552,6 +552,8 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			),
 			'totals' => $totals,
 			'items' => $items,
+			'translations' => $items,
+			'translation_count' => count( $items ),
 		);
 	}
 
@@ -1176,7 +1178,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		$status_filter = self::translation_workflow_post_statuses( false );
 		$rows          = array();
 		$seen          = array();
-		$add_row       = static function ( int $translation_id, string $language ) use ( &$rows, &$seen, $source_id, $language_filter, $translation_filter, $status_filter ): void {
+		$add_row       = static function ( int $translation_id, string $language, int $indexed_source_id = 0 ) use ( &$rows, &$seen, $source_id, $language_filter, $translation_filter, $status_filter ): void {
 			$translation_id = absint( $translation_id );
 			$language       = sanitize_key( $language );
 			if ( ! $translation_id || '' === $language || isset( $seen[ $translation_id ] ) ) {
@@ -1188,7 +1190,11 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			if ( $translation_filter && empty( $translation_filter[ $translation_id ] ) ) {
 				return;
 			}
-			if ( $source_id !== absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) ) ) {
+			$row_source_id = absint( $indexed_source_id );
+			if ( ! $row_source_id ) {
+				$row_source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
+			}
+			if ( $source_id !== $row_source_id ) {
 				return;
 			}
 			$status = get_post_status( $translation_id );
@@ -1204,8 +1210,10 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 
 		if ( $translation_filter ) {
 			foreach ( array_keys( $translation_filter ) as $translation_id ) {
-				$language = sanitize_key( (string) get_post_meta( absint( $translation_id ), self::META_LANGUAGE, true ) );
-				$add_row( absint( $translation_id ), $language );
+				$indexed = self::translation_index_row_for_translation( absint( $translation_id ), $status_filter );
+				$language = sanitize_key( (string) ( $indexed['language'] ?? get_post_meta( absint( $translation_id ), self::META_LANGUAGE, true ) ) );
+				$indexed_source_id = absint( $indexed['source_id'] ?? $indexed['source_post_id'] ?? 0 );
+				$add_row( absint( $translation_id ), $language, $indexed_source_id );
 			}
 			return $rows;
 		}
@@ -1213,7 +1221,8 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		foreach ( self::translation_index_rows_for_source( $source_id, $status_filter ) as $row ) {
 			$translation_id = absint( $row['id'] ?? $row['translation_post_id'] ?? 0 );
 			$language       = sanitize_key( (string) ( $row['language'] ?? '' ) );
-			$add_row( $translation_id, $language );
+			$indexed_source_id = absint( $row['source_id'] ?? $row['source_post_id'] ?? 0 );
+			$add_row( $translation_id, $language, $indexed_source_id );
 		}
 
 		if ( $rows || self::translation_index_available() ) {

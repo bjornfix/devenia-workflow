@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.516
+Stable tag: 0.1.520
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,18 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.520 =
+* Restores the source-design reprojection output contract with `translations` and `translation_count` aliases so clients can prove target selection after a successful run.
+
+= 0.1.519 =
+* Fixes source-design reprojection target selection so indexed page/post translations are not dropped by a stale postmeta-only source check.
+
+= 0.1.518 =
+* Fixes source content-integrity review evidence reads so no-rewrite completions immediately satisfy the queue gate.
+
+= 0.1.517 =
+* Fixes source content-integrity no-rewrite completion for page-based sources such as Learn and plugin pages.
 
 = 0.1.516 =
 * Adds a hash-bound source content-integrity no-op completion ability so already-clean or stale/false-positive repair assignments can be completed with evidence instead of forcing artificial content saves.

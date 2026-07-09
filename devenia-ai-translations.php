@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.516
+ * Version: 0.1.520
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.516';
+	const VERSION = '0.1.520';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -15095,12 +15095,7 @@ final class Devenia_AI_Translations {
 		$current_hash = self::source_content_integrity_review_hash( $source, $validation );
 		$stored_hash  = (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_HASH, true );
 		$reviewed_at  = (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWED_AT, true );
-		$evidence_raw = (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_EVIDENCE, true );
-		$evidence     = array();
-		if ( '' !== $evidence_raw ) {
-			$decoded  = json_decode( wp_unslash( $evidence_raw ), true );
-			$evidence = is_array( $decoded ) ? $decoded : array();
-		}
+		$evidence = self::json_post_meta_value( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_EVIDENCE );
 		$passed = '' !== $stored_hash && hash_equals( $current_hash, $stored_hash ) && '' !== $reviewed_at && ! empty( $evidence['content_integrity_already_clean'] );
 
 		return array(
@@ -15130,7 +15125,7 @@ final class Devenia_AI_Translations {
 	private static function mark_source_content_integrity_reviewed( array $input ): array {
 		$source_id = absint( $input['source_id'] ?? 0 );
 		$source    = $source_id ? get_post( $source_id ) : null;
-		if ( ! $source instanceof WP_Post || 'post' !== (string) $source->post_type || self::is_translation_post( $source_id ) ) {
+		if ( ! $source instanceof WP_Post || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
 			return self::error( 'Source post not found.', 'source_post_not_found' );
 		}
 		if ( empty( $input['content_integrity_already_clean'] ) ) {
@@ -16517,6 +16512,23 @@ final class Devenia_AI_Translations {
 	 */
 	private static function update_json_post_meta( int $post_id, string $meta_key, array $value ): void {
 		update_post_meta( $post_id, $meta_key, wp_slash( wp_json_encode( $value ) ) );
+	}
+
+	/**
+	 * Read JSON post meta written by update_json_post_meta().
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function json_post_meta_value( int $post_id, string $meta_key ): array {
+		$raw = get_post_meta( $post_id, $meta_key, true );
+		if ( is_string( $raw ) && '' !== trim( $raw ) ) {
+			$decoded = json_decode( $raw, true );
+			if ( is_array( $decoded ) ) {
+				$raw = $decoded;
+			}
+		}
+
+		return is_array( $raw ) ? $raw : array();
 	}
 
 	private static function review_evidence_has_contract( array $evidence, string $stage ): bool {
