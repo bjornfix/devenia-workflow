@@ -76,7 +76,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			}
 
 			foreach ( $item_obligations as $obligation ) {
-				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair', 'source_design_repair', 'source_taxonomy_review', 'content_integrity_repair' ), true )
+				$eligibility = self::heartbeat_obligation_uses_draft_work_identity( $obligation )
 					? self::heartbeat_draft_work_eligibility( $identity )
 					: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
 				if ( empty( $eligibility['success'] ) ) {
@@ -85,7 +85,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 				}
 
 				$action = self::heartbeat_action_for_obligation( $obligation );
-				if ( self::heartbeat_repeats_previous_item_without_change( $input, $identity, $translation_id, $source_id, $language, $action['action'] ) ) {
+				if ( self::heartbeat_repeats_previous_item_for_actor( $input, $identity, $translation_id, $source_id, $language, $action['action'] ) ) {
 					$skipped[] = self::heartbeat_skip_summary( $item, 'repeated_same_item_for_actor_' . $obligation );
 					continue;
 				}
@@ -288,14 +288,14 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 					$actor_skip_reason = 'reserved';
 					continue;
 				}
-				$eligibility = in_array( $obligation, array( 'draft_write', 'source_reprojection', 'route_repair', 'source_design_repair', 'source_taxonomy_review', 'content_integrity_repair' ), true )
+				$eligibility = self::heartbeat_obligation_uses_draft_work_identity( $obligation )
 					? self::heartbeat_draft_work_eligibility( $identity )
 					: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
 				if ( empty( $eligibility['success'] ) ) {
 					$actor_skip_reason = sanitize_key( (string) ( $eligibility['code'] ?? 'not_eligible' ) . '_' . $obligation );
 					continue;
 				}
-				if ( self::heartbeat_repeats_previous_item_without_change( $input, $identity, $translation_id, $source_id, $language, sanitize_key( (string) $action['action'] ) ) ) {
+				if ( self::heartbeat_repeats_previous_item_for_actor( $input, $identity, $translation_id, $source_id, $language, sanitize_key( (string) $action['action'] ) ) ) {
 					$actor_skip_reason = 'repeated_same_item_for_actor_' . $obligation;
 					continue;
 				}
@@ -745,7 +745,22 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 		return array();
 	}
 
-	private static function heartbeat_repeats_previous_item_without_change( array $input, array $identity, int $translation_id, int $source_id, string $language, string $action ): bool {
+	private static function heartbeat_obligation_uses_draft_work_identity( string $obligation ): bool {
+		return in_array(
+			$obligation,
+			array(
+				'draft_write',
+				'source_reprojection',
+				'route_repair',
+				'source_design_repair',
+				'source_taxonomy_review',
+				'content_integrity_repair',
+			),
+			true
+		);
+	}
+
+	private static function heartbeat_repeats_previous_item_for_actor( array $input, array $identity, int $translation_id, int $source_id, string $language, string $action ): bool {
 		$agent_session_id = self::normalize_control_scope_id( (string) ( $input['agent_session_id'] ?? $identity['agent_session_id'] ?? $identity['control_scope_id'] ?? '' ) );
 		if ( '' === $agent_session_id ) {
 			return false;
