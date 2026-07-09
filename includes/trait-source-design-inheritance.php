@@ -23,8 +23,9 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		$blocks    = parse_blocks( $content );
 		$fragments = array();
 		self::collect_source_design_fragments( $blocks, $fragments );
-		$editorial_validation = self::source_editorial_design_validation( $source, $content );
-		$source_design_review = self::source_design_review_state( $source, $editorial_validation );
+		$gate_state           = self::source_design_gate_state( $source, $content );
+		$editorial_validation = isset( $gate_state['validation'] ) && is_array( $gate_state['validation'] ) ? $gate_state['validation'] : array();
+		$source_design_review = isset( $gate_state['review'] ) && is_array( $gate_state['review'] ) ? $gate_state['review'] : array();
 
 		return array(
 			'schema_version'               => 1,
@@ -46,6 +47,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'reader_action_candidates'     => self::source_design_reader_action_candidates( $editorial_validation ),
 			'editorial_source_validation'  => $editorial_validation,
 			'source_design_review'         => $source_design_review,
+			'source_design_gate'           => $gate_state,
 		);
 	}
 
@@ -124,14 +126,12 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	 * @return array<string,mixed>|null
 	 */
 	private static function source_editorial_design_gate_error( WP_Post $source, string $content = '' ): ?array {
-		$validation = self::source_editorial_design_validation( $source, $content );
-		if ( ! empty( $validation['passed'] ) ) {
+		$gate_state = self::source_design_gate_state( $source, $content );
+		if ( ! empty( $gate_state['passed'] ) ) {
 			return null;
 		}
-		$source_design_review = self::source_design_review_state( $source, $validation );
-		if ( ! empty( $source_design_review['passed'] ) ) {
-			return null;
-		}
+		$validation           = isset( $gate_state['validation'] ) && is_array( $gate_state['validation'] ) ? $gate_state['validation'] : array();
+		$source_design_review = isset( $gate_state['review'] ) && is_array( $gate_state['review'] ) ? $gate_state['review'] : array();
 
 		return array(
 			'success'    => false,
@@ -142,6 +142,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'source_id'  => (int) $source->ID,
 			'validation' => $validation,
 			'source_design_review' => $source_design_review,
+			'source_design_gate' => $gate_state,
 		);
 	}
 

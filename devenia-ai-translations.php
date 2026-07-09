@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.494
+ * Version: 0.1.495
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -14,6 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once __DIR__ . '/includes/trait-source-design-inheritance.php';
+require_once __DIR__ . '/includes/trait-source-design-review-policy.php';
 require_once __DIR__ . '/includes/trait-taxonomy-localization.php';
 require_once __DIR__ . '/includes/trait-featured-image-repair.php';
 require_once __DIR__ . '/includes/trait-ability-platform.php';
@@ -30,6 +31,7 @@ require_once __DIR__ . '/includes/trait-translation-provenance.php';
 
 final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
+	use Devenia_AI_Translations_Source_Design_Review_Policy;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Ability_Platform;
@@ -44,7 +46,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.494';
+	const VERSION = '0.1.495';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -14006,35 +14008,36 @@ final class Devenia_AI_Translations {
 			'post_status'            => (string) $post->post_status,
 		);
 
-		$editorial_validation = self::source_editorial_design_validation( $post, $content );
+		$source_design_gate = self::source_design_gate_state( $post, $content );
+		$editorial_validation = isset( $source_design_gate['validation'] ) && is_array( $source_design_gate['validation'] ) ? $source_design_gate['validation'] : array();
+		$source_design_review = isset( $source_design_gate['review'] ) && is_array( $source_design_gate['review'] ) ? $source_design_gate['review'] : array();
 		$signals['editorial_source_validation'] = $editorial_validation;
-		$source_design_review = self::source_design_review_state( $post, $editorial_validation );
 		$signals['source_design_review'] = $source_design_review;
-		if ( empty( $editorial_validation['passed'] ) ) {
-			if ( ! empty( $source_design_review['passed'] ) ) {
-				$warnings[] = self::quality_verdict_blocker(
-					'publication_experience_source_design_reviewed_no_rewrite',
-					'review_note',
-					'The source did not pass the automated presentation stamp, but a hash-bound source design review marked the current page suitable without rewriting.',
-					array(
-						'post_id' => $post_id,
-						'state'   => $source_design_review['state'] ?? '',
-					)
-				);
-			} else {
-				$blockers[] = self::quality_verdict_blocker(
-					empty( $editorial_validation['available'] ) ? 'publication_experience_editorial_adapter_unavailable' : 'publication_experience_editorial_design_failed',
-					'block_publish',
-					empty( $editorial_validation['available'] )
-						? 'Devenia editorial design validation is unavailable, so publication experience cannot be trusted.'
-						: 'The content does not pass the Devenia editorial design gate.',
-					array(
-						'post_id'    => $post_id,
-						'issue_codes'=> $editorial_validation['issue_codes'] ?? array(),
-						'source_design_review' => $source_design_review,
-					)
-				);
-			}
+		$signals['source_design_gate'] = $source_design_gate;
+		if ( empty( $source_design_gate['passed'] ) ) {
+			$blockers[] = self::quality_verdict_blocker(
+				empty( $editorial_validation['available'] ) ? 'publication_experience_editorial_adapter_unavailable' : 'publication_experience_editorial_design_failed',
+				'block_publish',
+				empty( $editorial_validation['available'] )
+					? 'Devenia editorial design validation is unavailable, so publication experience cannot be trusted.'
+					: 'The content does not pass the Devenia editorial design gate.',
+				array(
+					'post_id'    => $post_id,
+					'issue_codes'=> $editorial_validation['issue_codes'] ?? array(),
+					'source_design_review' => $source_design_review,
+					'source_design_gate' => $source_design_gate,
+				)
+			);
+		} elseif ( 'reviewed_no_rewrite_needed' === (string) ( $source_design_gate['pass_source'] ?? '' ) ) {
+			$warnings[] = self::quality_verdict_blocker(
+				'publication_experience_source_design_reviewed_no_rewrite',
+				'review_note',
+				'The source did not pass the automated presentation stamp, but a hash-bound source design review marked the current page suitable without rewriting.',
+				array(
+					'post_id' => $post_id,
+					'state'   => $source_design_review['state'] ?? '',
+				)
+			);
 		}
 
 		if ( 'publish' === (string) $post->post_status && self::is_translation_post( $post_id ) && self::is_translation_language( $language ) ) {
@@ -20911,25 +20914,19 @@ final class Devenia_AI_Translations {
 			return $data;
 		}
 
-			$content = self::pending_source_publish_guard_content( $data, $postarr, $post_id );
-			if ( '' === $content && $post_id > 0 ) {
-				$content = (string) get_post_field( 'post_content', $post_id );
-			}
+		$content = self::pending_source_publish_guard_content( $data, $postarr, $post_id );
+		if ( '' === $content && $post_id > 0 ) {
+			$content = (string) get_post_field( 'post_content', $post_id );
+		}
 
 		$guard_post = self::source_publish_guard_post_object( $data, $postarr, $content );
-		$validation = self::source_editorial_design_validation( $guard_post, $content );
-		if ( ! empty( $validation['passed'] ) ) {
+		$source_design_gate = self::source_design_gate_state( $guard_post, $content );
+		$validation = isset( $source_design_gate['validation'] ) && is_array( $source_design_gate['validation'] ) ? $source_design_gate['validation'] : array();
+		if ( ! empty( $source_design_gate['passed'] ) ) {
 			if ( (int) $guard_post->ID > 0 ) {
 				delete_post_meta( (int) $guard_post->ID, '_devenia_source_publish_design_blocked' );
 			}
 			return $data;
-		}
-		if ( (int) $guard_post->ID > 0 ) {
-			$source_design_review = self::source_design_review_state( $guard_post, $validation );
-			if ( ! empty( $source_design_review['passed'] ) ) {
-				delete_post_meta( (int) $guard_post->ID, '_devenia_source_publish_design_blocked' );
-				return $data;
-			}
 		}
 		$allow_validated_source_design_save = apply_filters(
 			'devenia_ai_translations_allow_source_publish_design_gate_failure',
@@ -23105,23 +23102,23 @@ final class Devenia_AI_Translations {
 			);
 		}
 
-		$validation = self::source_editorial_design_validation( $source, $source_content );
-		$source_design_review = self::source_design_review_state( $source, $validation );
-		if ( empty( $validation['passed'] ) ) {
-			if ( empty( $source_design_review['passed'] ) ) {
-				$issues[] = self::qa_item(
-					'source_editorial_design_gate_failed',
-					'The source post does not pass the Devenia editorial design gate, so translations cannot be considered source-design faithful until the source design is repaired or marked reviewed for the current source hash.',
-					array(
-						'source_id'    => $source_id,
-						'available'    => ! empty( $validation['available'] ),
-						'issue_codes'  => self::sanitize_qa_code_list( $validation['issue_codes'] ?? array() ),
-						'metrics'      => isset( $validation['metrics'] ) && is_array( $validation['metrics'] ) ? self::compact_editorial_design_metrics( $validation['metrics'] ) : array(),
-						'source_design_review' => $source_design_review,
-						'next_action'  => 'fix_source_design_or_mark_source_design_reviewed_for_current_hash',
-					)
-				);
-			}
+		$source_design_gate = self::source_design_gate_state( $source, $source_content );
+		$validation = isset( $source_design_gate['validation'] ) && is_array( $source_design_gate['validation'] ) ? $source_design_gate['validation'] : array();
+		$source_design_review = isset( $source_design_gate['review'] ) && is_array( $source_design_gate['review'] ) ? $source_design_gate['review'] : array();
+		if ( empty( $source_design_gate['passed'] ) ) {
+			$issues[] = self::qa_item(
+				'source_editorial_design_gate_failed',
+				'The source post does not pass the Devenia editorial design gate, so translations cannot be considered source-design faithful until the source design is repaired or marked reviewed for the current source hash.',
+				array(
+					'source_id'    => $source_id,
+					'available'    => ! empty( $source_design_gate['available'] ),
+					'issue_codes'  => self::sanitize_qa_code_list( $validation['issue_codes'] ?? array() ),
+					'metrics'      => isset( $validation['metrics'] ) && is_array( $validation['metrics'] ) ? self::compact_editorial_design_metrics( $validation['metrics'] ) : array(),
+					'source_design_review' => $source_design_review,
+					'source_design_gate' => $source_design_gate,
+					'next_action'  => 'fix_source_design_or_mark_source_design_reviewed_for_current_hash',
+				)
+			);
 		}
 
 		return array(
@@ -23133,9 +23130,10 @@ final class Devenia_AI_Translations {
 			'summary'       => array(
 				'applicable' => true,
 				'source_id'  => $source_id,
-				'passed'     => ! empty( $validation['passed'] ) || ! empty( $source_design_review['passed'] ),
+				'passed'     => ! empty( $source_design_gate['passed'] ),
 				'issue_codes' => self::sanitize_qa_code_list( $validation['issue_codes'] ?? array() ),
 				'source_design_review' => $source_design_review,
+				'source_design_gate' => $source_design_gate,
 			),
 		);
 	}
