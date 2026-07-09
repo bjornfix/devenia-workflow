@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.514
+ * Version: 0.1.515
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.514';
+	const VERSION = '0.1.515';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -22177,9 +22177,16 @@ final class Devenia_AI_Translations {
 	 * @return array<int,int>
 	 */
 	private static function localized_author_archive_post_ids( int $author_id, string $language ): array {
+		static $cache = array();
+
 		$language = sanitize_key( $language );
 		if ( ! $author_id || ! self::is_translation_language( $language ) ) {
 			return array();
+		}
+
+		$cache_key = $author_id . ':' . $language;
+		if ( isset( $cache[ $cache_key ] ) ) {
+			return $cache[ $cache_key ];
 		}
 
 		$source_query = new WP_Query(
@@ -22204,16 +22211,28 @@ final class Devenia_AI_Translations {
 			)
 		);
 
-		$local_ids  = array();
-		$source_ids = array_map( 'absint', $source_query->posts );
+		$local_ids             = array();
+		$source_ids            = array_map( 'absint', $source_query->posts );
+		$source_lookup         = array_fill_keys( $source_ids, true );
+		$translations_by_source = array();
+		foreach ( self::translation_frontend_rows_for_language( $language, array( 'publish' ) ) as $row ) {
+			$source_id      = absint( $row['source_id'] ?? 0 );
+			$translation_id = absint( $row['id'] ?? 0 );
+			if ( $source_id && $translation_id && isset( $source_lookup[ $source_id ] ) ) {
+				$translations_by_source[ $source_id ] = $translation_id;
+			}
+		}
+
 		foreach ( $source_ids as $source_id ) {
-			$translation_id = self::find_translation_id( $source_id, $language, array( 'publish' ) );
-			if ( $translation_id && 'post' === get_post_type( $translation_id ) ) {
+			$translation_id = absint( $translations_by_source[ $source_id ] ?? 0 );
+			if ( $translation_id ) {
 				$local_ids[] = $translation_id;
 			}
 		}
 
-		return array_values( array_unique( array_merge( $local_ids, $source_ids ) ) );
+		$cache[ $cache_key ] = array_values( array_unique( array_merge( $local_ids, $source_ids ) ) );
+
+		return $cache[ $cache_key ];
 	}
 
 	/**
