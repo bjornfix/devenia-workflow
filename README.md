@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.490
+**Stable tag:** 0.1.491
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.491
+
+- Deepens the internal workflow architecture with dedicated ability dispatch, assignment authority, quality snapshot, workflow read-model, and presentation adapter modules.
+- Keeps existing ability names and response contracts unchanged while concentrating claim identity, QA input, queue snapshot, and presentation resolution logic behind narrower module interfaces.
 
 ### 0.1.490
 

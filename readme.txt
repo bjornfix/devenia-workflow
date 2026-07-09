@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.490
+Stable tag: 0.1.491
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.491 =
+* Deepens the internal workflow architecture with dedicated ability dispatch, assignment authority, quality snapshot, workflow read-model, and presentation adapter modules.
+* Keeps existing ability names and response contracts unchanged while concentrating claim identity, QA input, queue snapshot, and presentation resolution logic behind narrower module interfaces.
 
 = 0.1.490 =
 * Preserves the last concrete heartbeat work item when a session receives wait or escalation state, preventing the same actor from being steered back to a source item it just released after a blocker or source-side fix.

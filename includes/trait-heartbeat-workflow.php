@@ -110,43 +110,18 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 
 				$claim_result = null;
 				if ( $claim ) {
-					$claim_result = self::reserve_translation_work(
-						array(
-							'source_id' => $source_id,
-							'work_scope' => $work_scope,
-							'work_type' => $work_type,
-							'language' => $language,
-							'owner' => 'heartbeat:' . (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? 'unknown' ),
-							'note' => '' !== $note ? $note : 'Reserved by next-heartbeat-action.',
-							'agent_session_id' => (string) ( $identity['agent_session_id'] ?? $input['agent_session_id'] ?? '' ),
-							'llm_vendor' => (string) ( $input['llm_vendor'] ?? $identity['llm_vendor'] ?? '' ),
-							'llm_client' => (string) ( $input['llm_client'] ?? $identity['llm_client'] ?? '' ),
-							'authority_vendor' => (string) ( $input['authority_vendor'] ?? $identity['authority_vendor'] ?? $identity['authority'] ?? '' ),
-							'authority_client' => (string) ( $input['authority_client'] ?? $identity['authority_client'] ?? '' ),
-							'session_binding_token' => (string) ( $input['session_binding_token'] ?? '' ),
-							'actor_id' => (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? '' ),
-							'ttl_seconds' => $ttl_seconds,
-						)
-					);
+					$claim_result = self::reserve_translation_work( self::assignment_authority_reservation_input( $selected, $identity, $input, $ttl_seconds, $note ) );
 					if ( empty( $claim_result['success'] ) ) {
 						$skipped[] = self::heartbeat_skip_summary( $item, 'claim_conflict' );
 						continue 2;
 					}
-					$claimed_reservation = isset( $claim_result['claims'][0] ) && is_array( $claim_result['claims'][0] ) ? $claim_result['claims'][0] : array();
-					$claimed_agent_session_id = self::normalize_control_scope_id( (string) ( $claimed_reservation['agent_session_id'] ?? '' ) );
-					$claimed_actor_id = sanitize_key( (string) ( $claimed_reservation['actor_id'] ?? '' ) );
-					$identity_agent_session_id = self::normalize_control_scope_id( (string) ( $identity['agent_session_id'] ?? $input['agent_session_id'] ?? '' ) );
-					$identity_actor_id = sanitize_key( (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? '' ) );
-					if (
-						empty( $claimed_reservation )
-						|| ( '' !== $claimed_agent_session_id && '' !== $identity_agent_session_id && $claimed_agent_session_id !== $identity_agent_session_id )
-						|| ( '' !== $claimed_actor_id && '' !== $identity_actor_id && $claimed_actor_id !== $identity_actor_id )
-					) {
-						$skipped[] = self::heartbeat_skip_summary( $item, 'claim_identity_mismatch' );
+					$claim_identity = self::assignment_authority_claim_identity( $claim_result, $identity, $input );
+					if ( empty( $claim_identity['success'] ) ) {
+						$skipped[] = self::heartbeat_skip_summary( $item, sanitize_key( (string) ( $claim_identity['code'] ?? 'claim_identity_mismatch' ) ) );
 						continue 2;
 					}
 					$selected['claim_token'] = (string) ( $claim_result['claim_token'] ?? '' );
-					$selected['reservation'] = $claimed_reservation;
+					$selected['reservation'] = $claim_identity['reservation'];
 				}
 
 				self::record_heartbeat_state( $input, $selected, $identity );

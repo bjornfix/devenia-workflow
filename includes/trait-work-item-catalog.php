@@ -21,26 +21,14 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	 * Return per-language workflow status for a source page.
 	 */
 	private static function workflow_status( int $source_id, string $detail_level = 'compact' ): array {
-		$source = get_post( $source_id );
+		$snapshot = self::workflow_source_snapshot( $source_id, $detail_level );
+		$source   = $snapshot['source'];
 		if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
 			return self::error( 'Source content not found.' );
 		}
 
-		$translations = array();
-		if ( 'full' === $detail_level ) {
-			foreach ( self::translation_rows_for_source( $source_id ) as $row ) {
-				$translations[ $row['language'] ] = $row;
-			}
-		} else {
-			foreach ( self::heartbeat_translation_rows_for_source( $source_id ) as $workflow_row ) {
-				$row = self::compact_translation_queue_payload_from_workflow_row( $workflow_row, $source );
-				if ( ! empty( $row['language'] ) ) {
-					$translations[ $row['language'] ] = $row;
-				}
-			}
-		}
-
-		$languages = self::languages();
+		$translations = $snapshot['translations'];
+		$languages    = $snapshot['languages'];
 		$rows      = array();
 		foreach ( $languages as $language => $config ) {
 			if ( ! empty( $config['source'] ) ) {
@@ -66,7 +54,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		return array(
 			'success'     => true,
 			'source'      => 'full' === $detail_level ? self::post_payload( $source ) : self::source_summary_payload( $source ),
-			'source_hash' => self::source_hash( $source ),
+			'source_hash' => $snapshot['source_hash'],
 			'languages'   => $rows,
 			'detail_level'=> $detail_level,
 			'read_model'  => 'full' === $detail_level ? 'translation_payload' : 'work_item_catalog',
