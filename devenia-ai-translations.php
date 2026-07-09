@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.521
+ * Version: 0.1.522
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.521';
+	const VERSION = '0.1.522';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -14642,10 +14642,37 @@ final class Devenia_AI_Translations {
 			}
 		}
 
+		if ( false !== stripos( $html, '/cdn-cgi/l/email-protection#' ) && preg_match_all( '~/cdn-cgi/l/email-protection#([a-f0-9]+)~iu', $html, $matches ) ) {
+			foreach ( $matches[1] as $encoded ) {
+				$decoded = self::decode_cloudflare_email_protection_text( (string) $encoded );
+				if ( '' !== $decoded ) {
+					$segments[] = $decoded;
+				}
+			}
+		}
+
 		$text = implode( ' ', $segments );
 		$text = preg_replace( '/\s+/u', ' ', $text ) ?? $text;
 
 		return trim( $text );
+	}
+
+	/**
+	 * Decode Cloudflare email-protection payloads so public integrity checks can inspect CTA text.
+	 */
+	private static function decode_cloudflare_email_protection_text( string $encoded ): string {
+		$encoded = preg_replace( '/[^a-f0-9]/i', '', $encoded ) ?? '';
+		if ( strlen( $encoded ) < 4 || 0 !== strlen( $encoded ) % 2 ) {
+			return '';
+		}
+
+		$key = hexdec( substr( $encoded, 0, 2 ) );
+		$out = '';
+		for ( $i = 2; $i < strlen( $encoded ); $i += 2 ) {
+			$out .= chr( hexdec( substr( $encoded, $i, 2 ) ) ^ $key );
+		}
+
+		return trim( rawurldecode( html_entity_decode( $out, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
 	}
 
 	/**
@@ -14678,6 +14705,9 @@ final class Devenia_AI_Translations {
 				'Scroll back to top',
 				'Start with the URL',
 				'Use the email button and include the page, symptoms, and what should improve',
+				'Website question',
+				'Symptoms:',
+				'What should improve:',
 				'We reply in writing with the practical first move',
 				'Email Devenia about the website',
 			)
@@ -19644,6 +19674,7 @@ final class Devenia_AI_Translations {
 					return self::apply_runtime_text_replacements( $text, $runtime );
 				}
 			);
+			$content = self::localize_mailto_query_runtime_text_html( $content, $runtime );
 		}
 
 		$content = self::localize_internal_links_in_html( $content, $language );
@@ -19997,6 +20028,7 @@ final class Devenia_AI_Translations {
 		$html = self::localize_scriptless_social_sharing_html( $html, $runtime, $language );
 		$html = self::localize_akismet_privacy_notice_html( $html, $runtime, $language );
 		$html = self::localize_runtime_text_attributes_html( $html, $runtime );
+		$html = self::localize_mailto_query_runtime_text_html( $html, $runtime );
 
 		return self::rewrite_visible_text_segments(
 			$html,
