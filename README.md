@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.520
+**Stable tag:** 0.1.521
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,13 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.521
+
+- Keeps configured language menus on short localized labels when the language menu is already selected.
+- Keeps shared runtime UI attributes data-driven so theme/presentation adapters can localize them without hardcoded labels.
+- Extends frontend integrity and review mandates to cover header/footer chrome, accessibility attributes, and mailto CTA subject/body text.
+- Persists approved source-slug URL exceptions so route integrity honors brand/proper-name slugs after save.
 
 ### 0.1.520
 

@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.520
+Stable tag: 0.1.521
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,12 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.521 =
+* Keeps configured language menus on short localized labels when the language menu is already selected.
+* Keeps shared runtime UI attributes data-driven so theme/presentation adapters can localize them without hardcoded labels.
+* Extends frontend integrity and review mandates to cover header/footer chrome, accessibility attributes, and mailto CTA subject/body text.
+* Persists approved source-slug URL exceptions so route integrity honors brand/proper-name slugs after save.
 
 = 0.1.520 =
 * Restores the source-design reprojection output contract with `translations` and `translation_count` aliases so clients can prove target selection after a successful run.

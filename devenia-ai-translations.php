@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.520
+ * Version: 0.1.521
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.520';
+	const VERSION = '0.1.521';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -98,6 +98,8 @@ final class Devenia_AI_Translations {
 	const META_LOCALIZED_FRAGMENTS = '_devenia_translation_localized_fragments';
 	const META_STATUS         = '_devenia_translation_status';
 	const META_LOCALIZED_PATH = '_devenia_translation_localized_path';
+	const META_ALLOWED_SOURCE_SLUG = '_devenia_translation_allowed_source_slug';
+	const META_ALLOWED_SOURCE_SLUG_REASON = '_devenia_translation_allowed_source_slug_reason';
 	const META_LEGACY_SOURCE_REDIRECT_LANGUAGES = '_devenia_translation_block_legacy_source_routes';
 	const META_REVIEWED_AT    = '_devenia_translation_reviewed_at';
 	const META_LINGUISTIC_REVIEWED_AT = '_devenia_translation_linguistic_reviewed_at';
@@ -12405,6 +12407,7 @@ final class Devenia_AI_Translations {
 		if ( 'post' === $target_post_type && '' !== $localized_path ) {
 			update_post_meta( $translation_id, self::META_LOCALIZED_PATH, $localized_path );
 		}
+		self::store_translation_source_slug_exception( $translation_id, $allow_source_slug_in_url, $slug, $source_slug_reason );
 		if ( 'post' === $target_post_type ) {
 			$term_result = self::sync_translated_post_terms( $translation_id, $source, $language, $input['taxonomies'] ?? array() );
 			if ( empty( $term_result['success'] ) ) {
@@ -12737,6 +12740,39 @@ final class Devenia_AI_Translations {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Persist the accepted source-slug URL contract for future route integrity checks.
+	 */
+	private static function store_translation_source_slug_exception( int $translation_id, bool $allow_source_slug, string $slug, string $source_slug_reason ): void {
+		$reason = self::normalize_review_text( wp_strip_all_tags( $source_slug_reason ) );
+		$slug   = sanitize_title( $slug );
+		if ( $allow_source_slug && '' !== $slug && '' !== $reason ) {
+			update_post_meta( $translation_id, self::META_ALLOWED_SOURCE_SLUG, $slug );
+			update_post_meta( $translation_id, self::META_ALLOWED_SOURCE_SLUG_REASON, $reason );
+			return;
+		}
+
+		delete_post_meta( $translation_id, self::META_ALLOWED_SOURCE_SLUG );
+		delete_post_meta( $translation_id, self::META_ALLOWED_SOURCE_SLUG_REASON );
+	}
+
+	/**
+	 * Read the current source-slug URL exception for a translation route check.
+	 *
+	 * @return array{allow:bool,reason:string}
+	 */
+	private static function translation_source_slug_exception( int $translation_id, string $slug ): array {
+		$slug          = sanitize_title( $slug );
+		$allowed_slug  = sanitize_title( (string) get_post_meta( $translation_id, self::META_ALLOWED_SOURCE_SLUG, true ) );
+		$reason        = self::normalize_review_text( wp_strip_all_tags( (string) get_post_meta( $translation_id, self::META_ALLOWED_SOURCE_SLUG_REASON, true ) ) );
+		$allow         = '' !== $slug && $slug === $allowed_slug && '' !== $reason;
+
+		return array(
+			'allow'  => $allow,
+			'reason' => $allow ? $reason : '',
+		);
 	}
 
 	/**
@@ -14527,8 +14563,9 @@ final class Devenia_AI_Translations {
 		}
 
 		$visible = self::frontend_visible_text_for_integrity( $html );
+		$shared_chrome_text = self::frontend_shared_chrome_text_for_integrity( $html );
 		foreach ( self::frontend_source_remnant_terms() as $term ) {
-			if ( '' !== $term && false !== stripos( $visible, $term ) ) {
+			if ( '' !== $term && false !== stripos( $visible . ' ' . $shared_chrome_text, $term ) ) {
 				$issues[] = self::qa_item(
 					'frontend_source_language_remnant',
 					'Rendered public surface contains source-language text after runtime widgets/chrome were applied.',
@@ -14577,6 +14614,41 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * User-facing chrome text that is not part of the visible text projection.
+	 */
+	private static function frontend_shared_chrome_text_for_integrity( string $html ): string {
+		$segments = array();
+
+		if ( preg_match_all( '/\s(?:title|aria-label)=(["\'])(.*?)\1/isu', $html, $matches ) ) {
+			foreach ( $matches[2] as $value ) {
+				$segments[] = html_entity_decode( (string) $value, ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' );
+			}
+		}
+
+		if ( false !== stripos( $html, 'mailto:' ) && preg_match_all( '/\bhref=(["\'])(mailto:[^"\']*)\1/isu', $html, $matches ) ) {
+			foreach ( $matches[2] as $href ) {
+				$parts = wp_parse_url( html_entity_decode( (string) $href, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+				if ( ! is_array( $parts ) || empty( $parts['query'] ) || ! is_string( $parts['query'] ) ) {
+					continue;
+				}
+
+				$params = array();
+				wp_parse_str( $parts['query'], $params );
+				foreach ( array( 'subject', 'body' ) as $key ) {
+					if ( isset( $params[ $key ] ) && is_scalar( $params[ $key ] ) ) {
+						$segments[] = (string) $params[ $key ];
+					}
+				}
+			}
+		}
+
+		$text = implode( ' ', $segments );
+		$text = preg_replace( '/\s+/u', ' ', $text ) ?? $text;
+
+		return trim( $text );
+	}
+
+	/**
 	 * Visible text projection for frontend integrity checks.
 	 */
 	private static function frontend_visible_text_for_integrity( string $html ): string {
@@ -14601,7 +14673,9 @@ final class Devenia_AI_Translations {
 				'and tell us what is not working',
 				'One brand operated',
 				'One brand operated by',
+				'Practical internet work for websites that need to be trusted, found, maintained, and improved.',
 				'Registered company details',
+				'Scroll back to top',
 				'Start with the URL',
 				'Use the email button and include the page, symptoms, and what should improve',
 				'We reply in writing with the practical first move',
@@ -19479,9 +19553,7 @@ final class Devenia_AI_Translations {
 		if ( 'en' === $language ) {
 			return $items;
 		}
-		if ( self::is_language_menu_already_selected( $args, $language ) ) {
-			return $items;
-		}
+		$language_menu_already_selected = self::is_language_menu_already_selected( $args, $language );
 
 		foreach ( $items as $item ) {
 			if ( ! is_object( $item ) ) {
@@ -19490,6 +19562,14 @@ final class Devenia_AI_Translations {
 
 			if ( isset( $item->type, $item->object ) && 'post_type' === $item->type && 'page' === $item->object && ! empty( $item->object_id ) ) {
 				$source_id      = self::source_id_for_context( (int) $item->object_id );
+				$source_item            = clone $item;
+				$source_item->object_id = (string) $source_id;
+
+				if ( $language_menu_already_selected ) {
+					$item->title = self::localized_menu_item_title( $source_item, $language, isset( $item->title ) ? (string) $item->title : '' );
+					continue;
+				}
+
 				$translation_id = self::find_translation_id( $source_id, $language, array( 'publish' ) );
 				if ( ! $translation_id ) {
 					$localized_url = self::localized_internal_link_target( (string) $item->url, self::localized_internal_link_map( $language ) );
@@ -19497,14 +19577,10 @@ final class Devenia_AI_Translations {
 						$item->url = $localized_url;
 					}
 
-					$source_item            = clone $item;
-					$source_item->object_id = (string) $source_id;
 					$item->title            = self::localized_menu_item_title( $source_item, $language, isset( $item->title ) ? (string) $item->title : '' );
 					continue;
 				}
 
-				$source_item            = clone $item;
-				$source_item->object_id = (string) $source_id;
 				$item->object_id = (string) $translation_id;
 				$item->url       = get_permalink( $translation_id );
 				$item->title     = self::localized_menu_item_title( $source_item, $language, get_the_title( $translation_id ) );
@@ -19903,7 +19979,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Normalize visible Arabic text without changing tags, URLs, attributes, or scripts.
+	 * Normalize localized frontend text without changing URLs, scripts, or structural markup.
 	 */
 	public static function localize_frontend_visible_text( string $html ): string {
 		$language = self::frontend_language();
@@ -19920,6 +19996,7 @@ final class Devenia_AI_Translations {
 		$html = self::localize_archive_entry_meta_labels_html( $html, $language );
 		$html = self::localize_scriptless_social_sharing_html( $html, $runtime, $language );
 		$html = self::localize_akismet_privacy_notice_html( $html, $runtime, $language );
+		$html = self::localize_runtime_text_attributes_html( $html, $runtime );
 
 		return self::rewrite_visible_text_segments(
 			$html,
@@ -20209,6 +20286,82 @@ final class Devenia_AI_Translations {
 		}
 
 		return rtrim( $attributes ) . ' ' . $name . '="' . $value . '"';
+	}
+
+	/**
+	 * Localize short accessibility/UI attributes emitted by shared theme chrome.
+	 *
+	 * @param array{search:array<int,string>,replace:array<int,string>,has_replacements:bool} $runtime Runtime replacement map.
+	 */
+	private static function localize_runtime_text_attributes_html( string $html, array $runtime ): string {
+		if ( empty( $runtime['has_replacements'] ) ) {
+			return $html;
+		}
+
+		$parts = preg_split( '/(<[^>]+>)/', $html, -1, PREG_SPLIT_DELIM_CAPTURE );
+		if ( ! is_array( $parts ) ) {
+			return $html;
+		}
+
+		$skip_stack = array();
+		$skip_tags  = array( 'script', 'style', 'svg', 'math' );
+		$output     = '';
+		foreach ( $parts as $part ) {
+			if ( '' === $part ) {
+				continue;
+			}
+
+			if ( '<' !== $part[0] ) {
+				$output .= $part;
+				continue;
+			}
+
+			if ( preg_match( '/^<\s*\/\s*([a-z0-9_-]+)\s*>/i', $part, $match ) ) {
+				$closing_tag = strtolower( (string) $match[1] );
+				if ( ! empty( $skip_stack ) && end( $skip_stack ) === $closing_tag ) {
+					array_pop( $skip_stack );
+				}
+				$output .= $part;
+				continue;
+			}
+
+			$open_tag = '';
+			if ( preg_match( '/^<\s*([a-z0-9_-]+)\b/i', $part, $match ) ) {
+				$open_tag = strtolower( (string) $match[1] );
+				if ( in_array( $open_tag, $skip_tags, true ) ) {
+					if ( ! preg_match( '/\/\s*>$/', trim( $part ) ) ) {
+						$skip_stack[] = $open_tag;
+					}
+				}
+			}
+
+			$output .= empty( $skip_stack ) && '' !== $open_tag
+				? self::localize_runtime_text_attributes_in_tag( $part, $runtime )
+				: $part;
+		}
+
+		return $output;
+	}
+
+	/**
+	 * Localize runtime text in a single opening tag's short UI attributes.
+	 *
+	 * @param array{search:array<int,string>,replace:array<int,string>,has_replacements:bool} $runtime Runtime replacement map.
+	 */
+	private static function localize_runtime_text_attributes_in_tag( string $tag, array $runtime ): string {
+		return (string) preg_replace_callback(
+			'/\s(title|aria-label)=(["\'])(.*?)\2/isu',
+			static function ( array $match ) use ( $runtime ): string {
+				$value   = html_entity_decode( (string) $match[3], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$updated = self::apply_runtime_text_replacements( $value, $runtime );
+				if ( $updated === $value ) {
+					return (string) $match[0];
+				}
+
+				return ' ' . (string) $match[1] . '=' . (string) $match[2] . esc_attr( $updated ) . (string) $match[2];
+			},
+			$tag
+		);
 	}
 
 	/**
@@ -24585,7 +24738,15 @@ final class Devenia_AI_Translations {
 			return null;
 		}
 
-		$issue = self::validate_localized_slug( $slug, $slug, $language, $source instanceof WP_Post ? $source : null, false, '' );
+		$source_slug_exception = self::translation_source_slug_exception( $translation_id, $slug );
+		$issue = self::validate_localized_slug(
+			$slug,
+			$slug,
+			$language,
+			$source instanceof WP_Post ? $source : null,
+			(bool) $source_slug_exception['allow'],
+			(string) $source_slug_exception['reason']
+		);
 		if ( ! $issue ) {
 			return null;
 		}
@@ -24598,6 +24759,7 @@ final class Devenia_AI_Translations {
 				'language'       => $language,
 				'source_id'      => $source_id,
 				'matched_tokens' => isset( $issue['matched_tokens'] ) && is_array( $issue['matched_tokens'] ) ? array_values( $issue['matched_tokens'] ) : array(),
+				'source_slug_exception' => (bool) $source_slug_exception['allow'],
 			)
 		);
 	}
