@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.511
+ * Version: 0.1.512
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.511';
+	const VERSION = '0.1.512';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -2580,6 +2580,47 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Resolve one indexed frontend row by language and source path.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function translation_frontend_row_for_language_source_path( string $language, string $source_path, array $post_status = array( 'publish' ) ): array {
+		static $cache = array();
+
+		$language    = sanitize_key( $language );
+		$source_path = trim( $source_path, '/' );
+		$post_status = self::sanitize_translation_post_statuses( $post_status, false );
+		$status_key  = implode( '|', array_map( 'sanitize_key', $post_status ) );
+		$cache_key   = $language . ':' . md5( $source_path ) . ':' . $status_key;
+		if ( isset( $cache[ $cache_key ] ) ) {
+			return $cache[ $cache_key ];
+		}
+
+		if ( '' === $language || '' === $source_path || ! self::translation_index_available() ) {
+			$cache[ $cache_key ] = array();
+			return $cache[ $cache_key ];
+		}
+
+		global $wpdb;
+		$row = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Intentional indexed custom table read for frontend route lookup.
+			$wpdb->prepare(
+				'SELECT source_post_id, translation_post_id, language, localized_path, source_path, target_path, target_url, translation_status, post_status, source_hash, reviewed_at, linguistic_reviewed_at, quality_reviewed_at FROM %i WHERE language = %s AND source_path = %s ORDER BY translation_post_id DESC LIMIT 1',
+				self::translation_index_table(),
+				$language,
+				$source_path
+			),
+			ARRAY_A
+		);
+
+		$rows = self::frontend_rows_from_index_rows(
+			self::normalize_translation_index_rows( is_array( $row ) ? array( $row ) : array(), $post_status )
+		);
+		$cache[ $cache_key ] = $rows[0] ?? array();
+
+		return $cache[ $cache_key ];
+	}
+
+	/**
 	 * Add URL/path fields to normalized registry rows.
 	 *
 	 * @param array<int,array<string,mixed>> $rows Registry rows.
@@ -3029,19 +3070,6 @@ final class Devenia_AI_Translations {
 					if ( is_string( $source ) && is_string( $translated ) && '' !== $source ) {
 						$replacements[ $source ] = $translated;
 					}
-				}
-			}
-		}
-
-		if ( isset( $profile['localized_terms'] ) && is_array( $profile['localized_terms'] ) ) {
-			foreach ( $profile['localized_terms'] as $source => $translated_terms ) {
-				$source = trim( (string) $source );
-				if ( '' === $source || ! is_array( $translated_terms ) ) {
-					continue;
-				}
-				$translated = $translated_terms[0] ?? '';
-				if ( is_string( $translated ) && '' !== trim( $translated ) ) {
-					$replacements[ $source ] = trim( (string) $translated );
 				}
 			}
 		}
@@ -19469,7 +19497,7 @@ final class Devenia_AI_Translations {
 		}
 
 		$duration_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
-		if ( $duration_ms < 5000 ) {
+		if ( $duration_ms < 1000 ) {
 			return;
 		}
 
@@ -19622,12 +19650,8 @@ final class Devenia_AI_Translations {
 			return array();
 		}
 
-		foreach ( self::translation_frontend_rows_for_language( $language, array( 'publish' ) ) as $row ) {
-			$row_source_path = trim( (string) ( $row['source_path'] ?? '' ), '/' );
-			if ( $source_path !== $row_source_path ) {
-				continue;
-			}
-
+		$row = self::translation_frontend_row_for_language_source_path( $language, $source_path, array( 'publish' ) );
+		if ( ! empty( $row ) ) {
 			return array(
 				'source_id'      => absint( $row['source_id'] ?? 0 ),
 				'translation_id' => absint( $row['id'] ?? 0 ),
