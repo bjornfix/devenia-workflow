@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.497
+ * Version: 0.1.498
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -16,6 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 require_once __DIR__ . '/includes/trait-source-design-inheritance.php';
 require_once __DIR__ . '/includes/trait-source-design-review-policy.php';
 require_once __DIR__ . '/includes/trait-publication-experience.php';
+require_once __DIR__ . '/includes/trait-source-taxonomy-review-policy.php';
 require_once __DIR__ . '/includes/trait-taxonomy-localization.php';
 require_once __DIR__ . '/includes/trait-featured-image-repair.php';
 require_once __DIR__ . '/includes/trait-ability-platform.php';
@@ -34,6 +35,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
 	use Devenia_AI_Translations_Source_Design_Review_Policy;
 	use Devenia_AI_Translations_Publication_Experience;
+	use Devenia_AI_Translations_Source_Taxonomy_Review_Policy;
 	use Devenia_AI_Translations_Taxonomy_Localization;
 	use Devenia_AI_Translations_Featured_Image_Repair;
 	use Devenia_AI_Translations_Ability_Platform;
@@ -48,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.497';
+	const VERSION = '0.1.498';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
