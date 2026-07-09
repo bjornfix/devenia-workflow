@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.515
+ * Version: 0.1.516
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.515';
+	const VERSION = '0.1.516';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -90,6 +90,11 @@ final class Devenia_AI_Translations {
 	const META_SOURCE_TAXONOMY_REVIEWER = '_devenia_translation_source_taxonomy_reviewer';
 	const META_SOURCE_TAXONOMY_REVIEW_NOTE = '_devenia_translation_source_taxonomy_review_note';
 	const META_SOURCE_TAXONOMY_REVIEW_EVIDENCE = '_devenia_translation_source_taxonomy_review_evidence';
+	const META_SOURCE_CONTENT_INTEGRITY_REVIEW_HASH = '_devenia_translation_source_content_integrity_review_hash';
+	const META_SOURCE_CONTENT_INTEGRITY_REVIEWED_AT = '_devenia_translation_source_content_integrity_reviewed_at';
+	const META_SOURCE_CONTENT_INTEGRITY_REVIEWER = '_devenia_translation_source_content_integrity_reviewer';
+	const META_SOURCE_CONTENT_INTEGRITY_REVIEW_NOTE = '_devenia_translation_source_content_integrity_review_note';
+	const META_SOURCE_CONTENT_INTEGRITY_REVIEW_EVIDENCE = '_devenia_translation_source_content_integrity_review_evidence';
 	const META_LOCALIZED_FRAGMENTS = '_devenia_translation_localized_fragments';
 	const META_STATUS         = '_devenia_translation_status';
 	const META_LOCALIZED_PATH = '_devenia_translation_localized_path';
@@ -7817,6 +7822,16 @@ final class Devenia_AI_Translations {
 					},
 					'meta'             => self::ability_meta( false, false, true ),
 				),
+				'ai-translations/mark-source-content-integrity-reviewed' => array(
+					'label'            => 'Mark Source Content Integrity Reviewed',
+					'description'      => 'Marks a source content-integrity repair item complete for the current source hash when current audits show no useful content rewrite is needed.',
+					'input_schema'     => self::source_content_integrity_review_input_schema(),
+					'output_schema'    => self::generic_output_schema(),
+					'execute_callback' => function ( $input ) {
+						return self::run_ability_operation( 'mark_source_content_integrity_reviewed', $input );
+					},
+					'meta'             => self::ability_meta( false, false, false ),
+				),
 				'ai-translations/authored-original-intake-queue' => array(
 					'label'            => 'List Authored Original Intake Queue',
 					'description'      => 'Lists posts/pages authored in a configured non-source language that need an English technical source, source review, or downstream translation handoff.',
@@ -10643,6 +10658,48 @@ final class Devenia_AI_Translations {
 				'claim_token' => array(
 					'type'        => 'string',
 					'description' => 'Reservation token from the active source_design_repair claim when one exists.',
+				),
+				'reviewer' => array(
+					'type'        => 'string',
+					'description' => 'Optional reviewer/contributor display name.',
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function source_content_integrity_review_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'source_id', 'content_integrity_already_clean', 'audit_notes', 'public_url', 'no_rewrite_reason', 'reviewer_statement' ),
+			'properties'           => array(
+				'source_id' => array(
+					'type'        => 'integer',
+					'description' => 'English source post ID whose content-integrity repair assignment was inspected.',
+				),
+				'content_integrity_already_clean' => array(
+					'type'        => 'boolean',
+					'description' => 'True only when current source content and relevant audits no longer need a content rewrite.',
+				),
+				'audit_notes' => array(
+					'type'        => 'string',
+					'description' => 'Concrete notes naming the audits/checks that are clean now.',
+				),
+				'public_url' => array(
+					'type'        => 'string',
+					'description' => 'Public URL inspected or used as current render evidence.',
+				),
+				'no_rewrite_reason' => array(
+					'type'        => 'string',
+					'description' => 'Why content/update-post would be an artificial no-op rather than a real repair.',
+				),
+				'reviewer_statement' => array(
+					'type'        => 'string',
+					'description' => 'Statement that the contributor inspected the source and accepts responsibility for the no-op integrity verdict.',
+				),
+				'claim_token' => array(
+					'type'        => 'string',
+					'description' => 'Reservation token from the active content_integrity_repair claim when one exists.',
 				),
 				'reviewer' => array(
 					'type'        => 'string',
@@ -14988,161 +15045,294 @@ final class Devenia_AI_Translations {
 			'source_content_integrity',
 			$cache_parts,
 			array(
-			'passed'      => empty( $issues ),
-			'issue_count' => count( $issues ),
-			'issues'      => $issues,
-			'issue_codes' => self::sanitize_qa_code_list(
-				array_map(
-					static function ( array $issue ): string {
-						return (string) ( $issue['code'] ?? '' );
-					},
-					$issues
-				)
-			),
-			'checked_at'  => gmdate( 'c' ),
-				)
-			);
-		}
-
-		private static function source_currentness_guardrails( WP_Post $post ): array {
-			$current_year = absint( gmdate( 'Y' ) );
-			$slug         = sanitize_title( (string) $post->post_name );
-			$route_years  = self::four_digit_years_in_text( str_replace( '-', ' ', $slug ) );
-			$fields       = array(
-				'title'   => self::normalize_review_text( wp_strip_all_tags( get_the_title( $post ) ) ),
-				'excerpt' => self::normalize_review_text( wp_strip_all_tags( (string) $post->post_excerpt ) ),
-				'content' => self::normalized_plain_text_for_review( (string) $post->post_content ),
-			);
-			$fields = apply_filters( 'ai_translation_workflow_source_currentness_text_fields', $fields, $post );
-			$fields = is_array( $fields ) ? $fields : array();
-			$stale  = array();
-
-			foreach ( $fields as $field => $text ) {
-				$field = sanitize_key( (string) $field );
-				$text  = self::normalize_review_text( wp_strip_all_tags( (string) $text ) );
-				if ( '' === $field || '' === $text ) {
-					continue;
-				}
-
-				foreach ( self::stale_evergreen_year_claims_for_text( $text, $field, $current_year, $route_years ) as $claim ) {
-					$key = (string) $claim['year'] . ':' . $field . ':' . md5( (string) $claim['context'] );
-					$stale[ $key ] = $claim;
-				}
-			}
-
-			$claims = array_values( $stale );
-			$issues = array();
-			if ( $claims ) {
-				$issues[] = self::qa_item(
-					'stale_evergreen_year_claim',
-					'Evergreen source content contains an older public year claim. Update the year-sensitive wording or make the historical/year-specific context explicit before using it as a current source.',
-					array(
-						'current_year' => $current_year,
-						'route_years'  => array_values( $route_years ),
-						'claims'       => array_slice( $claims, 0, 12 ),
-					)
-				);
-			}
-
-			return array(
 				'passed'      => empty( $issues ),
 				'issue_count' => count( $issues ),
 				'issues'      => $issues,
+				'issue_codes' => self::sanitize_qa_code_list(
+					array_map(
+						static function ( array $issue ): string {
+							return (string) ( $issue['code'] ?? '' );
+						},
+						$issues
+					)
+				),
 				'checked_at'  => gmdate( 'c' ),
+			)
+		);
+	}
+
+	private static function source_content_integrity_gate_state( WP_Post $source, array $validation = array() ): array {
+		if ( empty( $validation ) ) {
+			$validation = self::source_content_integrity_validation( $source );
+		}
+		$review = self::source_content_integrity_review_state( $source, $validation );
+		$validation_passed = empty( $validation['issue_count'] );
+		$review_passed     = ! empty( $review['passed'] ) && 'validation_passed' !== (string) ( $review['state'] ?? '' );
+
+		return array(
+			'passed'      => $validation_passed || $review_passed,
+			'pass_source' => $validation_passed ? 'validation' : ( $review_passed ? 'reviewed_no_rewrite_needed' : '' ),
+			'validation'  => $validation,
+			'review'      => $review,
+			'issue_codes' => self::sanitize_qa_code_list( $validation['issue_codes'] ?? array() ),
+		);
+	}
+
+	private static function source_content_integrity_review_state( WP_Post $source, array $validation = array() ): array {
+		if ( empty( $validation ) ) {
+			$validation = self::source_content_integrity_validation( $source );
+		}
+		if ( empty( $validation['issue_count'] ) ) {
+			return array(
+				'passed'        => true,
+				'state'         => 'validation_passed',
+				'source_id'     => (int) $source->ID,
+				'source_hash'   => self::source_hash( $source ),
+				'review_needed' => false,
 			);
 		}
 
-		/**
-		 * @return array<int,array{year:int,field:string,context:string}>
-		 */
-		private static function stale_evergreen_year_claims_for_text( string $text, string $field, int $current_year, array $route_years ): array {
-			if ( $current_year < 2000 ) {
-				return array();
-			}
+		$current_hash = self::source_content_integrity_review_hash( $source, $validation );
+		$stored_hash  = (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_HASH, true );
+		$reviewed_at  = (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWED_AT, true );
+		$evidence_raw = (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_EVIDENCE, true );
+		$evidence     = array();
+		if ( '' !== $evidence_raw ) {
+			$decoded  = json_decode( wp_unslash( $evidence_raw ), true );
+			$evidence = is_array( $decoded ) ? $decoded : array();
+		}
+		$passed = '' !== $stored_hash && hash_equals( $current_hash, $stored_hash ) && '' !== $reviewed_at && ! empty( $evidence['content_integrity_already_clean'] );
 
-			$years = self::four_digit_years_in_text( $text );
-			if ( empty( $years ) ) {
-				return array();
-			}
+		return array(
+			'passed'        => $passed,
+			'state'         => $passed ? 'reviewed_no_rewrite_needed' : ( '' === $stored_hash ? 'needs_content_integrity_repair' : 'source_content_integrity_review_stale' ),
+			'source_id'     => (int) $source->ID,
+			'source_hash'   => self::source_hash( $source ),
+			'review_hash'   => $current_hash,
+			'stored_hash'   => $stored_hash,
+			'reviewed_at'   => $reviewed_at,
+			'reviewer'      => (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWER, true ),
+			'note'          => (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_NOTE, true ),
+			'review_needed' => ! $passed,
+		);
+	}
 
-			$claims = array();
-			foreach ( $years as $year ) {
-				if ( $year >= $current_year || isset( $route_years[ $year ] ) ) {
-					continue;
-				}
+	private static function source_content_integrity_review_hash( WP_Post $source, array $validation ): string {
+		$payload = array(
+			'source_hash' => self::source_hash( $source ),
+			'issue_codes' => self::sanitize_qa_code_list( $validation['issue_codes'] ?? array() ),
+			'issue_count' => absint( $validation['issue_count'] ?? 0 ),
+		);
 
-				foreach ( self::year_claim_contexts( $text, $year ) as $context ) {
-					if ( self::text_field_year_is_currentness_claim( $field, $context, $year ) ) {
-						$claims[] = array(
-							'year'    => $year,
-							'field'   => $field,
-							'context' => $context,
-						);
-					}
-				}
-			}
+		return hash( 'sha256', wp_json_encode( $payload ) );
+	}
 
-			return $claims;
+	private static function mark_source_content_integrity_reviewed( array $input ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		$source    = $source_id ? get_post( $source_id ) : null;
+		if ( ! $source instanceof WP_Post || 'post' !== (string) $source->post_type || self::is_translation_post( $source_id ) ) {
+			return self::error( 'Source post not found.', 'source_post_not_found' );
+		}
+		if ( empty( $input['content_integrity_already_clean'] ) ) {
+			return self::error( 'Only mark source content integrity reviewed when no useful content rewrite is needed.', 'source_content_integrity_not_clean' );
 		}
 
-		/**
-		 * @return array<int,int>
-		 */
-		private static function four_digit_years_in_text( string $text ): array {
-			if ( ! preg_match_all( '/(?<!\d)(20\d{2})(?!\d)/', $text, $matches ) ) {
-				return array();
+		$reservation = self::source_work_reservation_for_type( $source_id, 'content_integrity_repair' );
+		if ( $reservation ) {
+			$claim_token = (string) ( $input['claim_token'] ?? '' );
+			if ( '' === $claim_token || ! hash_equals( (string) ( $reservation['token'] ?? '' ), $claim_token ) ) {
+				return self::error( 'Source content integrity review requires the active content_integrity_repair claim token.', 'source_content_integrity_review_claim_token_mismatch', array( 'reservation' => self::public_source_work_reservation( $reservation ) ) );
 			}
-
-			$years = array();
-			foreach ( $matches[1] as $match ) {
-				$year = absint( $match );
-				if ( $year >= 2000 && $year <= 2099 ) {
-					$years[ $year ] = $year;
-				}
-			}
-
-			return $years;
 		}
 
-		/**
-		 * @return array<int,string>
-		 */
-		private static function year_claim_contexts( string $text, int $year ): array {
-			$contexts = array();
-			if ( ! preg_match_all( '/.{0,90}(?<!\d)' . preg_quote( (string) $year, '/' ) . '(?!\d).{0,90}/u', $text, $matches ) ) {
-				return array();
-			}
-
-			foreach ( $matches[0] as $context ) {
-				$context = self::normalize_review_text( (string) $context );
-				if ( '' !== $context ) {
-					$contexts[] = mb_substr( $context, 0, 220 );
-				}
-			}
-
-			return array_values( array_unique( $contexts ) );
+		$public_url = esc_url_raw( (string) ( $input['public_url'] ?? '' ) );
+		if ( '' === $public_url || ! preg_match( '#^https?://#i', $public_url ) ) {
+			return self::error( 'A public HTTP(S) URL inspected in a browser is required.', 'source_content_integrity_public_url_required' );
 		}
 
-		private static function text_field_year_is_currentness_claim( string $field, string $context, int $year ): bool {
-			if ( in_array( $field, array( 'title', 'excerpt', 'seo_title', 'seo_description', 'meta_description', 'social_title', 'social_description' ), true ) ) {
+		$text_fields = array(
+			'audit_notes'        => 80,
+			'no_rewrite_reason'  => 80,
+			'reviewer_statement' => 80,
+		);
+		$clean = array();
+		foreach ( $text_fields as $field => $min_length ) {
+			$value = trim( wp_strip_all_tags( (string) ( $input[ $field ] ?? '' ) ) );
+			if ( strlen( $value ) < $min_length ) {
+				return self::error( 'Source content-integrity review evidence is incomplete.', 'source_content_integrity_review_evidence_incomplete', array( 'field' => $field, 'min_chars' => $min_length ) );
+			}
+			$clean[ $field ] = sanitize_textarea_field( $value );
+		}
+
+		$validation = self::source_content_integrity_validation( $source );
+		$reviewer   = sanitize_text_field( (string) ( $input['reviewer'] ?? 'AI Translation Workflow' ) );
+		$evidence   = array(
+			'content_integrity_already_clean' => true,
+			'public_url'         => $public_url,
+			'audit_notes'        => $clean['audit_notes'],
+			'no_rewrite_reason'  => $clean['no_rewrite_reason'],
+			'reviewer_statement' => $clean['reviewer_statement'],
+			'validation_passed'  => empty( $validation['issue_count'] ),
+			'validation'         => $validation,
+			'source_hash'        => self::source_hash( $source ),
+			'reviewed_at'        => gmdate( 'c' ),
+			'reviewer'           => $reviewer,
+		);
+
+		update_post_meta( $source_id, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_HASH, self::source_content_integrity_review_hash( $source, $validation ) );
+		update_post_meta( $source_id, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWED_AT, $evidence['reviewed_at'] );
+		update_post_meta( $source_id, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWER, $reviewer );
+		update_post_meta( $source_id, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_NOTE, $clean['no_rewrite_reason'] );
+		self::update_json_post_meta( $source_id, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_EVIDENCE, $evidence );
+
+		return array(
+			'success' => true,
+			'message' => 'Source content integrity marked reviewed; no source content rewrite needed for the current review hash.',
+			'source_id' => $source_id,
+			'source_content_integrity_review' => self::source_content_integrity_review_state( $source, $validation ),
+			'content_integrity' => $validation,
+		);
+	}
+
+	private static function source_currentness_guardrails( WP_Post $post ): array {
+		$current_year = absint( gmdate( 'Y' ) );
+		$slug         = sanitize_title( (string) $post->post_name );
+		$route_years  = self::four_digit_years_in_text( str_replace( '-', ' ', $slug ) );
+		$fields       = array(
+			'title'   => self::normalize_review_text( wp_strip_all_tags( get_the_title( $post ) ) ),
+			'excerpt' => self::normalize_review_text( wp_strip_all_tags( (string) $post->post_excerpt ) ),
+			'content' => self::normalized_plain_text_for_review( (string) $post->post_content ),
+		);
+		$fields = apply_filters( 'ai_translation_workflow_source_currentness_text_fields', $fields, $post );
+		$fields = is_array( $fields ) ? $fields : array();
+		$stale  = array();
+
+		foreach ( $fields as $field => $text ) {
+			$field = sanitize_key( (string) $field );
+			$text  = self::normalize_review_text( wp_strip_all_tags( (string) $text ) );
+			if ( '' === $field || '' === $text ) {
+				continue;
+			}
+
+			foreach ( self::stale_evergreen_year_claims_for_text( $text, $field, $current_year, $route_years ) as $claim ) {
+				$key = (string) $claim['year'] . ':' . $field . ':' . md5( (string) $claim['context'] );
+				$stale[ $key ] = $claim;
+			}
+		}
+
+		$claims = array_values( $stale );
+		$issues = array();
+		if ( $claims ) {
+			$issues[] = self::qa_item(
+				'stale_evergreen_year_claim',
+				'Evergreen source content contains an older public year claim. Update the year-sensitive wording or make the historical/year-specific context explicit before using it as a current source.',
+				array(
+					'current_year' => $current_year,
+					'route_years'  => array_values( $route_years ),
+					'claims'       => array_slice( $claims, 0, 12 ),
+				)
+			);
+		}
+
+		return array(
+			'passed'      => empty( $issues ),
+			'issue_count' => count( $issues ),
+			'issues'      => $issues,
+			'checked_at'  => gmdate( 'c' ),
+		);
+	}
+
+	/**
+	 * @return array<int,array{year:int,field:string,context:string}>
+	 */
+	private static function stale_evergreen_year_claims_for_text( string $text, string $field, int $current_year, array $route_years ): array {
+		if ( $current_year < 2000 ) {
+			return array();
+		}
+
+		$years = self::four_digit_years_in_text( $text );
+		if ( empty( $years ) ) {
+			return array();
+		}
+
+		$claims = array();
+		foreach ( $years as $year ) {
+			if ( $year >= $current_year || isset( $route_years[ $year ] ) ) {
+				continue;
+			}
+
+			foreach ( self::year_claim_contexts( $text, $year ) as $context ) {
+				if ( self::text_field_year_is_currentness_claim( $field, $context, $year ) ) {
+					$claims[] = array(
+						'year'    => $year,
+						'field'   => $field,
+						'context' => $context,
+					);
+				}
+			}
+		}
+
+		return $claims;
+	}
+
+	/**
+	 * @return array<int,int>
+	 */
+	private static function four_digit_years_in_text( string $text ): array {
+		if ( ! preg_match_all( '/(?<!\d)(20\d{2})(?!\d)/', $text, $matches ) ) {
+			return array();
+		}
+
+		$years = array();
+		foreach ( $matches[1] as $match ) {
+			$year = absint( $match );
+			if ( $year >= 2000 && $year <= 2099 ) {
+				$years[ $year ] = $year;
+			}
+		}
+
+		return $years;
+	}
+
+	/**
+	 * @return array<int,string>
+	 */
+	private static function year_claim_contexts( string $text, int $year ): array {
+		$contexts = array();
+		if ( ! preg_match_all( '/.{0,90}(?<!\d)' . preg_quote( (string) $year, '/' ) . '(?!\d).{0,90}/u', $text, $matches ) ) {
+			return array();
+		}
+
+		foreach ( $matches[0] as $context ) {
+			$context = self::normalize_review_text( (string) $context );
+			if ( '' !== $context ) {
+				$contexts[] = mb_substr( $context, 0, 220 );
+			}
+		}
+
+		return array_values( array_unique( $contexts ) );
+	}
+
+	private static function text_field_year_is_currentness_claim( string $field, string $context, int $year ): bool {
+		if ( in_array( $field, array( 'title', 'excerpt', 'seo_title', 'seo_description', 'meta_description', 'social_title', 'social_description' ), true ) ) {
+			return true;
+		}
+
+		$quoted = preg_quote( (string) $year, '/' );
+		$patterns = array(
+			'/\b(?:in|for|during|through|throughout)\s+' . $quoted . '\b/i',
+			'/\b(?:updated|current|latest|new|still|modern|safe|safer)\s+(?:for|in)\s+' . $quoted . '\b/i',
+			'/\b(?:guide|checklist|strategy|strategies|tips|trends|advice|playbook)\s+(?:for|to|in)\s+' . $quoted . '\b/i',
+			'/' . $quoted . '\s+(?:guide|checklist|strategy|strategies|tips|trends|advice|playbook|edition|update)\b/i',
+		);
+		foreach ( $patterns as $pattern ) {
+			if ( preg_match( $pattern, $context ) ) {
 				return true;
 			}
-
-			$quoted = preg_quote( (string) $year, '/' );
-			$patterns = array(
-				'/\b(?:in|for|during|through|throughout)\s+' . $quoted . '\b/i',
-				'/\b(?:updated|current|latest|new|still|modern|safe|safer)\s+(?:for|in)\s+' . $quoted . '\b/i',
-				'/\b(?:guide|checklist|strategy|strategies|tips|trends|advice|playbook)\s+(?:for|to|in)\s+' . $quoted . '\b/i',
-				'/' . $quoted . '\s+(?:guide|checklist|strategy|strategies|tips|trends|advice|playbook|edition|update)\b/i',
-			);
-			foreach ( $patterns as $pattern ) {
-				if ( preg_match( $pattern, $context ) ) {
-					return true;
-				}
-			}
-
-			return false;
 		}
+
+		return false;
+	}
 
 		/**
 		 * Store one localized author archive record in WordPress runtime data.

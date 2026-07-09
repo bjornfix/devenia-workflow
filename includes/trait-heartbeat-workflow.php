@@ -475,7 +475,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 				'content_integrity_repair',
 				array(
 					'design_ownership' => $design_ownership,
-					'instructions'      => 'The assigned source or translation has invalid stored Gutenberg content that can break the public/rendered experience. Inspect the content_integrity issues on the work item, repair through the narrowest safe WordPress content ability, rerun the relevant QA/audit, then stop before reviewing or publishing your own correction.',
+					'instructions'      => 'The assigned source or translation has invalid stored Gutenberg content that can break the public/rendered experience. Inspect the content_integrity issues on the work item, repair through the narrowest safe WordPress content ability, rerun the relevant QA/audit, then stop before reviewing or publishing your own correction. If current audits are already clean and a content save would be artificial, complete the no-op case with ai-translations/mark-source-content-integrity-reviewed using concrete evidence and the active claim token.',
 				)
 			),
 			'source_design_repair' => self::heartbeat_source_work_action(

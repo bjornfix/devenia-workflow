@@ -560,10 +560,11 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	}
 
 	private static function source_content_integrity_repair_work_item( WP_Post $source ): array {
-		$validation = self::source_content_integrity_validation( $source );
-		if ( empty( $validation['issue_count'] ) ) {
+		$gate = self::source_content_integrity_gate_state( $source );
+		if ( ! empty( $gate['passed'] ) ) {
 			return array();
 		}
+		$validation = isset( $gate['validation'] ) && is_array( $gate['validation'] ) ? $gate['validation'] : self::source_content_integrity_validation( $source );
 
 		return self::workflow_work_item(
 			'content_integrity_repair',
@@ -575,6 +576,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				'source_title' => get_the_title( $source ),
 				'post_status' => sanitize_key( (string) $source->post_status ),
 				'content_integrity' => $validation,
+				'content_integrity_review' => isset( $gate['review'] ) && is_array( $gate['review'] ) ? $gate['review'] : array(),
 				'obligations' => array( 'content_integrity_repair' ),
 				'linguistic' => 'content_integrity_repair_required',
 				'quality' => 'content_integrity_repair_required',
@@ -743,12 +745,17 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	private static function source_work_queue_definitions(): array {
 		return array(
 			array(
-				'work_type'        => 'content_integrity_repair',
-				'action'           => 'repair_content_integrity',
-				'workflow_step'    => 'draft_write',
-				'required_ability' => 'content/update-post',
-				'scan_floor'       => '200',
-				'builder'          => 'source_content_integrity_repair_work_item',
+				'work_type'            => 'content_integrity_repair',
+				'action'               => 'repair_content_integrity',
+				'workflow_step'        => 'draft_write',
+				'required_ability'     => 'content/update-post',
+				'completion_abilities' => array(
+					'content/update-post',
+					'ai-translations/mark-source-content-integrity-reviewed',
+				),
+				'completion_policy'    => 'Choose the smallest honest completion path. If the current source content and audits are already clean, complete with ai-translations/mark-source-content-integrity-reviewed and concrete evidence instead of making a no-op content/update-post save.',
+				'scan_floor'           => '200',
+				'builder'              => 'source_content_integrity_repair_work_item',
 			),
 			array(
 				'work_type'            => 'source_design_repair',
