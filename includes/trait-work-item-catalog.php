@@ -1262,18 +1262,18 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		}
 
 		$source_design_item = self::source_design_repair_work_item( $source );
-			if ( $source_design_item ) {
-				$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'source_design_repair' );
-				$source_state = $source_reservation ? 'reserved' : 'source_design_repair';
-				if ( empty( $status_filter ) || in_array( $source_state, $status_filter, true ) ) {
-					$source_work_items[] = array(
-						'state'       => $source_state,
-						'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'repair_source_design',
-						'work_item'   => $source_design_item,
-						'reservation' => $source_reservation ? self::public_source_work_reservation( $source_reservation ) : null,
-					);
-				}
+		if ( $source_design_item ) {
+			$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'source_design_repair' );
+			$source_state = $source_reservation ? 'reserved' : 'source_design_repair';
+			if ( empty( $status_filter ) || in_array( $source_state, $status_filter, true ) ) {
+				$source_work_items[] = array(
+					'state'       => $source_state,
+					'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'repair_source_design',
+					'work_item'   => $source_design_item,
+					'reservation' => $source_reservation ? self::public_source_work_reservation( $source_reservation ) : null,
+				);
 			}
+		}
 
 		$source_taxonomy_item = self::source_taxonomy_review_work_item( $source );
 		if ( $source_taxonomy_item ) {

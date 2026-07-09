@@ -24,6 +24,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		$fragments = array();
 		self::collect_source_design_fragments( $blocks, $fragments );
 		$editorial_validation = self::source_editorial_design_validation( $source, $content );
+		$source_design_review = self::source_design_review_state( $source, $editorial_validation );
 
 		return array(
 			'schema_version'               => 1,
@@ -44,6 +45,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'worker_decision_brief'        => self::source_design_worker_decision_brief( $editorial_validation ),
 			'reader_action_candidates'     => self::source_design_reader_action_candidates( $editorial_validation ),
 			'editorial_source_validation'  => $editorial_validation,
+			'source_design_review'         => $source_design_review,
 		);
 	}
 
@@ -126,6 +128,10 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		if ( ! empty( $validation['passed'] ) ) {
 			return null;
 		}
+		$source_design_review = self::source_design_review_state( $source, $validation );
+		if ( ! empty( $source_design_review['passed'] ) ) {
+			return null;
+		}
 
 		return array(
 			'success'    => false,
@@ -135,6 +141,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				: 'Source design inheritance is blocked because the source post does not pass the selected Devenia presentation contract.',
 			'source_id'  => (int) $source->ID,
 			'validation' => $validation,
+			'source_design_review' => $source_design_review,
 		);
 	}
 
