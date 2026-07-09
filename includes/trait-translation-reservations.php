@@ -597,6 +597,25 @@ trait Devenia_AI_Translations_Translation_Reservations {
 		$key = self::source_work_reservation_option_name( $source_id, $work_type );
 		$saved = $force ? update_option( $key, $claim, false ) : add_option( $key, $claim, '', 'no' );
 		if ( ! $saved ) {
+			$existing = self::source_work_reservation_for_type( $source_id, $work_type, true );
+			if ( $existing && ! $force ) {
+				return array(
+					'success'        => false,
+					'message'        => 'Source work is already reserved.',
+					'source'         => self::source_summary_payload( $source ),
+					'claim_token'    => '',
+					'ttl_seconds'    => $ttl_seconds,
+					'claims'         => array(),
+					'conflicts'      => array(
+						array(
+							'work_scope'  => 'source',
+							'work_type'   => $work_type,
+							'reservation' => self::public_source_work_reservation( $existing ),
+						),
+					),
+					'conflict_count' => 1,
+				);
+			}
 			update_option( $key, $claim, false );
 		}
 

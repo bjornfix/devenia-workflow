@@ -132,8 +132,21 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 						$skipped[] = self::heartbeat_skip_summary( $item, 'claim_conflict' );
 						continue 2;
 					}
+					$claimed_reservation = isset( $claim_result['claims'][0] ) && is_array( $claim_result['claims'][0] ) ? $claim_result['claims'][0] : array();
+					$claimed_agent_session_id = self::normalize_control_scope_id( (string) ( $claimed_reservation['agent_session_id'] ?? '' ) );
+					$claimed_actor_id = sanitize_key( (string) ( $claimed_reservation['actor_id'] ?? '' ) );
+					$identity_agent_session_id = self::normalize_control_scope_id( (string) ( $identity['agent_session_id'] ?? $input['agent_session_id'] ?? '' ) );
+					$identity_actor_id = sanitize_key( (string) ( $identity['actor_id'] ?? $identity['step_token_label'] ?? '' ) );
+					if (
+						empty( $claimed_reservation )
+						|| ( '' !== $claimed_agent_session_id && '' !== $identity_agent_session_id && $claimed_agent_session_id !== $identity_agent_session_id )
+						|| ( '' !== $claimed_actor_id && '' !== $identity_actor_id && $claimed_actor_id !== $identity_actor_id )
+					) {
+						$skipped[] = self::heartbeat_skip_summary( $item, 'claim_identity_mismatch' );
+						continue 2;
+					}
 					$selected['claim_token'] = (string) ( $claim_result['claim_token'] ?? '' );
-					$selected['reservation'] = $claim_result['claims'][0] ?? null;
+					$selected['reservation'] = $claimed_reservation;
 				}
 
 				self::record_heartbeat_state( $input, $selected, $identity );

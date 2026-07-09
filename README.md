@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.488
+**Stable tag:** 0.1.489
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.489
+
+- Hardens source work reservations against concurrent heartbeat claims so a failed atomic add returns a conflict instead of updating another contributor's source claim.
+- Adds a heartbeat claim identity check so next-heartbeat-action will not hand a contributor a local claim when the returned reservation belongs to another session or actor.
 
 ### 0.1.488
 
