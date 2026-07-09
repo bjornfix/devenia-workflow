@@ -769,6 +769,11 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			return false;
 		}
 
+		// Source-scoped work may have changed because this same actor just edited the source.
+		if ( ! $translation_id ) {
+			return true;
+		}
+
 		$last_seen_at = sanitize_text_field( (string) ( $previous['last_seen_at'] ?? '' ) );
 		$last_seen_ts = '' !== $last_seen_at ? strtotime( $last_seen_at ) : false;
 		$post = get_post( $translation_id );
