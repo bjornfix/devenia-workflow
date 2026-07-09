@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.512
+ * Version: 0.1.513
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.512';
+	const VERSION = '0.1.513';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -2649,7 +2649,10 @@ final class Devenia_AI_Translations {
 			}
 
 			$stored_localized_path = trim( (string) ( $row['localized_path'] ?? '' ), '/' );
-			$meta_localized_path   = $translation_id ? trim( (string) get_post_meta( $translation_id, self::META_LOCALIZED_PATH, true ), '/' ) : '';
+			$meta_localized_path   = '';
+			if ( '' === $stored_localized_path && $translation_id ) {
+				$meta_localized_path = trim( (string) get_post_meta( $translation_id, self::META_LOCALIZED_PATH, true ), '/' );
+			}
 			$canonical_path        = trim( (string) $target_path, '/' );
 			$localized_variants    = array_values(
 				array_unique(
