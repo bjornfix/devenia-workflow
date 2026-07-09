@@ -787,6 +787,83 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	}
 
 	/**
+	 * Source-scoped work rows for the public queue read model.
+	 *
+	 * @param WP_Post           $source Source post.
+	 * @param array<int,string> $status_filter Optional queue-state filter.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function source_work_queue_entries( WP_Post $source, array $status_filter ): array {
+		$entries = array();
+		foreach ( self::source_work_queue_definitions() as $definition ) {
+			$work_type = sanitize_key( (string) ( $definition['work_type'] ?? '' ) );
+			if ( '' === $work_type ) {
+				continue;
+			}
+
+			$item = self::source_work_item_for_type( $source, $work_type );
+			if ( empty( $item ) || ! is_array( $item ) ) {
+				continue;
+			}
+
+			$reservation = self::source_work_reservation_for_type( (int) $source->ID, $work_type );
+			$state       = $reservation ? 'reserved' : $work_type;
+			if ( ! empty( $status_filter ) && ! in_array( $state, $status_filter, true ) ) {
+				continue;
+			}
+
+			$entries[] = array(
+				'state'       => $state,
+				'action'      => $reservation ? 'wait_for_reservation_or_claim_expiry' : sanitize_key( (string) ( $definition['action'] ?? $work_type ) ),
+				'work_item'   => $item,
+				'reservation' => $reservation ? self::public_source_work_reservation( $reservation ) : null,
+			);
+		}
+
+		return $entries;
+	}
+
+	/**
+	 * Source-scoped work definitions in queue priority order.
+	 *
+	 * @return array<int,array<string,string>>
+	 */
+	private static function source_work_queue_definitions(): array {
+		return array(
+			array(
+				'work_type' => 'content_integrity_repair',
+				'action'    => 'repair_content_integrity',
+			),
+			array(
+				'work_type' => 'source_design_repair',
+				'action'    => 'repair_source_design',
+			),
+			array(
+				'work_type' => 'source_taxonomy_review',
+				'action'    => 'review_source_taxonomy',
+			),
+		);
+	}
+
+	/**
+	 * Build one source-scoped work item by type.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function source_work_item_for_type( WP_Post $source, string $work_type ): array {
+		switch ( $work_type ) {
+			case 'content_integrity_repair':
+				return self::source_content_integrity_repair_work_item( $source );
+			case 'source_design_repair':
+				return self::source_design_repair_work_item( $source );
+			case 'source_taxonomy_review':
+				return self::source_taxonomy_review_work_item( $source );
+			default:
+				return array();
+		}
+	}
+
+	/**
 	 * Return a compact translation work queue for source pages.
 	 */
 	private static function translation_queue( array $input ): array {
@@ -1116,48 +1193,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			}
 		}
 
-		$source_work_items = array();
-		$source_content_item = self::source_content_integrity_repair_work_item( $source );
-		if ( $source_content_item ) {
-			$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'content_integrity_repair' );
-			$source_state = $source_reservation ? 'reserved' : 'content_integrity_repair';
-			if ( empty( $status_filter ) || in_array( $source_state, $status_filter, true ) ) {
-				$source_work_items[] = array(
-					'state'       => $source_state,
-					'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'repair_content_integrity',
-					'work_item'   => $source_content_item,
-					'reservation' => $source_reservation ? self::public_source_work_reservation( $source_reservation ) : null,
-				);
-			}
-		}
-
-		$source_design_item = self::source_design_repair_work_item( $source );
-		if ( $source_design_item ) {
-			$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'source_design_repair' );
-			$source_state = $source_reservation ? 'reserved' : 'source_design_repair';
-			if ( empty( $status_filter ) || in_array( $source_state, $status_filter, true ) ) {
-				$source_work_items[] = array(
-					'state'       => $source_state,
-					'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'repair_source_design',
-					'work_item'   => $source_design_item,
-					'reservation' => $source_reservation ? self::public_source_work_reservation( $source_reservation ) : null,
-				);
-			}
-		}
-
-		$source_taxonomy_item = self::source_taxonomy_review_work_item( $source );
-		if ( $source_taxonomy_item ) {
-			$source_reservation = self::source_work_reservation_for_type( (int) $source->ID, 'source_taxonomy_review' );
-			$source_state = $source_reservation ? 'reserved' : 'source_taxonomy_review';
-			if ( empty( $status_filter ) || in_array( $source_state, $status_filter, true ) ) {
-				$source_work_items[] = array(
-					'state'       => $source_state,
-					'action'      => $source_reservation ? 'wait_for_reservation_or_claim_expiry' : 'review_source_taxonomy',
-					'work_item'   => $source_taxonomy_item,
-					'reservation' => $source_reservation ? self::public_source_work_reservation( $source_reservation ) : null,
-				);
-			}
-		}
+		$source_work_items = self::source_work_queue_entries( $source, $status_filter );
 
 		$language_rows = array();
 		$action_count  = count( $source_work_items );
