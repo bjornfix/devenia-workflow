@@ -715,6 +715,9 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			return array();
 		}
 
+		$validation         = self::source_editorial_design_validation( $source, (string) $source->post_content );
+		$validation_summary = self::source_editorial_design_validation_summary( $validation );
+
 		return self::workflow_work_item(
 			'source_taxonomy_review',
 			'source',
@@ -724,6 +727,11 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			array(
 				'source_title' => get_the_title( $source ),
 				'post_status' => sanitize_key( (string) $source->post_status ),
+				'article_type' => sanitize_key( (string) ( $validation_summary['article_type'] ?? '' ) ),
+				'template_id' => sanitize_text_field( (string) ( $validation_summary['template_id'] ?? '' ) ),
+				'template_slug' => sanitize_text_field( (string) ( $validation_summary['template_slug'] ?? '' ) ),
+				'template_version' => sanitize_text_field( (string) ( $validation_summary['template_version'] ?? '' ) ),
+				'editorial_source_validation' => $validation_summary,
 				'source_taxonomy' => $review,
 				'obligations' => array( 'source_taxonomy_review' ),
 				'linguistic' => 'source_taxonomy_review_required',
