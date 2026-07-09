@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.508
+**Stable tag:** 0.1.509
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.509
+
+- Adds a source content-integrity guard for stale year claims in evergreen posts.
+- Speeds up cold translated frontend requests by resolving indexed post routes before archive scans, narrowing archive route matching to the URL language prefix, and building language alternates only when a frontend surface needs them.
 
 ### 0.1.508
 

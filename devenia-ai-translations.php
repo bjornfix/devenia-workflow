@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.508
+ * Version: 0.1.509
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Read_Models;
 	use Devenia_AI_Translations_Translation_Provenance;
 
-	const VERSION = '0.1.508';
+	const VERSION = '0.1.509';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -545,7 +545,25 @@ final class Devenia_AI_Translations {
 		}
 
 		$path = '/' . trim( (string) $wp->request, '/' ) . '/';
-		$author_match = self::translated_author_archive_request_for_path( $path );
+		$candidate_languages = self::target_languages_for_frontend_path( $path );
+		if ( empty( $candidate_languages ) ) {
+			return;
+		}
+
+		$translation_id = self::find_translation_id_by_target_path( $path, array( 'publish' ) );
+		if ( $translation_id ) {
+			$post = get_post( $translation_id );
+			if ( $post && 'post' === $post->post_type ) {
+				$wp->query_vars = array(
+					'p'                        => (int) $post->ID,
+					'post_type'                => 'post',
+					'devenia_translation_post' => (int) $post->ID,
+				);
+				return;
+			}
+		}
+
+		$author_match = self::translated_author_archive_request_for_path( $path, $candidate_languages );
 		if ( ! empty( $author_match ) ) {
 			$wp->query_vars = array(
 				'author_name'                     => (string) $author_match['user_nicename'],
@@ -556,7 +574,7 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		$term_match = self::translated_term_request_for_path( $path );
+		$term_match = self::translated_term_request_for_path( $path, $candidate_languages );
 		if ( ! empty( $term_match ) ) {
 			if ( 'post_tag' === $term_match['taxonomy'] ) {
 				$wp->query_vars = array(
@@ -575,22 +593,31 @@ final class Devenia_AI_Translations {
 			}
 			return;
 		}
+	}
 
-		$translation_id = self::find_translation_id_by_target_path( $path, array( 'publish' ) );
-		if ( ! $translation_id ) {
-			return;
+	/**
+	 * Target languages whose configured frontend prefix can match this request path.
+	 *
+	 * @return array<string,array<string,string>>
+	 */
+	private static function target_languages_for_frontend_path( string $path ): array {
+		$clean_path = trim( $path, '/' );
+		if ( '' === $clean_path ) {
+			return array();
 		}
 
-		$post = get_post( $translation_id );
-		if ( ! $post || 'post' !== $post->post_type ) {
-			return;
+		$matches = array();
+		foreach ( self::target_languages() as $language => $config ) {
+			$prefix = self::language_prefix( (string) $language );
+			if ( '' === $prefix ) {
+				continue;
+			}
+			if ( $clean_path === $prefix || 0 === strpos( $clean_path, $prefix . '/' ) ) {
+				$matches[ (string) $language ] = $config;
+			}
 		}
 
-		$wp->query_vars = array(
-			'p'                         => (int) $post->ID,
-			'post_type'                 => 'post',
-			'devenia_translation_post'  => (int) $post->ID,
-		);
+		return $matches;
 	}
 
 	/**
@@ -598,13 +625,14 @@ final class Devenia_AI_Translations {
 	 *
 	 * @return array{taxonomy:string,slug:string,term_id:int,language:string,paged:int}|array<string,mixed>
 	 */
-	private static function translated_term_request_for_path( string $path ): array {
+	private static function translated_term_request_for_path( string $path, array $candidate_languages = array() ): array {
 		$clean_path = trim( $path, '/' );
 		if ( '' === $clean_path ) {
 			return array();
 		}
 
-		foreach ( self::target_languages() as $language => $config ) {
+		$languages = $candidate_languages ?: self::target_languages();
+		foreach ( $languages as $language => $config ) {
 			foreach ( array( 'category', 'post_tag' ) as $taxonomy ) {
 				$base = self::localized_taxonomy_base_path( (string) $language, $taxonomy );
 				if ( '' === $base ) {
@@ -658,7 +686,7 @@ final class Devenia_AI_Translations {
 	 *
 	 * @return array{language:string,author_id:int,user_nicename:string,paged:int}|array<string,mixed>
 	 */
-	private static function translated_author_archive_request_for_path( string $path ): array {
+	private static function translated_author_archive_request_for_path( string $path, array $candidate_languages = array() ): array {
 		$clean_path = trim( $path, '/' );
 		if ( '' === $clean_path ) {
 			return array();
@@ -666,6 +694,9 @@ final class Devenia_AI_Translations {
 
 		foreach ( self::author_archive_registry() as $author_id => $translations ) {
 			foreach ( $translations as $language => $translation ) {
+				if ( $candidate_languages && ! isset( $candidate_languages[ $language ] ) ) {
+					continue;
+				}
 				if ( empty( $translation['path'] ) || 'published' !== (string) ( $translation['status'] ?? '' ) ) {
 					continue;
 				}
@@ -14904,6 +14935,10 @@ final class Devenia_AI_Translations {
 			}
 			$issues[] = $issue;
 		}
+		$currentness = self::source_currentness_guardrails( $post );
+		if ( ! empty( $currentness['issues'] ) && is_array( $currentness['issues'] ) ) {
+			$issues = array_merge( $issues, $currentness['issues'] );
+		}
 
 		return self::request_analysis_cache_set(
 			'source_content_integrity',
@@ -14921,14 +14956,154 @@ final class Devenia_AI_Translations {
 				)
 			),
 			'checked_at'  => gmdate( 'c' ),
-			)
-		);
-	}
+				)
+			);
+		}
 
-	/**
-	 * Store one localized author archive record in WordPress runtime data.
-	 */
-	private static function update_author_archive_translation( array $input ): array {
+		private static function source_currentness_guardrails( WP_Post $post ): array {
+			$current_year = absint( gmdate( 'Y' ) );
+			$slug         = sanitize_title( (string) $post->post_name );
+			$route_years  = self::four_digit_years_in_text( str_replace( '-', ' ', $slug ) );
+			$fields       = array(
+				'title'   => self::normalize_review_text( wp_strip_all_tags( get_the_title( $post ) ) ),
+				'excerpt' => self::normalize_review_text( wp_strip_all_tags( (string) $post->post_excerpt ) ),
+				'content' => self::normalized_plain_text_for_review( (string) $post->post_content ),
+			);
+			$fields = apply_filters( 'ai_translation_workflow_source_currentness_text_fields', $fields, $post );
+			$fields = is_array( $fields ) ? $fields : array();
+			$stale  = array();
+
+			foreach ( $fields as $field => $text ) {
+				$field = sanitize_key( (string) $field );
+				$text  = self::normalize_review_text( wp_strip_all_tags( (string) $text ) );
+				if ( '' === $field || '' === $text ) {
+					continue;
+				}
+
+				foreach ( self::stale_evergreen_year_claims_for_text( $text, $field, $current_year, $route_years ) as $claim ) {
+					$key = (string) $claim['year'] . ':' . $field . ':' . md5( (string) $claim['context'] );
+					$stale[ $key ] = $claim;
+				}
+			}
+
+			$claims = array_values( $stale );
+			$issues = array();
+			if ( $claims ) {
+				$issues[] = self::qa_item(
+					'stale_evergreen_year_claim',
+					'Evergreen source content contains an older public year claim. Update the year-sensitive wording or make the historical/year-specific context explicit before using it as a current source.',
+					array(
+						'current_year' => $current_year,
+						'route_years'  => array_values( $route_years ),
+						'claims'       => array_slice( $claims, 0, 12 ),
+					)
+				);
+			}
+
+			return array(
+				'passed'      => empty( $issues ),
+				'issue_count' => count( $issues ),
+				'issues'      => $issues,
+				'checked_at'  => gmdate( 'c' ),
+			);
+		}
+
+		/**
+		 * @return array<int,array{year:int,field:string,context:string}>
+		 */
+		private static function stale_evergreen_year_claims_for_text( string $text, string $field, int $current_year, array $route_years ): array {
+			if ( $current_year < 2000 ) {
+				return array();
+			}
+
+			$years = self::four_digit_years_in_text( $text );
+			if ( empty( $years ) ) {
+				return array();
+			}
+
+			$claims = array();
+			foreach ( $years as $year ) {
+				if ( $year >= $current_year || isset( $route_years[ $year ] ) ) {
+					continue;
+				}
+
+				foreach ( self::year_claim_contexts( $text, $year ) as $context ) {
+					if ( self::text_field_year_is_currentness_claim( $field, $context, $year ) ) {
+						$claims[] = array(
+							'year'    => $year,
+							'field'   => $field,
+							'context' => $context,
+						);
+					}
+				}
+			}
+
+			return $claims;
+		}
+
+		/**
+		 * @return array<int,int>
+		 */
+		private static function four_digit_years_in_text( string $text ): array {
+			if ( ! preg_match_all( '/(?<!\d)(20\d{2})(?!\d)/', $text, $matches ) ) {
+				return array();
+			}
+
+			$years = array();
+			foreach ( $matches[1] as $match ) {
+				$year = absint( $match );
+				if ( $year >= 2000 && $year <= 2099 ) {
+					$years[ $year ] = $year;
+				}
+			}
+
+			return $years;
+		}
+
+		/**
+		 * @return array<int,string>
+		 */
+		private static function year_claim_contexts( string $text, int $year ): array {
+			$contexts = array();
+			if ( ! preg_match_all( '/.{0,90}(?<!\d)' . preg_quote( (string) $year, '/' ) . '(?!\d).{0,90}/u', $text, $matches ) ) {
+				return array();
+			}
+
+			foreach ( $matches[0] as $context ) {
+				$context = self::normalize_review_text( (string) $context );
+				if ( '' !== $context ) {
+					$contexts[] = mb_substr( $context, 0, 220 );
+				}
+			}
+
+			return array_values( array_unique( $contexts ) );
+		}
+
+		private static function text_field_year_is_currentness_claim( string $field, string $context, int $year ): bool {
+			if ( in_array( $field, array( 'title', 'excerpt', 'seo_title', 'seo_description', 'meta_description', 'social_title', 'social_description' ), true ) ) {
+				return true;
+			}
+
+			$quoted = preg_quote( (string) $year, '/' );
+			$patterns = array(
+				'/\b(?:in|for|during|through|throughout)\s+' . $quoted . '\b/i',
+				'/\b(?:updated|current|latest|new|still|modern|safe|safer)\s+(?:for|in)\s+' . $quoted . '\b/i',
+				'/\b(?:guide|checklist|strategy|strategies|tips|trends|advice|playbook)\s+(?:for|to|in)\s+' . $quoted . '\b/i',
+				'/' . $quoted . '\s+(?:guide|checklist|strategy|strategies|tips|trends|advice|playbook|edition|update)\b/i',
+			);
+			foreach ( $patterns as $pattern ) {
+				if ( preg_match( $pattern, $context ) ) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/**
+		 * Store one localized author archive record in WordPress runtime data.
+		 */
+		private static function update_author_archive_translation( array $input ): array {
 		$author_id = absint( $input['author_id'] ?? 0 );
 		$user      = $author_id ? get_user_by( 'id', $author_id ) : null;
 		if ( ! $user instanceof WP_User ) {
@@ -14954,8 +15129,8 @@ final class Devenia_AI_Translations {
 				'author_id' => $author_id,
 				'language'  => $language,
 				'message'   => 'Author archive translation removed.',
-			);
-		}
+				);
+			}
 
 		$status = sanitize_key( (string) ( $input['status'] ?? 'draft' ) );
 		if ( ! in_array( $status, array( 'draft', 'needs_review', 'reviewed', 'published' ), true ) ) {
@@ -17664,6 +17839,10 @@ final class Devenia_AI_Translations {
 			return $content;
 		}
 
+		if ( ! preg_match( '/\bhref=([\"\'])/i', $content ) ) {
+			return $content;
+		}
+
 		$map = self::localized_internal_link_map( $language );
 		if ( empty( $map ) ) {
 			return $content;
@@ -17786,12 +17965,26 @@ final class Devenia_AI_Translations {
 		if ( ! empty( $indexed_rows ) ) {
 			$by_source = array();
 			$published_by_source = array();
+			$source_variants = array();
 			foreach ( $indexed_rows as $row ) {
 				$source_id = absint( $row['source_id'] ?? 0 );
 				$lang      = (string) ( $row['language'] ?? '' );
 				$url       = (string) ( $row['target_url'] ?? '' );
 				if ( ! $source_id || '' === $lang || ! $url ) {
 					continue;
+				}
+
+				$source_url  = (string) ( $row['source_url'] ?? '' );
+				$source_path = trim( (string) ( $row['source_path'] ?? '' ), '/' );
+				if ( '' === $source_url && '' !== $source_path ) {
+					$source_url = home_url( '/' . $source_path . '/' );
+				}
+				if ( '' !== $source_url ) {
+					$source_variants[ $source_id ][ $source_url ] = $source_url;
+				}
+				if ( '' !== $source_path ) {
+					$source_variants[ $source_id ][ $source_path ] = $source_path;
+					$source_variants[ $source_id ][ '/' . $source_path . '/' ] = '/' . $source_path . '/';
 				}
 
 				$by_source[ $source_id ][ $lang ] = array(
@@ -17805,8 +17998,9 @@ final class Devenia_AI_Translations {
 
 			$map = array();
 			foreach ( $by_source as $source_id => $translations ) {
-				$source_url = get_permalink( (int) $source_id );
-				if ( 'publish' !== get_post_status( (int) $source_id ) ) {
+				$variants_for_source = $source_variants[ $source_id ] ?? array();
+				$source_url = (string) reset( $variants_for_source );
+				if ( '' === $source_url ) {
 					continue;
 				}
 
@@ -17815,10 +18009,7 @@ final class Devenia_AI_Translations {
 					continue;
 				}
 
-				$variants = array_merge(
-					array( (string) $source_url ),
-					self::content_shortlink_variants( (int) $source_id )
-				);
+				$variants = array_values( $source_variants[ $source_id ] ?? array( $source_url ) );
 				foreach ( $translations as $translation ) {
 					$variants = array_merge( $variants, (array) ( $translation['variants'] ?? array() ) );
 				}
@@ -18582,7 +18773,7 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		$surface = self::frontend_surface( self::frontend_surface_post_id() );
+		$surface = self::frontend_surface_with_links( self::frontend_surface_post_id() );
 		$links   = $surface['links'];
 		if ( empty( $links ) ) {
 			return;
@@ -18634,7 +18825,7 @@ final class Devenia_AI_Translations {
 			return $items;
 		}
 
-		$surface = self::frontend_surface( self::frontend_surface_post_id() );
+		$surface = self::frontend_surface_with_links( self::frontend_surface_post_id() );
 		$links   = $surface['links'];
 		if ( count( $links ) < 2 ) {
 			return $items;
@@ -18658,7 +18849,7 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		$surface = self::frontend_surface( self::frontend_surface_post_id() );
+		$surface = self::frontend_surface_with_links( self::frontend_surface_post_id() );
 		$links   = $surface['links'];
 		if ( count( $links ) < 2 ) {
 			return;
@@ -19139,8 +19330,12 @@ final class Devenia_AI_Translations {
 			return $content;
 		}
 
+		if ( ! preg_match( '/\bhref=([\"\'])/i', $content ) ) {
+			return $content;
+		}
+
 		$map = self::localized_internal_link_map( $language );
-		if ( empty( $map ) || ! preg_match( '/\bhref=([\"\'])/i', $content ) ) {
+		if ( empty( $map ) ) {
 			return $content;
 		}
 
@@ -20231,7 +20426,7 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		$surface = self::frontend_surface( self::frontend_surface_post_id() );
+		$surface = self::frontend_surface_with_links( self::frontend_surface_post_id() );
 		$links   = $surface['links'];
 		if ( count( $links ) < 2 ) {
 			return;
@@ -27087,18 +27282,38 @@ final class Devenia_AI_Translations {
 			: $locale;
 		$direction = isset( $languages[ $language ]['direction'] ) && 'rtl' === (string) $languages[ $language ]['direction'] ? 'rtl' : 'ltr';
 
-		$cache[ $key ] = array(
-			'post_id'   => $post_id,
-			'language'  => $language,
-			'locale'    => '' !== $locale ? $locale : 'en_GB',
-			'wordpress_locale' => '' !== $wordpress_locale ? $wordpress_locale : 'en_GB',
-			'direction' => $direction,
-			'source_id' => $post_id ? self::source_id_for_context( $post_id ) : 0,
-			'links'     => is_404() ? self::language_links_for_not_found() : ( is_author() ? self::language_links_for_author_archive() : ( $post_id ? self::language_links_for_post( $post_id ) : array() ) ),
-		);
+			$cache[ $key ] = array(
+				'post_id'   => $post_id,
+				'language'  => $language,
+				'locale'    => '' !== $locale ? $locale : 'en_GB',
+				'wordpress_locale' => '' !== $wordpress_locale ? $wordpress_locale : 'en_GB',
+				'direction' => $direction,
+				'source_id' => $post_id ? self::source_id_for_context( $post_id ) : 0,
+			);
 
-		return $cache[ $key ];
-	}
+			return $cache[ $key ];
+		}
+
+		private static function frontend_surface_with_links( int $post_id = 0 ): array {
+			static $cache = array();
+
+			$surface      = self::frontend_surface( $post_id );
+			$post_id      = (int) ( $surface['post_id'] ?? 0 );
+			$request_path = self::current_request_path();
+			$key          = $post_id . '|' . md5( $request_path );
+			if ( isset( $cache[ $key ] ) ) {
+				$surface['links'] = $cache[ $key ];
+				return $surface;
+			}
+
+			$cache[ $key ] = is_404()
+				? self::language_links_for_not_found()
+				: ( is_author() ? self::language_links_for_author_archive() : ( $post_id ? self::language_links_for_post( $post_id ) : array() ) );
+
+			$surface['links'] = $cache[ $key ];
+
+			return $surface;
+		}
 
 	/**
 	 * Build one localized singular presentation surface for source and translations.
