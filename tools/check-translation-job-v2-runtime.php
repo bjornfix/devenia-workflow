@@ -11,6 +11,9 @@ $source_id = 0;
 $linked_source_id = 0;
 $translation_id = 0;
 $option_keys = array();
+$original_user_id = get_current_user_id();
+$languages_option_before = get_option( 'devenia_ai_translations_languages' );
+$runtime_provenance_before = get_option( 'devenia_ai_translations_runtime_mutation_provenance' );
 
 $call = static function ( string $method, array $input = array() ) {
 	$reflection = new ReflectionMethod( Devenia_AI_Translations::class, $method );
@@ -70,6 +73,28 @@ try {
 	$language = isset( $languages['nb'] ) ? 'nb' : ( isset( $language_keys[0] ) ? (string) $language_keys[0] : '' );
 	if ( '' === $language ) {
 		throw new RuntimeException( 'No target language is configured.' );
+	}
+	$runtime_text_input = array(
+		'language' => $language,
+		'section' => 'share_text',
+		'source' => 'translation_job_v2_runtime_fixture',
+		'translated' => 'Runtime fixture translation',
+		'writer_process_id' => 'translation-job-v2-runtime',
+		'writer_actor' => 'Runtime contract',
+	);
+	wp_set_current_user( 0 );
+	$unauthorized_runtime_text = $call( 'update_runtime_language_text', $runtime_text_input );
+	if ( ! empty( $unauthorized_runtime_text['success'] ) ) {
+		throw new RuntimeException( 'Runtime text update did not enforce manage_options.' );
+	}
+	$administrator_ids = get_users( array( 'role' => 'administrator', 'number' => 1, 'fields' => 'ids' ) );
+	if ( empty( $administrator_ids ) ) {
+		throw new RuntimeException( 'No administrator is available for the runtime text capability fixture.' );
+	}
+	wp_set_current_user( (int) $administrator_ids[0] );
+	$authorized_runtime_text = $call( 'update_runtime_language_text', $runtime_text_input );
+	if ( empty( $authorized_runtime_text['success'] ) ) {
+		throw new RuntimeException( 'Capability-authorized runtime text update failed: ' . wp_json_encode( $authorized_runtime_text ) );
 	}
 	$source_qa_options = $call(
 		'update_source_qa_options',
@@ -386,12 +411,16 @@ try {
 			'full_fragment_wrappers_normalized' => true,
 			'source_scoped_preserve_terms_in_packet' => true,
 			'submission_contracts_in_packets' => true,
+			'runtime_text_uses_wordpress_capability' => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {
 	fwrite( STDERR, wp_json_encode( array( 'success' => false, 'error' => $error->getMessage() ) ) . PHP_EOL );
 	exit( 1 );
 } finally {
+	wp_set_current_user( $original_user_id );
+	update_option( 'devenia_ai_translations_languages', $languages_option_before, false );
+	update_option( 'devenia_ai_translations_runtime_mutation_provenance', $runtime_provenance_before, false );
 	if ( $translation_id > 0 ) {
 		wp_delete_post( $translation_id, true );
 	}

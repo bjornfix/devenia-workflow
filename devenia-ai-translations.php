@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.543
+ * Version: 0.1.544
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -60,7 +60,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Internal_Content_Link_Resolver;
 	use Devenia_AI_Translations_Translation_Job_V2;
 
-	const VERSION = '0.1.543';
+	const VERSION = '0.1.544';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -2500,10 +2500,27 @@ final class Devenia_AI_Translations {
 			return self::error( 'Missing translated value.' );
 		}
 
-		$step_token_gate = self::translation_step_token_gate( 'draft_write', $input );
-		if ( empty( $step_token_gate['success'] ) ) {
-			return $step_token_gate;
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return self::error( 'Runtime text updates require manage_options.' );
 		}
+
+		$user_id = get_current_user_id();
+		$process_id = self::normalize_process_id( (string) ( $input['writer_process_id'] ?? '' ) );
+		$actor = sanitize_text_field( (string) ( $input['writer_actor'] ?? '' ) );
+		$operator_identity = array(
+			'success' => true,
+			'process_id' => '' !== $process_id ? $process_id : 'wordpress-user-' . $user_id,
+			'control_scope_id' => '',
+			'agent_session_id' => '',
+			'llm_vendor' => '',
+			'llm_client' => 'wordpress-abilities-api',
+			'authority_vendor' => 'wordpress',
+			'authority_client' => 'capability-check',
+			'session_origin' => 'same_session',
+			'actor' => '' !== $actor ? $actor : 'WordPress operator',
+			'actor_id' => 'wordpress_user_' . $user_id,
+			'token_label' => 'manage_options',
+		);
 
 		$languages = get_option( self::OPTION_LANGUAGES );
 		if ( ! is_array( $languages ) ) {
@@ -2525,7 +2542,7 @@ final class Devenia_AI_Translations {
 
 		update_option( self::OPTION_LANGUAGES, $languages, false );
 		self::languages( true );
-		self::record_runtime_language_mutation_provenance( $language, $section, $source, $step_token_gate, $delete ? 'runtime_text_delete' : 'runtime_text_update' );
+		self::record_runtime_language_mutation_provenance( $language, $section, $source, $operator_identity, $delete ? 'runtime_text_delete' : 'runtime_text_update' );
 
 		return array(
 			'success'    => true,
@@ -7299,14 +7316,9 @@ final class Devenia_AI_Translations {
 				'default'     => false,
 				'description' => 'Remove this runtime text override.',
 			),
-			'agent_session_id' => array(
-				'type'        => 'string',
-				'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
-			),
-			'session_binding_token' => self::session_binding_token_input_schema(),
 			'writer_process_id' => array(
 				'type'        => 'string',
-				'description' => 'Optional stable identifier for the process/session updating the runtime text. Defaults to agent_session_id.',
+				'description' => 'Optional stable operator/process identifier stored only for audit provenance.',
 			),
 			'writer_actor' => array(
 				'type'        => 'string',
