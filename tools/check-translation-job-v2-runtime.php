@@ -285,6 +285,34 @@ try {
 		throw new RuntimeException( 'Quality packet did not preserve the authoritative link policy: ' . wp_json_encode( $quality_packet ) );
 	}
 	$checks = array_fill_keys( array( 'source_quality', 'natural_language', 'factual_accuracy', 'source_coverage', 'localized_search_intent', 'offer_and_contact', 'links_and_route', 'rendered_experience' ), true );
+	$quality_evidence = 'Runtime contract reviewed every required dimension and requests a deliberate revision.';
+	$quality_corrections = array( 'Runtime fixture intentionally stops before publication.' );
+	$revision_method = new ReflectionMethod( Devenia_AI_Translations::class, 'translation_job_v2_revision' );
+	$revision_method->setAccessible( true );
+	$orphaned_quality_revision = (string) $revision_method->invoke( null, array( $artifact_revision, 'revise', $checks, $quality_evidence, $quality_corrections ) );
+	$orphaned_quality_key = 'devenia_ai_translation_quality_v2_' . $orphaned_quality_revision;
+	$option_keys[] = $orphaned_quality_key;
+	add_option(
+		$orphaned_quality_key,
+		array(
+			'quality_revision' => $orphaned_quality_revision,
+			'job_id' => $job_id,
+			'artifact_revision' => $artifact_revision,
+			'content_revision' => (string) ( $submit['job']['content_revision'] ?? '' ),
+			'translation_id' => $translation_id,
+			'decision' => 'revise',
+			'checks' => array_map( 'boolval', $checks ),
+			'evidence' => $quality_evidence,
+			'corrections' => $quality_corrections,
+			'coordinator_id' => 'runtime-coordinator',
+			'run_id' => $quality_run_id,
+			'qa' => array( 'passed' => true, 'issue_count' => 0, 'warning_count' => 0 ),
+			'publication_experience' => array( 'passed' => true, 'state' => 'publication_experience_ready' ),
+			'decided_at' => gmdate( 'c' ),
+		),
+		'',
+		false
+	);
 	$quality = $call(
 		'translation_job_v2_submit_quality_decision',
 		array(
@@ -294,13 +322,13 @@ try {
 			'artifact_revision' => $artifact_revision,
 			'decision' => 'revise',
 			'checks' => $checks,
-			'evidence' => 'Runtime contract reviewed every required dimension and requests a deliberate revision.',
-			'corrections' => array( 'Runtime fixture intentionally stops before publication.' ),
+			'evidence' => $quality_evidence,
+			'corrections' => $quality_corrections,
 			'usage' => array( 'input_tokens' => 800, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 800, 'estimated_cost_microusd' => 50 ),
 		)
 	);
 	if ( empty( $quality['success'] ) || 'changes_requested' !== (string) ( $quality['job']['status'] ?? '' ) ) {
-		throw new RuntimeException( 'Quality Decision failed: ' . wp_json_encode( $quality ) );
+		throw new RuntimeException( 'Idempotent orphaned Quality Decision recovery failed: ' . wp_json_encode( $quality ) );
 	}
 	$option_keys[] = 'devenia_ai_translation_quality_v2_' . (string) $quality['quality_decision']['quality_revision'];
 	$correction_claim = $call(
@@ -443,6 +471,7 @@ try {
 			'submission_contracts_share_live_schema' => true,
 			'runtime_text_uses_wordpress_capability' => true,
 			'mailto_query_copy_must_be_localized' => true,
+			'orphaned_quality_decision_recovered' => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {
