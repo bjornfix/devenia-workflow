@@ -268,7 +268,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			delete_option( $lock_key );
 			$expired_role = sanitize_key( (string) ( $existing_lock['role'] ?? '' ) );
 			$resume_status = sanitize_key( (string) ( $existing_lock['previous_status'] ?? '' ) );
-			if ( ! in_array( $resume_status, array( 'queued', 'changes_requested', 'quality_pending' ), true ) ) {
+			if ( ! in_array( $resume_status, array( 'queued', 'changes_requested', 'quality_pending', 'published' ), true ) ) {
 				$resume_status = 'quality' === $expired_role ? 'quality_pending' : ( empty( $job['artifact_revision'] ) ? 'queued' : 'changes_requested' );
 			}
 			$resumed = self::translation_job_v2_transition( $job, array( 'status' => $resume_status, 'active_run_id' => '' ) );
@@ -278,7 +278,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			$job = $resumed['job'];
 			$existing_lock = null;
 		}
-		$expected_statuses = 'translator' === $role ? array( 'queued', 'changes_requested' ) : array( 'quality_pending' );
+		$expected_statuses = 'translator' === $role ? array( 'queued', 'changes_requested', 'published' ) : array( 'quality_pending' );
 		if ( ! in_array( (string) $job['status'], $expected_statuses, true ) ) {
 			return array( 'success' => false, 'code' => 'job_not_claimable', 'message' => 'Translation Job is not claimable for this Run role.', 'job' => self::translation_job_v2_public_job( $job ) );
 		}

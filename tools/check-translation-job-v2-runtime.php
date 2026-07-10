@@ -561,6 +561,83 @@ try {
 	) {
 		throw new RuntimeException( 'Idempotent v2 publication did not reconcile stale featured media: ' . wp_json_encode( $republished ) );
 	}
+	$published_job = get_option( 'devenia_ai_translation_job_v2_' . $job_id );
+	$published_job['run_ids'] = array_values(
+		array_filter(
+			(array) $published_job['run_ids'],
+			static function ( $row ) use ( $correction_run_id, $second_quality_run_id ) {
+				return is_array( $row ) && ! in_array( (string) ( $row['run_id'] ?? '' ), array( $correction_run_id, $second_quality_run_id ), true );
+			}
+		)
+	);
+	update_option( 'devenia_ai_translation_job_v2_' . $job_id, $published_job, false );
+	$post_publish_run_id = 'runtime-translator-post-publish-' . wp_generate_password( 8, false, false );
+	$post_publish_claim = $call(
+		'translation_job_v2_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $post_publish_run_id,
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'translator',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $post_publish_claim['success'] ) || 'published' !== (string) ( $post_publish_claim['claim']['previous_status'] ?? '' ) ) {
+		throw new RuntimeException( 'Published Job could not enter a bounded correction Run: ' . wp_json_encode( $post_publish_claim ) );
+	}
+	$option_keys[] = 'devenia_ai_translation_run_v2_' . $post_publish_run_id;
+	$post_publish_artifact = $artifact;
+	$post_publish_artifact['title'] = 'Runtime translated title corrected after browser QA';
+	$post_publish_submit = $call(
+		'translation_job_v2_submit_artifact',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $post_publish_run_id,
+			'claim_token' => (string) $post_publish_claim['claim_token'],
+			'artifact' => $post_publish_artifact,
+			'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
+		)
+	);
+	if ( empty( $post_publish_submit['success'] ) || 'publish' !== get_post_status( $translation_id ) || 'quality_pending' !== (string) ( $post_publish_submit['job']['status'] ?? '' ) ) {
+		throw new RuntimeException( 'Published correction artifact was not saved safely: ' . wp_json_encode( $post_publish_submit ) );
+	}
+	$option_keys[] = 'devenia_ai_translation_artifact_v2_' . (string) $post_publish_submit['artifact_revision'];
+	$post_publish_quality_run_id = 'runtime-quality-post-publish-' . wp_generate_password( 8, false, false );
+	$post_publish_quality_claim = $call(
+		'translation_job_v2_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $post_publish_quality_run_id,
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'quality',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $post_publish_quality_claim['success'] ) ) {
+		throw new RuntimeException( 'Published correction could not enter bounded quality review: ' . wp_json_encode( $post_publish_quality_claim ) );
+	}
+	$option_keys[] = 'devenia_ai_translation_run_v2_' . $post_publish_quality_run_id;
+	$post_publish_quality = $call(
+		'translation_job_v2_submit_quality_decision',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $post_publish_quality_run_id,
+			'claim_token' => (string) $post_publish_quality_claim['claim_token'],
+			'artifact_revision' => (string) $post_publish_submit['artifact_revision'],
+			'decision' => 'revise',
+			'checks' => $checks,
+			'evidence' => 'Runtime contract confirms browser QA corrections on a published translation remain bounded and require a new exact quality decision before republishing.',
+			'corrections' => array( 'The fixture deliberately requests one more correction because its dev-only public URL has no language prefix.' ),
+			'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
+		)
+	);
+	if ( empty( $post_publish_quality['success'] ) || 'changes_requested' !== (string) ( $post_publish_quality['job']['status'] ?? '' ) ) {
+		throw new RuntimeException( 'Published correction did not receive an exact Quality Decision: ' . wp_json_encode( $post_publish_quality ) );
+	}
+	$option_keys[] = 'devenia_ai_translation_quality_v2_' . (string) $post_publish_quality['quality_decision']['quality_revision'];
+	if ( 'publish' !== get_post_status( $translation_id ) || 'Runtime translated title corrected after browser QA' !== get_the_title( $translation_id ) ) {
+		throw new RuntimeException( 'Published correction did not remain live while re-entering quality review.' );
+	}
 	$orphaned_run = get_option( 'devenia_ai_translation_run_v2_' . $translator_run_id );
 	$orphaned_run['status'] = 'running';
 	unset( $orphaned_run['outcome'], $orphaned_run['finished_at'] );
@@ -596,6 +673,7 @@ try {
 			'mailto_query_copy_must_be_localized' => true,
 			'featured_image_synchronized_before_quality' => true,
 			'published_job_media_reconciled_idempotently' => true,
+			'published_job_browser_correction_reentered_bounded_lifecycle' => true,
 			'orphaned_quality_decision_recovered' => true,
 			'expired_run_finalized_before_reclaim' => true,
 			'orphaned_run_finalized_during_publish' => true,
