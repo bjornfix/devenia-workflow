@@ -553,7 +553,8 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 
 	private static function translation_job_v2_publish( array $input ): array {
 		$job = self::translation_job_v2_get_job( (string) ( $input['job_id'] ?? '' ) );
-		if ( ! $job || 'ready_to_publish' !== (string) ( $job['status'] ?? '' ) ) {
+		$job_status = (string) ( $job['status'] ?? '' );
+		if ( ! $job || ! in_array( $job_status, array( 'ready_to_publish', 'published' ), true ) ) {
 			return array( 'success' => false, 'code' => 'job_not_ready_to_publish', 'message' => 'Translation Job does not have a passing current Quality Decision.' );
 		}
 		$quality = get_option( self::translation_job_v2_quality_key( (string) ( $job['quality_revision'] ?? '' ) ) );
@@ -572,6 +573,19 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		$translation_id = absint( $job['translation_id'] ?? 0 );
 		if ( self::translation_job_v2_translation_revision( $translation_id ) !== (string) ( $quality['content_revision'] ?? '' ) ) {
 			return array( 'success' => false, 'code' => 'artifact_content_changed', 'message' => 'Stored translation changed after the Quality Decision.' );
+		}
+		$featured_image_sync = self::sync_source_featured_image( $translation_id, $source );
+		if ( empty( $featured_image_sync['write_verified'] ) ) {
+			return array( 'success' => false, 'code' => 'featured_image_sync_failed', 'message' => 'The approved source featured image could not be synchronized before publication.', 'featured_image_sync' => $featured_image_sync );
+		}
+		if ( ! empty( $featured_image_sync['changed'] ) ) {
+			$v2_identity = self::translation_job_v2_identity(
+				$job,
+				array( 'coordinator_id' => $coordinator_id, 'run_id' => 'publish-media-reconcile' ),
+				'publish'
+			);
+			self::record_translation_visible_media_provenance( $translation_id, $v2_identity, 'translation_job_v2_publish_reconcile' );
+			self::sync_translation_index_row( $translation_id );
 		}
 		$qa = self::qa_translation( array( 'translation_id' => $translation_id ) );
 		if ( empty( $qa['success'] ) || empty( $qa['passed'] ) ) {
@@ -608,6 +622,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			'translation' => self::translation_payload( get_post( $translation_id ) ),
 			'qa' => $qa,
 			'publication_experience' => $publication_experience,
+			'featured_image_sync' => $featured_image_sync,
 			'menu' => $menu,
 			'live_verification' => $live,
 		);

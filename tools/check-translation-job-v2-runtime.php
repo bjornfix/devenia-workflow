@@ -470,11 +470,51 @@ try {
 		throw new RuntimeException( 'Third quality Run was not available after the final correction: ' . wp_json_encode( $third_quality_claim ) );
 	}
 	$option_keys[] = 'devenia_ai_translation_run_v2_' . (string) $third_quality_claim['run']['run_id'];
+	$third_quality = $call(
+		'translation_job_v2_submit_quality_decision',
+		array(
+			'job_id' => $job_id,
+			'run_id' => (string) $third_quality_claim['run']['run_id'],
+			'claim_token' => (string) $third_quality_claim['claim_token'],
+			'artifact_revision' => (string) $third_artifact['artifact_revision'],
+			'decision' => 'pass',
+			'checks' => $checks,
+			'evidence' => 'Runtime contract confirms the final bounded artifact passes every required quality dimension before publication.',
+			'corrections' => array(),
+			'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
+		)
+	);
+	if ( empty( $third_quality['success'] ) || 'ready_to_publish' !== (string) ( $third_quality['job']['status'] ?? '' ) ) {
+		throw new RuntimeException( 'Final Quality Decision failed: ' . wp_json_encode( $third_quality ) );
+	}
+	$option_keys[] = 'devenia_ai_translation_quality_v2_' . (string) $third_quality['quality_decision']['quality_revision'];
+	update_post_meta( $translation_id, '_thumbnail_id', $linked_source_id );
+	$published = $call(
+		'translation_job_v2_publish',
+		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => false )
+	);
+	if ( $source_thumbnail_id !== absint( get_post_meta( $translation_id, '_thumbnail_id', true ) ) ) {
+		throw new RuntimeException( 'Ready-to-publish v2 call did not reconcile stale featured media: ' . wp_json_encode( $published ) );
+	}
+	$stored_job = get_option( 'devenia_ai_translation_job_v2_' . $job_id );
+	$stored_job['status'] = 'published';
+	update_option( 'devenia_ai_translation_job_v2_' . $job_id, $stored_job, false );
+	update_post_meta( $translation_id, '_thumbnail_id', $linked_source_id );
+	$republished = $call(
+		'translation_job_v2_publish',
+		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => false )
+	);
+	if (
+		'job_not_ready_to_publish' === (string) ( $republished['code'] ?? '' )
+		|| $source_thumbnail_id !== absint( get_post_meta( $translation_id, '_thumbnail_id', true ) )
+	) {
+		throw new RuntimeException( 'Idempotent v2 publication did not reconcile stale featured media: ' . wp_json_encode( $republished ) );
+	}
 
 	echo wp_json_encode(
 		array(
 			'success' => true,
-			'job_status' => 'quality_pending',
+			'job_status' => 'published_media_reconcile_exercised',
 			'packet_fragment_count' => count( $fragments ),
 			'inline_markup_kept' => true,
 			'claim_token_hashed' => true,
@@ -491,6 +531,7 @@ try {
 			'runtime_text_uses_wordpress_capability' => true,
 			'mailto_query_copy_must_be_localized' => true,
 			'featured_image_synchronized_before_quality' => true,
+			'published_job_media_reconciled_idempotently' => true,
 			'orphaned_quality_decision_recovered' => true,
 		)
 	) . PHP_EOL;
