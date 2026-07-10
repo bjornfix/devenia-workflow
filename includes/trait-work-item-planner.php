@@ -21,7 +21,7 @@ trait Devenia_AI_Translations_Work_Item_Planner {
 		$source_id = absint( $input['source_id'] ?? 0 );
 		$limit     = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 500;
 		$collect_candidates = ! array_key_exists( 'collect_candidates', $input ) || ! empty( $input['collect_candidates'] );
-		$scan_limit = $source_id ? 1 : max( 500, $limit );
+		$scan_limit = $source_id ? 1 : $limit;
 		$sources    = self::workflow_source_candidates( $source_id, $scan_limit );
 		if ( $source_id && empty( $sources ) ) {
 			return self::error( 'Source content not found.' );
@@ -102,6 +102,13 @@ trait Devenia_AI_Translations_Work_Item_Planner {
 					$item_skip_reason = 'blocked_outcome_current_revision';
 					continue;
 				}
+				if ( method_exists( __CLASS__, 'assignment_outcome_eligibility_for_work_item' ) ) {
+					$outcome_eligibility = self::assignment_outcome_eligibility_for_work_item( $item, $identity );
+					if ( empty( $outcome_eligibility['success'] ) ) {
+						$item_skip_reason = sanitize_key( (string) ( $outcome_eligibility['code'] ?? 'assignment_outcome_not_eligible' ) );
+						continue;
+					}
+				}
 
 				$eligibility = self::heartbeat_obligation_uses_draft_work_identity( $obligation )
 					? self::heartbeat_draft_work_eligibility( $identity )
@@ -148,6 +155,31 @@ trait Devenia_AI_Translations_Work_Item_Planner {
 			'uncovered'         => $uncovered,
 			'coverage'          => $coverage,
 		);
+	}
+
+	/**
+	 * Plan progressively so the common accept path stays fast without allowing
+	 * a shallow scan to produce a false exhausted queue.
+	 *
+	 * @param array<string,mixed> $identity Verified contributor identity.
+	 * @return array<string,mixed>
+	 */
+	private static function work_item_assignment_plan( array $input, array $identity ): array {
+		$requested_limit = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 100;
+		$limits = array_values( array_unique( array_filter( array( $requested_limit, 250, 500 ), static function ( int $limit ) use ( $requested_limit ): bool {
+			return $limit >= $requested_limit;
+		} ) ) );
+		$plan = array();
+		foreach ( $limits as $limit ) {
+			$attempt_input = $input;
+			$attempt_input['limit'] = $limit;
+			$plan = self::work_item_plan( $attempt_input, $identity );
+			if ( empty( $plan['success'] ) || ! empty( $plan['candidates'] ) ) {
+				return $plan;
+			}
+		}
+
+		return $plan;
 	}
 
 	/**

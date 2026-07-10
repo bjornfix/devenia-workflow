@@ -39,7 +39,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 		}
 
 		$input['limit'] = $limit;
-		$plan = self::work_item_plan( $input, $identity );
+		$plan = self::work_item_assignment_plan( $input, $identity );
 		if ( empty( $plan['success'] ) ) {
 			self::record_heartbeat_state( $input, array( 'action' => 'escalate', 'reason' => 'work_item_plan_failed' ), $identity );
 			return $plan;

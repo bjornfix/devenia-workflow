@@ -127,6 +127,7 @@ final class Devenia_AI_Translations_Assignment_Contract {
 	const OPTION_ASSIGNMENT_PREFIX = 'assignment_';
 	const OPTION_ASSIGNMENT_ITEM_PREFIX = 'assignment_item_';
 	const OPTION_ASSIGNMENT_OUTCOME_PREFIX = 'assignment_outcome_';
+	const OPTION_ASSIGNMENT_LATEST_OUTCOME_PREFIX = 'assignment_latest_outcome_';
 	const OPTION_ASSIGNMENT_BLOCK_PREFIX = 'assignment_block_';
 
 	public static $items = array();
@@ -393,6 +394,12 @@ $assert = static function ( bool $condition, string $case, $actual = null ) use 
 assignment_contract_reset();
 $identity = Devenia_AI_Translations_Assignment_Contract::$identity;
 $input = array( 'agent_session_id' => 'session-ola', 'ttl_seconds' => 600, 'limit' => 500 );
+$kari_identity = $identity;
+$kari_identity['actor_id'] = 'kari';
+$kari_identity['step_token_label'] = 'kari';
+$kari_identity['agent_session_id'] = 'session-kari';
+$kari_identity['control_scope_id'] = 'session-kari';
+$kari_input = array( 'agent_session_id' => 'session-kari', 'ttl_seconds' => 600, 'limit' => 500 );
 $first = Devenia_AI_Translations_Assignment_Contract::call( 'assignment_lifecycle_accept', array( $input, $identity ) );
 $second = Devenia_AI_Translations_Assignment_Contract::call( 'assignment_lifecycle_accept', array( $input, $identity ) );
 $assert( ! empty( $first['success'] ) && 'claimed' === $first['mode'], 'accept:first_claimed', $first );
@@ -457,8 +464,10 @@ $assert( 0 === count( $blocked_plan['candidates'] ?? array() ), 'blocked:same_re
 $assert( 1 === absint( $blocked_plan['coverage']['skipped_by_reason']['blocked_outcome_current_revision'] ?? 0 ), 'blocked:structured_skip_reason', $blocked_plan['coverage'] ?? array() );
 
 Devenia_AI_Translations_Assignment_Contract::$items = array( assignment_contract_item( 'r_2' ) );
-$new_revision_plan = Devenia_AI_Translations_Assignment_Contract::call( 'work_item_plan', array( $input, $identity ) );
-$assert( 1 === count( $new_revision_plan['candidates'] ?? array() ), 'blocked:new_revision_eligible', $new_revision_plan );
+$same_actor_revision_plan = Devenia_AI_Translations_Assignment_Contract::call( 'work_item_plan', array( $input, $identity ) );
+$new_revision_plan = Devenia_AI_Translations_Assignment_Contract::call( 'work_item_plan', array( $kari_input, $kari_identity ) );
+$assert( 0 === count( $same_actor_revision_plan['candidates'] ?? array() ), 'cursor:same_actor_successor_revision_suppressed', $same_actor_revision_plan );
+$assert( 1 === count( $new_revision_plan['candidates'] ?? array() ), 'blocked:new_revision_eligible_for_independent_actor', $new_revision_plan );
 $assert( ( $new_revision_plan['coverage']['claimable_for_actor'] ?? 0 ) === count( $new_revision_plan['candidates'] ?? array() ), 'planner:coverage_selector_parity', $new_revision_plan );
 
 Devenia_AI_Translations_Assignment_Contract::$items = array( assignment_contract_item() );
@@ -474,18 +483,12 @@ $resolved_block = Devenia_AI_Translations_Assignment_Contract::call(
 		)
 	)
 );
-$resolved_plan = Devenia_AI_Translations_Assignment_Contract::call( 'work_item_plan', array( $input, $identity ) );
+$resolved_plan = Devenia_AI_Translations_Assignment_Contract::call( 'work_item_plan', array( $kari_input, $kari_identity ) );
 $assert( ! empty( $resolved_block['success'] ) && ! empty( $resolved_block['resolved'] ), 'blocked:coordinator_resolution', $resolved_block );
 $assert( 1 === count( $resolved_plan['candidates'] ?? array() ), 'blocked:resolved_revision_eligible', $resolved_plan );
 
 assignment_contract_reset();
 $ola = Devenia_AI_Translations_Assignment_Contract::call( 'assignment_lifecycle_accept', array( $input, $identity ) );
-$kari_identity = $identity;
-$kari_identity['actor_id'] = 'kari';
-$kari_identity['step_token_label'] = 'kari';
-$kari_identity['agent_session_id'] = 'session-kari';
-$kari_identity['control_scope_id'] = 'session-kari';
-$kari_input = array( 'agent_session_id' => 'session-kari', 'ttl_seconds' => 600, 'limit' => 500 );
 $kari = Devenia_AI_Translations_Assignment_Contract::call( 'assignment_lifecycle_accept', array( $kari_input, $kari_identity ) );
 $assert( ! empty( $ola['success'] ) && 'claimed' === $ola['mode'], 'concurrency:first_session_claimed', $ola );
 $assert( ! empty( $kari['success'] ) && 'wait' === $kari['action'], 'concurrency:item_revision_single_owner', $kari );
@@ -505,7 +508,8 @@ echo json_encode(
 			'orphan_assignment_reconciliation',
 			'revision_aware_completion',
 			'blocked_revision_suppression',
-			'new_revision_eligibility',
+			'new_revision_independent_actor_eligibility',
+			'work_item_outcome_cursor',
 			'coordinator_block_resolution',
 			'planner_coverage_selector_parity',
 			'single_owner_per_item_revision',

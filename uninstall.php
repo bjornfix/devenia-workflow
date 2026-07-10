@@ -36,6 +36,7 @@ function ai_translation_workflow_uninstall_site(): void {
 		'devenia_ai_assignment_',
 		'devenia_ai_assignment_item_',
 		'devenia_ai_assignment_outcome_',
+		'devenia_ai_assignment_latest_outcome_',
 		'devenia_ai_assignment_block_',
 	);
 	foreach ( $option_prefixes as $option_prefix ) {

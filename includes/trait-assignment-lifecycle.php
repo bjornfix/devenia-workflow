@@ -334,7 +334,7 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 			return empty( $current['success'] ) ? $current : self::assignment_error( 'Another accept request is initializing this session Assignment. Retry current-assignment.', 'assignment_initializing' );
 		}
 
-		$plan = self::work_item_plan( $input, $identity );
+		$plan = self::work_item_assignment_plan( $input, $identity );
 		if ( empty( $plan['success'] ) ) {
 			self::assignment_compare_and_delete_option( $key, $pending );
 			return $plan;
@@ -751,6 +751,9 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 		$outcome = self::assignment_outcome_record( $assignment );
 		$outcome_key = self::assignment_outcome_option_name( (string) $assignment['assignment_id'] );
 		update_option( $outcome_key, $outcome, false );
+		if ( in_array( (string) ( $outcome['outcome'] ?? '' ), array( 'completed', 'blocked' ), true ) ) {
+			update_option( self::assignment_latest_outcome_option_name( (string) $assignment['work_item_id'] ), $outcome, false );
+		}
 		if ( 'blocked' === ( $outcome['outcome'] ?? '' ) ) {
 			update_option( self::assignment_block_option_name( (string) $assignment['work_item_id'], (string) $assignment['revision'] ), $outcome, false );
 		}
@@ -780,6 +783,39 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 			&& 'blocked' === sanitize_key( (string) ( $outcome['outcome'] ?? '' ) )
 			&& hash_equals( $work_item_id, (string) ( $outcome['work_item_id'] ?? '' ) )
 			&& hash_equals( $revision, (string) ( $outcome['revision'] ?? '' ) );
+	}
+
+	/**
+	 * Keep a contributor from immediately handling its own successor revision.
+	 *
+	 * @param array<string,mixed> $identity Verified contributor identity.
+	 * @return array{success:bool,code:string}
+	 */
+	private static function assignment_outcome_eligibility_for_work_item( array $item, array $identity ): array {
+		$work_item_id = sanitize_text_field( (string) ( $item['work_item_id'] ?? '' ) );
+		if ( '' === $work_item_id ) {
+			return array( 'success' => true, 'code' => '' );
+		}
+		$outcome = get_option( self::assignment_latest_outcome_option_name( $work_item_id ), array() );
+		if ( ! is_array( $outcome ) || ! in_array( sanitize_key( (string) ( $outcome['outcome'] ?? '' ) ), array( 'completed', 'blocked' ), true ) ) {
+			return array( 'success' => true, 'code' => '' );
+		}
+
+		$prior_session_id = self::normalize_control_scope_id( (string) ( $outcome['agent_session_id'] ?? '' ) );
+		$current_session_id = self::assignment_session_id( $identity, array() );
+		$prior_actor_id = sanitize_key( (string) ( $outcome['actor_id'] ?? '' ) );
+		$current_actor_id = sanitize_key( (string) ( $identity['actor_id'] ?? '' ) );
+		if (
+			( '' !== $prior_session_id && '' !== $current_session_id && hash_equals( $prior_session_id, $current_session_id ) )
+			|| ( '' !== $prior_actor_id && '' !== $current_actor_id && hash_equals( $prior_actor_id, $current_actor_id ) )
+		) {
+			return array(
+				'success' => false,
+				'code'    => 'current_actor_last_handled_work_item',
+			);
+		}
+
+		return array( 'success' => true, 'code' => '' );
 	}
 
 	/**
@@ -1217,6 +1253,10 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 
 	private static function assignment_outcome_option_name( string $assignment_id ): string {
 		return self::OPTION_ASSIGNMENT_OUTCOME_PREFIX . hash( 'sha256', sanitize_text_field( $assignment_id ) );
+	}
+
+	private static function assignment_latest_outcome_option_name( string $work_item_id ): string {
+		return self::OPTION_ASSIGNMENT_LATEST_OUTCOME_PREFIX . hash( 'sha256', sanitize_text_field( $work_item_id ) );
 	}
 
 	private static function assignment_block_option_name( string $work_item_id, string $revision ): string {

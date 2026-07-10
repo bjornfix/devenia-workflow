@@ -41,6 +41,9 @@ Planner Module.
   revision. The exact revision remains suppressed until a coordinator records
   a verified resolution. Heartbeat history and report prose do not control
   reassignment.
+- The latest completed or blocked Contributor Outcome is the Work Item Cursor;
+  Planner excludes that same actor/session from successor revisions while an
+  independent contributor remains eligible.
 - Existing reservation abilities remain compatibility adapters while clients
   migrate to Assignment Lifecycle.
 

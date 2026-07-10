@@ -39,6 +39,12 @@ The structured result of an Assignment: `completed`, `blocked`, `abandoned`, or
 `expired`. Completed outcomes require the assigned Work Item revision to be
 resolved. Blocked outcomes include a controlled blocker category and evidence.
 
+## Work Item Cursor
+
+The latest `completed` or `blocked` Contributor Outcome for a stable Work Item.
+Planner uses the cursor to keep the same actor/session from receiving its own
+successor revision; an independent contributor may continue the Work Item.
+
 ## Claim Cache
 
 The local `claim.json` projection used by the contributor command. It is a cache
