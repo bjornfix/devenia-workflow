@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.536
+Stable tag: 0.1.537
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,11 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.537 =
+* Adds a finite, cost-bounded Translation Job v2 workflow with seven focused abilities.
+* Replaces persona leases and independent-session review requirements in v2 with atomic job claims, exact artifact revisions, measured Token Budgets, deterministic QA, and coordinator-owned Quality Decisions.
+* Preserves inline source markup in bounded translation packets and publishes approved artifacts through the existing WordPress-native route, SEO, taxonomy, menu, cache, and live-verification adapters.
 
 = 0.1.536 =
 * Restores create-only storage semantics for Assignment sessions, Work Item locks, Reservations, and concurrent Heartbeat initialization on WordPress 6.9.

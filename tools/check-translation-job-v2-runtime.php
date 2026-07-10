@@ -1,0 +1,165 @@
+<?php
+/**
+ * Dev runtime contract for the finite Translation Job v2 lifecycle.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit( 1 );
+}
+
+$source_id = 0;
+$translation_id = 0;
+$option_keys = array();
+
+$call = static function ( string $method, array $input = array() ) {
+	$reflection = new ReflectionMethod( Devenia_AI_Translations::class, $method );
+	$reflection->setAccessible( true );
+	return $reflection->invoke( null, $input );
+};
+
+try {
+	$source_id = wp_insert_post(
+		array(
+			'post_type' => 'page',
+			'post_status' => 'draft',
+			'post_title' => 'Translation Job V2 source fixture',
+			'post_excerpt' => 'A useful source excerpt.',
+			'post_content' => '<!-- wp:paragraph --><p><strong>Useful source</strong><br>Contact us for a concrete next step.</p><!-- /wp:paragraph -->',
+		),
+		true
+	);
+	if ( is_wp_error( $source_id ) ) {
+		throw new RuntimeException( $source_id->get_error_message() );
+	}
+
+	$languages_method = new ReflectionMethod( Devenia_AI_Translations::class, 'target_languages' );
+	$languages_method->setAccessible( true );
+	$languages = $languages_method->invoke( null );
+	$language_keys = array_keys( $languages );
+	$language = isset( $languages['nb'] ) ? 'nb' : ( isset( $language_keys[0] ) ? (string) $language_keys[0] : '' );
+	if ( '' === $language ) {
+		throw new RuntimeException( 'No target language is configured.' );
+	}
+
+	$discover = $call( 'translation_job_v2_discover', array( 'source_id' => $source_id, 'language' => $language, 'observability_label' => 'runtime-contract' ) );
+	if ( empty( $discover['success'] ) || empty( $discover['job']['job_id'] ) ) {
+		throw new RuntimeException( 'Discover failed: ' . wp_json_encode( $discover ) );
+	}
+	$job_id = (string) $discover['job']['job_id'];
+	$option_keys[] = 'devenia_ai_translation_job_v2_' . $job_id;
+	$option_keys[] = 'devenia_ai_translation_job_v2_claim_' . $job_id;
+
+	$claim = $call(
+		'translation_job_v2_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => 'runtime-translator-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'translator',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $claim['success'] ) || empty( $claim['claim_token'] ) ) {
+		throw new RuntimeException( 'Translator claim failed: ' . wp_json_encode( $claim ) );
+	}
+	$translator_run_id = (string) $claim['run']['run_id'];
+	$translator_token = (string) $claim['claim_token'];
+	$option_keys[] = 'devenia_ai_translation_run_v2_' . $translator_run_id;
+	$stored_claim = get_option( 'devenia_ai_translation_job_v2_claim_' . $job_id );
+	if ( false !== strpos( wp_json_encode( $stored_claim ) ?: '', $translator_token ) ) {
+		throw new RuntimeException( 'Claim token was stored in plaintext.' );
+	}
+
+	$packet = $call( 'translation_job_v2_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $translator_run_id, 'claim_token' => $translator_token ) );
+	$fragments = $packet['packet']['fragments'] ?? array();
+	if ( empty( $packet['success'] ) || 1 !== count( $fragments ) || false === stripos( (string) $fragments[0]['source_html'], '<strong>' ) ) {
+		throw new RuntimeException( 'Bounded packet failed: ' . wp_json_encode( $packet ) );
+	}
+
+	$localized = array();
+	foreach ( $fragments as $fragment ) {
+		$localized[] = array( 'key' => (string) $fragment['key'], 'html' => '<strong>Nyttig innhold</strong><br>Kontakt oss for et konkret neste steg.' );
+	}
+	$submit = $call(
+		'translation_job_v2_submit_artifact',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $translator_run_id,
+			'claim_token' => $translator_token,
+			'artifact' => array(
+				'title' => 'Oversatt testside',
+				'excerpt' => 'En nyttig oversatt ingress.',
+				'localized_slug' => 'oversatt-testside-' . strtolower( wp_generate_password( 6, false, false ) ),
+				'localized_fragments' => $localized,
+				'seo' => array( 'title' => 'Oversatt testside', 'description' => 'En nyttig beskrivelse av den oversatte testsiden.' ),
+			),
+			'usage' => array( 'input_tokens' => 1200, 'cached_input_tokens' => 0, 'output_tokens' => 500, 'attempts' => 1, 'duration_ms' => 1000, 'estimated_cost_microusd' => 100 ),
+		)
+	);
+	if ( empty( $submit['success'] ) || 'quality_pending' !== (string) ( $submit['job']['status'] ?? '' ) ) {
+		throw new RuntimeException( 'Artifact submission failed: ' . wp_json_encode( $submit ) );
+	}
+	$translation_id = absint( $submit['translation']['id'] ?? 0 );
+	$artifact_revision = (string) $submit['artifact_revision'];
+	$option_keys[] = 'devenia_ai_translation_artifact_v2_' . $artifact_revision;
+
+	$quality_claim = $call(
+		'translation_job_v2_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => 'runtime-quality-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'quality',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $quality_claim['success'] ) ) {
+		throw new RuntimeException( 'Quality claim failed: ' . wp_json_encode( $quality_claim ) );
+	}
+	$quality_run_id = (string) $quality_claim['run']['run_id'];
+	$quality_token = (string) $quality_claim['claim_token'];
+	$option_keys[] = 'devenia_ai_translation_run_v2_' . $quality_run_id;
+	$checks = array_fill_keys( array( 'natural_language', 'factual_accuracy', 'source_coverage', 'localized_search_intent', 'offer_and_contact', 'links_and_route', 'rendered_experience' ), true );
+	$quality = $call(
+		'translation_job_v2_submit_quality_decision',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $quality_run_id,
+			'claim_token' => $quality_token,
+			'artifact_revision' => $artifact_revision,
+			'decision' => 'revise',
+			'checks' => $checks,
+			'evidence' => 'Runtime contract reviewed every required dimension and requests a deliberate revision.',
+			'corrections' => array( 'Runtime fixture intentionally stops before publication.' ),
+			'usage' => array( 'input_tokens' => 800, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 800, 'estimated_cost_microusd' => 50 ),
+		)
+	);
+	if ( empty( $quality['success'] ) || 'changes_requested' !== (string) ( $quality['job']['status'] ?? '' ) ) {
+		throw new RuntimeException( 'Quality Decision failed: ' . wp_json_encode( $quality ) );
+	}
+	$option_keys[] = 'devenia_ai_translation_quality_v2_' . (string) $quality['quality_decision']['quality_revision'];
+
+	echo wp_json_encode(
+		array(
+			'success' => true,
+			'job_status' => 'changes_requested',
+			'packet_fragment_count' => count( $fragments ),
+			'inline_markup_kept' => true,
+			'claim_token_hashed' => true,
+			'translation_saved' => $translation_id > 0,
+		)
+	) . PHP_EOL;
+} catch ( Throwable $error ) {
+	fwrite( STDERR, wp_json_encode( array( 'success' => false, 'error' => $error->getMessage() ) ) . PHP_EOL );
+	exit( 1 );
+} finally {
+	if ( $translation_id > 0 ) {
+		wp_delete_post( $translation_id, true );
+	}
+	if ( $source_id > 0 ) {
+		wp_delete_post( $source_id, true );
+	}
+	foreach ( array_unique( $option_keys ) as $option_key ) {
+		delete_option( $option_key );
+	}
+}

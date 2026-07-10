@@ -1,5 +1,45 @@
 # Domain Context
 
+## Translation Job
+
+A bounded obligation to produce or review one target-language artifact for one
+source revision. A Translation Job owns status, atomic claim, input packet,
+submitted artifact, validation result, and terminal outcome. It does not own a
+long-lived model conversation or persona.
+
+## Translation Run
+
+One short-lived model execution for exactly one Translation Job phase, such as
+translation or quality critique. A Translation Run has an immutable `run_id`,
+execution metadata, model usage, duration, and output. It starts with a
+purpose-built input packet and exits after submission; conversation history is
+never workflow state.
+
+## Quality Decision
+
+The pass, revise, or reject result produced by a quality Translation Run. A
+Quality Decision records the checked artifact revision, concrete evidence, and
+any edits. It is a quality signal, not an independent authorization act; the
+same coordinator may launch the translation and quality Runs and publish after
+the required checks pass.
+
+## Token Budget
+
+The maximum model input, cached input, output, attempts, and estimated provider
+cost permitted for one Translation Run. Exceeding a Token Budget is a terminal,
+structured technical outcome. It never starts an unbounded retry or wait loop.
+
+## Observability Label
+
+A human-readable label attached to a Translation Run for operator visibility.
+It grants no authority, survives no session, and is not used to decide quality,
+assignment eligibility, or ownership.
+
+## Legacy V1 Workflow Terms
+
+The terms below describe the deployed 0.1.536 compatibility workflow. They are
+not requirements for the Translation Job Interface proposed in ADR 0002.
+
 ## Work Item
 
 A current editorial obligation for one source or translation. A Work Item has a

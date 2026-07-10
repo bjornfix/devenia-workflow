@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.536
+ * Version: 0.1.537
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -39,6 +39,7 @@ require_once __DIR__ . '/includes/trait-workflow-state.php';
 require_once __DIR__ . '/includes/trait-translation-index-read-model.php';
 require_once __DIR__ . '/includes/trait-internal-content-link-resolver.php';
 require_once __DIR__ . '/includes/trait-frontend-read-model.php';
+require_once __DIR__ . '/includes/trait-translation-job-v2.php';
 
 final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
@@ -57,8 +58,9 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Work_Item_Planner;
 	use Devenia_AI_Translations_Assignment_Lifecycle;
 	use Devenia_AI_Translations_Internal_Content_Link_Resolver;
+	use Devenia_AI_Translations_Translation_Job_V2;
 
-	const VERSION = '0.1.536';
+	const VERSION = '0.1.537';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -15284,6 +15286,10 @@ final class Devenia_AI_Translations {
 				'message' => 'Unknown translation workflow step token gate.',
 				'step'    => $step,
 			);
+		}
+		$v2_identity = self::translation_job_v2_internal_step_identity( $step );
+		if ( $v2_identity ) {
+			return $v2_identity;
 		}
 
 		$agent_session_id = self::agent_session_id_from_input( $input );

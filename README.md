@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.536
+**Stable tag:** 0.1.537
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.537
+
+- Adds a finite, cost-bounded Translation Job v2 workflow with seven focused abilities.
+- Replaces persona leases and independent-session review requirements in v2 with atomic job claims, exact artifact revisions, measured Token Budgets, deterministic QA, and coordinator-owned Quality Decisions.
+- Preserves inline source markup in bounded translation packets and publishes approved artifacts through the existing WordPress-native route, SEO, taxonomy, menu, cache, and live-verification adapters.
 
 ### 0.1.536
 

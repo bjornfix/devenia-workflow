@@ -1455,13 +1455,14 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 					$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $html ) ) );
 					if ( '' !== $text ) {
 						$fragments[] = array(
-							'key'       => self::source_design_fragment_key( $name, $attrs, $current_path, 'text' ),
-							'path'      => $current_path,
-							'block'     => $name,
-							'unique_id' => isset( $attrs['uniqueId'] ) ? (string) $attrs['uniqueId'] : '',
-							'format'    => 'inline_html',
-							'heading'   => self::is_heading_block( $name, $attrs ),
-							'text'      => $text,
+							'key'         => self::source_design_fragment_key( $name, $attrs, $current_path, 'text' ),
+							'path'        => $current_path,
+							'block'       => $name,
+							'unique_id'   => isset( $attrs['uniqueId'] ) ? (string) $attrs['uniqueId'] : '',
+							'format'      => 'inline_html',
+							'heading'     => self::is_heading_block( $name, $attrs ),
+							'text'        => $text,
+							'source_html' => trim( $html ),
 						);
 					}
 				}
@@ -1473,15 +1474,16 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 					continue;
 				}
 				$fragments[] = array(
-					'key'       => self::structured_text_attr_fragment_key( $current_path, $name, $attr_fragment ),
-					'path'      => $current_path,
-					'block'     => $name . ':' . (string) ( $attr_fragment['field'] ?? '' ),
-					'attr_path' => (string) ( $attr_fragment['label_path'] ?? '' ),
-					'row_id'    => (string) ( $attr_fragment['row_id'] ?? '' ),
-					'role'      => (string) ( $attr_fragment['role'] ?? 'text' ),
-					'format'    => 'inline_html',
-					'heading'   => ! empty( $attr_fragment['heading'] ),
-					'text'      => $text,
+					'key'         => self::structured_text_attr_fragment_key( $current_path, $name, $attr_fragment ),
+					'path'        => $current_path,
+					'block'       => $name . ':' . (string) ( $attr_fragment['field'] ?? '' ),
+					'attr_path'   => (string) ( $attr_fragment['label_path'] ?? '' ),
+					'row_id'      => (string) ( $attr_fragment['row_id'] ?? '' ),
+					'role'        => (string) ( $attr_fragment['role'] ?? 'text' ),
+					'format'      => 'inline_html',
+					'heading'     => ! empty( $attr_fragment['heading'] ),
+					'text'        => $text,
+					'source_html' => (string) ( $attr_fragment['text'] ?? '' ),
 				);
 			}
 
@@ -1491,13 +1493,14 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 					continue;
 				}
 				$fragments[] = array(
-					'key'       => (string) ( $table_fragment['key'] ?? '' ),
-					'path'      => $current_path,
-					'block'     => $name . ':cell',
-					'cell_index' => absint( $table_fragment['cell_index'] ?? 0 ),
-					'format'    => 'inline_html',
-					'heading'   => ! empty( $table_fragment['heading'] ),
-					'text'      => $text,
+					'key'         => (string) ( $table_fragment['key'] ?? '' ),
+					'path'        => $current_path,
+					'block'       => $name . ':cell',
+					'cell_index'  => absint( $table_fragment['cell_index'] ?? 0 ),
+					'format'      => 'inline_html',
+					'heading'     => ! empty( $table_fragment['heading'] ),
+					'text'        => $text,
+					'source_html' => (string) ( $table_fragment['html'] ?? '' ),
 				);
 			}
 
@@ -1507,13 +1510,14 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 					continue;
 				}
 				$fragments[] = array(
-					'key'        => (string) ( $list_fragment['key'] ?? '' ),
-					'path'       => $current_path,
-					'block'      => $name . ':item',
-					'item_index' => absint( $list_fragment['item_index'] ?? 0 ),
-					'format'     => 'inline_html',
-					'heading'    => false,
-					'text'       => $text,
+					'key'         => (string) ( $list_fragment['key'] ?? '' ),
+					'path'        => $current_path,
+					'block'       => $name . ':item',
+					'item_index'  => absint( $list_fragment['item_index'] ?? 0 ),
+					'format'      => 'inline_html',
+					'heading'     => false,
+					'text'        => $text,
+					'source_html' => (string) ( $list_fragment['html'] ?? '' ),
 				);
 			}
 

@@ -20,7 +20,9 @@ trait Devenia_AI_Translations_Ability_Platform {
 	 * @return array<string,string>
 	 */
 	private static function ability_dispatch_handlers(): array {
-		return array(
+		return array_merge(
+			self::translation_job_v2_dispatch_handlers(),
+			array(
 			'list_languages'                  => 'run_list_languages_operation',
 			'get_presentation_surface'        => 'run_get_presentation_surface_operation',
 			'translation_fitness_status'      => 'translation_fitness_regression_status',
@@ -97,6 +99,7 @@ trait Devenia_AI_Translations_Ability_Platform {
 			'repair_url_hierarchy'            => 'repair_url_hierarchy',
 			'repair_internal_links'           => 'repair_internal_links',
 			'repair_featured_images'          => 'repair_featured_images',
+			)
 		);
 	}
 

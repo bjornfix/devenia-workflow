@@ -38,6 +38,10 @@ function ai_translation_workflow_uninstall_site(): void {
 		'devenia_ai_assignment_outcome_',
 		'devenia_ai_assignment_latest_outcome_',
 		'devenia_ai_assignment_block_',
+		'devenia_ai_translation_job_v2_',
+		'devenia_ai_translation_run_v2_',
+		'devenia_ai_translation_artifact_v2_',
+		'devenia_ai_translation_quality_v2_',
 	);
 	foreach ( $option_prefixes as $option_prefix ) {
 		$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Uninstall must remove plugin-owned dynamic Assignment and Reservation options.

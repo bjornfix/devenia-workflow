@@ -16,7 +16,9 @@ trait Devenia_AI_Translations_Ability_Catalogue {
 	 */
 	private static function ability_catalogue(): array {
 		return self::normalize_ability_catalogue(
-			array(
+			array_merge(
+				self::translation_job_v2_ability_catalogue(),
+				array(
 			'ai-translations/list-languages' => array(
 				'label'            => 'List Translation Languages',
 				'description'      => 'Returns the configured AI Translation Workflow translation language registry. Defaults to compact registry data; pass detail_level=full only when runtime text/profile payloads are needed.',
@@ -865,6 +867,7 @@ trait Devenia_AI_Translations_Ability_Catalogue {
 				},
 				'meta'             => self::ability_meta( false, false, true ),
 			),
+				)
 			)
 		);
 	}

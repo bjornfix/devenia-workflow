@@ -1,0 +1,798 @@
+<?php
+/**
+ * Cost-bounded Translation Job v2 Module.
+ *
+ * @package Devenia_AI_Translations
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+trait Devenia_AI_Translations_Translation_Job_V2 {
+	private static $translation_job_v2_internal_identity = array();
+
+	private static function translation_job_v2_ability_catalogue(): array {
+		$definitions = array(
+			'v2-discover-job' => array( 'Discover Translation Job', 'Creates or returns the current finite Translation Job for one source revision and target language.', 'translation_job_v2_discover_schema', 'translation_job_v2_discover', true, true ),
+			'v2-claim-job' => array( 'Claim Translation Job', 'Atomically claims one Translation Job for a bounded translator or quality Run.', 'translation_job_v2_claim_schema', 'translation_job_v2_claim', false, false ),
+			'v2-fetch-packet' => array( 'Fetch Translation Job Packet', 'Returns the bounded source or quality packet for the current Run.', 'translation_job_v2_claim_access_schema', 'translation_job_v2_fetch_packet', true, true ),
+			'v2-submit-artifact' => array( 'Submit Translation Artifact', 'Validates and atomically stores one complete localized artifact within the translator Token Budget.', 'translation_job_v2_artifact_schema', 'translation_job_v2_submit_artifact', false, false ),
+			'v2-submit-quality-decision' => array( 'Submit Translation Quality Decision', 'Stores a bounded Quality Decision against the exact submitted artifact revision.', 'translation_job_v2_quality_schema', 'translation_job_v2_submit_quality_decision', false, false ),
+			'v2-publish' => array( 'Publish Approved Translation Job', 'Publishes an artifact only when deterministic QA and its exact Quality Decision pass.', 'translation_job_v2_publish_schema', 'translation_job_v2_publish', false, false ),
+			'v2-status' => array( 'Inspect Translation Job Status', 'Returns authoritative Job, Run, Quality Decision, and measured cost status.', 'translation_job_v2_status_schema', 'translation_job_v2_status', true, true ),
+		);
+		$catalogue = array();
+		foreach ( $definitions as $slug => $definition ) {
+			$catalogue[ 'ai-translations/' . $slug ] = array(
+				'label'            => $definition[0],
+				'description'      => $definition[1],
+				'input_schema'     => self::{$definition[2]}(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) use ( $definition ) {
+					return self::run_ability_operation( $definition[3], $input );
+				},
+				'meta'             => self::ability_meta( $definition[4], false, $definition[5] ),
+			);
+		}
+		return $catalogue;
+	}
+
+	private static function translation_job_v2_dispatch_handlers(): array {
+		return array(
+			'translation_job_v2_discover'                => 'translation_job_v2_discover',
+			'translation_job_v2_claim'                   => 'translation_job_v2_claim',
+			'translation_job_v2_fetch_packet'            => 'translation_job_v2_fetch_packet',
+			'translation_job_v2_submit_artifact'         => 'translation_job_v2_submit_artifact',
+			'translation_job_v2_submit_quality_decision' => 'translation_job_v2_submit_quality_decision',
+			'translation_job_v2_publish'                 => 'translation_job_v2_publish',
+			'translation_job_v2_status'                  => 'translation_job_v2_status',
+		);
+	}
+
+	private static function translation_job_v2_discover_schema(): array {
+		return array(
+			'type' => 'object',
+			'required' => array( 'source_id', 'language' ),
+			'properties' => array(
+				'source_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'language' => array( 'type' => 'string' ),
+				'observability_label' => array( 'type' => 'string' ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function translation_job_v2_claim_schema(): array {
+		return array(
+			'type' => 'object',
+			'required' => array( 'job_id', 'run_id', 'coordinator_id', 'role' ),
+			'properties' => array(
+				'job_id' => array( 'type' => 'string' ),
+				'run_id' => array( 'type' => 'string' ),
+				'coordinator_id' => array( 'type' => 'string' ),
+				'role' => array( 'type' => 'string', 'enum' => array( 'translator', 'quality' ) ),
+				'observability_label' => array( 'type' => 'string' ),
+				'ttl_seconds' => array( 'type' => 'integer', 'minimum' => 60, 'maximum' => 7200, 'default' => 3600 ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function translation_job_v2_claim_access_schema(): array {
+		return array(
+			'type' => 'object',
+			'required' => array( 'job_id', 'run_id', 'claim_token' ),
+			'properties' => array(
+				'job_id' => array( 'type' => 'string' ),
+				'run_id' => array( 'type' => 'string' ),
+				'claim_token' => array( 'type' => 'string' ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function translation_job_v2_usage_schema(): array {
+		return array(
+			'type' => 'object',
+			'required' => array( 'input_tokens', 'cached_input_tokens', 'output_tokens', 'attempts', 'duration_ms', 'estimated_cost_microusd' ),
+			'properties' => array(
+				'input_tokens' => array( 'type' => 'integer', 'minimum' => 0 ),
+				'cached_input_tokens' => array( 'type' => 'integer', 'minimum' => 0 ),
+				'output_tokens' => array( 'type' => 'integer', 'minimum' => 0 ),
+				'attempts' => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 2 ),
+				'duration_ms' => array( 'type' => 'integer', 'minimum' => 0 ),
+				'estimated_cost_microusd' => array( 'type' => 'integer', 'minimum' => 0 ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function translation_job_v2_artifact_schema(): array {
+		return array(
+			'type' => 'object',
+			'required' => array( 'job_id', 'run_id', 'claim_token', 'artifact', 'usage' ),
+			'properties' => array(
+				'job_id' => array( 'type' => 'string' ),
+				'run_id' => array( 'type' => 'string' ),
+				'claim_token' => array( 'type' => 'string' ),
+				'artifact' => array(
+					'type' => 'object',
+					'required' => array( 'title', 'localized_slug', 'localized_fragments' ),
+					'properties' => array(
+						'title' => array( 'type' => 'string' ),
+						'excerpt' => array( 'type' => 'string' ),
+						'localized_slug' => array( 'type' => 'string' ),
+						'localized_path' => array( 'type' => 'string' ),
+						'localized_parent_path' => array( 'type' => 'string' ),
+						'localized_parent_id' => array( 'type' => 'integer' ),
+						'source_slug_reason' => array( 'type' => 'string' ),
+						'allow_source_slug_in_url' => array( 'type' => 'boolean' ),
+						'seo' => array( 'type' => 'object' ),
+						'taxonomies' => array( 'type' => 'object' ),
+						'localized_fragments' => array(
+							'type' => 'array',
+							'items' => array(
+								'type' => 'object',
+								'required' => array( 'key' ),
+								'properties' => array(
+									'key' => array( 'type' => 'string' ),
+									'text' => array( 'type' => 'string' ),
+									'html' => array( 'type' => 'string' ),
+								),
+								'additionalProperties' => false,
+							),
+						),
+					),
+					'additionalProperties' => false,
+				),
+				'usage' => self::translation_job_v2_usage_schema(),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function translation_job_v2_quality_schema(): array {
+		$check_properties = array();
+		foreach ( self::translation_job_v2_quality_checks() as $check ) {
+			$check_properties[ $check ] = array( 'type' => 'boolean' );
+		}
+		return array(
+			'type' => 'object',
+			'required' => array( 'job_id', 'run_id', 'claim_token', 'artifact_revision', 'decision', 'checks', 'evidence', 'usage' ),
+			'properties' => array(
+				'job_id' => array( 'type' => 'string' ),
+				'run_id' => array( 'type' => 'string' ),
+				'claim_token' => array( 'type' => 'string' ),
+				'artifact_revision' => array( 'type' => 'string' ),
+				'decision' => array( 'type' => 'string', 'enum' => array( 'pass', 'revise', 'reject' ) ),
+				'checks' => array( 'type' => 'object', 'required' => self::translation_job_v2_quality_checks(), 'properties' => $check_properties, 'additionalProperties' => false ),
+				'evidence' => array( 'type' => 'string' ),
+				'corrections' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+				'usage' => self::translation_job_v2_usage_schema(),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function translation_job_v2_publish_schema(): array {
+		return array(
+			'type' => 'object',
+			'required' => array( 'job_id', 'coordinator_id' ),
+			'properties' => array(
+				'job_id' => array( 'type' => 'string' ),
+				'coordinator_id' => array( 'type' => 'string' ),
+				'sync_menu' => array( 'type' => 'boolean', 'default' => true ),
+				'verify_live' => array( 'type' => 'boolean', 'default' => true ),
+				'live_verification_timeout' => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function translation_job_v2_status_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'job_id' => array( 'type' => 'string' ),
+				'source_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'language' => array( 'type' => 'string' ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function translation_job_v2_discover( array $input ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		$language = sanitize_key( (string) ( $input['language'] ?? '' ) );
+		$source = get_post( $source_id );
+		if ( ! $source || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
+			return self::error( 'Source content not found.' );
+		}
+		if ( ! self::is_translation_language( $language ) ) {
+			return self::error( 'Unknown or source language.' );
+		}
+		$source_revision = self::source_hash( $source );
+		$job_id = self::translation_job_v2_id( $source_id, $language, $source_revision );
+		$job = self::translation_job_v2_get_job( $job_id );
+		if ( ! $job ) {
+			$now = gmdate( 'c' );
+			$job = array(
+				'schema_version' => 2,
+				'job_id' => $job_id,
+				'source_id' => $source_id,
+				'source_revision' => $source_revision,
+				'target_language' => $language,
+				'observability_label' => sanitize_text_field( (string) ( $input['observability_label'] ?? '' ) ),
+				'status' => 'queued',
+				'created_at' => $now,
+				'updated_at' => $now,
+				'run_ids' => array(),
+			);
+			if ( ! self::atomic_create_option( self::translation_job_v2_job_key( $job_id ), $job ) ) {
+				$job = self::translation_job_v2_get_job( $job_id );
+			}
+		}
+		return array( 'success' => true, 'created' => $job['created_at'] === $job['updated_at'] && empty( $job['run_ids'] ), 'job' => self::translation_job_v2_public_job( $job ) );
+	}
+
+	private static function translation_job_v2_claim( array $input ): array {
+		$job = self::translation_job_v2_get_job( (string) ( $input['job_id'] ?? '' ) );
+		if ( ! $job ) {
+			return self::error( 'Translation Job not found.' );
+		}
+		$role = sanitize_key( (string) ( $input['role'] ?? '' ) );
+		if ( ! in_array( $role, array( 'translator', 'quality' ), true ) ) {
+			return self::error( 'Run role must be translator or quality.' );
+		}
+		$expected_statuses = 'translator' === $role ? array( 'queued', 'changes_requested' ) : array( 'quality_pending' );
+		if ( ! in_array( (string) $job['status'], $expected_statuses, true ) ) {
+			return array( 'success' => false, 'code' => 'job_not_claimable', 'message' => 'Translation Job is not claimable for this Run role.', 'job' => self::translation_job_v2_public_job( $job ) );
+		}
+		if ( self::translation_job_v2_source_is_stale( $job ) ) {
+			self::translation_job_v2_transition( $job, array( 'status' => 'superseded' ) );
+			return array( 'success' => false, 'code' => 'job_superseded', 'message' => 'The source changed. Discover a Job for the current revision.' );
+		}
+		$run_id = self::translation_job_v2_clean_id( (string) ( $input['run_id'] ?? '' ) );
+		$coordinator_id = self::translation_job_v2_clean_id( (string) ( $input['coordinator_id'] ?? '' ) );
+		if ( '' === $run_id || '' === $coordinator_id ) {
+			return self::error( 'run_id and coordinator_id are required.' );
+		}
+		$existing_runs = isset( $job['run_ids'] ) && is_array( $job['run_ids'] ) ? $job['run_ids'] : array();
+		if ( count( array_filter( $existing_runs, static function ( $row ) use ( $role ) { return is_array( $row ) && ( $row['role'] ?? '' ) === $role; } ) ) >= 2 ) {
+			return array( 'success' => false, 'code' => 'run_attempt_limit', 'message' => 'This Job already used both allowed Runs for this role.' );
+		}
+		$lock_key = self::translation_job_v2_claim_key( (string) $job['job_id'] );
+		$existing_lock = get_option( $lock_key );
+		if ( is_array( $existing_lock ) && strtotime( (string) ( $existing_lock['expires_at'] ?? '' ) ) <= time() ) {
+			delete_option( $lock_key );
+			$existing_lock = null;
+		}
+		if ( is_array( $existing_lock ) ) {
+			return array( 'success' => false, 'code' => 'job_claim_conflict', 'message' => 'Translation Job is already claimed.', 'claim' => self::translation_job_v2_public_claim( $existing_lock ) );
+		}
+		$token = wp_generate_password( 48, false, false );
+		$ttl = max( 60, min( 7200, absint( $input['ttl_seconds'] ?? 3600 ) ) );
+		$now = time();
+		$lock = array(
+			'job_id' => (string) $job['job_id'],
+			'run_id' => $run_id,
+			'coordinator_id' => $coordinator_id,
+			'role' => $role,
+			'token_hash' => hash( 'sha256', $token ),
+			'claimed_at' => gmdate( 'c', $now ),
+			'expires_at' => gmdate( 'c', $now + $ttl ),
+		);
+		if ( ! self::atomic_create_option( $lock_key, $lock ) ) {
+			return array( 'success' => false, 'code' => 'job_claim_race_lost', 'message' => 'Another Run claimed the Translation Job.' );
+		}
+		$budget = self::translation_job_v2_budget( $role );
+		$run = array(
+			'run_id' => $run_id,
+			'job_id' => (string) $job['job_id'],
+			'role' => $role,
+			'coordinator_id' => $coordinator_id,
+			'context_mode' => 'bounded_packet',
+			'observability_label' => sanitize_text_field( (string) ( $input['observability_label'] ?? '' ) ),
+			'budget' => $budget,
+			'status' => 'running',
+			'started_at' => gmdate( 'c', $now ),
+		);
+		if ( ! self::atomic_create_option( self::translation_job_v2_run_key( $run_id ), $run ) ) {
+			delete_option( $lock_key );
+			return array( 'success' => false, 'code' => 'run_id_conflict', 'message' => 'run_id already exists.' );
+		}
+		$next_runs = $existing_runs;
+		$next_runs[] = array( 'run_id' => $run_id, 'role' => $role );
+		$next_status = 'translator' === $role ? 'claimed' : 'quality_pending';
+		$next = self::translation_job_v2_transition( $job, array( 'status' => $next_status, 'run_ids' => $next_runs, 'active_run_id' => $run_id, 'coordinator_id' => $coordinator_id ) );
+		if ( empty( $next['success'] ) ) {
+			delete_option( $lock_key );
+			delete_option( self::translation_job_v2_run_key( $run_id ) );
+			return $next;
+		}
+		return array( 'success' => true, 'claim_token' => $token, 'claim' => self::translation_job_v2_public_claim( $lock ), 'run' => $run, 'job' => self::translation_job_v2_public_job( $next['job'] ) );
+	}
+
+	private static function translation_job_v2_fetch_packet( array $input ): array {
+		$access = self::translation_job_v2_claim_access( $input );
+		if ( empty( $access['success'] ) ) {
+			return $access;
+		}
+		$job = $access['job'];
+		$run = $access['run'];
+		$source = get_post( (int) $job['source_id'] );
+		if ( ! $source || self::translation_job_v2_source_is_stale( $job ) ) {
+			return array( 'success' => false, 'code' => 'job_superseded', 'message' => 'The source changed before the packet was fetched.' );
+		}
+		$packet = 'quality' === $run['role']
+			? self::translation_job_v2_quality_packet( $job, $run, $source )
+			: self::translation_job_v2_translation_packet( $job, $run, $source );
+		$estimated_tokens = (int) ceil( strlen( wp_json_encode( $packet ) ?: '' ) / 4 );
+		if ( $estimated_tokens > (int) $run['budget']['input_token_limit'] ) {
+			return array( 'success' => false, 'code' => 'packet_over_budget', 'message' => 'The bounded packet exceeds the Run input Token Budget.', 'estimated_input_tokens' => $estimated_tokens, 'input_token_limit' => (int) $run['budget']['input_token_limit'] );
+		}
+		$packet['estimated_input_tokens'] = $estimated_tokens;
+		return array( 'success' => true, 'packet' => $packet );
+	}
+
+	private static function translation_job_v2_submit_artifact( array $input ): array {
+		$access = self::translation_job_v2_claim_access( $input, 'translator' );
+		if ( empty( $access['success'] ) ) {
+			return $access;
+		}
+		$job = $access['job'];
+		$run = $access['run'];
+		$usage = self::translation_job_v2_validate_usage( $input['usage'] ?? array(), $run['budget'] );
+		if ( empty( $usage['success'] ) ) {
+			self::translation_job_v2_finish_run( $run, 'budget_exceeded', $usage['usage'] ?? array() );
+			self::translation_job_v2_transition( $job, array( 'status' => 'budget_exceeded' ) );
+			self::translation_job_v2_release_claim( (string) $job['job_id'] );
+			return $usage;
+		}
+		if ( self::translation_job_v2_source_is_stale( $job ) ) {
+			return array( 'success' => false, 'code' => 'job_superseded', 'message' => 'The source changed before artifact submission.' );
+		}
+		$artifact = isset( $input['artifact'] ) && is_array( $input['artifact'] ) ? $input['artifact'] : array();
+		$coverage = self::translation_job_v2_fragment_coverage( $job, $artifact['localized_fragments'] ?? array() );
+		if ( empty( $coverage['success'] ) ) {
+			return $coverage;
+		}
+		$source = get_post( (int) $job['source_id'] );
+		$translation_id = self::find_translation_id( (int) $job['source_id'], (string) $job['target_language'], self::translation_workflow_post_statuses( false ) );
+		$upsert = array_merge(
+			$artifact,
+			array(
+				'source_id' => (int) $job['source_id'],
+				'language' => (string) $job['target_language'],
+				'translation_id' => $translation_id,
+				'inherit_source_design' => true,
+				'strict_source_design_fragments' => true,
+				'status' => $translation_id && 'publish' === get_post_status( $translation_id ) ? 'publish' : 'draft',
+				'translation_status' => 'needs_review',
+				'allow_update_published' => true,
+				'agent_session_id' => (string) $run['coordinator_id'],
+				'writer_process_id' => (string) $run['coordinator_id'],
+				'writer_actor' => (string) $run['coordinator_id'],
+			)
+		);
+		self::$translation_job_v2_internal_identity = self::translation_job_v2_identity( $job, $run, 'draft_write' );
+		try {
+			$result = self::upsert_translation( $upsert );
+		} finally {
+			self::$translation_job_v2_internal_identity = array();
+		}
+		if ( empty( $result['success'] ) ) {
+			return $result;
+		}
+		$translation_id = absint( $result['translation']['id'] ?? 0 );
+		$artifact_revision = self::translation_job_v2_revision( $artifact );
+		$content_revision = self::translation_job_v2_translation_revision( $translation_id );
+		$artifact_record = array(
+			'artifact_revision' => $artifact_revision,
+			'job_id' => (string) $job['job_id'],
+			'source_revision' => (string) $job['source_revision'],
+			'translation_id' => $translation_id,
+			'content_revision' => $content_revision,
+			'artifact' => self::translation_job_v2_sanitize_artifact_record( $artifact ),
+			'submitted_at' => gmdate( 'c' ),
+		);
+		if ( ! self::atomic_create_option( self::translation_job_v2_artifact_key( $artifact_revision ), $artifact_record ) ) {
+			$stored = get_option( self::translation_job_v2_artifact_key( $artifact_revision ) );
+			if ( ! is_array( $stored ) || ( $stored['job_id'] ?? '' ) !== $job['job_id'] ) {
+				return array( 'success' => false, 'code' => 'artifact_revision_conflict', 'message' => 'Artifact revision already belongs to another Job.' );
+			}
+		}
+		self::translation_job_v2_finish_run( $run, 'submitted', $usage['usage'] );
+		$next = self::translation_job_v2_transition( $job, array( 'status' => 'quality_pending', 'artifact_revision' => $artifact_revision, 'translation_id' => $translation_id, 'content_revision' => $content_revision, 'active_run_id' => '' ) );
+		self::translation_job_v2_release_claim( (string) $job['job_id'] );
+		if ( empty( $next['success'] ) ) {
+			return $next;
+		}
+		return array( 'success' => true, 'message' => 'Complete translation artifact submitted.', 'job' => self::translation_job_v2_public_job( $next['job'] ), 'artifact_revision' => $artifact_revision, 'translation' => $result['translation'], 'qa_next' => 'ai-translations/v2-claim-job with role=quality' );
+	}
+
+	private static function translation_job_v2_submit_quality_decision( array $input ): array {
+		$access = self::translation_job_v2_claim_access( $input, 'quality' );
+		if ( empty( $access['success'] ) ) {
+			return $access;
+		}
+		$job = $access['job'];
+		$run = $access['run'];
+		if ( ! hash_equals( (string) ( $job['artifact_revision'] ?? '' ), sanitize_text_field( (string) ( $input['artifact_revision'] ?? '' ) ) ) ) {
+			return array( 'success' => false, 'code' => 'artifact_revision_mismatch', 'message' => 'Quality Decision does not match the current artifact revision.' );
+		}
+		$usage = self::translation_job_v2_validate_usage( $input['usage'] ?? array(), $run['budget'] );
+		if ( empty( $usage['success'] ) ) {
+			self::translation_job_v2_finish_run( $run, 'budget_exceeded', $usage['usage'] ?? array() );
+			self::translation_job_v2_transition( $job, array( 'status' => 'budget_exceeded' ) );
+			self::translation_job_v2_release_claim( (string) $job['job_id'] );
+			return $usage;
+		}
+		$decision = sanitize_key( (string) ( $input['decision'] ?? '' ) );
+		if ( ! in_array( $decision, array( 'pass', 'revise', 'reject' ), true ) ) {
+			return self::error( 'Quality Decision must be pass, revise, or reject.' );
+		}
+		$evidence = trim( sanitize_textarea_field( (string) ( $input['evidence'] ?? '' ) ) );
+		if ( strlen( $evidence ) < 40 ) {
+			return array( 'success' => false, 'code' => 'quality_evidence_required', 'message' => 'Quality Decision requires concrete evidence.' );
+		}
+		$checks = isset( $input['checks'] ) && is_array( $input['checks'] ) ? $input['checks'] : array();
+		$failed_checks = array();
+		foreach ( self::translation_job_v2_quality_checks() as $check ) {
+			if ( empty( $checks[ $check ] ) ) {
+				$failed_checks[] = $check;
+			}
+		}
+		$translation_id = absint( $job['translation_id'] ?? 0 );
+		if ( self::translation_job_v2_translation_revision( $translation_id ) !== (string) ( $job['content_revision'] ?? '' ) ) {
+			return array( 'success' => false, 'code' => 'artifact_content_changed', 'message' => 'Stored translation changed after artifact submission.' );
+		}
+		$qa = self::qa_translation( array( 'translation_id' => $translation_id ) );
+		$translation = get_post( $translation_id );
+		$publication_experience = $translation instanceof WP_Post
+			? self::publication_experience_readiness_for_post( $translation, (string) $job['target_language'], 'pre_publish' )
+			: array( 'passed' => false );
+		if ( 'pass' === $decision && ( $failed_checks || empty( $qa['success'] ) || empty( $qa['passed'] ) || empty( $publication_experience['passed'] ) ) ) {
+			return array( 'success' => false, 'code' => 'quality_pass_rejected', 'message' => 'A passing Quality Decision requires all checks, deterministic QA, and publication experience to pass.', 'failed_checks' => $failed_checks, 'qa' => $qa, 'publication_experience' => $publication_experience );
+		}
+		$quality = array(
+			'quality_revision' => self::translation_job_v2_revision( array( $job['artifact_revision'], $decision, $checks, $input['evidence'] ?? '', $input['corrections'] ?? array() ) ),
+			'job_id' => (string) $job['job_id'],
+			'artifact_revision' => (string) $job['artifact_revision'],
+			'content_revision' => (string) $job['content_revision'],
+			'translation_id' => $translation_id,
+			'decision' => $decision,
+			'checks' => array_map( 'boolval', $checks ),
+			'evidence' => $evidence,
+			'corrections' => array_values( array_map( 'sanitize_text_field', is_array( $input['corrections'] ?? null ) ? $input['corrections'] : array() ) ),
+			'coordinator_id' => (string) $run['coordinator_id'],
+			'run_id' => (string) $run['run_id'],
+			'qa' => array( 'passed' => ! empty( $qa['passed'] ), 'issue_count' => absint( $qa['issue_count'] ?? 0 ), 'warning_count' => absint( $qa['warning_count'] ?? 0 ) ),
+			'publication_experience' => array( 'passed' => ! empty( $publication_experience['passed'] ), 'state' => (string) ( $publication_experience['state'] ?? '' ) ),
+			'decided_at' => gmdate( 'c' ),
+		);
+		if ( ! self::atomic_create_option( self::translation_job_v2_quality_key( $quality['quality_revision'] ), $quality ) ) {
+			return array( 'success' => false, 'code' => 'quality_revision_conflict', 'message' => 'Quality Decision revision already exists.' );
+		}
+		self::translation_job_v2_finish_run( $run, $decision, $usage['usage'] );
+		$status = 'pass' === $decision ? 'ready_to_publish' : ( 'revise' === $decision ? 'changes_requested' : 'rejected' );
+		$next = self::translation_job_v2_transition( $job, array( 'status' => $status, 'quality_revision' => $quality['quality_revision'], 'active_run_id' => '' ) );
+		self::translation_job_v2_release_claim( (string) $job['job_id'] );
+		if ( empty( $next['success'] ) ) {
+			return $next;
+		}
+		return array( 'success' => true, 'job' => self::translation_job_v2_public_job( $next['job'] ), 'quality_decision' => $quality, 'qa' => $qa );
+	}
+
+	private static function translation_job_v2_publish( array $input ): array {
+		$job = self::translation_job_v2_get_job( (string) ( $input['job_id'] ?? '' ) );
+		if ( ! $job || 'ready_to_publish' !== (string) ( $job['status'] ?? '' ) ) {
+			return array( 'success' => false, 'code' => 'job_not_ready_to_publish', 'message' => 'Translation Job does not have a passing current Quality Decision.' );
+		}
+		$quality = get_option( self::translation_job_v2_quality_key( (string) ( $job['quality_revision'] ?? '' ) ) );
+		$coordinator_id = self::translation_job_v2_clean_id( (string) ( $input['coordinator_id'] ?? '' ) );
+		if ( ! is_array( $quality ) || 'pass' !== (string) ( $quality['decision'] ?? '' ) || $coordinator_id !== (string) ( $quality['coordinator_id'] ?? '' ) ) {
+			return array( 'success' => false, 'code' => 'quality_decision_authority_mismatch', 'message' => 'The current coordinator and passing Quality Decision do not match.' );
+		}
+		if ( self::translation_job_v2_source_is_stale( $job ) || (string) ( $quality['artifact_revision'] ?? '' ) !== (string) ( $job['artifact_revision'] ?? '' ) ) {
+			return array( 'success' => false, 'code' => 'job_superseded', 'message' => 'Source or artifact changed after the Quality Decision.' );
+		}
+		$translation_id = absint( $job['translation_id'] ?? 0 );
+		if ( self::translation_job_v2_translation_revision( $translation_id ) !== (string) ( $quality['content_revision'] ?? '' ) ) {
+			return array( 'success' => false, 'code' => 'artifact_content_changed', 'message' => 'Stored translation changed after the Quality Decision.' );
+		}
+		$qa = self::qa_translation( array( 'translation_id' => $translation_id ) );
+		if ( empty( $qa['success'] ) || empty( $qa['passed'] ) ) {
+			return array( 'success' => false, 'code' => 'publish_qa_failed', 'message' => 'Deterministic QA failed before publication.', 'qa' => $qa );
+		}
+		$language = sanitize_key( (string) $job['target_language'] );
+		$translation_post = get_post( $translation_id );
+		$publication_experience = $translation_post instanceof WP_Post
+			? self::publication_experience_readiness_for_post( $translation_post, $language, 'pre_publish' )
+			: array( 'passed' => false );
+		if ( empty( $publication_experience['passed'] ) ) {
+			return array( 'success' => false, 'code' => 'publication_experience_failed', 'message' => 'Publication experience failed before publication.', 'publication_experience' => $publication_experience );
+		}
+		$transition = self::apply_translation_publish_transition( $translation_id, $language, (int) $job['source_id'] );
+		if ( empty( $transition['success'] ) ) {
+			return $transition;
+		}
+		$translation = get_post( $translation_id );
+		$menu = null;
+		if ( $translation instanceof WP_Post && 'page' === $translation->post_type && ( ! array_key_exists( 'sync_menu', $input ) || ! empty( $input['sync_menu'] ) ) ) {
+			$menu = self::sync_language_menu( array( 'language' => $language, 'clear_existing' => true, 'include_untranslated' => false, 'include_custom_links' => true ) );
+		}
+		$live = null;
+		if ( ! array_key_exists( 'verify_live', $input ) || ! empty( $input['verify_live'] ) ) {
+			$live = self::verify_live_translation( array( 'translation_id' => $translation_id, 'timeout' => absint( $input['live_verification_timeout'] ?? 15 ) ) );
+		}
+		$next = self::translation_job_v2_transition( $job, array( 'status' => 'published', 'published_at' => gmdate( 'c' ), 'live_verification_passed' => null === $live ? null : ! empty( $live['passed'] ) ) );
+		$passed = null === $live || ( ! empty( $live['success'] ) && ! empty( $live['passed'] ) );
+		return array(
+			'success' => $passed && ! empty( $next['success'] ),
+			'published' => true,
+			'message' => $passed ? 'Translation Job published.' : 'Translation was published, but live verification failed.',
+			'job' => ! empty( $next['job'] ) ? self::translation_job_v2_public_job( $next['job'] ) : self::translation_job_v2_public_job( $job ),
+			'translation' => self::translation_payload( get_post( $translation_id ) ),
+			'qa' => $qa,
+			'publication_experience' => $publication_experience,
+			'menu' => $menu,
+			'live_verification' => $live,
+		);
+	}
+
+	private static function translation_job_v2_status( array $input ): array {
+		$job_id = self::translation_job_v2_clean_id( (string) ( $input['job_id'] ?? '' ) );
+		if ( '' === $job_id && ! empty( $input['source_id'] ) && ! empty( $input['language'] ) ) {
+			$source = get_post( absint( $input['source_id'] ) );
+			if ( $source ) {
+				$job_id = self::translation_job_v2_id( (int) $source->ID, sanitize_key( (string) $input['language'] ), self::source_hash( $source ) );
+			}
+		}
+		$job = self::translation_job_v2_get_job( $job_id );
+		if ( ! $job ) {
+			return self::error( 'Translation Job not found.' );
+		}
+		$runs = array();
+		$totals = array( 'input_tokens' => 0, 'cached_input_tokens' => 0, 'output_tokens' => 0, 'total_tokens' => 0, 'duration_ms' => 0, 'estimated_cost_microusd' => 0 );
+		foreach ( (array) ( $job['run_ids'] ?? array() ) as $run_row ) {
+			$run = get_option( self::translation_job_v2_run_key( (string) ( $run_row['run_id'] ?? '' ) ) );
+			if ( ! is_array( $run ) ) {
+				continue;
+			}
+			$runs[] = $run;
+			foreach ( array_keys( $totals ) as $key ) {
+				$totals[ $key ] += absint( $run['usage'][ $key ] ?? 0 );
+			}
+		}
+		$quality = ! empty( $job['quality_revision'] ) ? get_option( self::translation_job_v2_quality_key( (string) $job['quality_revision'] ) ) : null;
+		return array( 'success' => true, 'job' => self::translation_job_v2_public_job( $job ), 'runs' => $runs, 'quality_decision' => is_array( $quality ) ? $quality : null, 'cost' => $totals );
+	}
+
+	private static function translation_job_v2_translation_packet( array $job, array $run, WP_Post $source ): array {
+		$contract = self::source_design_contract( $source );
+		$fragments = array();
+		foreach ( (array) ( $contract['fragments'] ?? array() ) as $fragment ) {
+			$fragments[] = array(
+				'key' => (string) ( $fragment['key'] ?? '' ),
+				'source_html' => (string) ( $fragment['source_html'] ?? $fragment['text'] ?? '' ),
+				'heading' => ! empty( $fragment['heading'] ),
+			);
+		}
+		$language = (string) $job['target_language'];
+		return array(
+			'contract_version' => 2,
+			'job' => self::translation_job_v2_public_job( $job ),
+			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet' ),
+			'source' => array(
+				'title' => get_the_title( $source ),
+				'excerpt' => (string) $source->post_excerpt,
+				'seo_title' => (string) get_post_meta( (int) $source->ID, 'rank_math_title', true ),
+				'seo_description' => (string) get_post_meta( (int) $source->ID, 'rank_math_description', true ),
+				'post_type' => (string) $source->post_type,
+			),
+			'fragments' => $fragments,
+			'route' => array( 'language_prefix' => self::language_prefix( $language ), 'source_slug' => (string) $source->post_name, 'source_parent_id' => (int) $source->post_parent ),
+			'taxonomy' => self::post_taxonomy_payload( $source ),
+			'language_profile' => self::language_review_profile( $language ),
+			'validation_contract' => array( 'exact_fragment_coverage' => true, 'localized_route' => true, 'deterministic_qa' => true, 'quality_checks' => self::translation_job_v2_quality_checks() ),
+		);
+	}
+
+	private static function translation_job_v2_quality_packet( array $job, array $run, WP_Post $source ): array {
+		$artifact = get_option( self::translation_job_v2_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) );
+		return array(
+			'contract_version' => 2,
+			'job' => self::translation_job_v2_public_job( $job ),
+			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet' ),
+			'source' => array( 'title' => get_the_title( $source ), 'excerpt' => (string) $source->post_excerpt, 'source_revision' => self::source_hash( $source ) ),
+			'artifact' => is_array( $artifact ) ? $artifact : array(),
+			'language_profile' => self::language_review_profile( (string) $job['target_language'] ),
+			'required_checks' => self::translation_job_v2_quality_checks(),
+		);
+	}
+
+	private static function translation_job_v2_fragment_coverage( array $job, $localized_fragments ): array {
+		$source = get_post( (int) $job['source_id'] );
+		$contract = $source ? self::source_design_contract( $source ) : array();
+		$expected = array_values( array_filter( array_map( static function ( $row ) { return (string) ( $row['key'] ?? '' ); }, (array) ( $contract['fragments'] ?? array() ) ) ) );
+		$provided = array();
+		$duplicates = array();
+		foreach ( is_array( $localized_fragments ) ? $localized_fragments : array() as $row ) {
+			$key = (string) ( is_array( $row ) ? ( $row['key'] ?? '' ) : '' );
+			if ( isset( $provided[ $key ] ) ) {
+				$duplicates[] = $key;
+			}
+			$provided[ $key ] = true;
+		}
+		$provided_keys = array_keys( array_filter( $provided ) );
+		$missing = array_values( array_diff( $expected, $provided_keys ) );
+		$extra = array_values( array_diff( $provided_keys, $expected ) );
+		if ( $missing || $extra || $duplicates || count( $expected ) !== count( $provided_keys ) ) {
+			return array( 'success' => false, 'code' => 'artifact_fragment_coverage_invalid', 'message' => 'Artifact must contain every source fragment exactly once.', 'expected_count' => count( $expected ), 'provided_count' => count( $provided_keys ), 'missing_keys' => $missing, 'extra_keys' => $extra, 'duplicate_keys' => array_values( array_unique( $duplicates ) ) );
+		}
+		return array( 'success' => true, 'fragment_count' => count( $expected ) );
+	}
+
+	private static function translation_job_v2_claim_access( array $input, string $role = '' ): array {
+		$job = self::translation_job_v2_get_job( (string) ( $input['job_id'] ?? '' ) );
+		$run_id = self::translation_job_v2_clean_id( (string) ( $input['run_id'] ?? '' ) );
+		$run = get_option( self::translation_job_v2_run_key( $run_id ) );
+		$lock = $job ? get_option( self::translation_job_v2_claim_key( (string) $job['job_id'] ) ) : null;
+		if ( ! $job || ! is_array( $run ) || ! is_array( $lock ) ) {
+			return array( 'success' => false, 'code' => 'job_claim_missing', 'message' => 'A current Translation Job claim is required.' );
+		}
+		if ( strtotime( (string) ( $lock['expires_at'] ?? '' ) ) <= time() ) {
+			return array( 'success' => false, 'code' => 'job_claim_expired', 'message' => 'Translation Job claim expired.' );
+		}
+		$token = (string) ( $input['claim_token'] ?? '' );
+		if ( '' === $token || ! hash_equals( (string) ( $lock['token_hash'] ?? '' ), hash( 'sha256', $token ) ) || $run_id !== (string) ( $lock['run_id'] ?? '' ) ) {
+			return array( 'success' => false, 'code' => 'job_claim_mismatch', 'message' => 'Translation Job claim does not match this Run.' );
+		}
+		if ( '' !== $role && $role !== (string) ( $run['role'] ?? '' ) ) {
+			return array( 'success' => false, 'code' => 'job_run_role_mismatch', 'message' => 'Run role does not match this operation.' );
+		}
+		return array( 'success' => true, 'job' => $job, 'run' => $run, 'claim' => $lock );
+	}
+
+	private static function translation_job_v2_validate_usage( $raw, array $budget ): array {
+		$raw = is_array( $raw ) ? $raw : array();
+		$usage = array(
+			'input_tokens' => absint( $raw['input_tokens'] ?? 0 ),
+			'cached_input_tokens' => absint( $raw['cached_input_tokens'] ?? 0 ),
+			'output_tokens' => absint( $raw['output_tokens'] ?? 0 ),
+			'attempts' => absint( $raw['attempts'] ?? 0 ),
+			'duration_ms' => absint( $raw['duration_ms'] ?? 0 ),
+			'estimated_cost_microusd' => absint( $raw['estimated_cost_microusd'] ?? 0 ),
+		);
+		$usage['total_tokens'] = $usage['input_tokens'] + $usage['output_tokens'];
+		$violations = array();
+		if ( $usage['cached_input_tokens'] > $usage['input_tokens'] ) { $violations[] = 'cached_input_tokens'; }
+		if ( $usage['input_tokens'] > (int) $budget['input_token_limit'] ) { $violations[] = 'input_token_limit'; }
+		if ( $usage['output_tokens'] > (int) $budget['output_token_limit'] ) { $violations[] = 'output_token_limit'; }
+		if ( $usage['total_tokens'] > (int) $budget['total_token_limit'] ) { $violations[] = 'total_token_limit'; }
+		if ( $usage['attempts'] < 1 || $usage['attempts'] > (int) $budget['max_attempts'] ) { $violations[] = 'max_attempts'; }
+		return empty( $violations )
+			? array( 'success' => true, 'usage' => $usage )
+			: array( 'success' => false, 'code' => 'run_budget_exceeded', 'message' => 'Run usage exceeds its Token Budget.', 'violations' => $violations, 'usage' => $usage, 'budget' => $budget );
+	}
+
+	private static function translation_job_v2_finish_run( array $run, string $outcome, array $usage ): void {
+		$run['status'] = 'completed';
+		$run['outcome'] = sanitize_key( $outcome );
+		$run['usage'] = $usage;
+		$run['finished_at'] = gmdate( 'c' );
+		update_option( self::translation_job_v2_run_key( (string) $run['run_id'] ), $run, false );
+	}
+
+	private static function translation_job_v2_transition( array $job, array $patch ): array {
+		$key = self::translation_job_v2_job_key( (string) $job['job_id'] );
+		$next = array_merge( $job, $patch, array( 'updated_at' => gmdate( 'c' ) ) );
+		global $wpdb;
+		$updated = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Job lifecycle requires compare-and-swap semantics.
+			$wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s, autoload = %s WHERE option_name = %s AND option_value = %s", maybe_serialize( $next ), 'off', $key, maybe_serialize( $job ) )
+		);
+		wp_cache_delete( $key, 'options' );
+		if ( 1 !== $updated ) {
+			return array( 'success' => false, 'code' => 'job_state_conflict', 'message' => 'Translation Job changed concurrently.', 'job' => self::translation_job_v2_get_job( (string) $job['job_id'] ) );
+		}
+		return array( 'success' => true, 'job' => $next );
+	}
+
+	private static function translation_job_v2_internal_step_identity( string $step ): array {
+		$identity = self::$translation_job_v2_internal_identity;
+		return is_array( $identity ) && ( $identity['step'] ?? '' ) === $step ? $identity : array();
+	}
+
+	private static function translation_job_v2_identity( array $job, array $run, string $step ): array {
+		$coordinator = (string) $run['coordinator_id'];
+		return array(
+			'success' => true,
+			'step' => $step,
+			'workflow_step' => $step,
+			'step_token_label' => 'translation-job-v2',
+			'process_id' => $coordinator,
+			'control_scope_id' => $coordinator,
+			'agent_session_id' => $coordinator,
+			'session_origin' => 'same_session',
+			'actor' => 'translation-job-v2:' . $coordinator,
+			'actor_id' => 'translation-job-v2',
+			'authority' => 'wordpress-capability-job-claim',
+			'authority_vendor' => 'wordpress',
+			'authority_client' => 'translation-job-v2',
+			'job_id' => (string) $job['job_id'],
+			'run_id' => (string) $run['run_id'],
+		);
+	}
+
+	private static function translation_job_v2_quality_checks(): array {
+		return array( 'natural_language', 'factual_accuracy', 'source_coverage', 'localized_search_intent', 'offer_and_contact', 'links_and_route', 'rendered_experience' );
+	}
+
+	private static function translation_job_v2_budget( string $role ): array {
+		return 'quality' === $role
+			? array( 'input_token_limit' => 20000, 'output_token_limit' => 10000, 'total_token_limit' => 30000, 'max_attempts' => 2 )
+			: array( 'input_token_limit' => 30000, 'output_token_limit' => 30000, 'total_token_limit' => 60000, 'max_attempts' => 2 );
+	}
+
+	private static function translation_job_v2_source_is_stale( array $job ): bool {
+		$source = get_post( absint( $job['source_id'] ?? 0 ) );
+		return ! $source || ! hash_equals( (string) ( $job['source_revision'] ?? '' ), self::source_hash( $source ) );
+	}
+
+	private static function translation_job_v2_translation_revision( int $translation_id ): string {
+		$post = get_post( $translation_id );
+		return $post ? hash( 'sha256', (string) $post->post_title . "\n" . (string) $post->post_excerpt . "\n" . (string) $post->post_content ) : '';
+	}
+
+	private static function translation_job_v2_sanitize_artifact_record( array $artifact ): array {
+		return json_decode( wp_json_encode( $artifact ) ?: '{}', true ) ?: array();
+	}
+
+	private static function translation_job_v2_revision( $value ): string {
+		$value = self::translation_job_v2_canonicalize( $value );
+		return 'a_' . substr( hash( 'sha256', wp_json_encode( $value ) ?: '' ), 0, 32 );
+	}
+
+	private static function translation_job_v2_canonicalize( $value ) {
+		if ( ! is_array( $value ) ) { return $value; }
+		if ( array_keys( $value ) !== range( 0, count( $value ) - 1 ) ) { ksort( $value ); }
+		foreach ( $value as $key => $item ) { $value[ $key ] = self::translation_job_v2_canonicalize( $item ); }
+		return $value;
+	}
+
+	private static function translation_job_v2_id( int $source_id, string $language, string $source_revision ): string {
+		return 'tj2_' . substr( hash( 'sha256', $source_id . '|' . $language . '|' . $source_revision ), 0, 32 );
+	}
+
+	private static function translation_job_v2_clean_id( string $value ): string {
+		$value = preg_replace( '/[^a-zA-Z0-9._:-]/', '', sanitize_text_field( $value ) );
+		return substr( (string) $value, 0, 100 );
+	}
+
+	private static function translation_job_v2_get_job( string $job_id ): array {
+		$job = get_option( self::translation_job_v2_job_key( self::translation_job_v2_clean_id( $job_id ) ) );
+		return is_array( $job ) ? $job : array();
+	}
+
+	private static function translation_job_v2_public_job( array $job ): array {
+		unset( $job['claim_token'], $job['token_hash'] );
+		return $job;
+	}
+
+	private static function translation_job_v2_public_claim( array $claim ): array {
+		unset( $claim['token_hash'] );
+		return $claim;
+	}
+
+	private static function translation_job_v2_release_claim( string $job_id ): void {
+		delete_option( self::translation_job_v2_claim_key( $job_id ) );
+	}
+
+	private static function translation_job_v2_job_key( string $job_id ): string { return 'devenia_ai_translation_job_v2_' . self::translation_job_v2_clean_id( $job_id ); }
+	private static function translation_job_v2_claim_key( string $job_id ): string { return 'devenia_ai_translation_job_v2_claim_' . self::translation_job_v2_clean_id( $job_id ); }
+	private static function translation_job_v2_run_key( string $run_id ): string { return 'devenia_ai_translation_run_v2_' . self::translation_job_v2_clean_id( $run_id ); }
+	private static function translation_job_v2_artifact_key( string $revision ): string { return 'devenia_ai_translation_artifact_v2_' . self::translation_job_v2_clean_id( $revision ); }
+	private static function translation_job_v2_quality_key( string $revision ): string { return 'devenia_ai_translation_quality_v2_' . self::translation_job_v2_clean_id( $revision ); }
+}
