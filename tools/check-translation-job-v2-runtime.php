@@ -58,7 +58,7 @@ try {
 			'post_status' => 'draft',
 			'post_title' => 'Translation Job V2 source fixture',
 			'post_excerpt' => 'A useful source excerpt.',
-			'post_content' => '<!-- wp:paragraph --><p><strong>Useful source</strong><br>Read <a href="' . esc_url( $linked_source_url ) . '">the linked source</a>, then contact us for a concrete next step.</p><!-- /wp:paragraph -->',
+			'post_content' => '<!-- wp:paragraph --><p><strong>Useful source</strong><br>Read <a href="' . esc_url( $linked_source_url ) . '">the linked source</a>, then <a href="mailto:hello@example.com?subject=Source%20question&amp;body=Hello%20from%20the%20source">contact us</a> for a concrete next step.</p><!-- /wp:paragraph -->',
 		),
 		true
 	);
@@ -195,7 +195,7 @@ try {
 
 	$localized = array();
 	foreach ( $fragments as $fragment ) {
-		$localized[] = array( 'key' => (string) $fragment['key'], 'html' => '<strong>Nyttig innhold</strong><br>Les <a href="' . esc_url( $linked_source_url ) . '">den lenkede kilden</a>, og kontakt oss for et konkret neste steg.' );
+		$localized[] = array( 'key' => (string) $fragment['key'], 'html' => '<strong>Nyttig innhold</strong><br>Les <a href="' . esc_url( $linked_source_url ) . '">den lenkede kilden</a>, og <a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.' );
 	}
 	$artifact = array(
 		'title' => 'Oversatt testside',
@@ -205,6 +205,25 @@ try {
 		'seo' => array( 'title' => 'Oversatt testside', 'description' => 'En nyttig beskrivelse av den oversatte testsiden.' ),
 	);
 	$invalid_artifact = $artifact;
+	$invalid_contact_artifact = $artifact;
+	$invalid_contact_artifact['localized_fragments'][0]['html'] = str_replace(
+		array( 'Sp%C3%B8rsm%C3%A5l%20om%20testen', 'Hei%20fra%20oversettelsen' ),
+		array( 'Source%20question', 'Hello%20from%20the%20source' ),
+		$invalid_contact_artifact['localized_fragments'][0]['html']
+	);
+	$invalid_contact_submit = $call(
+		'translation_job_v2_submit_artifact',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $translator_run_id,
+			'claim_token' => $translator_token,
+			'artifact' => $invalid_contact_artifact,
+			'usage' => array( 'input_tokens' => 1200, 'cached_input_tokens' => 0, 'output_tokens' => 500, 'attempts' => 1, 'duration_ms' => 1000, 'estimated_cost_microusd' => 100 ),
+		)
+	);
+	if ( ! empty( $invalid_contact_submit['success'] ) || 'artifact_contact_action_not_localized' !== (string) ( $invalid_contact_submit['code'] ?? '' ) ) {
+		throw new RuntimeException( 'Source-language mailto query text was not rejected: ' . wp_json_encode( $invalid_contact_submit ) );
+	}
 	$invalid_artifact['localized_fragments'][0]['html'] = str_replace( $linked_source_url, home_url( '/invented-localized-route/' ), $invalid_artifact['localized_fragments'][0]['html'] );
 	$invalid_submit = $call(
 		'translation_job_v2_submit_artifact',
@@ -253,12 +272,15 @@ try {
 	$quality_token = (string) $quality_claim['claim_token'];
 	$option_keys[] = 'devenia_ai_translation_run_v2_' . $quality_run_id;
 	$quality_packet = $call( 'translation_job_v2_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $quality_run_id, 'claim_token' => $quality_token ) );
+	$quality_contact_actions = $quality_packet['packet']['contact_actions'] ?? array();
 	if (
 		empty( $quality_packet['success'] )
 		|| $links !== ( $quality_packet['packet']['links'] ?? array() )
 		|| 'ai-translations/v2-submit-quality-decision' !== (string) ( $quality_packet['packet']['submission_contract']['ability'] ?? '' )
 		|| 'array' !== (string) ( $quality_packet['packet']['submission_contract']['input_schema']['properties']['corrections']['type'] ?? '' )
 		|| 'string' !== (string) ( $quality_packet['packet']['submission_contract']['input_schema']['properties']['corrections']['items']['type'] ?? '' )
+		|| 'Source question' !== (string) ( $quality_contact_actions['source'][0]['subject'] ?? '' )
+		|| 'Spørsmål om testen' !== (string) ( $quality_contact_actions['translation'][0]['subject'] ?? '' )
 	) {
 		throw new RuntimeException( 'Quality packet did not preserve the authoritative link policy: ' . wp_json_encode( $quality_packet ) );
 	}
@@ -420,6 +442,7 @@ try {
 			'submission_contracts_in_packets' => true,
 			'submission_contracts_share_live_schema' => true,
 			'runtime_text_uses_wordpress_capability' => true,
+			'mailto_query_copy_must_be_localized' => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {

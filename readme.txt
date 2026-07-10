@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.545
+Stable tag: 0.1.546
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.546 =
+* Rejects artifacts whose mailto subject or body remains identical to source-language query text.
+* Adds decoded source/translation contact actions to bounded quality packets for explicit offer/contact review.
 
 = 0.1.545 =
 * Generates bounded packet submission contracts from the same JSON schemas used by the live abilities.

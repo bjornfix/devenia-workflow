@@ -385,6 +385,12 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		if ( empty( $link_policy['success'] ) ) {
 			return $link_policy;
 		}
+		$contact_policy = $source instanceof WP_Post
+			? self::translation_job_v2_artifact_contact_policy( $source, $artifact['localized_fragments'] ?? array() )
+			: array( 'success' => false, 'code' => 'job_source_missing', 'message' => 'Translation Job source is unavailable.' );
+		if ( empty( $contact_policy['success'] ) ) {
+			return $contact_policy;
+		}
 		$translation_id = absint( $job['translation_id'] ?? 0 );
 		if (
 			! $translation_id
@@ -660,10 +666,84 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			),
 			'artifact' => is_array( $artifact ) ? $artifact : array(),
 			'links' => self::translation_job_v2_link_policy( $source, (string) $job['target_language'] ),
+			'contact_actions' => array(
+				'source' => self::translation_job_v2_mailto_actions( self::translation_job_v2_source_fragments( $source_contract ) ),
+				'translation' => self::translation_job_v2_mailto_actions( (array) ( $artifact['artifact']['localized_fragments'] ?? array() ) ),
+				'policy' => 'Review decoded email, subject, and body. Subject/body must be natural target-language copy, not unchanged source-language query text.',
+			),
 			'language_profile' => self::translation_job_v2_language_profile( (int) $source->ID, (string) $job['target_language'] ),
 			'required_checks' => self::translation_job_v2_quality_checks(),
 			'submission_contract' => self::translation_job_v2_submission_contract( 'quality' ),
 		);
+	}
+
+	/**
+	 * Decode mailto actions from bounded source or translated fragments.
+	 *
+	 * @return array<int,array<string,string>>
+	 */
+	private static function translation_job_v2_mailto_actions( array $fragments ): array {
+		$actions = array();
+		foreach ( $fragments as $fragment ) {
+			if ( ! is_array( $fragment ) ) {
+				continue;
+			}
+			$html = (string) ( $fragment['source_html'] ?? $fragment['html'] ?? $fragment['text'] ?? '' );
+			if ( '' === $html || false === stripos( $html, 'mailto:' ) || ! class_exists( 'WP_HTML_Tag_Processor' ) ) {
+				continue;
+			}
+			$processor = new WP_HTML_Tag_Processor( $html );
+			while ( $processor->next_tag( 'A' ) ) {
+				$href = html_entity_decode( (string) $processor->get_attribute( 'href' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				if ( 0 !== stripos( $href, 'mailto:' ) ) {
+					continue;
+				}
+				$parts = wp_parse_url( $href );
+				$query = isset( $parts['query'] ) && is_string( $parts['query'] ) ? $parts['query'] : '';
+				$params = array();
+				wp_parse_str( $query, $params );
+				$actions[] = array(
+					'fragment_key' => (string) ( $fragment['key'] ?? '' ),
+					'email' => rawurldecode( (string) ( $parts['path'] ?? '' ) ),
+					'subject' => isset( $params['subject'] ) && is_scalar( $params['subject'] ) ? (string) $params['subject'] : '',
+					'body' => isset( $params['body'] ) && is_scalar( $params['body'] ) ? (string) $params['body'] : '',
+				);
+			}
+		}
+
+		return $actions;
+	}
+
+	/**
+	 * Reject hidden source-language contact copy before it reaches quality review.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function translation_job_v2_artifact_contact_policy( WP_Post $source, array $localized_fragments ): array {
+		$source_actions = self::translation_job_v2_mailto_actions( self::translation_job_v2_source_fragments( self::source_design_contract( $source ) ) );
+		$target_actions = self::translation_job_v2_mailto_actions( $localized_fragments );
+		$target_by_fragment = array();
+		foreach ( $target_actions as $action ) {
+			$target_by_fragment[ (string) $action['fragment_key'] ][] = $action;
+		}
+		$issues = array();
+		foreach ( $source_actions as $source_action ) {
+			$fragment_key = (string) $source_action['fragment_key'];
+			$candidates = $target_by_fragment[ $fragment_key ] ?? array();
+			foreach ( $candidates as $target_action ) {
+				foreach ( array( 'subject', 'body' ) as $field ) {
+					$source_value = trim( (string) $source_action[ $field ] );
+					$target_value = trim( (string) $target_action[ $field ] );
+					if ( '' !== $source_value && '' !== $target_value && 0 === strcasecmp( $source_value, $target_value ) ) {
+						$issues[] = array( 'fragment_key' => $fragment_key, 'field' => $field, 'source_value' => $source_value );
+					}
+				}
+			}
+		}
+
+		return empty( $issues )
+			? array( 'success' => true, 'source_actions' => $source_actions, 'translation_actions' => $target_actions )
+			: array( 'success' => false, 'code' => 'artifact_contact_action_not_localized', 'message' => 'Translate mailto subject/body query text before saving the artifact.', 'issues' => $issues );
 	}
 
 	/**
