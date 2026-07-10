@@ -71,6 +71,28 @@ try {
 	if ( '' === $language ) {
 		throw new RuntimeException( 'No target language is configured.' );
 	}
+	$source_qa_options = $call(
+		'update_source_qa_options',
+		array(
+			'source_id' => $source_id,
+			'language' => $language,
+			'terms' => array( 'Google Search Console' ),
+		)
+	);
+	if ( empty( $source_qa_options['success'] ) ) {
+		throw new RuntimeException( 'Source-scoped QA options failed: ' . wp_json_encode( $source_qa_options ) );
+	}
+	$carryover_candidates = new ReflectionMethod( Devenia_AI_Translations::class, 'source_language_carryover_candidates' );
+	$carryover_candidates->setAccessible( true );
+	$product_name_candidates = (array) $carryover_candidates->invoke(
+		null,
+		'<!-- wp:heading --><h2 class="wp-block-heading">Google Search Console</h2><!-- /wp:heading -->',
+		$language,
+		$source_id
+	);
+	if ( in_array( 'Search', $product_name_candidates, true ) || in_array( 'Console', $product_name_candidates, true ) ) {
+		throw new RuntimeException( 'Tokens inside a source-scoped preserved product name were still treated as carryover.' );
+	}
 	$unapproved_discover = $call( 'translation_job_v2_discover', array( 'source_id' => $source_id, 'language' => $language ) );
 	if ( ! empty( $unapproved_discover['success'] ) || 'source_quality_approval_required' !== (string) ( $unapproved_discover['code'] ?? '' ) ) {
 		throw new RuntimeException( 'Unapproved source was not blocked: ' . wp_json_encode( $unapproved_discover ) );
@@ -123,6 +145,8 @@ try {
 	$packet = $call( 'translation_job_v2_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $translator_run_id, 'claim_token' => $translator_token ) );
 	$fragments = $packet['packet']['fragments'] ?? array();
 	$links = $packet['packet']['links'] ?? array();
+	$language_profile = $packet['packet']['language_profile'] ?? array();
+	$submission_contract = $packet['packet']['submission_contract'] ?? array();
 	if (
 		empty( $packet['success'] )
 		|| 1 !== count( $fragments )
@@ -131,6 +155,9 @@ try {
 		|| ! empty( $links[0]['published_target_available'] )
 		|| 'retain_source_url_until_localized_target_is_published' !== (string) ( $links[0]['policy'] ?? '' )
 		|| $linked_source_url !== (string) ( $links[0]['target_url'] ?? '' )
+		|| ! in_array( 'Google Search Console', (array) ( $language_profile['source_qa_preserve_terms'] ?? array() ), true )
+		|| 'ai-translations/v2-submit-artifact' !== (string) ( $submission_contract['ability'] ?? '' )
+		|| ! in_array( 'usage', (array) ( $submission_contract['required_top_level'] ?? array() ), true )
 	) {
 		throw new RuntimeException( 'Bounded packet failed: ' . wp_json_encode( $packet ) );
 	}
@@ -195,7 +222,12 @@ try {
 	$quality_token = (string) $quality_claim['claim_token'];
 	$option_keys[] = 'devenia_ai_translation_run_v2_' . $quality_run_id;
 	$quality_packet = $call( 'translation_job_v2_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $quality_run_id, 'claim_token' => $quality_token ) );
-	if ( empty( $quality_packet['success'] ) || $links !== ( $quality_packet['packet']['links'] ?? array() ) ) {
+	if (
+		empty( $quality_packet['success'] )
+		|| $links !== ( $quality_packet['packet']['links'] ?? array() )
+		|| 'ai-translations/v2-submit-quality-decision' !== (string) ( $quality_packet['packet']['submission_contract']['ability'] ?? '' )
+		|| 'array_of_strings' !== (string) ( $quality_packet['packet']['submission_contract']['corrections_type'] ?? '' )
+	) {
 		throw new RuntimeException( 'Quality packet did not preserve the authoritative link policy: ' . wp_json_encode( $quality_packet ) );
 	}
 	$checks = array_fill_keys( array( 'source_quality', 'natural_language', 'factual_accuracy', 'source_coverage', 'localized_search_intent', 'offer_and_contact', 'links_and_route', 'rendered_experience' ), true );
@@ -352,6 +384,8 @@ try {
 			'invented_localized_link_blocked' => true,
 			'third_bounded_runs_available' => true,
 			'full_fragment_wrappers_normalized' => true,
+			'source_scoped_preserve_terms_in_packet' => true,
+			'submission_contracts_in_packets' => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {

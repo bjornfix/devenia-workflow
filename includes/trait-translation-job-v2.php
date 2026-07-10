@@ -632,9 +632,10 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			'route' => array( 'language_prefix' => self::language_prefix( $language ), 'source_slug' => (string) $source->post_name, 'source_parent_id' => (int) $source->post_parent ),
 			'taxonomy' => self::post_taxonomy_payload( $source ),
 			'links' => self::translation_job_v2_link_policy( $source, $language ),
-			'language_profile' => self::language_review_profile( $language ),
+			'language_profile' => self::translation_job_v2_language_profile( (int) $source->ID, $language ),
 			'source_approval' => self::translation_job_v2_source_approval( $source ),
 			'validation_contract' => array( 'exact_fragment_coverage' => true, 'localized_route' => true, 'deterministic_qa' => true, 'quality_checks' => self::translation_job_v2_quality_checks() ),
+			'submission_contract' => self::translation_job_v2_submission_contract( 'translator' ),
 		);
 		$correction_context = self::translation_job_v2_correction_context( $job );
 		if ( $correction_context ) {
@@ -659,8 +660,59 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			),
 			'artifact' => is_array( $artifact ) ? $artifact : array(),
 			'links' => self::translation_job_v2_link_policy( $source, (string) $job['target_language'] ),
-			'language_profile' => self::language_review_profile( (string) $job['target_language'] ),
+			'language_profile' => self::translation_job_v2_language_profile( (int) $source->ID, (string) $job['target_language'] ),
 			'required_checks' => self::translation_job_v2_quality_checks(),
+			'submission_contract' => self::translation_job_v2_submission_contract( 'quality' ),
+		);
+	}
+
+	/**
+	 * Merge source-scoped QA terms into the bounded language profile.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function translation_job_v2_language_profile( int $source_id, string $language ): array {
+		$profile = self::language_review_profile( $language );
+		$source_terms = self::source_qa_carryover_preserve_terms( $source_id, $language );
+		$profile['source_qa_preserve_terms'] = $source_terms;
+		$profile['preserve_terms'] = array_values(
+			array_unique(
+				array_merge(
+					is_array( $profile['preserve_terms'] ?? null ) ? $profile['preserve_terms'] : array(),
+					$source_terms
+				)
+			)
+		);
+
+		return $profile;
+	}
+
+	/**
+	 * Keep submit shape inside the packet so bounded Runs do not need discovery
+	 * or conversation history to construct a valid terminal payload.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function translation_job_v2_submission_contract( string $role ): array {
+		$usage = array( 'input_tokens', 'cached_input_tokens', 'output_tokens', 'attempts', 'duration_ms', 'estimated_cost_microusd' );
+		if ( 'quality' === $role ) {
+			return array(
+				'ability' => 'ai-translations/v2-submit-quality-decision',
+				'required_top_level' => array( 'job_id', 'run_id', 'claim_token', 'artifact_revision', 'decision', 'checks', 'evidence', 'usage' ),
+				'checks' => self::translation_job_v2_quality_checks(),
+				'evidence_type' => 'string',
+				'corrections_type' => 'array_of_strings',
+				'usage_required' => $usage,
+			);
+		}
+
+		return array(
+			'ability' => 'ai-translations/v2-submit-artifact',
+			'required_top_level' => array( 'job_id', 'run_id', 'claim_token', 'artifact', 'usage' ),
+			'artifact_required' => array( 'title', 'localized_slug', 'localized_fragments' ),
+			'localized_fragment_required' => array( 'key' ),
+			'localized_fragment_content' => 'html_or_text',
+			'usage_required' => $usage,
 		);
 	}
 
