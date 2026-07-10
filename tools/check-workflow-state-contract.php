@@ -61,9 +61,24 @@ foreach ( $action_cases as $state => $expected ) {
 	}
 }
 
+$review_obligation_cases = array(
+	'all_missing' => array( '', '', '', 'linguistic_review' ),
+	'linguistic_complete' => array( '2026-07-10 00:00:00', '', '', 'quality_review' ),
+	'quality_complete' => array( '2026-07-10 00:00:00', '2026-07-10 00:01:00', '', 'final_review' ),
+	'all_complete' => array( '2026-07-10 00:00:00', '2026-07-10 00:01:00', '2026-07-10 00:02:00', '' ),
+	'out_of_order_quality_evidence' => array( '', '2026-07-10 00:01:00', '', 'linguistic_review' ),
+);
+foreach ( $review_obligation_cases as $case => $arguments ) {
+	$expected = array_pop( $arguments );
+	$actual = Devenia_AI_Translations_Workflow_State_Model::next_review_obligation( ...$arguments );
+	if ( $expected !== $actual ) {
+		$failures[] = array( 'case' => 'review_obligation:' . $case, 'actual' => $actual );
+	}
+}
+
 if ( $failures ) {
 	fwrite( STDERR, json_encode( array( 'success' => false, 'failures' => $failures ), JSON_PRETTY_PRINT ) . PHP_EOL );
 	exit( 1 );
 }
 
-echo json_encode( array( 'success' => true, 'state_cases' => count( $state_cases ), 'action_cases' => count( $action_cases ) ), JSON_PRETTY_PRINT ) . PHP_EOL;
+echo json_encode( array( 'success' => true, 'state_cases' => count( $state_cases ), 'action_cases' => count( $action_cases ), 'review_obligation_cases' => count( $review_obligation_cases ) ), JSON_PRETTY_PRINT ) . PHP_EOL;

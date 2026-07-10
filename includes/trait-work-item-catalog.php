@@ -412,17 +412,20 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 					++$totals['needs_source_reprojection'];
 					++$totals['needs_draft_work'];
 					$obligations[] = 'source_reprojection';
-				} elseif ( '' === $linguistic_reviewed_at ) {
-					++$totals['needs_linguistic_review'];
-					$obligations[] = 'linguistic_review';
+				} else {
+					$review_obligation = Devenia_AI_Translations_Workflow_State_Model::next_review_obligation( $linguistic_reviewed_at, $quality_reviewed_at, $final_reviewed_at );
+					if ( 'linguistic_review' === $review_obligation ) {
+						++$totals['needs_linguistic_review'];
+					}
+					if ( '' !== $review_obligation ) {
+						$obligations[] = $review_obligation;
+					}
 				}
 				if ( '' === $quality_reviewed_at ) {
 					++$totals['needs_quality_review'];
-					$obligations[] = 'quality_review';
 				}
 				if ( '' === $final_reviewed_at ) {
 					++$totals['needs_final_review'];
-					$obligations[] = 'final_review';
 				}
 
 				if ( 'publish' === $post_status ) {

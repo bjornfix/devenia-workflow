@@ -67,4 +67,24 @@ final class Devenia_AI_Translations_Workflow_State_Model {
 
 		return $actions[ $state ] ?? 'review';
 	}
+
+	/**
+	 * Return the first incomplete review obligation.
+	 *
+	 * Later review stages must remain hidden until their prerequisite evidence
+	 * exists, otherwise assignment can skip an ineligible earlier stage.
+	 */
+	public static function next_review_obligation( string $linguistic_reviewed_at, string $quality_reviewed_at, string $final_reviewed_at ): string {
+		if ( '' === $linguistic_reviewed_at ) {
+			return 'linguistic_review';
+		}
+		if ( '' === $quality_reviewed_at ) {
+			return 'quality_review';
+		}
+		if ( '' === $final_reviewed_at ) {
+			return 'final_review';
+		}
+
+		return '';
+	}
 }
