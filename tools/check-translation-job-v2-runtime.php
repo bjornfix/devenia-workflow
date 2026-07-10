@@ -150,6 +150,57 @@ try {
 		throw new RuntimeException( 'Source approval failed: ' . wp_json_encode( $source_review ) );
 	}
 
+	$expiry_languages = array_values( array_filter( $language_keys, static function ( $candidate ) use ( $language ) { return (string) $candidate !== $language; } ) );
+	if ( empty( $expiry_languages ) ) {
+		throw new RuntimeException( 'A second configured target language is required for the expired-Run fixture.' );
+	}
+	$expiry_discover = $call( 'translation_job_v2_discover', array( 'source_id' => $source_id, 'language' => (string) $expiry_languages[0], 'observability_label' => 'runtime-expired-run' ) );
+	$expiry_job_id = (string) ( $expiry_discover['job']['job_id'] ?? '' );
+	if ( empty( $expiry_discover['success'] ) || '' === $expiry_job_id ) {
+		throw new RuntimeException( 'Expired-Run fixture discovery failed: ' . wp_json_encode( $expiry_discover ) );
+	}
+	$option_keys[] = 'devenia_ai_translation_job_v2_' . $expiry_job_id;
+	$option_keys[] = 'devenia_ai_translation_job_v2_claim_' . $expiry_job_id;
+	$expiry_claim = $call(
+		'translation_job_v2_claim',
+		array(
+			'job_id' => $expiry_job_id,
+			'run_id' => 'runtime-expiring-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'translator',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $expiry_claim['success'] ) ) {
+		throw new RuntimeException( 'Expired-Run fixture claim failed: ' . wp_json_encode( $expiry_claim ) );
+	}
+	$expired_run_id = (string) $expiry_claim['run']['run_id'];
+	$option_keys[] = 'devenia_ai_translation_run_v2_' . $expired_run_id;
+	$expired_lock = get_option( 'devenia_ai_translation_job_v2_claim_' . $expiry_job_id );
+	$expired_lock['expires_at'] = gmdate( 'c', time() - 1 );
+	update_option( 'devenia_ai_translation_job_v2_claim_' . $expiry_job_id, $expired_lock, false );
+	$replacement_claim = $call(
+		'translation_job_v2_claim',
+		array(
+			'job_id' => $expiry_job_id,
+			'run_id' => 'runtime-replacement-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'translator',
+			'ttl_seconds' => 600,
+		)
+	);
+	$replacement_run_id = (string) ( $replacement_claim['run']['run_id'] ?? '' );
+	$expired_run = get_option( 'devenia_ai_translation_run_v2_' . $expired_run_id );
+	if (
+		empty( $replacement_claim['success'] )
+		|| 'completed' !== (string) ( $expired_run['status'] ?? '' )
+		|| 'expired' !== (string) ( $expired_run['outcome'] ?? '' )
+		|| empty( $expired_run['finished_at'] )
+	) {
+		throw new RuntimeException( 'Expired Run was not finalized before replacement claim: ' . wp_json_encode( array( 'replacement' => $replacement_claim, 'expired_run' => $expired_run ) ) );
+	}
+	$option_keys[] = 'devenia_ai_translation_run_v2_' . $replacement_run_id;
+
 	$discover = $call( 'translation_job_v2_discover', array( 'source_id' => $source_id, 'language' => $language, 'observability_label' => 'runtime-contract' ) );
 	if ( empty( $discover['success'] ) || empty( $discover['job']['job_id'] ) ) {
 		throw new RuntimeException( 'Discover failed: ' . wp_json_encode( $discover ) );
@@ -533,6 +584,7 @@ try {
 			'featured_image_synchronized_before_quality' => true,
 			'published_job_media_reconciled_idempotently' => true,
 			'orphaned_quality_decision_recovered' => true,
+			'expired_run_finalized_before_reclaim' => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {

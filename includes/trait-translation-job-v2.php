@@ -261,6 +261,23 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		if ( ! in_array( $role, array( 'translator', 'quality' ), true ) ) {
 			return self::error( 'Run role must be translator or quality.' );
 		}
+		$lock_key = self::translation_job_v2_claim_key( (string) $job['job_id'] );
+		$existing_lock = get_option( $lock_key );
+		if ( is_array( $existing_lock ) && strtotime( (string) ( $existing_lock['expires_at'] ?? '' ) ) <= time() ) {
+			self::translation_job_v2_expire_run( $existing_lock );
+			delete_option( $lock_key );
+			$expired_role = sanitize_key( (string) ( $existing_lock['role'] ?? '' ) );
+			$resume_status = sanitize_key( (string) ( $existing_lock['previous_status'] ?? '' ) );
+			if ( ! in_array( $resume_status, array( 'queued', 'changes_requested', 'quality_pending' ), true ) ) {
+				$resume_status = 'quality' === $expired_role ? 'quality_pending' : ( empty( $job['artifact_revision'] ) ? 'queued' : 'changes_requested' );
+			}
+			$resumed = self::translation_job_v2_transition( $job, array( 'status' => $resume_status, 'active_run_id' => '' ) );
+			if ( empty( $resumed['success'] ) ) {
+				return $resumed;
+			}
+			$job = $resumed['job'];
+			$existing_lock = null;
+		}
 		$expected_statuses = 'translator' === $role ? array( 'queued', 'changes_requested' ) : array( 'quality_pending' );
 		if ( ! in_array( (string) $job['status'], $expected_statuses, true ) ) {
 			return array( 'success' => false, 'code' => 'job_not_claimable', 'message' => 'Translation Job is not claimable for this Run role.', 'job' => self::translation_job_v2_public_job( $job ) );
@@ -282,12 +299,6 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		if ( count( array_filter( $existing_runs, static function ( $row ) use ( $role ) { return is_array( $row ) && ( $row['role'] ?? '' ) === $role; } ) ) >= self::TRANSLATION_JOB_V2_MAX_RUNS_PER_ROLE ) {
 			return array( 'success' => false, 'code' => 'run_attempt_limit', 'message' => 'This Job used every allowed bounded Run for this role.' );
 		}
-		$lock_key = self::translation_job_v2_claim_key( (string) $job['job_id'] );
-		$existing_lock = get_option( $lock_key );
-		if ( is_array( $existing_lock ) && strtotime( (string) ( $existing_lock['expires_at'] ?? '' ) ) <= time() ) {
-			delete_option( $lock_key );
-			$existing_lock = null;
-		}
 		if ( is_array( $existing_lock ) ) {
 			return array( 'success' => false, 'code' => 'job_claim_conflict', 'message' => 'Translation Job is already claimed.', 'claim' => self::translation_job_v2_public_claim( $existing_lock ) );
 		}
@@ -299,6 +310,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			'run_id' => $run_id,
 			'coordinator_id' => $coordinator_id,
 			'role' => $role,
+			'previous_status' => (string) $job['status'],
 			'token_hash' => hash( 'sha256', $token ),
 			'claimed_at' => gmdate( 'c', $now ),
 			'expires_at' => gmdate( 'c', $now + $ttl ),
@@ -1242,6 +1254,23 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 
 	private static function translation_job_v2_release_claim( string $job_id ): void {
 		delete_option( self::translation_job_v2_claim_key( $job_id ) );
+	}
+
+	private static function translation_job_v2_expire_run( array $claim ): void {
+		$run_id = self::translation_job_v2_clean_id( (string) ( $claim['run_id'] ?? '' ) );
+		if ( '' === $run_id ) {
+			return;
+		}
+		$run_key = self::translation_job_v2_run_key( $run_id );
+		$run = get_option( $run_key );
+		if ( ! is_array( $run ) || 'running' !== (string) ( $run['status'] ?? '' ) ) {
+			return;
+		}
+		$expired_at = sanitize_text_field( (string) ( $claim['expires_at'] ?? '' ) );
+		$run['status'] = 'completed';
+		$run['outcome'] = 'expired';
+		$run['finished_at'] = $expired_at && strtotime( $expired_at ) ? gmdate( 'c', strtotime( $expired_at ) ) : gmdate( 'c' );
+		update_option( $run_key, $run, false );
 	}
 
 	private static function translation_job_v2_job_key( string $job_id ): string { return 'devenia_ai_translation_job_v2_' . self::translation_job_v2_clean_id( $job_id ); }
