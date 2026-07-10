@@ -10,6 +10,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 trait Devenia_AI_Translations_Translation_Job_V2 {
+	const TRANSLATION_JOB_V2_MAX_RUNS_PER_ROLE = 3;
+
 	private static $translation_job_v2_internal_identity = array();
 
 	private static function translation_job_v2_ability_catalogue(): array {
@@ -277,8 +279,8 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			return self::error( 'run_id and coordinator_id are required.' );
 		}
 		$existing_runs = isset( $job['run_ids'] ) && is_array( $job['run_ids'] ) ? $job['run_ids'] : array();
-		if ( count( array_filter( $existing_runs, static function ( $row ) use ( $role ) { return is_array( $row ) && ( $row['role'] ?? '' ) === $role; } ) ) >= 2 ) {
-			return array( 'success' => false, 'code' => 'run_attempt_limit', 'message' => 'This Job already used both allowed Runs for this role.' );
+		if ( count( array_filter( $existing_runs, static function ( $row ) use ( $role ) { return is_array( $row ) && ( $row['role'] ?? '' ) === $role; } ) ) >= self::TRANSLATION_JOB_V2_MAX_RUNS_PER_ROLE ) {
+			return array( 'success' => false, 'code' => 'run_attempt_limit', 'message' => 'This Job used every allowed bounded Run for this role.' );
 		}
 		$lock_key = self::translation_job_v2_claim_key( (string) $job['job_id'] );
 		$existing_lock = get_option( $lock_key );
@@ -383,7 +385,14 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		if ( empty( $link_policy['success'] ) ) {
 			return $link_policy;
 		}
-		$translation_id = self::find_translation_id( (int) $job['source_id'], (string) $job['target_language'], self::translation_workflow_post_statuses( false ) );
+		$translation_id = absint( $job['translation_id'] ?? 0 );
+		if (
+			! $translation_id
+			|| (int) $job['source_id'] !== absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) )
+			|| (string) $job['target_language'] !== (string) get_post_meta( $translation_id, self::META_LANGUAGE, true )
+		) {
+			$translation_id = self::find_translation_id( (int) $job['source_id'], (string) $job['target_language'], self::translation_workflow_post_statuses( false ) );
+		}
 		$upsert = array_merge(
 			$artifact,
 			array(

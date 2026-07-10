@@ -48,6 +48,8 @@ assert.equal(new Set(registered).size, registered.length, "Ability catalogue con
 assert.equal(new Set(classified).size, classified.length, "V2 disposition classifies one ability more than once.");
 assert.deepEqual([...classified].sort(), [...registeredLegacy].sort(), "V2 disposition must classify every legacy ability exactly once.");
 assert.deepEqual([...registeredV2].sort(), [...expectedV2].sort(), "The v2 model Interface must expose exactly seven operations.");
+assert.match(v2Module, /const TRANSLATION_JOB_V2_MAX_RUNS_PER_ROLE = 3;/, "A Job must allow one final bounded correction after a valid second Quality Decision.");
+assert.match(v2Module, />= self::TRANSLATION_JOB_V2_MAX_RUNS_PER_ROLE/, "Run claims must enforce the finite per-role ceiling.");
 assert.deepEqual(
 	{ internal_adapters: internalAdapters.length, separate_modules: separateModules.length, retired_from_model: retiredFromModel.length },
 	{ internal_adapters: 19, separate_modules: 37, retired_from_model: 17 },

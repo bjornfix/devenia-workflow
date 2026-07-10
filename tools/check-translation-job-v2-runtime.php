@@ -233,11 +233,99 @@ try {
 	) {
 		throw new RuntimeException( 'Correction context missing: ' . wp_json_encode( $correction_packet ) );
 	}
+	$second_artifact = $call(
+		'translation_job_v2_submit_artifact',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $correction_run_id,
+			'claim_token' => (string) $correction_claim['claim_token'],
+			'artifact' => $artifact,
+			'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
+		)
+	);
+	if ( empty( $second_artifact['success'] ) || 'quality_pending' !== (string) ( $second_artifact['job']['status'] ?? '' ) ) {
+		throw new RuntimeException( 'Second artifact submission failed: ' . wp_json_encode( $second_artifact ) );
+	}
+	$second_quality_claim = $call(
+		'translation_job_v2_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => 'runtime-quality-second-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'quality',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $second_quality_claim['success'] ) ) {
+		throw new RuntimeException( 'Second quality claim failed: ' . wp_json_encode( $second_quality_claim ) );
+	}
+	$second_quality_run_id = (string) $second_quality_claim['run']['run_id'];
+	$option_keys[] = 'devenia_ai_translation_run_v2_' . $second_quality_run_id;
+	$second_quality = $call(
+		'translation_job_v2_submit_quality_decision',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $second_quality_run_id,
+			'claim_token' => (string) $second_quality_claim['claim_token'],
+			'artifact_revision' => (string) $second_artifact['artifact_revision'],
+			'decision' => 'revise',
+			'checks' => $checks,
+			'evidence' => 'The second bounded quality Run found one final wording correction that must remain actionable.',
+			'corrections' => array( 'Apply the final bounded wording correction.' ),
+			'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
+		)
+	);
+	if ( empty( $second_quality['success'] ) || 'changes_requested' !== (string) ( $second_quality['job']['status'] ?? '' ) ) {
+		throw new RuntimeException( 'Second Quality Decision failed: ' . wp_json_encode( $second_quality ) );
+	}
+	$option_keys[] = 'devenia_ai_translation_quality_v2_' . (string) $second_quality['quality_decision']['quality_revision'];
+	$third_correction_claim = $call(
+		'translation_job_v2_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => 'runtime-correction-third-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'translator',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $third_correction_claim['success'] ) ) {
+		throw new RuntimeException( 'Third translator Run was not available after a valid second Quality Decision: ' . wp_json_encode( $third_correction_claim ) );
+	}
+	$third_correction_run_id = (string) $third_correction_claim['run']['run_id'];
+	$option_keys[] = 'devenia_ai_translation_run_v2_' . $third_correction_run_id;
+	$third_artifact = $call(
+		'translation_job_v2_submit_artifact',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $third_correction_run_id,
+			'claim_token' => (string) $third_correction_claim['claim_token'],
+			'artifact' => $artifact,
+			'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
+		)
+	);
+	if ( empty( $third_artifact['success'] ) || 'quality_pending' !== (string) ( $third_artifact['job']['status'] ?? '' ) ) {
+		throw new RuntimeException( 'Third artifact submission failed: ' . wp_json_encode( $third_artifact ) );
+	}
+	$third_quality_claim = $call(
+		'translation_job_v2_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => 'runtime-quality-third-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'quality',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $third_quality_claim['success'] ) ) {
+		throw new RuntimeException( 'Third quality Run was not available after the final correction: ' . wp_json_encode( $third_quality_claim ) );
+	}
+	$option_keys[] = 'devenia_ai_translation_run_v2_' . (string) $third_quality_claim['run']['run_id'];
 
 	echo wp_json_encode(
 		array(
 			'success' => true,
-			'job_status' => 'changes_requested',
+			'job_status' => 'quality_pending',
 			'packet_fragment_count' => count( $fragments ),
 			'inline_markup_kept' => true,
 			'claim_token_hashed' => true,
@@ -246,6 +334,7 @@ try {
 			'correction_context_included' => true,
 			'link_policy_in_packets' => true,
 			'invented_localized_link_blocked' => true,
+			'third_bounded_runs_available' => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {

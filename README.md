@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.540
+**Stable tag:** 0.1.541
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.541
+
+- Allows a third bounded translator and quality Run so a valid second-review correction cannot leave a Job permanently unresolved.
+- Keeps every Run under the existing per-Run Token Budget and preserves the finite Job attempt ceiling.
+- Reuses the Translation Job's verified translation identity during corrections instead of relying on a potentially stale request-local index lookup.
 
 ### 0.1.540
 
