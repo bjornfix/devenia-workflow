@@ -392,11 +392,39 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				$final_reviewed_at = (string) ( $translation['final_reviewed_at'] ?? '' );
 				$slug = sanitize_title( (string) ( $translation['slug'] ?? '' ) );
 				$obligations = array();
-				$linguistic_state = '' === $linguistic_reviewed_at ? 'needs_linguistic_review' : 'reviewed_recorded';
-				$quality_state = '' === $quality_reviewed_at ? 'needs_quality_review' : 'quality_review_recorded';
-				$final_state = '' === $final_reviewed_at ? 'needs_final_review' : 'final_review_recorded';
 				$route_issue = self::heartbeat_translation_slug_language_issue( $slug, $language, $source, $source_language_tokens );
 				$content_integrity = ! empty( $translation['content_integrity_issue_count'] );
+				$source_reprojection = '' !== $source_hash && '' !== $current_source_hash && $source_hash !== $current_source_hash;
+				$has_repair_prerequisite = $content_integrity || $route_issue || $source_reprojection;
+				$linguistic_current = '' !== $linguistic_reviewed_at;
+				$quality_current = '' !== $quality_reviewed_at;
+				$final_current = '' !== $final_reviewed_at;
+				$translation_post = null;
+
+				if ( ! $has_repair_prerequisite && $linguistic_current ) {
+					$linguistic_current = ! empty( self::linguistic_review_state_for_post( $translation_id )['passed'] );
+				}
+				if ( ! $has_repair_prerequisite ) {
+					if ( ! $linguistic_current ) {
+						$quality_current = false;
+						$final_current = false;
+					} elseif ( $quality_current ) {
+						$translation_post = get_post( $translation_id );
+						$quality_current = $translation_post instanceof WP_Post
+							&& ! empty( self::quality_review_readiness_for_post( $translation_post, $language, false )['passed'] );
+					}
+					if ( ! $quality_current ) {
+						$final_current = false;
+					} elseif ( $final_current ) {
+						$translation_post = $translation_post instanceof WP_Post ? $translation_post : get_post( $translation_id );
+						$final_current = $translation_post instanceof WP_Post
+							&& ! empty( self::final_review_readiness_for_post( $translation_post, $language, false )['passed'] );
+					}
+				}
+
+				$linguistic_state = $linguistic_current ? 'reviewed_current' : ( '' === $linguistic_reviewed_at ? 'needs_linguistic_review' : 'linguistic_review_stale' );
+				$quality_state = $quality_current ? 'quality_review_current' : ( '' === $quality_reviewed_at ? 'needs_quality_review' : 'quality_review_stale' );
+				$final_state = $final_current ? 'final_review_current' : ( '' === $final_reviewed_at ? 'needs_final_review' : 'final_review_stale' );
 
 				if ( $content_integrity ) {
 					++$totals['content_integrity_repair'];
@@ -408,12 +436,16 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 					++$totals['needs_draft_work'];
 					$obligations[]   = 'route_repair';
 					$linguistic_state = 'route_repair_required';
-				} elseif ( '' !== $source_hash && '' !== $current_source_hash && $source_hash !== $current_source_hash ) {
+				} elseif ( $source_reprojection ) {
 					++$totals['needs_source_reprojection'];
 					++$totals['needs_draft_work'];
 					$obligations[] = 'source_reprojection';
 				} else {
-					$review_obligation = Devenia_AI_Translations_Workflow_State_Model::next_review_obligation( $linguistic_reviewed_at, $quality_reviewed_at, $final_reviewed_at );
+					$review_obligation = Devenia_AI_Translations_Workflow_State_Model::next_review_obligation(
+						$linguistic_current ? $linguistic_reviewed_at : '',
+						$quality_current ? $quality_reviewed_at : '',
+						$final_current ? $final_reviewed_at : ''
+					);
 					if ( 'linguistic_review' === $review_obligation ) {
 						++$totals['needs_linguistic_review'];
 					}
@@ -421,10 +453,10 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 						$obligations[] = $review_obligation;
 					}
 				}
-				if ( '' === $quality_reviewed_at ) {
+				if ( ! $quality_current ) {
 					++$totals['needs_quality_review'];
 				}
-				if ( '' === $final_reviewed_at ) {
+				if ( ! $final_current ) {
 					++$totals['needs_final_review'];
 				}
 

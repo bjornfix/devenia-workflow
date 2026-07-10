@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.525
+ * Version: 0.1.526
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -50,7 +50,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Workflow_State;
 	use Devenia_AI_Translations_Work_Item_Catalog;
 
-	const VERSION = '0.1.525';
+	const VERSION = '0.1.526';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -15946,7 +15946,7 @@ final class Devenia_AI_Translations {
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function quality_review_readiness_for_post( WP_Post $post, string $language = '' ): array {
+	private static function quality_review_readiness_for_post( WP_Post $post, string $language = '', bool $check_publication_experience = true ): array {
 		$post_id     = (int) $post->ID;
 		$language    = sanitize_key( $language );
 		$required    = self::required_quality_review_checks( $language );
@@ -15958,7 +15958,9 @@ final class Devenia_AI_Translations {
 		$source      = $source_id ? get_post( $source_id ) : null;
 			$current_translation_hash = self::translation_review_content_hash( $post );
 			$current_source_hash      = $source ? self::source_hash( $source ) : '';
-			$publication_experience   = self::publication_experience_readiness_for_post( $post, $language, 'quality_readiness' );
+			$publication_experience   = $check_publication_experience
+				? self::publication_experience_readiness_for_post( $post, $language, 'quality_readiness' )
+				: array( 'passed' => true, 'state' => 'deferred_to_review_write_gate' );
 			$stale_reasons = array();
 
 		if ( '' === $reviewed_at ) {
@@ -15970,7 +15972,7 @@ final class Devenia_AI_Translations {
 			if ( self::open_copy_feedback_for_post( $post_id ) ) {
 				$stale_reasons[] = 'open_copy_feedback';
 			}
-			if ( empty( $publication_experience['passed'] ) ) {
+			if ( $check_publication_experience && empty( $publication_experience['passed'] ) ) {
 				$stale_reasons[] = 'publication_experience_not_ready';
 			}
 			if ( empty( $evidence ) ) {
@@ -16030,7 +16032,7 @@ final class Devenia_AI_Translations {
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function final_review_readiness_for_post( WP_Post $post, string $language = '' ): array {
+	private static function final_review_readiness_for_post( WP_Post $post, string $language = '', bool $check_publication_experience = true ): array {
 		$post_id = (int) $post->ID;
 		$language = sanitize_key( $language );
 		$required = self::required_final_review_checks( $language );
@@ -16042,7 +16044,9 @@ final class Devenia_AI_Translations {
 			$source = $source_id ? get_post( $source_id ) : null;
 			$current_translation_hash = self::translation_review_content_hash( $post );
 			$current_source_hash = $source ? self::source_hash( $source ) : '';
-			$publication_experience = self::publication_experience_readiness_for_post( $post, $language, 'final_readiness' );
+			$publication_experience = $check_publication_experience
+				? self::publication_experience_readiness_for_post( $post, $language, 'final_readiness' )
+				: array( 'passed' => true, 'state' => 'deferred_to_review_write_gate' );
 			$stale_reasons = array();
 
 		if ( '' === $reviewed_at ) {
@@ -16051,7 +16055,7 @@ final class Devenia_AI_Translations {
 			if ( $missing ) {
 				$stale_reasons[] = 'missing_required_checks';
 			}
-			if ( empty( $publication_experience['passed'] ) ) {
+			if ( $check_publication_experience && empty( $publication_experience['passed'] ) ) {
 				$stale_reasons[] = 'publication_experience_not_ready';
 			}
 			if ( empty( $evidence ) ) {
