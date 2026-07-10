@@ -13,10 +13,6 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 	private static function next_heartbeat_action( array $input ): array {
 		$limit = isset( $input['limit'] ) ? max( 1, min( 200, absint( $input['limit'] ) ) ) : 100;
 		$claim = ! empty( $input['claim'] );
-		$ttl_seconds = isset( $input['ttl_seconds'] )
-			? max( 60, min( self::MAX_TRANSLATION_CLAIM_TTL, absint( $input['ttl_seconds'] ) ) )
-			: 600;
-		$note = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 
 		$identity = self::translation_step_token_gate( 'quality_review', $input );
 		if ( empty( $identity['success'] ) ) {
@@ -36,109 +32,41 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 				'identity' => self::public_heartbeat_identity( is_array( $identity ) ? $identity : array() ),
 			);
 		}
-
-		$obligations = self::heartbeat_obligations(
-			array(
-				'limit' => $limit,
-				'include_items' => true,
-			)
-		);
-		if ( empty( $obligations['success'] ) ) {
-			self::record_heartbeat_state( $input, array( 'action' => 'escalate', 'reason' => 'workflow_obligations_failed' ), $identity );
-			return $obligations;
+		if ( $claim ) {
+			$result = self::assignment_lifecycle_accept( $input, $identity );
+			self::record_heartbeat_state( $input, is_array( $result['selected'] ?? null ) ? $result['selected'] : array( 'action' => 'escalate', 'reason' => 'assignment_accept_failed' ), $identity );
+			return $result;
 		}
 
-		$skipped = array();
-		foreach ( $obligations['items'] ?? array() as $item ) {
-			if ( ! is_array( $item ) ) {
-				continue;
-			}
-			$translation_id = absint( $item['translation_id'] ?? 0 );
-			$source_id = absint( $item['source_id'] ?? 0 );
-			$language = sanitize_key( (string) ( $item['language'] ?? '' ) );
-			$work_scope = 'source' === sanitize_key( (string) ( $item['work_scope'] ?? '' ) ) ? 'source' : 'translation';
-			$work_type  = sanitize_key( (string) ( $item['work_type'] ?? '' ) );
-			if ( ! $source_id || ( 'translation' === $work_scope && ! self::is_translation_language( $language ) ) ) {
-				continue;
-			}
+		$input['limit'] = $limit;
+		$plan = self::work_item_plan( $input, $identity );
+		if ( empty( $plan['success'] ) ) {
+			self::record_heartbeat_state( $input, array( 'action' => 'escalate', 'reason' => 'work_item_plan_failed' ), $identity );
+			return $plan;
+		}
 
-			$reservation = 'source' === $work_scope
-				? self::source_work_reservation_for_type( $source_id, $work_type )
-				: self::translation_reservation_for_language( $source_id, $language );
-			if ( $reservation ) {
-				$skipped[] = self::heartbeat_skip_summary( $item, 'reserved' );
+		$skipped = isset( $plan['skipped'] ) && is_array( $plan['skipped'] ) ? $plan['skipped'] : array();
+		foreach ( $plan['candidates'] ?? array() as $selected ) {
+			if ( ! is_array( $selected ) ) {
 				continue;
 			}
 
-			$item_obligations = self::heartbeat_actionable_obligations( $item['obligations'] ?? array() );
-			if ( empty( $item_obligations ) ) {
-				continue;
-			}
-
-			foreach ( $item_obligations as $obligation ) {
-				$eligibility = self::heartbeat_obligation_uses_draft_work_identity( $obligation )
-					? self::heartbeat_draft_work_eligibility( $identity )
-					: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
-				if ( empty( $eligibility['success'] ) ) {
-					$skipped[] = self::heartbeat_skip_summary( $item, sanitize_key( (string) ( $eligibility['code'] ?? 'not_eligible' ) . '_' . $obligation ) );
-					continue;
-				}
-
-				$action = self::heartbeat_action_for_obligation( $obligation );
-				if ( self::heartbeat_repeats_previous_item_for_actor( $input, $identity, $translation_id, $source_id, $language, $action['action'] ) ) {
-					$skipped[] = self::heartbeat_skip_summary( $item, 'repeated_same_item_for_actor_' . $obligation );
-					continue;
-				}
-				$selected = array(
-					'action' => $action['action'],
-					'workflow_step' => $action['workflow_step'],
-					'required_ability' => $action['required_ability'],
-					'completion_abilities' => isset( $action['completion_abilities'] ) && is_array( $action['completion_abilities'] ) ? array_values( array_map( 'sanitize_text_field', $action['completion_abilities'] ) ) : array(),
-					'completion_policy' => sanitize_textarea_field( (string) ( $action['completion_policy'] ?? '' ) ),
-					'work_scope' => $work_scope,
-					'work_type' => $work_type,
-					'source_id' => $source_id,
-					'source_title' => sanitize_text_field( (string) ( $item['source_title'] ?? '' ) ),
-					'translation_id' => $translation_id,
-					'language' => $language,
-					'post_status' => sanitize_key( (string) ( $item['post_status'] ?? '' ) ),
-					'obligation' => $obligation,
-					'instructions' => $action['instructions'],
-					'review_surface_guidance' => self::heartbeat_review_surface_guidance( $obligation, $translation_id, $language, sanitize_key( (string) ( $item['post_status'] ?? '' ) ) ),
-					'design_ownership' => isset( $action['design_ownership'] ) && is_array( $action['design_ownership'] ) ? $action['design_ownership'] : array(),
-					'claim_required_for_writes' => true,
-					'independence' => self::heartbeat_independence_summary( $eligibility, $obligation ),
-				);
-
-				$claim_result = null;
-				if ( $claim ) {
-					$claim_result = self::reserve_translation_work( self::assignment_authority_reservation_input( $selected, $identity, $input, $ttl_seconds, $note ) );
-					if ( empty( $claim_result['success'] ) ) {
-						$skipped[] = self::heartbeat_skip_summary( $item, 'claim_conflict' );
-						continue 2;
-					}
-					$claim_identity = self::assignment_authority_claim_identity( $claim_result, $identity, $input );
-					if ( empty( $claim_identity['success'] ) ) {
-						$skipped[] = self::heartbeat_skip_summary( $item, sanitize_key( (string) ( $claim_identity['code'] ?? 'claim_identity_mismatch' ) ) );
-						continue 2;
-					}
-					$selected['claim_token'] = (string) ( $claim_result['claim_token'] ?? '' );
-					$selected['reservation'] = $claim_identity['reservation'];
-				}
-
-				self::record_heartbeat_state( $input, $selected, $identity );
-				return array(
-					'success' => true,
-					'action' => $selected['action'],
-					'mode' => $claim ? 'claimed' : 'observe',
-					'identity' => self::public_heartbeat_identity( $identity ),
-					'selected' => $selected,
-					'totals' => $obligations['totals'] ?? array(),
-					'skipped_count' => count( $skipped ),
-					'skipped_sample' => array_slice( $skipped, 0, 10 ),
-					'heartbeat_policy' => self::heartbeat_policy(),
-				);
-			}
+			self::record_heartbeat_state( $input, $selected, $identity );
+			return array(
+				'success' => true,
+				'action' => $selected['action'],
+				'mode' => 'observe',
+				'identity' => self::public_heartbeat_identity( $identity ),
+				'selected' => $selected,
+				'totals' => $plan['totals'] ?? array(),
+				'skipped_count' => count( $skipped ),
+				'skipped_sample' => array_slice( $skipped, 0, 10 ),
+				'planner' => array(
+					'source_scan_count' => absint( $plan['source_scan_count'] ?? 0 ),
+					'item_count' => absint( $plan['item_count'] ?? 0 ),
+				),
+				'heartbeat_policy' => self::heartbeat_policy(),
+			);
 		}
 
 		$wait = array(
@@ -153,9 +81,13 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			'mode' => 'observe',
 			'identity' => self::public_heartbeat_identity( $identity ),
 			'selected' => $wait,
-			'totals' => $obligations['totals'] ?? array(),
+			'totals' => $plan['totals'] ?? array(),
 			'skipped_count' => count( $skipped ),
 			'skipped_sample' => array_slice( $skipped, 0, 10 ),
+			'planner' => array(
+				'source_scan_count' => absint( $plan['source_scan_count'] ?? 0 ),
+				'item_count' => absint( $plan['item_count'] ?? 0 ),
+			),
 			'heartbeat_policy' => self::heartbeat_policy(),
 		);
 	}
@@ -199,30 +131,6 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 	private static function heartbeat_assignment_coverage( array $input ): array {
 		$limit = isset( $input['limit'] ) ? max( 1, min( 500, absint( $input['limit'] ) ) ) : 500;
 		$include_items = ! empty( $input['include_items'] );
-		$obligations = self::heartbeat_obligations(
-			array(
-				'limit' => $limit,
-				'include_items' => true,
-				'include_publish_items' => true,
-			)
-		);
-		if ( empty( $obligations['success'] ) ) {
-			return $obligations;
-		}
-
-		$supported_obligations = self::heartbeat_supported_obligations();
-		$coverage = array(
-			'items_seen' => 0,
-			'actionable_items' => 0,
-			'reserved_items' => 0,
-			'uncovered_items' => 0,
-			'claimable_for_actor' => null,
-			'skipped_for_actor' => null,
-			'by_obligation' => array_fill_keys( $supported_obligations, 0 ),
-			'claimable_by_obligation' => array_fill_keys( $supported_obligations, 0 ),
-			'uncovered_by_obligation' => array_fill_keys( $supported_obligations, 0 ),
-			'skipped_by_reason' => array(),
-		);
 		$identity = array();
 		$identity_error = null;
 		$needs_identity = ! empty( $input['agent_session_id'] ) || ! empty( $input['session_binding_token'] );
@@ -230,8 +138,6 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			$identity_result = self::translation_step_token_gate( 'quality_review', $input );
 			if ( ! empty( $identity_result['success'] ) ) {
 				$identity = $identity_result;
-				$coverage['claimable_for_actor'] = 0;
-				$coverage['skipped_for_actor'] = 0;
 			} else {
 				$identity_error = array(
 					'code' => sanitize_key( (string) ( $identity_result['code'] ?? 'workflow_identity_not_confirmed' ) ),
@@ -240,104 +146,28 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			}
 		}
 
-		$uncovered_samples = array();
-		$skipped_samples = array();
-		foreach ( $obligations['items'] ?? array() as $item ) {
-			if ( ! is_array( $item ) ) {
-				continue;
-			}
-			$coverage['items_seen']++;
-			$item_obligations = self::heartbeat_actionable_obligations( $item['obligations'] ?? array() );
-			if ( empty( $item_obligations ) ) {
-				continue;
-			}
-			$coverage['actionable_items']++;
-
-			$source_id = absint( $item['source_id'] ?? 0 );
-			$translation_id = absint( $item['translation_id'] ?? 0 );
-			$language = sanitize_key( (string) ( $item['language'] ?? '' ) );
-			$work_scope = 'source' === sanitize_key( (string) ( $item['work_scope'] ?? '' ) ) ? 'source' : 'translation';
-			$work_type = sanitize_key( (string) ( $item['work_type'] ?? '' ) );
-			$reservation = 'source' === $work_scope
-				? self::source_work_reservation_for_type( $source_id, $work_type )
-				: self::translation_reservation_for_language( $source_id, $language );
-			$is_reserved = ! empty( $reservation );
-			if ( $is_reserved ) {
-				$coverage['reserved_items']++;
-			}
-
-			$item_uncovered = false;
-			$item_claimable = false;
-			$actor_skip_reason = '';
-			foreach ( $item_obligations as $obligation ) {
-				if ( ! isset( $coverage['by_obligation'][ $obligation ] ) ) {
-					continue;
-				}
-				$coverage['by_obligation'][ $obligation ]++;
-				$action = self::heartbeat_action_for_obligation( $obligation );
-				if ( 'wait' === sanitize_key( (string) ( $action['action'] ?? '' ) ) || '' === (string) ( $action['required_ability'] ?? '' ) ) {
-					$item_uncovered = true;
-					$coverage['uncovered_by_obligation'][ $obligation ]++;
-					continue;
-				}
-
-				if ( empty( $identity ) ) {
-					continue;
-				}
-				if ( $is_reserved ) {
-					$actor_skip_reason = 'reserved';
-					continue;
-				}
-				$eligibility = self::heartbeat_obligation_uses_draft_work_identity( $obligation )
-					? self::heartbeat_draft_work_eligibility( $identity )
-					: self::heartbeat_translation_review_eligibility( $translation_id, $identity, $obligation );
-				if ( empty( $eligibility['success'] ) ) {
-					$actor_skip_reason = sanitize_key( (string) ( $eligibility['code'] ?? 'not_eligible' ) . '_' . $obligation );
-					continue;
-				}
-				if ( self::heartbeat_repeats_previous_item_for_actor( $input, $identity, $translation_id, $source_id, $language, sanitize_key( (string) $action['action'] ) ) ) {
-					$actor_skip_reason = 'repeated_same_item_for_actor_' . $obligation;
-					continue;
-				}
-
-				$item_claimable = true;
-				$coverage['claimable_by_obligation'][ $obligation ]++;
-				break;
-			}
-
-			if ( $item_uncovered ) {
-				$coverage['uncovered_items']++;
-				if ( $include_items && count( $uncovered_samples ) < 20 ) {
-					$uncovered_samples[] = self::heartbeat_skip_summary( $item, 'unsupported_assignment_mapping' );
-				}
-			}
-			if ( ! empty( $identity ) ) {
-				if ( $item_claimable ) {
-					$coverage['claimable_for_actor']++;
-				} else {
-					$coverage['skipped_for_actor']++;
-					$reason = '' !== $actor_skip_reason ? $actor_skip_reason : 'not_eligible';
-					$coverage['skipped_by_reason'][ $reason ] = absint( $coverage['skipped_by_reason'][ $reason ] ?? 0 ) + 1;
-					if ( $include_items && count( $skipped_samples ) < 20 ) {
-						$skipped_samples[] = self::heartbeat_skip_summary( $item, $reason );
-					}
-				}
-			}
+		$input['limit'] = $limit;
+		$input['collect_candidates'] = false;
+		$plan = self::work_item_plan( $input, $identity );
+		if ( empty( $plan['success'] ) ) {
+			return $plan;
 		}
 
 		$result = array(
 			'success' => true,
-			'read_model' => 'heartbeat_assignment_coverage',
+			'read_model' => 'work_item_plan_coverage',
 			'limit' => $limit,
-			'totals' => $obligations['totals'] ?? array(),
-			'coverage' => $coverage,
+			'source_scan_count' => absint( $plan['source_scan_count'] ?? 0 ),
+			'item_count' => absint( $plan['item_count'] ?? 0 ),
+			'totals' => $plan['totals'] ?? array(),
+			'coverage' => $plan['coverage'] ?? array(),
 			'identity' => ! empty( $identity ) ? self::public_heartbeat_identity( $identity ) : null,
 			'identity_error' => $identity_error,
 			'heartbeat_policy' => self::heartbeat_policy(),
 		);
 		if ( $include_items ) {
-			$result['uncovered_sample'] = $uncovered_samples;
-			$result['skipped_sample'] = $skipped_samples;
+			$result['uncovered_sample'] = array_slice( is_array( $plan['uncovered'] ?? null ) ? $plan['uncovered'] : array(), 0, 20 );
+			$result['skipped_sample'] = array_slice( is_array( $plan['skipped'] ?? null ) ? $plan['skipped'] : array(), 0, 20 );
 		}
 
 		return $result;
@@ -411,20 +241,22 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 	 *
 	 * @param array<int,string> $source_language_tokens Precomputed source tokens.
 	 */
-	private static function heartbeat_translation_slug_language_issue( string $slug, string $language, WP_Post $source, array $source_language_tokens ): bool {
+	private static function heartbeat_translation_slug_language_issue( int $translation_id, string $slug, string $language, WP_Post $source, array $source_language_tokens ): bool {
 		$slug     = sanitize_title( $slug );
 		$language = sanitize_key( $language );
 		if ( '' === $slug || '' === $language || ! self::language_requires_transliterated_urls( $language ) ) {
 			return false;
 		}
-		if ( self::has_wordpress_duplicate_slug_suffix( $slug ) ) {
-			return true;
-		}
-		if ( self::validate_transliterated_segment_not_source_copy( $slug, array( (string) $source->post_name ), $language, false, '', 'localized_slug' ) ) {
-			return true;
+		$potential_issue = self::has_wordpress_duplicate_slug_suffix( $slug )
+			|| null !== self::validate_transliterated_segment_not_source_copy( $slug, array( (string) $source->post_name ), $language, false, '', 'localized_slug' )
+			|| null !== self::validate_transliterated_segment_not_source_vocabulary_tokens( $slug, $source_language_tokens, $language, 'localized_slug' );
+		if ( ! $potential_issue ) {
+			return false;
 		}
 
-		return null !== self::validate_transliterated_segment_not_source_vocabulary_tokens( $slug, $source_language_tokens, $language, 'localized_slug' );
+		// The authoritative route check also honors reviewed source-slug
+		// exceptions. The fast prefilter must never create work it would pass.
+		return null !== self::translated_post_slug_language_issue( $translation_id, $slug, $language );
 	}
 
 	private static function heartbeat_first_actionable_obligation( $obligations ): string {
@@ -774,35 +606,6 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			&& '' !== sanitize_text_field( (string) ( $action['required_ability'] ?? '' ) );
 	}
 
-	private static function heartbeat_repeats_previous_item_for_actor( array $input, array $identity, int $translation_id, int $source_id, string $language, string $action ): bool {
-		$agent_session_id = self::normalize_control_scope_id( (string) ( $input['agent_session_id'] ?? $identity['agent_session_id'] ?? $identity['control_scope_id'] ?? '' ) );
-		if ( '' === $agent_session_id ) {
-			return false;
-		}
-
-		$heartbeats = get_option( self::OPTION_HEARTBEATS, array() );
-		if ( ! is_array( $heartbeats ) || empty( $heartbeats[ $agent_session_id ] ) || ! is_array( $heartbeats[ $agent_session_id ] ) ) {
-			return false;
-		}
-		$previous = $heartbeats[ $agent_session_id ];
-		if ( absint( $previous['last_source_id'] ?? 0 ) !== $source_id ) {
-			return false;
-		}
-		if ( absint( $previous['last_translation_id'] ?? 0 ) !== $translation_id ) {
-			return false;
-		}
-		if ( sanitize_key( (string) ( $previous['last_language'] ?? '' ) ) !== $language ) {
-			return false;
-		}
-		if ( sanitize_key( (string) ( $previous['last_action'] ?? '' ) ) !== sanitize_key( $action ) ) {
-			return false;
-		}
-
-		// A changed post may be this actor's own work. Another independent session
-		// can safely take the item; this session should move to different work.
-		return true;
-	}
-
 	private static function reviewer_identity_matches_provenance( array $reviewer, array $provenance ): bool {
 		$reviewer_control_scope = self::normalize_control_scope_id( (string) ( $reviewer['control_scope_id'] ?? '' ) );
 		$provenance_control_scope = self::normalize_control_scope_id( (string) ( $provenance['control_scope_id'] ?? '' ) );
@@ -852,6 +655,8 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 	private static function heartbeat_skip_summary( array $item, string $reason ): array {
 		return array(
 			'reason' => sanitize_key( $reason ),
+			'work_item_id' => sanitize_text_field( (string) ( $item['work_item_id'] ?? '' ) ),
+			'revision' => sanitize_text_field( (string) ( $item['revision'] ?? '' ) ),
 			'source_id' => absint( $item['source_id'] ?? 0 ),
 			'translation_id' => absint( $item['translation_id'] ?? 0 ),
 			'language' => sanitize_key( (string) ( $item['language'] ?? '' ) ),
@@ -1102,7 +907,6 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			$previous = isset( $heartbeats[ $agent_session_id ] ) && is_array( $heartbeats[ $agent_session_id ] )
 				? $heartbeats[ $agent_session_id ]
 				: array();
-
 			$heartbeats[ $agent_session_id ] = array(
 				'agent_session_id' => $agent_session_id,
 				'llm_vendor' => sanitize_text_field( (string) ( $input['llm_vendor'] ?? $identity['llm_vendor'] ?? '' ) ),
@@ -1136,7 +940,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 					return;
 				}
 			} else {
-				$updated = $wpdb->query(
+				$updated = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Heartbeat state uses compare-and-swap so concurrent sessions cannot overwrite each other.
 					$wpdb->prepare(
 						"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
 						maybe_serialize( $heartbeats ),
@@ -1154,6 +958,6 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			usleep( 20000 );
 		}
 
-		error_log( sprintf( 'AI Translation Workflow could not record heartbeat state for session %s after concurrent update retries.', $agent_session_id ) );
+		do_action( 'devenia_ai_translations_heartbeat_write_failed', $agent_session_id );
 	}
 }

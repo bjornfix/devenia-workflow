@@ -205,7 +205,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 				continue;
 			}
 
-			$claim = array(
+			$claim = array_merge(
+				array(
 				'source_id'  => $source_id,
 				'language'   => $language,
 				'token'      => $token,
@@ -221,6 +222,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 				'actor_id'   => $actor_id,
 				'claimed_at' => gmdate( 'c', $now ),
 				'expires_at' => gmdate( 'c', $now + $ttl_seconds ),
+				),
+				self::assignment_reservation_metadata_from_input( $input )
 			);
 			$key   = self::translation_reservation_option_name( $source_id, $language );
 			$saved = $force ? update_option( $key, $claim, false ) : add_option( $key, $claim, '', 'no' );
@@ -328,6 +331,9 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			}
 
 			delete_option( $key );
+			if ( method_exists( __CLASS__, 'assignment_compatibility_reservation_released' ) ) {
+				self::assignment_compatibility_reservation_released( $existing );
+			}
 			$released[] = $language;
 		}
 
@@ -446,6 +452,33 @@ trait Devenia_AI_Translations_Translation_Reservations {
 	}
 
 	/**
+	 * Assignment metadata persisted with an internal Reservation.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function assignment_reservation_metadata_from_input( array $input ): array {
+		return array(
+			'assignment_id'         => sanitize_text_field( (string) ( $input['assignment_id'] ?? '' ) ),
+			'work_item_id'          => sanitize_text_field( (string) ( $input['work_item_id'] ?? '' ) ),
+			'work_item_revision'    => sanitize_text_field( (string) ( $input['work_item_revision'] ?? '' ) ),
+			'assignment_action'     => sanitize_key( (string) ( $input['assignment_action'] ?? '' ) ),
+			'assignment_obligation' => sanitize_key( (string) ( $input['assignment_obligation'] ?? '' ) ),
+			'assignment_workflow_step' => sanitize_key( (string) ( $input['assignment_workflow_step'] ?? '' ) ),
+			'assignment_translation_id' => absint( $input['assignment_translation_id'] ?? 0 ),
+			'assignment_work_type'  => sanitize_key( (string) ( $input['assignment_work_type'] ?? '' ) ),
+		);
+	}
+
+	/**
+	 * Sanitize Assignment metadata stored with a Reservation.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function sanitize_assignment_reservation_metadata( array $claim ): array {
+		return self::assignment_reservation_metadata_from_input( $claim );
+	}
+
+	/**
 	 * Return an active reservation for a source/language pair.
 	 */
 	private static function translation_reservation_for_language( int $source_id, string $language, bool $include_expired = false ): array {
@@ -485,7 +518,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			$expires_ts = time() - 1;
 		}
 
-		return array(
+		return array_merge(
+			array(
 			'source_id'  => $source_id,
 			'language'   => $language,
 			'token'      => $token,
@@ -502,6 +536,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'claimed_at' => sanitize_text_field( (string) ( $claim['claimed_at'] ?? '' ) ),
 			'expires_at' => gmdate( 'c', $expires_ts ),
 			'expired'    => $expires_ts <= time(),
+			),
+			self::sanitize_assignment_reservation_metadata( $claim )
 		);
 	}
 
@@ -509,7 +545,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 	 * Return reservation data safe to expose in queue/status output.
 	 */
 	private static function public_translation_reservation( array $claim ): array {
-		return array(
+		return array_merge(
+			array(
 			'work_scope' => 'translation',
 			'work_type'  => 'translation',
 			'source_id'  => absint( $claim['source_id'] ?? 0 ),
@@ -527,6 +564,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'claimed_at' => sanitize_text_field( (string) ( $claim['claimed_at'] ?? '' ) ),
 			'expires_at' => sanitize_text_field( (string) ( $claim['expires_at'] ?? '' ) ),
 			'expired'    => ! empty( $claim['expired'] ),
+			),
+			self::sanitize_assignment_reservation_metadata( $claim )
 		);
 	}
 
@@ -574,7 +613,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			);
 		}
 
-		$claim = array(
+		$claim = array_merge(
+			array(
 			'work_scope' => 'source',
 			'work_type'  => $work_type,
 			'source_id'  => $source_id,
@@ -591,6 +631,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'actor_id'   => $actor_id,
 			'claimed_at' => gmdate( 'c', $now ),
 			'expires_at' => gmdate( 'c', $now + $ttl_seconds ),
+			),
+			self::assignment_reservation_metadata_from_input( $input )
 		);
 		$key   = self::source_work_reservation_option_name( $source_id, $work_type );
 		$saved = $force ? update_option( $key, $claim, false ) : add_option( $key, $claim, '', 'no' );
@@ -660,6 +702,9 @@ trait Devenia_AI_Translations_Translation_Reservations {
 		}
 
 		delete_option( $key );
+		if ( method_exists( __CLASS__, 'assignment_compatibility_reservation_released' ) ) {
+			self::assignment_compatibility_reservation_released( $existing );
+		}
 		return array(
 			'success' => true,
 			'message' => 'Source work reservation released.',
@@ -702,7 +747,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			$expires_ts = time() - 1;
 		}
 
-		return array(
+		return array_merge(
+			array(
 			'work_scope' => 'source',
 			'work_type'  => $work_type,
 			'source_id'  => $source_id,
@@ -720,11 +766,14 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'claimed_at' => sanitize_text_field( (string) ( $claim['claimed_at'] ?? '' ) ),
 			'expires_at' => gmdate( 'c', $expires_ts ),
 			'expired'    => $expires_ts <= time(),
+			),
+			self::sanitize_assignment_reservation_metadata( $claim )
 		);
 	}
 
 	private static function public_source_work_reservation( array $claim ): array {
-		return array(
+		return array_merge(
+			array(
 			'work_scope' => 'source',
 			'work_type'  => self::sanitize_work_type( (string) ( $claim['work_type'] ?? '' ) ),
 			'source_id'  => absint( $claim['source_id'] ?? 0 ),
@@ -742,6 +791,8 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			'claimed_at' => sanitize_text_field( (string) ( $claim['claimed_at'] ?? '' ) ),
 			'expires_at' => sanitize_text_field( (string) ( $claim['expires_at'] ?? '' ) ),
 			'expired'    => ! empty( $claim['expired'] ),
+			),
+			self::sanitize_assignment_reservation_metadata( $claim )
 		);
 	}
 

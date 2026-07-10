@@ -20,6 +20,14 @@ trait Devenia_AI_Translations_Assignment_Authority {
 	 */
 	private static function assignment_authority_reservation_input( array $selected, array $identity, array $input, int $ttl_seconds, string $note ): array {
 		return array(
+			'assignment_id'         => sanitize_text_field( (string) ( $selected['assignment_id'] ?? '' ) ),
+			'work_item_id'          => sanitize_text_field( (string) ( $selected['work_item_id'] ?? '' ) ),
+			'work_item_revision'    => sanitize_text_field( (string) ( $selected['revision'] ?? '' ) ),
+			'assignment_action'     => sanitize_key( (string) ( $selected['action'] ?? '' ) ),
+			'assignment_obligation' => sanitize_key( (string) ( $selected['obligation'] ?? '' ) ),
+			'assignment_workflow_step' => sanitize_key( (string) ( $selected['workflow_step'] ?? '' ) ),
+			'assignment_translation_id' => absint( $selected['translation_id'] ?? 0 ),
+			'assignment_work_type'  => sanitize_key( (string) ( $selected['work_type'] ?? '' ) ),
 			'source_id'             => absint( $selected['source_id'] ?? 0 ),
 			'work_scope'            => (string) ( $selected['work_scope'] ?? '' ),
 			'work_type'             => (string) ( $selected['work_type'] ?? '' ),

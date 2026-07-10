@@ -373,6 +373,9 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 								'linguistic' => 'missing_translation',
 								'quality' => 'missing_translation',
 								'final' => 'missing_translation',
+								'revision_evidence' => array(
+									'current_source_hash' => $current_source_hash,
+								),
 							)
 						);
 					}
@@ -392,7 +395,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				$final_reviewed_at = (string) ( $translation['final_reviewed_at'] ?? '' );
 				$slug = sanitize_title( (string) ( $translation['slug'] ?? '' ) );
 				$obligations = array();
-				$route_issue = self::heartbeat_translation_slug_language_issue( $slug, $language, $source, $source_language_tokens );
+				$route_issue = self::heartbeat_translation_slug_language_issue( $translation_id, $slug, $language, $source, $source_language_tokens );
 				$content_integrity = ! empty( $translation['content_integrity_issue_count'] );
 				$source_reprojection = '' !== $source_hash && '' !== $current_source_hash && $source_hash !== $current_source_hash;
 				$has_repair_prerequisite = $content_integrity || $route_issue || $source_reprojection;
@@ -479,6 +482,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 								'linguistic' => $linguistic_state,
 								'quality' => $quality_state,
 								'final' => $final_state,
+								'revision_evidence' => self::translation_work_item_revision_evidence( $translation, $current_source_hash ),
 							)
 						);
 					}
@@ -501,6 +505,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 							'linguistic' => $linguistic_state,
 							'quality' => $quality_state,
 							'final' => $final_state,
+							'revision_evidence' => self::translation_work_item_revision_evidence( $translation, $current_source_hash ),
 						)
 					);
 				}
@@ -535,6 +540,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				'linguistic' => 'content_integrity_repair_required',
 				'quality' => 'content_integrity_repair_required',
 				'final' => 'content_integrity_repair_required',
+				'revision_evidence' => self::source_work_item_revision_evidence( $source ),
 			)
 		);
 	}
@@ -572,6 +578,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				'linguistic' => 'source_design_repair_required',
 				'quality' => 'source_design_repair_required',
 				'final' => 'source_design_repair_required',
+				'revision_evidence' => self::source_work_item_revision_evidence( $source ),
 			)
 		);
 	}
@@ -608,6 +615,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				'linguistic' => 'source_taxonomy_review_required',
 				'quality' => 'source_taxonomy_review_required',
 				'final' => 'source_taxonomy_review_required',
+				'revision_evidence' => self::source_work_item_revision_evidence( $source ),
 			)
 		);
 	}
@@ -651,7 +659,76 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			$item['source_taxonomy'] = $extra['source_taxonomy'];
 		}
 
+		$work_item_identity = array(
+			'work_scope'     => $scope,
+			'work_type'      => $work_type,
+			'source_id'      => $source_id,
+			'translation_id' => $translation_id,
+			'language'       => sanitize_key( $language ),
+		);
+		$item['work_item_id'] = 'wi_' . substr( hash( 'sha256', wp_json_encode( $work_item_identity ) ), 0, 32 );
+		$revision_payload = $item;
+		unset( $revision_payload['reservation_key'] );
+		$revision_payload['evidence'] = isset( $extra['revision_evidence'] ) && is_array( $extra['revision_evidence'] )
+			? $extra['revision_evidence']
+			: array();
+		$revision_payload = self::canonical_work_item_revision_value( $revision_payload );
+		$item['revision'] = 'r_' . substr( hash( 'sha256', wp_json_encode( $revision_payload ) ), 0, 32 );
+
 		return $item;
+	}
+
+	/**
+	 * Evidence that changes a source-scoped Work Item revision.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function source_work_item_revision_evidence( WP_Post $source ): array {
+		return array(
+			'source_hash' => self::source_hash( $source ),
+			'modified'    => sanitize_text_field( (string) $source->post_modified_gmt ),
+		);
+	}
+
+	/**
+	 * Evidence that changes a translation Work Item revision.
+	 *
+	 * @param array<string,mixed> $translation Compact translation row.
+	 * @return array<string,mixed>
+	 */
+	private static function translation_work_item_revision_evidence( array $translation, string $current_source_hash ): array {
+		return array(
+			'current_source_hash'    => $current_source_hash,
+			'stored_source_hash'     => sanitize_text_field( (string) ( $translation['source_hash'] ?? '' ) ),
+			'translation_modified'   => sanitize_text_field( (string) ( $translation['modified'] ?? '' ) ),
+			'slug'                   => sanitize_title( (string) ( $translation['slug'] ?? '' ) ),
+			'localized_path'         => trim( sanitize_text_field( (string) ( $translation['localized_path'] ?? '' ) ), '/' ),
+			'content_issue_count'    => absint( $translation['content_integrity_issue_count'] ?? 0 ),
+			'linguistic_reviewed_at' => sanitize_text_field( (string) ( $translation['linguistic_reviewed_at'] ?? '' ) ),
+			'quality_reviewed_at'    => sanitize_text_field( (string) ( $translation['quality_reviewed_at'] ?? '' ) ),
+			'final_reviewed_at'      => sanitize_text_field( (string) ( $translation['final_reviewed_at'] ?? '' ) ),
+		);
+	}
+
+	/**
+	 * Recursively normalize associative evidence before hashing.
+	 *
+	 * @return mixed
+	 */
+	private static function canonical_work_item_revision_value( $value ) {
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+
+		$is_list = array() === $value || array_keys( $value ) === range( 0, count( $value ) - 1 );
+		if ( ! $is_list ) {
+			ksort( $value );
+		}
+		foreach ( $value as $key => $nested ) {
+			$value[ $key ] = self::canonical_work_item_revision_value( $nested );
+		}
+
+		return $value;
 	}
 
 	/**

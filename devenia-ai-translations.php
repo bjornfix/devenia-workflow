@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.530
+ * Version: 0.1.531
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -22,6 +22,7 @@ require_once __DIR__ . '/includes/trait-featured-image-repair.php';
 require_once __DIR__ . '/includes/trait-ability-platform.php';
 require_once __DIR__ . '/includes/trait-ability-catalogue.php';
 require_once __DIR__ . '/includes/trait-assignment-authority.php';
+require_once __DIR__ . '/includes/trait-assignment-lifecycle.php';
 require_once __DIR__ . '/includes/trait-quality-engine.php';
 require_once __DIR__ . '/includes/trait-read-model-snapshots.php';
 require_once __DIR__ . '/includes/trait-presentation-adapter.php';
@@ -29,6 +30,7 @@ require_once __DIR__ . '/includes/trait-translation-reservations.php';
 require_once __DIR__ . '/includes/trait-agent-session-identity.php';
 require_once __DIR__ . '/includes/trait-heartbeat-workflow.php';
 require_once __DIR__ . '/includes/trait-work-item-catalog.php';
+require_once __DIR__ . '/includes/trait-work-item-planner.php';
 require_once __DIR__ . '/includes/trait-translation-read-models.php';
 require_once __DIR__ . '/includes/trait-translation-provenance.php';
 require_once __DIR__ . '/includes/class-workflow-state-model.php';
@@ -49,8 +51,10 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Frontend_Read_Model;
 	use Devenia_AI_Translations_Workflow_State;
 	use Devenia_AI_Translations_Work_Item_Catalog;
+	use Devenia_AI_Translations_Work_Item_Planner;
+	use Devenia_AI_Translations_Assignment_Lifecycle;
 
-	const VERSION = '0.1.530';
+	const VERSION = '0.1.531';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -70,6 +74,9 @@ final class Devenia_AI_Translations {
 	const OPTION_RUNTIME_MUTATION_PROVENANCE = 'devenia_ai_translations_runtime_mutation_provenance';
 	const OPTION_TRANSLATION_CLAIM_PREFIX = 'devenia_ai_translation_claim_';
 	const OPTION_WORK_CLAIM_PREFIX = 'devenia_ai_work_claim_';
+	const OPTION_ASSIGNMENT_PREFIX = 'devenia_ai_assignment_';
+	const OPTION_ASSIGNMENT_OUTCOME_PREFIX = 'devenia_ai_assignment_outcome_';
+	const OPTION_ASSIGNMENT_BLOCK_PREFIX = 'devenia_ai_assignment_block_';
 	const DEFAULT_TRANSLATION_CLAIM_TTL = 1800;
 	const MAX_TRANSLATION_CLAIM_TTL = 14400;
 	const TRANSLATION_INDEX_SCHEMA_VERSION = '2';

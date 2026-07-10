@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.530
+**Stable tag:** 0.1.531
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.531
+
+- Adds a server-owned Assignment Lifecycle with idempotent accept/current/renew/outcome transitions and crash recovery from enriched reservations.
+- Routes assignment selection and coverage through one revision-aware Work Item Planner instead of heartbeat history.
+- Aligns route work with authoritative route integrity and records structured blocked outcomes for exact Work Item revisions.
 
 ### 0.1.530
 

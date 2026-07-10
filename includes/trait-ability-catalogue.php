@@ -657,11 +657,61 @@ trait Devenia_AI_Translations_Ability_Catalogue {
 			),
 			'ai-translations/next-heartbeat-action' => array(
 				'label'            => 'Get Next Heartbeat Action',
-				'description'      => 'Returns one safe, server-selected next action for a real independent agent heartbeat session. It observes by default and only reserves the item when claim=true.',
+				'description'      => 'Compatibility Adapter that observes the Work Item Planner by default and accepts a server-owned Assignment when claim=true.',
 				'input_schema'     => self::heartbeat_action_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
 					return self::run_ability_operation( 'next_heartbeat_action', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
+			),
+			'ai-translations/accept-assignment' => array(
+				'label'            => 'Accept Contributor Assignment',
+				'description'      => 'Idempotently accepts or resumes one server-owned Assignment for an independent contributor session.',
+				'input_schema'     => self::heartbeat_action_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'accept_assignment', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
+			),
+			'ai-translations/current-assignment' => array(
+				'label'            => 'Get Current Contributor Assignment',
+				'description'      => 'Returns or recovers the server-owned Assignment for the verified contributor session.',
+				'input_schema'     => self::current_assignment_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'current_assignment', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
+			),
+			'ai-translations/renew-assignment' => array(
+				'label'            => 'Renew Contributor Assignment',
+				'description'      => 'Renews the current server Assignment and its internal Reservation for the verified contributor session.',
+				'input_schema'     => self::renew_assignment_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'renew_assignment', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
+			),
+			'ai-translations/complete-assignment' => array(
+				'label'            => 'Record Contributor Assignment Outcome',
+				'description'      => 'Records completed, blocked, or abandoned outcome and releases the server-owned Assignment. Completion requires the assigned Work Item revision to be resolved.',
+				'input_schema'     => self::complete_assignment_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'complete_assignment', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
+			),
+			'ai-translations/resolve-assignment-block' => array(
+				'label'            => 'Resolve Contributor Assignment Block',
+				'description'      => 'Clears a structured blocker for one exact Work Item revision after coordinator verification.',
+				'input_schema'     => self::resolve_assignment_block_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'resolve_assignment_block', $input );
 				},
 				'meta'             => self::ability_meta( false, false, true ),
 			),
