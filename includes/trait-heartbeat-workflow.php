@@ -798,23 +798,9 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			return false;
 		}
 
-		// Source-scoped work may have changed because this same actor just edited the source.
-		if ( ! $translation_id ) {
-			return true;
-		}
-
-		$last_seen_at = sanitize_text_field( (string) ( $previous['last_seen_at'] ?? '' ) );
-		$last_seen_ts = '' !== $last_seen_at ? strtotime( $last_seen_at ) : false;
-		$post = get_post( $translation_id );
-		if ( ! $post || false === $last_seen_ts ) {
-			return true;
-		}
-		$modified_ts = strtotime( (string) $post->post_modified_gmt . ' UTC' );
-		if ( false === $modified_ts ) {
-			return true;
-		}
-
-		return $modified_ts <= $last_seen_ts;
+		// A changed post may be this actor's own work. Another independent session
+		// can safely take the item; this session should move to different work.
+		return true;
 	}
 
 	private static function reviewer_identity_matches_provenance( array $reviewer, array $provenance ): bool {
@@ -1102,13 +1088,6 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 		if ( '' === $agent_session_id ) {
 			return;
 		}
-		$heartbeats = get_option( self::OPTION_HEARTBEATS, array() );
-		if ( ! is_array( $heartbeats ) ) {
-			$heartbeats = array();
-		}
-		$previous = isset( $heartbeats[ $agent_session_id ] ) && is_array( $heartbeats[ $agent_session_id ] )
-			? $heartbeats[ $agent_session_id ]
-			: array();
 		$selected_source_id = absint( $selected['source_id'] ?? 0 );
 		$selected_translation_id = absint( $selected['translation_id'] ?? 0 );
 		$selected_language = sanitize_key( (string) ( $selected['language'] ?? '' ) );
@@ -1116,33 +1095,65 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 		$selected_reason = sanitize_key( (string) ( $selected['reason'] ?? '' ) );
 		$has_concrete_item = 0 < $selected_source_id || 0 < $selected_translation_id || '' !== $selected_language;
 
-		$heartbeats[ $agent_session_id ] = array(
-			'agent_session_id' => $agent_session_id,
-			'llm_vendor' => sanitize_text_field( (string) ( $input['llm_vendor'] ?? $identity['llm_vendor'] ?? '' ) ),
-			'llm_client' => sanitize_text_field( (string) ( $input['llm_client'] ?? $identity['llm_client'] ?? '' ) ),
-			'authority_vendor' => sanitize_text_field( (string) ( $input['authority_vendor'] ?? $identity['authority_vendor'] ?? $identity['authority'] ?? '' ) ),
-			'authority_client' => sanitize_text_field( (string) ( $input['authority_client'] ?? $identity['authority_client'] ?? '' ) ),
-			'actor_id' => sanitize_key( (string) ( $identity['actor_id'] ?? '' ) ),
-			'step_token_label' => sanitize_key( (string) ( $identity['step_token_label'] ?? '' ) ),
-			'session_origin' => self::normalize_session_origin( (string) ( $identity['session_origin'] ?? '' ) ),
-			'last_seen_at' => gmdate( 'c' ),
-			'last_action' => $has_concrete_item ? $selected_action : sanitize_key( (string) ( $previous['last_action'] ?? '' ) ),
-			'last_source_id' => $has_concrete_item ? $selected_source_id : absint( $previous['last_source_id'] ?? 0 ),
-			'last_translation_id' => $has_concrete_item ? $selected_translation_id : absint( $previous['last_translation_id'] ?? 0 ),
-			'last_language' => $has_concrete_item ? $selected_language : sanitize_key( (string) ( $previous['last_language'] ?? '' ) ),
-			'last_reason' => $has_concrete_item ? $selected_reason : sanitize_key( (string) ( $previous['last_reason'] ?? '' ) ),
-			'last_heartbeat_action' => $selected_action,
-			'last_heartbeat_reason' => $selected_reason,
-			'note' => ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '',
-		);
+		global $wpdb;
+		for ( $attempt = 0; $attempt < 50; $attempt++ ) {
+			$stored_heartbeats = get_option( self::OPTION_HEARTBEATS, null );
+			$heartbeats = is_array( $stored_heartbeats ) ? $stored_heartbeats : array();
+			$previous = isset( $heartbeats[ $agent_session_id ] ) && is_array( $heartbeats[ $agent_session_id ] )
+				? $heartbeats[ $agent_session_id ]
+				: array();
 
-		uasort(
-			$heartbeats,
-			static function ( $a, $b ): int {
-				return strcmp( (string) ( $b['last_seen_at'] ?? '' ), (string) ( $a['last_seen_at'] ?? '' ) );
+			$heartbeats[ $agent_session_id ] = array(
+				'agent_session_id' => $agent_session_id,
+				'llm_vendor' => sanitize_text_field( (string) ( $input['llm_vendor'] ?? $identity['llm_vendor'] ?? '' ) ),
+				'llm_client' => sanitize_text_field( (string) ( $input['llm_client'] ?? $identity['llm_client'] ?? '' ) ),
+				'authority_vendor' => sanitize_text_field( (string) ( $input['authority_vendor'] ?? $identity['authority_vendor'] ?? $identity['authority'] ?? '' ) ),
+				'authority_client' => sanitize_text_field( (string) ( $input['authority_client'] ?? $identity['authority_client'] ?? '' ) ),
+				'actor_id' => sanitize_key( (string) ( $identity['actor_id'] ?? '' ) ),
+				'step_token_label' => sanitize_key( (string) ( $identity['step_token_label'] ?? '' ) ),
+				'session_origin' => self::normalize_session_origin( (string) ( $identity['session_origin'] ?? '' ) ),
+				'last_seen_at' => gmdate( 'c' ),
+				'last_action' => $has_concrete_item ? $selected_action : sanitize_key( (string) ( $previous['last_action'] ?? '' ) ),
+				'last_source_id' => $has_concrete_item ? $selected_source_id : absint( $previous['last_source_id'] ?? 0 ),
+				'last_translation_id' => $has_concrete_item ? $selected_translation_id : absint( $previous['last_translation_id'] ?? 0 ),
+				'last_language' => $has_concrete_item ? $selected_language : sanitize_key( (string) ( $previous['last_language'] ?? '' ) ),
+				'last_reason' => $has_concrete_item ? $selected_reason : sanitize_key( (string) ( $previous['last_reason'] ?? '' ) ),
+				'last_heartbeat_action' => $selected_action,
+				'last_heartbeat_reason' => $selected_reason,
+				'note' => ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '',
+			);
+
+			uasort(
+				$heartbeats,
+				static function ( $a, $b ): int {
+					return strcmp( (string) ( $b['last_seen_at'] ?? '' ), (string) ( $a['last_seen_at'] ?? '' ) );
+				}
+			);
+			$heartbeats = array_slice( $heartbeats, 0, 20, true );
+
+			if ( null === $stored_heartbeats ) {
+				if ( add_option( self::OPTION_HEARTBEATS, $heartbeats, '', false ) ) {
+					return;
+				}
+			} else {
+				$updated = $wpdb->query(
+					$wpdb->prepare(
+						"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+						maybe_serialize( $heartbeats ),
+						self::OPTION_HEARTBEATS,
+						maybe_serialize( $stored_heartbeats )
+					)
+				);
+				wp_cache_delete( self::OPTION_HEARTBEATS, 'options' );
+				if ( 1 === $updated ) {
+					return;
+				}
 			}
-		);
-		$heartbeats = array_slice( $heartbeats, 0, 20, true );
-		update_option( self::OPTION_HEARTBEATS, $heartbeats, false );
+
+			wp_cache_delete( self::OPTION_HEARTBEATS, 'options' );
+			usleep( 20000 );
+		}
+
+		error_log( sprintf( 'AI Translation Workflow could not record heartbeat state for session %s after concurrent update retries.', $agent_session_id ) );
 	}
 }
