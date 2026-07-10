@@ -425,6 +425,20 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			return $result;
 		}
 		$translation_id = absint( $result['translation']['id'] ?? 0 );
+		$featured_image_sync = self::sync_source_featured_image( $translation_id, $source );
+		if ( empty( $featured_image_sync['write_verified'] ) ) {
+			return array(
+				'success' => false,
+				'code' => 'featured_image_sync_failed',
+				'message' => 'The translation artifact was saved, but its featured image could not be synchronized with the approved source.',
+				'featured_image_sync' => $featured_image_sync,
+			);
+		}
+		if ( ! empty( $featured_image_sync['changed'] ) ) {
+			$v2_identity = self::translation_job_v2_identity( $job, $run, 'draft_write' );
+			self::record_translation_visible_media_provenance( $translation_id, $v2_identity, 'translation_job_v2_artifact_submit' );
+			self::sync_translation_index_row( $translation_id );
+		}
 		$artifact_revision = self::translation_job_v2_revision( $artifact );
 		$content_revision = self::translation_job_v2_translation_revision( $translation_id );
 		$artifact_record = array(
@@ -448,7 +462,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		if ( empty( $next['success'] ) ) {
 			return $next;
 		}
-		return array( 'success' => true, 'message' => 'Complete translation artifact submitted.', 'job' => self::translation_job_v2_public_job( $next['job'] ), 'artifact_revision' => $artifact_revision, 'translation' => $result['translation'], 'qa_next' => 'ai-translations/v2-claim-job with role=quality' );
+		return array( 'success' => true, 'message' => 'Complete translation artifact submitted.', 'job' => self::translation_job_v2_public_job( $next['job'] ), 'artifact_revision' => $artifact_revision, 'translation' => self::translation_payload( get_post( $translation_id ) ), 'featured_image_sync' => $featured_image_sync, 'qa_next' => 'ai-translations/v2-claim-job with role=quality' );
 	}
 
 	private static function translation_job_v2_submit_quality_decision( array $input ): array {

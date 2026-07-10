@@ -10,6 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 $source_id = 0;
 $linked_source_id = 0;
 $translation_id = 0;
+$source_thumbnail_id = 0;
 $option_keys = array();
 $original_user_id = get_current_user_id();
 $languages_option_before = get_option( 'devenia_ai_translations_languages' );
@@ -65,6 +66,17 @@ try {
 	if ( is_wp_error( $source_id ) ) {
 		throw new RuntimeException( $source_id->get_error_message() );
 	}
+	$source_thumbnail_id = wp_insert_attachment(
+		array(
+			'post_title' => 'Translation Job V2 source media fixture',
+			'post_status' => 'inherit',
+			'post_mime_type' => 'image/webp',
+		)
+	);
+	if ( ! $source_thumbnail_id || is_wp_error( $source_thumbnail_id ) ) {
+		throw new RuntimeException( 'Could not create the source featured-image fixture.' );
+	}
+	update_post_meta( $source_id, '_thumbnail_id', $source_thumbnail_id );
 
 	$languages_method = new ReflectionMethod( Devenia_AI_Translations::class, 'target_languages' );
 	$languages_method->setAccessible( true );
@@ -252,6 +264,13 @@ try {
 		throw new RuntimeException( 'Artifact submission failed: ' . wp_json_encode( $submit ) );
 	}
 	$translation_id = absint( $submit['translation']['id'] ?? 0 );
+	if (
+		$source_thumbnail_id !== absint( $submit['translation']['featured_image_id'] ?? 0 )
+		|| $source_thumbnail_id !== absint( get_post_meta( $translation_id, '_thumbnail_id', true ) )
+		|| empty( $submit['featured_image_sync']['write_verified'] )
+	) {
+		throw new RuntimeException( 'Artifact submission did not synchronize the approved source featured image: ' . wp_json_encode( $submit ) );
+	}
 	$artifact_revision = (string) $submit['artifact_revision'];
 	$option_keys[] = 'devenia_ai_translation_artifact_v2_' . $artifact_revision;
 
@@ -471,6 +490,7 @@ try {
 			'submission_contracts_share_live_schema' => true,
 			'runtime_text_uses_wordpress_capability' => true,
 			'mailto_query_copy_must_be_localized' => true,
+			'featured_image_synchronized_before_quality' => true,
 			'orphaned_quality_decision_recovered' => true,
 		)
 	) . PHP_EOL;
@@ -489,6 +509,9 @@ try {
 	}
 	if ( $linked_source_id > 0 ) {
 		wp_delete_post( $linked_source_id, true );
+	}
+	if ( $source_thumbnail_id > 0 ) {
+		wp_delete_attachment( $source_thumbnail_id, true );
 	}
 	foreach ( array_unique( $option_keys ) as $option_key ) {
 		delete_option( $option_key );
