@@ -8,6 +8,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $source_id = 0;
+$linked_source_id = 0;
 $translation_id = 0;
 $option_keys = array();
 
@@ -18,13 +19,27 @@ $call = static function ( string $method, array $input = array() ) {
 };
 
 try {
+	$linked_source_id = wp_insert_post(
+		array(
+			'post_type' => 'page',
+			'post_status' => 'publish',
+			'post_title' => 'Translation Job V2 linked source fixture',
+			'post_content' => '<!-- wp:paragraph --><p>A valid internal link target.</p><!-- /wp:paragraph -->',
+		),
+		true
+	);
+	if ( is_wp_error( $linked_source_id ) ) {
+		throw new RuntimeException( $linked_source_id->get_error_message() );
+	}
+	$linked_source_url = (string) get_permalink( $linked_source_id );
+
 	$source_id = wp_insert_post(
 		array(
 			'post_type' => 'page',
 			'post_status' => 'draft',
 			'post_title' => 'Translation Job V2 source fixture',
 			'post_excerpt' => 'A useful source excerpt.',
-			'post_content' => '<!-- wp:paragraph --><p><strong>Useful source</strong><br>Contact us for a concrete next step.</p><!-- /wp:paragraph -->',
+			'post_content' => '<!-- wp:paragraph --><p><strong>Useful source</strong><br>Read <a href="' . esc_url( $linked_source_url ) . '">the linked source</a>, then contact us for a concrete next step.</p><!-- /wp:paragraph -->',
 		),
 		true
 	);
@@ -91,13 +106,44 @@ try {
 
 	$packet = $call( 'translation_job_v2_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $translator_run_id, 'claim_token' => $translator_token ) );
 	$fragments = $packet['packet']['fragments'] ?? array();
-	if ( empty( $packet['success'] ) || 1 !== count( $fragments ) || false === stripos( (string) $fragments[0]['source_html'], '<strong>' ) ) {
+	$links = $packet['packet']['links'] ?? array();
+	if (
+		empty( $packet['success'] )
+		|| 1 !== count( $fragments )
+		|| false === stripos( (string) $fragments[0]['source_html'], '<strong>' )
+		|| 1 !== count( $links )
+		|| ! empty( $links[0]['published_target_available'] )
+		|| 'retain_source_url_until_localized_target_is_published' !== (string) ( $links[0]['policy'] ?? '' )
+		|| $linked_source_url !== (string) ( $links[0]['target_url'] ?? '' )
+	) {
 		throw new RuntimeException( 'Bounded packet failed: ' . wp_json_encode( $packet ) );
 	}
 
 	$localized = array();
 	foreach ( $fragments as $fragment ) {
-		$localized[] = array( 'key' => (string) $fragment['key'], 'html' => '<strong>Nyttig innhold</strong><br>Kontakt oss for et konkret neste steg.' );
+		$localized[] = array( 'key' => (string) $fragment['key'], 'html' => '<strong>Nyttig innhold</strong><br>Les <a href="' . esc_url( $linked_source_url ) . '">den lenkede kilden</a>, og kontakt oss for et konkret neste steg.' );
+	}
+	$artifact = array(
+		'title' => 'Oversatt testside',
+		'excerpt' => 'En nyttig oversatt ingress.',
+		'localized_slug' => 'oversatt-testside-' . strtolower( wp_generate_password( 6, false, false ) ),
+		'localized_fragments' => $localized,
+		'seo' => array( 'title' => 'Oversatt testside', 'description' => 'En nyttig beskrivelse av den oversatte testsiden.' ),
+	);
+	$invalid_artifact = $artifact;
+	$invalid_artifact['localized_fragments'][0]['html'] = str_replace( $linked_source_url, home_url( '/invented-localized-route/' ), $invalid_artifact['localized_fragments'][0]['html'] );
+	$invalid_submit = $call(
+		'translation_job_v2_submit_artifact',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $translator_run_id,
+			'claim_token' => $translator_token,
+			'artifact' => $invalid_artifact,
+			'usage' => array( 'input_tokens' => 1200, 'cached_input_tokens' => 0, 'output_tokens' => 500, 'attempts' => 1, 'duration_ms' => 1000, 'estimated_cost_microusd' => 100 ),
+		)
+	);
+	if ( ! empty( $invalid_submit['success'] ) || 'artifact_link_policy_invalid' !== (string) ( $invalid_submit['code'] ?? '' ) ) {
+		throw new RuntimeException( 'Invented localized link was not rejected: ' . wp_json_encode( $invalid_submit ) );
 	}
 	$submit = $call(
 		'translation_job_v2_submit_artifact',
@@ -105,13 +151,7 @@ try {
 			'job_id' => $job_id,
 			'run_id' => $translator_run_id,
 			'claim_token' => $translator_token,
-			'artifact' => array(
-				'title' => 'Oversatt testside',
-				'excerpt' => 'En nyttig oversatt ingress.',
-				'localized_slug' => 'oversatt-testside-' . strtolower( wp_generate_password( 6, false, false ) ),
-				'localized_fragments' => $localized,
-				'seo' => array( 'title' => 'Oversatt testside', 'description' => 'En nyttig beskrivelse av den oversatte testsiden.' ),
-			),
+			'artifact' => $artifact,
 			'usage' => array( 'input_tokens' => 1200, 'cached_input_tokens' => 0, 'output_tokens' => 500, 'attempts' => 1, 'duration_ms' => 1000, 'estimated_cost_microusd' => 100 ),
 		)
 	);
@@ -138,6 +178,10 @@ try {
 	$quality_run_id = (string) $quality_claim['run']['run_id'];
 	$quality_token = (string) $quality_claim['claim_token'];
 	$option_keys[] = 'devenia_ai_translation_run_v2_' . $quality_run_id;
+	$quality_packet = $call( 'translation_job_v2_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $quality_run_id, 'claim_token' => $quality_token ) );
+	if ( empty( $quality_packet['success'] ) || $links !== ( $quality_packet['packet']['links'] ?? array() ) ) {
+		throw new RuntimeException( 'Quality packet did not preserve the authoritative link policy: ' . wp_json_encode( $quality_packet ) );
+	}
 	$checks = array_fill_keys( array( 'source_quality', 'natural_language', 'factual_accuracy', 'source_coverage', 'localized_search_intent', 'offer_and_contact', 'links_and_route', 'rendered_experience' ), true );
 	$quality = $call(
 		'translation_job_v2_submit_quality_decision',
@@ -200,6 +244,8 @@ try {
 			'unapproved_source_blocked' => true,
 			'translation_saved' => $translation_id > 0,
 			'correction_context_included' => true,
+			'link_policy_in_packets' => true,
+			'invented_localized_link_blocked' => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {
@@ -211,6 +257,9 @@ try {
 	}
 	if ( $source_id > 0 ) {
 		wp_delete_post( $source_id, true );
+	}
+	if ( $linked_source_id > 0 ) {
+		wp_delete_post( $linked_source_id, true );
 	}
 	foreach ( array_unique( $option_keys ) as $option_key ) {
 		delete_option( $option_key );

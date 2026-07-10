@@ -377,6 +377,12 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			return $coverage;
 		}
 		$source = get_post( (int) $job['source_id'] );
+		$link_policy = $source instanceof WP_Post
+			? self::translation_job_v2_artifact_link_policy( $source, (string) $job['target_language'], $artifact['localized_fragments'] ?? array() )
+			: array( 'success' => false, 'code' => 'job_source_missing', 'message' => 'Translation Job source is unavailable.' );
+		if ( empty( $link_policy['success'] ) ) {
+			return $link_policy;
+		}
 		$translation_id = self::find_translation_id( (int) $job['source_id'], (string) $job['target_language'], self::translation_workflow_post_statuses( false ) );
 		$upsert = array_merge(
 			$artifact,
@@ -616,6 +622,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			'fragments' => $fragments,
 			'route' => array( 'language_prefix' => self::language_prefix( $language ), 'source_slug' => (string) $source->post_name, 'source_parent_id' => (int) $source->post_parent ),
 			'taxonomy' => self::post_taxonomy_payload( $source ),
+			'links' => self::translation_job_v2_link_policy( $source, $language ),
 			'language_profile' => self::language_review_profile( $language ),
 			'source_approval' => self::translation_job_v2_source_approval( $source ),
 			'validation_contract' => array( 'exact_fragment_coverage' => true, 'localized_route' => true, 'deterministic_qa' => true, 'quality_checks' => self::translation_job_v2_quality_checks() ),
@@ -642,9 +649,157 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 				'approval' => self::translation_job_v2_source_approval( $source ),
 			),
 			'artifact' => is_array( $artifact ) ? $artifact : array(),
+			'links' => self::translation_job_v2_link_policy( $source, (string) $job['target_language'] ),
 			'language_profile' => self::language_review_profile( (string) $job['target_language'] ),
 			'required_checks' => self::translation_job_v2_quality_checks(),
 		);
+	}
+
+	/**
+	 * Describe the only valid destination for each internal source link.
+	 *
+	 * A localized destination is authoritative only while its WordPress post is
+	 * published. Otherwise the English source URL remains the explicit fallback;
+	 * callers must never infer a localized slug that is not in the registry.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function translation_job_v2_link_policy( WP_Post $source, string $language ): array {
+		$map = self::localized_internal_link_map( $language );
+		$links = array();
+		foreach ( self::translation_job_v2_anchor_hrefs( (string) $source->post_content ) as $href ) {
+			$parts = wp_parse_url( $href );
+			if ( ! is_array( $parts ) ) {
+				continue;
+			}
+			$site_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+			$link_host = strtolower( (string) ( $parts['host'] ?? '' ) );
+			if ( '' !== $link_host && $site_host !== $link_host ) {
+				continue;
+			}
+			$source_url = self::translation_job_v2_absolute_internal_url( $href );
+			if ( '' === $source_url ) {
+				continue;
+			}
+			$source_post_id = self::wordpress_content_id_from_internal_url( $source_url );
+			$canonical_source_id = $source_post_id ? absint( get_post_meta( $source_post_id, self::META_SOURCE_ID, true ) ) : 0;
+			if ( $canonical_source_id ) {
+				$source_post_id = $canonical_source_id;
+				$canonical_source_url = get_permalink( $source_post_id );
+				if ( $canonical_source_url ) {
+					$source_url = (string) $canonical_source_url;
+				}
+			}
+
+			$mapped_target = self::localized_internal_link_target( $source_url, $map );
+			$target_url = self::translation_job_v2_absolute_internal_url( (string) ( $mapped_target ?: $source_url ) );
+			$target_post_id = self::wordpress_content_id_from_internal_url( $target_url );
+			$localized_available = self::normalized_comparable_url( $source_url ) !== self::normalized_comparable_url( $target_url )
+				&& $target_post_id > 0
+				&& 'publish' === get_post_status( $target_post_id );
+			if ( ! $localized_available ) {
+				$target_url = $source_url;
+				$target_post_id = $source_post_id;
+			}
+
+			$key = self::normalized_comparable_url( $source_url );
+			$links[ $key ] = array(
+				'source_url' => $source_url,
+				'source_post_id' => $source_post_id,
+				'published_target_available' => $localized_available,
+				'target_url' => $target_url,
+				'target_post_id' => $target_post_id,
+				'policy' => $localized_available ? 'use_published_localized_target' : 'retain_source_url_until_localized_target_is_published',
+			);
+		}
+
+		return array_values( $links );
+	}
+
+	/**
+	 * Require the submitted artifact to retain every source link at its current
+	 * authoritative destination.
+	 */
+	private static function translation_job_v2_artifact_link_policy( WP_Post $source, string $language, $localized_fragments ): array {
+		$link_policy = self::translation_job_v2_link_policy( $source, $language );
+		$actual = array();
+		foreach ( is_array( $localized_fragments ) ? $localized_fragments : array() as $fragment ) {
+			$html = is_array( $fragment ) ? (string) ( $fragment['html'] ?? '' ) : '';
+			foreach ( self::translation_job_v2_anchor_hrefs( $html ) as $href ) {
+				$absolute = self::translation_job_v2_absolute_internal_url( $href );
+				if ( '' !== $absolute ) {
+					$actual[ self::normalized_comparable_url( $absolute ) ] = $absolute;
+				}
+			}
+		}
+
+		$issues = array();
+		foreach ( $link_policy as $link ) {
+			$expected = (string) ( $link['target_url'] ?? '' );
+			if ( '' !== $expected && ! isset( $actual[ self::normalized_comparable_url( $expected ) ] ) ) {
+				$issues[] = array(
+					'source_url' => (string) ( $link['source_url'] ?? '' ),
+					'expected_url' => $expected,
+					'policy' => (string) ( $link['policy'] ?? '' ),
+				);
+			}
+		}
+		if ( $issues ) {
+			return array(
+				'success' => false,
+				'code' => 'artifact_link_policy_invalid',
+				'message' => 'Artifact must use every authoritative link target from the bounded packet.',
+				'issues' => $issues,
+			);
+		}
+
+		return array( 'success' => true, 'checked_link_count' => count( $link_policy ) );
+	}
+
+	/**
+	 * Extract href values without changing Gutenberg serialization.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function translation_job_v2_anchor_hrefs( string $html ): array {
+		if ( '' === $html || ! preg_match_all( '/<a\b[^>]*\bhref=(["\'])([^"\']+)\1/i', $html, $matches ) ) {
+			return array();
+		}
+
+		return array_values( array_unique( array_map( static function ( string $href ): string {
+			return html_entity_decode( trim( $href ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		}, $matches[2] ) ) );
+	}
+
+	/**
+	 * Normalize an internal link to an absolute URL for packet comparison.
+	 */
+	private static function translation_job_v2_absolute_internal_url( string $url ): string {
+		if ( '' === $url || '#' === $url[0] || preg_match( '/^(mailto|tel|sms|javascript):/i', $url ) ) {
+			return '';
+		}
+		$parts = wp_parse_url( $url );
+		if ( ! is_array( $parts ) ) {
+			return '';
+		}
+		$site_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+		$link_host = strtolower( (string) ( $parts['host'] ?? '' ) );
+		if ( '' !== $link_host && $site_host !== $link_host ) {
+			return '';
+		}
+		$query_post_id = self::wordpress_content_query_id_from_parts( $parts );
+		if ( $query_post_id ) {
+			$permalink = get_permalink( $query_post_id );
+			return $permalink ? (string) $permalink : '';
+		}
+		$path = self::normalized_url_path( $url );
+		if ( '' === $path ) {
+			return '';
+		}
+		$query = isset( $parts['query'] ) ? '?' . $parts['query'] : '';
+		$fragment = isset( $parts['fragment'] ) ? '#' . $parts['fragment'] : '';
+
+		return home_url( $path ) . $query . $fragment;
 	}
 
 	private static function translation_job_v2_fragment_coverage( array $job, $localized_fragments ): array {

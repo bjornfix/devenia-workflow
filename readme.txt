@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.539
+Stable tag: 0.1.540
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.540 =
+* Adds authoritative internal-link targets and explicit source-URL fallback policy to bounded translation and quality packets.
+* Rejects artifacts that invent localized routes or omit the current published destination for a source link.
 
 = 0.1.539 =
 * Includes the rejected artifact and exact Quality Decision corrections in bounded translator correction packets.
