@@ -519,10 +519,10 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		$quality_key = self::translation_job_v2_quality_key( $quality['quality_revision'] );
 		if ( ! self::atomic_create_option( $quality_key, $quality ) ) {
 			$existing_quality = get_option( $quality_key );
-			$semantic_fields = array( 'quality_revision', 'job_id', 'artifact_revision', 'content_revision', 'translation_id', 'decision', 'checks', 'evidence', 'corrections' );
-			$existing_semantics = array_intersect_key( is_array( $existing_quality ) ? $existing_quality : array(), array_flip( $semantic_fields ) );
-			$submitted_semantics = array_intersect_key( $quality, array_flip( $semantic_fields ) );
-			if ( self::translation_job_v2_canonicalize( $existing_semantics ) !== self::translation_job_v2_canonicalize( $submitted_semantics ) ) {
+			$identity_fields = array( 'quality_revision', 'job_id', 'artifact_revision', 'content_revision', 'translation_id' );
+			$existing_identity = array_intersect_key( is_array( $existing_quality ) ? $existing_quality : array(), array_flip( $identity_fields ) );
+			$submitted_identity = array_intersect_key( $quality, array_flip( $identity_fields ) );
+			if ( count( $existing_identity ) !== count( $identity_fields ) || self::translation_job_v2_canonicalize( $existing_identity ) !== self::translation_job_v2_canonicalize( $submitted_identity ) ) {
 				return array( 'success' => false, 'code' => 'quality_revision_conflict', 'message' => 'Quality Decision revision already exists with different data.' );
 			}
 			$quality = $existing_quality;
