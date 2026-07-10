@@ -624,6 +624,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		if ( ! array_key_exists( 'verify_live', $input ) || ! empty( $input['verify_live'] ) ) {
 			$live = self::verify_live_translation( array( 'translation_id' => $translation_id, 'timeout' => absint( $input['live_verification_timeout'] ?? 15 ) ) );
 		}
+		$orphaned_runs_finalized = self::translation_job_v2_finalize_orphaned_runs( $job );
 		$next = self::translation_job_v2_transition( $job, array( 'status' => 'published', 'published_at' => gmdate( 'c' ), 'live_verification_passed' => null === $live ? null : ! empty( $live['passed'] ) ) );
 		$passed = null === $live || ( ! empty( $live['success'] ) && ! empty( $live['passed'] ) );
 		return array(
@@ -637,6 +638,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			'featured_image_sync' => $featured_image_sync,
 			'menu' => $menu,
 			'live_verification' => $live,
+			'orphaned_runs_finalized' => $orphaned_runs_finalized,
 		);
 	}
 
@@ -1271,6 +1273,28 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		$run['outcome'] = 'expired';
 		$run['finished_at'] = $expired_at && strtotime( $expired_at ) ? gmdate( 'c', strtotime( $expired_at ) ) : gmdate( 'c' );
 		update_option( $run_key, $run, false );
+	}
+
+	private static function translation_job_v2_finalize_orphaned_runs( array $job ): int {
+		$active_run_id = self::translation_job_v2_clean_id( (string) ( $job['active_run_id'] ?? '' ) );
+		$finalized = 0;
+		foreach ( (array) ( $job['run_ids'] ?? array() ) as $run_row ) {
+			$run_id = self::translation_job_v2_clean_id( (string) ( $run_row['run_id'] ?? '' ) );
+			if ( '' === $run_id || $run_id === $active_run_id ) {
+				continue;
+			}
+			$run_key = self::translation_job_v2_run_key( $run_id );
+			$run = get_option( $run_key );
+			if ( ! is_array( $run ) || 'running' !== (string) ( $run['status'] ?? '' ) ) {
+				continue;
+			}
+			$run['status'] = 'completed';
+			$run['outcome'] = 'expired';
+			$run['finished_at'] = gmdate( 'c' );
+			update_option( $run_key, $run, false );
+			++$finalized;
+		}
+		return $finalized;
 	}
 
 	private static function translation_job_v2_job_key( string $job_id ): string { return 'devenia_ai_translation_job_v2_' . self::translation_job_v2_clean_id( $job_id ); }

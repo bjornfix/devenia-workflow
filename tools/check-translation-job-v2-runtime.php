@@ -561,6 +561,19 @@ try {
 	) {
 		throw new RuntimeException( 'Idempotent v2 publication did not reconcile stale featured media: ' . wp_json_encode( $republished ) );
 	}
+	$orphaned_run = get_option( 'devenia_ai_translation_run_v2_' . $translator_run_id );
+	$orphaned_run['status'] = 'running';
+	unset( $orphaned_run['outcome'], $orphaned_run['finished_at'] );
+	update_option( 'devenia_ai_translation_run_v2_' . $translator_run_id, $orphaned_run, false );
+	$finalized_count = $call( 'translation_job_v2_finalize_orphaned_runs', get_option( 'devenia_ai_translation_job_v2_' . $job_id ) );
+	$finalized_orphaned_run = get_option( 'devenia_ai_translation_run_v2_' . $translator_run_id );
+	if (
+		1 !== $finalized_count
+		|| 'completed' !== (string) ( $finalized_orphaned_run['status'] ?? '' )
+		|| 'expired' !== (string) ( $finalized_orphaned_run['outcome'] ?? '' )
+	) {
+		throw new RuntimeException( 'Orphaned Run finalization failed: ' . wp_json_encode( $finalized_orphaned_run ) );
+	}
 
 	echo wp_json_encode(
 		array(
@@ -585,6 +598,7 @@ try {
 			'published_job_media_reconciled_idempotently' => true,
 			'orphaned_quality_decision_recovered' => true,
 			'expired_run_finalized_before_reclaim' => true,
+			'orphaned_run_finalized_during_publish' => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {
