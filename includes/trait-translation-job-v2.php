@@ -212,6 +212,15 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		if ( ! self::is_translation_language( $language ) ) {
 			return self::error( 'Unknown or source language.' );
 		}
+		$source_approval = self::translation_job_v2_source_approval( $source );
+		if ( empty( $source_approval['passed'] ) ) {
+			return array(
+				'success' => false,
+				'code' => 'source_quality_approval_required',
+				'message' => 'Improve and explicitly approve the current source revision before creating Translation Jobs.',
+				'source_approval' => $source_approval,
+			);
+		}
 		$source_revision = self::source_hash( $source );
 		$job_id = self::translation_job_v2_id( $source_id, $language, $source_revision );
 		$job = self::translation_job_v2_get_job( $job_id );
@@ -228,6 +237,11 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 				'created_at' => $now,
 				'updated_at' => $now,
 				'run_ids' => array(),
+				'source_approval' => array(
+					'reviewed_at' => (string) ( $source_approval['reviewed_at'] ?? '' ),
+					'reviewer' => (string) ( $source_approval['reviewer'] ?? '' ),
+					'source_hash' => (string) ( $source_approval['source_hash'] ?? '' ),
+				),
 			);
 			if ( ! self::atomic_create_option( self::translation_job_v2_job_key( $job_id ), $job ) ) {
 				$job = self::translation_job_v2_get_job( $job_id );
@@ -252,6 +266,10 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		if ( self::translation_job_v2_source_is_stale( $job ) ) {
 			self::translation_job_v2_transition( $job, array( 'status' => 'superseded' ) );
 			return array( 'success' => false, 'code' => 'job_superseded', 'message' => 'The source changed. Discover a Job for the current revision.' );
+		}
+		$source_approval = self::translation_job_v2_source_approval( get_post( (int) $job['source_id'] ) );
+		if ( empty( $source_approval['passed'] ) ) {
+			return array( 'success' => false, 'code' => 'source_quality_approval_required', 'message' => 'Current source revision is not approved for translation.', 'source_approval' => $source_approval );
 		}
 		$run_id = self::translation_job_v2_clean_id( (string) ( $input['run_id'] ?? '' ) );
 		$coordinator_id = self::translation_job_v2_clean_id( (string) ( $input['coordinator_id'] ?? '' ) );
@@ -419,6 +437,11 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		}
 		$job = $access['job'];
 		$run = $access['run'];
+		$source = get_post( (int) $job['source_id'] );
+		$source_approval = $source instanceof WP_Post ? self::translation_job_v2_source_approval( $source ) : array( 'passed' => false );
+		if ( empty( $source_approval['passed'] ) || self::translation_job_v2_source_is_stale( $job ) ) {
+			return array( 'success' => false, 'code' => 'source_quality_approval_required', 'message' => 'Quality cannot pass against an unapproved or changed source revision.', 'source_approval' => $source_approval );
+		}
 		if ( ! hash_equals( (string) ( $job['artifact_revision'] ?? '' ), sanitize_text_field( (string) ( $input['artifact_revision'] ?? '' ) ) ) ) {
 			return array( 'success' => false, 'code' => 'artifact_revision_mismatch', 'message' => 'Quality Decision does not match the current artifact revision.' );
 		}
@@ -498,6 +521,11 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		if ( self::translation_job_v2_source_is_stale( $job ) || (string) ( $quality['artifact_revision'] ?? '' ) !== (string) ( $job['artifact_revision'] ?? '' ) ) {
 			return array( 'success' => false, 'code' => 'job_superseded', 'message' => 'Source or artifact changed after the Quality Decision.' );
 		}
+		$source = get_post( (int) $job['source_id'] );
+		$source_approval = $source instanceof WP_Post ? self::translation_job_v2_source_approval( $source ) : array( 'passed' => false );
+		if ( empty( $source_approval['passed'] ) ) {
+			return array( 'success' => false, 'code' => 'source_quality_approval_required', 'message' => 'Current source revision is not approved for publication.', 'source_approval' => $source_approval );
+		}
 		$translation_id = absint( $job['translation_id'] ?? 0 );
 		if ( self::translation_job_v2_translation_revision( $translation_id ) !== (string) ( $quality['content_revision'] ?? '' ) ) {
 			return array( 'success' => false, 'code' => 'artifact_content_changed', 'message' => 'Stored translation changed after the Quality Decision.' );
@@ -572,14 +600,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 
 	private static function translation_job_v2_translation_packet( array $job, array $run, WP_Post $source ): array {
 		$contract = self::source_design_contract( $source );
-		$fragments = array();
-		foreach ( (array) ( $contract['fragments'] ?? array() ) as $fragment ) {
-			$fragments[] = array(
-				'key' => (string) ( $fragment['key'] ?? '' ),
-				'source_html' => (string) ( $fragment['source_html'] ?? $fragment['text'] ?? '' ),
-				'heading' => ! empty( $fragment['heading'] ),
-			);
-		}
+		$fragments = self::translation_job_v2_source_fragments( $contract );
 		$language = (string) $job['target_language'];
 		return array(
 			'contract_version' => 2,
@@ -596,17 +617,25 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			'route' => array( 'language_prefix' => self::language_prefix( $language ), 'source_slug' => (string) $source->post_name, 'source_parent_id' => (int) $source->post_parent ),
 			'taxonomy' => self::post_taxonomy_payload( $source ),
 			'language_profile' => self::language_review_profile( $language ),
+			'source_approval' => self::translation_job_v2_source_approval( $source ),
 			'validation_contract' => array( 'exact_fragment_coverage' => true, 'localized_route' => true, 'deterministic_qa' => true, 'quality_checks' => self::translation_job_v2_quality_checks() ),
 		);
 	}
 
 	private static function translation_job_v2_quality_packet( array $job, array $run, WP_Post $source ): array {
 		$artifact = get_option( self::translation_job_v2_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) );
+		$source_contract = self::source_design_contract( $source );
 		return array(
 			'contract_version' => 2,
 			'job' => self::translation_job_v2_public_job( $job ),
 			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet' ),
-			'source' => array( 'title' => get_the_title( $source ), 'excerpt' => (string) $source->post_excerpt, 'source_revision' => self::source_hash( $source ) ),
+			'source' => array(
+				'title' => get_the_title( $source ),
+				'excerpt' => (string) $source->post_excerpt,
+				'source_revision' => self::source_hash( $source ),
+				'fragments' => self::translation_job_v2_source_fragments( $source_contract ),
+				'approval' => self::translation_job_v2_source_approval( $source ),
+			),
 			'artifact' => is_array( $artifact ) ? $artifact : array(),
 			'language_profile' => self::language_review_profile( (string) $job['target_language'] ),
 			'required_checks' => self::translation_job_v2_quality_checks(),
@@ -727,7 +756,49 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 	}
 
 	private static function translation_job_v2_quality_checks(): array {
-		return array( 'natural_language', 'factual_accuracy', 'source_coverage', 'localized_search_intent', 'offer_and_contact', 'links_and_route', 'rendered_experience' );
+		return array( 'source_quality', 'natural_language', 'factual_accuracy', 'source_coverage', 'localized_search_intent', 'offer_and_contact', 'links_and_route', 'rendered_experience' );
+	}
+
+	private static function translation_job_v2_source_fragments( array $contract ): array {
+		$fragments = array();
+		foreach ( (array) ( $contract['fragments'] ?? array() ) as $fragment ) {
+			$fragments[] = array(
+				'key' => (string) ( $fragment['key'] ?? '' ),
+				'source_html' => (string) ( $fragment['source_html'] ?? $fragment['text'] ?? '' ),
+				'heading' => ! empty( $fragment['heading'] ),
+			);
+		}
+		return $fragments;
+	}
+
+	private static function translation_job_v2_source_approval( WP_Post $source ): array {
+		$source_hash = self::source_hash( $source );
+		$validation = self::source_content_integrity_validation( $source );
+		$evidence = self::json_post_meta_value( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_EVIDENCE );
+		$reviewed_at = (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWED_AT, true );
+		$reviewer = (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWER, true );
+		$publication = self::publication_experience_readiness_for_post( $source, self::source_language_code(), 'pre_publish' );
+		$evidence_source_hash = (string) ( $evidence['source_hash'] ?? '' );
+		$passed = empty( $validation['issue_count'] )
+			&& ! empty( $publication['passed'] )
+			&& ! empty( $evidence['content_integrity_already_clean'] )
+			&& '' !== $reviewed_at
+			&& '' !== $reviewer
+			&& '' !== $evidence_source_hash
+			&& hash_equals( $source_hash, $evidence_source_hash )
+			&& strlen( trim( (string) ( $evidence['audit_notes'] ?? '' ) ) ) >= 80
+			&& strlen( trim( (string) ( $evidence['reviewer_statement'] ?? '' ) ) ) >= 80;
+		return array(
+			'passed' => $passed,
+			'state' => $passed ? 'source_quality_approved' : 'source_quality_approval_required',
+			'source_id' => (int) $source->ID,
+			'source_hash' => $source_hash,
+			'reviewed_at' => $reviewed_at,
+			'reviewer' => $reviewer,
+			'content_integrity_passed' => empty( $validation['issue_count'] ),
+			'publication_experience_passed' => ! empty( $publication['passed'] ),
+			'evidence_matches_source' => '' !== $evidence_source_hash && hash_equals( $source_hash, $evidence_source_hash ),
+		);
 	}
 
 	private static function translation_job_v2_budget( string $role ): array {

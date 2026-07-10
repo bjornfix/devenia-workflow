@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.537
+Stable tag: 0.1.538
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.538 =
+* Requires explicit hash-bound source quality approval before a Translation Job can be discovered, claimed, reviewed, or published.
+* Includes the complete approved source fragment packet in quality Runs and adds source quality as a required Quality Decision check.
 
 = 0.1.537 =
 * Adds a finite, cost-bounded Translation Job v2 workflow with seven focused abilities.

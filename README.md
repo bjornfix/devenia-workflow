@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.537
+**Stable tag:** 0.1.538
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.538
+
+- Requires explicit hash-bound source quality approval before a Translation Job can be discovered, claimed, reviewed, or published.
+- Includes the complete approved source fragment packet in quality Runs and adds source quality as a required Quality Decision check.
 
 ### 0.1.537
 

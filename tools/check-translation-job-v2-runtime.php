@@ -40,6 +40,25 @@ try {
 	if ( '' === $language ) {
 		throw new RuntimeException( 'No target language is configured.' );
 	}
+	$unapproved_discover = $call( 'translation_job_v2_discover', array( 'source_id' => $source_id, 'language' => $language ) );
+	if ( ! empty( $unapproved_discover['success'] ) || 'source_quality_approval_required' !== (string) ( $unapproved_discover['code'] ?? '' ) ) {
+		throw new RuntimeException( 'Unapproved source was not blocked: ' . wp_json_encode( $unapproved_discover ) );
+	}
+	$source_review = $call(
+		'mark_source_content_integrity_reviewed',
+		array(
+			'source_id' => $source_id,
+			'content_integrity_already_clean' => true,
+			'audit_notes' => 'Runtime fixture passed current source integrity, Gutenberg, source revision, and bounded packet checks without a useful rewrite requirement.',
+			'public_url' => get_permalink( $source_id ),
+			'no_rewrite_reason' => 'The runtime fixture is intentionally minimal and complete for the contract it verifies; additional source copy would not improve the test evidence.',
+			'reviewer_statement' => 'The runtime contract inspected the entire fixture source and accepts responsibility for this hash-bound source approval before translation.',
+			'reviewer' => 'translation-job-v2-runtime',
+		)
+	);
+	if ( empty( $source_review['success'] ) ) {
+		throw new RuntimeException( 'Source approval failed: ' . wp_json_encode( $source_review ) );
+	}
 
 	$discover = $call( 'translation_job_v2_discover', array( 'source_id' => $source_id, 'language' => $language, 'observability_label' => 'runtime-contract' ) );
 	if ( empty( $discover['success'] ) || empty( $discover['job']['job_id'] ) ) {
@@ -119,7 +138,7 @@ try {
 	$quality_run_id = (string) $quality_claim['run']['run_id'];
 	$quality_token = (string) $quality_claim['claim_token'];
 	$option_keys[] = 'devenia_ai_translation_run_v2_' . $quality_run_id;
-	$checks = array_fill_keys( array( 'natural_language', 'factual_accuracy', 'source_coverage', 'localized_search_intent', 'offer_and_contact', 'links_and_route', 'rendered_experience' ), true );
+	$checks = array_fill_keys( array( 'source_quality', 'natural_language', 'factual_accuracy', 'source_coverage', 'localized_search_intent', 'offer_and_contact', 'links_and_route', 'rendered_experience' ), true );
 	$quality = $call(
 		'translation_job_v2_submit_quality_decision',
 		array(
@@ -146,6 +165,7 @@ try {
 			'packet_fragment_count' => count( $fragments ),
 			'inline_markup_kept' => true,
 			'claim_token_hashed' => true,
+			'unapproved_source_blocked' => true,
 			'translation_saved' => $translation_id > 0,
 		)
 	) . PHP_EOL;

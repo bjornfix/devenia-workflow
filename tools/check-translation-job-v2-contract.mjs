@@ -209,6 +209,7 @@ const qualityRun = createTranslationRun({
 pass(() => assert.equal(qualityRun.coordinator_id, writerRun.coordinator_id));
 
 const checks = Object.fromEntries([
+	["source_quality", "The current source revision is useful, accurate, current, and approved before translation."],
 	["natural_language", "Natural Italian syntax and terminology checked."],
 	["factual_accuracy", "Claims match the current source and evidence."],
 	["source_coverage", "All 105 source fragments are represented once."],

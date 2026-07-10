@@ -59,6 +59,12 @@ The Job record, not a conversation or local file, is authoritative. Atomic
 claiming remains server-owned. A crashed worker loses its time-bounded claim and
 the same Job can be retried with a new Run.
 
+A Translation Job may only be created for a source revision with explicit,
+hash-bound source quality evidence. Source improvement is a separate bounded
+phase: the source must be useful, current, factually defensible, structurally
+sound, and commercially clear before target-language work begins. Changing the
+source supersedes every artifact and Quality Decision bound to its prior hash.
+
 ### Run Model
 
 Each translator or quality critic is a fresh Translation Run with an immutable
@@ -93,6 +99,8 @@ critique, factual checks, SEO localization, or rendered-page inspection.
 - A quality Run receives the source, submitted localized artifact, target
   language contract, and relevant checks, not the translator's accumulated
   conversation history.
+- The quality packet includes every approved source fragment so factual
+  accuracy and coverage can be judged against the actual source, not a summary.
 - The Quality Decision binds to the exact submitted artifact revision.
 - The coordinator may accept quality edits and publish after the required
   checks pass.
@@ -202,8 +210,8 @@ state against the 2026-07-10 baseline.
 1. Freeze new Heartbeat/persona features and keep production 0.1.536 stable.
 2. Implement the bounded packet builder and Job/Run contracts without writes.
 3. Run local fixture translations and measure prompt/output budgets.
-4. Enable draft-only submission on `dev.devenia.com` through existing guarded
-   storage adapters.
+4. Enable draft-only submission on the validation WordPress site through
+   existing guarded storage adapters.
 5. Add a dev-only v2 capability adapter that accepts coordinator-owned Quality
    Decisions without Actor leases, then prove correction/publish gating.
 6. Canary one source and three languages on production without auto-publish.

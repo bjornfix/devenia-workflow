@@ -4,6 +4,7 @@ const RUN_ROLES = new Set(["translator", "quality"]);
 const RUN_FAILURES = new Set(["failed_technical", "budget_exceeded", "superseded", "cancelled"]);
 const QUALITY_DECISIONS = new Set(["pass", "revise", "reject"]);
 const QUALITY_CHECKS = [
+	"source_quality",
 	"natural_language",
 	"factual_accuracy",
 	"source_coverage",
