@@ -19,6 +19,22 @@ $call = static function ( string $method, array $input = array() ) {
 };
 
 try {
+	$replace_fragment = new ReflectionMethod( Devenia_AI_Translations::class, 'replace_source_design_text_html' );
+	$replace_fragment->setAccessible( true );
+	$projected_heading = (string) $replace_fragment->invoke(
+		null,
+		'<h1 class="gb-headline gb-headline-fixture">Source heading</h1>',
+		'<h1 class="gb-headline gb-headline-fixture">Titolo tradotto</h1>'
+	);
+	$projected_button = (string) $replace_fragment->invoke(
+		null,
+		'<div class="wp-block-button"><a href="/source/">Source action</a></div>',
+		'<div class="wp-block-button"><a href="/it/azione/">Azione tradotta</a></div>'
+	);
+	if ( 1 !== substr_count( strtolower( $projected_heading ), '<h1' ) || 1 !== substr_count( $projected_button, 'wp-block-button' ) ) {
+		throw new RuntimeException( 'Full-wrapper localized fragments created duplicate block shells.' );
+	}
+
 	$linked_source_id = wp_insert_post(
 		array(
 			'post_type' => 'page',
@@ -335,6 +351,7 @@ try {
 			'link_policy_in_packets' => true,
 			'invented_localized_link_blocked' => true,
 			'third_bounded_runs_available' => true,
+			'full_fragment_wrappers_normalized' => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {

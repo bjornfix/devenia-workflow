@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.541
+Stable tag: 0.1.542
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.542 =
+* Normalizes complete translated fragment wrappers before source-design projection so headings, paragraphs, and buttons cannot be nested or duplicated.
+* Adds runtime coverage for full-wrapper heading and button fragments.
 
 = 0.1.541 =
 * Allows a third bounded translator and quality Run so a valid second-review correction cannot leave a Job permanently unresolved.

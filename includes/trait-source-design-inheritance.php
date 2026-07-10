@@ -1732,7 +1732,15 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			return $html;
 		}
 		if ( preg_match( '/^(\\s*<([a-z][a-z0-9]*)\\b[^>]*>)(.*)(<\\/\\2>\\s*)$/is', $html, $matches ) ) {
-			return $matches[1] . self::preserve_source_design_fragment_links( (string) $matches[3], $localized_html ) . $matches[4];
+			$localized_inner = $localized_html;
+			if (
+				preg_match( '/^\\s*<([a-z][a-z0-9]*)\\b[^>]*>(.*)<\\/\\1>\\s*$/is', $localized_html, $localized_matches )
+				&& strtolower( (string) $localized_matches[1] ) === strtolower( (string) $matches[2] )
+			) {
+				$localized_inner = (string) $localized_matches[2];
+			}
+
+			return $matches[1] . self::preserve_source_design_fragment_links( (string) $matches[3], $localized_inner ) . $matches[4];
 		}
 
 		return self::preserve_source_design_fragment_links( $html, $localized_html );
