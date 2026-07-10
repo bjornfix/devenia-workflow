@@ -157,6 +157,38 @@ try {
 		throw new RuntimeException( 'Quality Decision failed: ' . wp_json_encode( $quality ) );
 	}
 	$option_keys[] = 'devenia_ai_translation_quality_v2_' . (string) $quality['quality_decision']['quality_revision'];
+	$correction_claim = $call(
+		'translation_job_v2_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => 'runtime-correction-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'translator',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $correction_claim['success'] ) ) {
+		throw new RuntimeException( 'Correction claim failed: ' . wp_json_encode( $correction_claim ) );
+	}
+	$correction_run_id = (string) $correction_claim['run']['run_id'];
+	$option_keys[] = 'devenia_ai_translation_run_v2_' . $correction_run_id;
+	$correction_packet = $call(
+		'translation_job_v2_fetch_packet',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $correction_run_id,
+			'claim_token' => (string) $correction_claim['claim_token'],
+		)
+	);
+	$correction_context = $correction_packet['packet']['correction_context'] ?? array();
+	if (
+		empty( $correction_packet['success'] )
+		|| $artifact_revision !== (string) ( $correction_context['previous_artifact_revision'] ?? '' )
+		|| empty( $correction_context['previous_artifact']['artifact'] )
+		|| empty( $correction_context['corrections'] )
+	) {
+		throw new RuntimeException( 'Correction context missing: ' . wp_json_encode( $correction_packet ) );
+	}
 
 	echo wp_json_encode(
 		array(
@@ -167,6 +199,7 @@ try {
 			'claim_token_hashed' => true,
 			'unapproved_source_blocked' => true,
 			'translation_saved' => $translation_id > 0,
+			'correction_context_included' => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {

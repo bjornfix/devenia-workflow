@@ -422,7 +422,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			}
 		}
 		self::translation_job_v2_finish_run( $run, 'submitted', $usage['usage'] );
-		$next = self::translation_job_v2_transition( $job, array( 'status' => 'quality_pending', 'artifact_revision' => $artifact_revision, 'translation_id' => $translation_id, 'content_revision' => $content_revision, 'active_run_id' => '' ) );
+		$next = self::translation_job_v2_transition( $job, array( 'status' => 'quality_pending', 'artifact_revision' => $artifact_revision, 'translation_id' => $translation_id, 'content_revision' => $content_revision, 'quality_revision' => '', 'active_run_id' => '' ) );
 		self::translation_job_v2_release_claim( (string) $job['job_id'] );
 		if ( empty( $next['success'] ) ) {
 			return $next;
@@ -602,7 +602,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		$contract = self::source_design_contract( $source );
 		$fragments = self::translation_job_v2_source_fragments( $contract );
 		$language = (string) $job['target_language'];
-		return array(
+		$packet = array(
 			'contract_version' => 2,
 			'job' => self::translation_job_v2_public_job( $job ),
 			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet' ),
@@ -620,6 +620,11 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			'source_approval' => self::translation_job_v2_source_approval( $source ),
 			'validation_contract' => array( 'exact_fragment_coverage' => true, 'localized_route' => true, 'deterministic_qa' => true, 'quality_checks' => self::translation_job_v2_quality_checks() ),
 		);
+		$correction_context = self::translation_job_v2_correction_context( $job );
+		if ( $correction_context ) {
+			$packet['correction_context'] = $correction_context;
+		}
+		return $packet;
 	}
 
 	private static function translation_job_v2_quality_packet( array $job, array $run, WP_Post $source ): array {
@@ -769,6 +774,34 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			);
 		}
 		return $fragments;
+	}
+
+	private static function translation_job_v2_correction_context( array $job ): array {
+		$quality_revision = (string) ( $job['quality_revision'] ?? '' );
+		$artifact_revision = (string) ( $job['artifact_revision'] ?? '' );
+		if ( '' === $quality_revision || '' === $artifact_revision ) {
+			return array();
+		}
+		$quality = get_option( self::translation_job_v2_quality_key( $quality_revision ) );
+		$artifact = get_option( self::translation_job_v2_artifact_key( $artifact_revision ) );
+		if ( ! is_array( $quality ) || ! is_array( $artifact ) || 'revise' !== (string) ( $quality['decision'] ?? '' ) ) {
+			return array();
+		}
+		return array(
+			'previous_artifact_revision' => $artifact_revision,
+			'previous_artifact' => $artifact,
+			'quality_revision' => $quality_revision,
+			'failed_checks' => array_values(
+				array_keys(
+					array_filter(
+						(array) ( $quality['checks'] ?? array() ),
+						static function ( $passed ): bool { return ! $passed; }
+					)
+				)
+			),
+			'evidence' => (string) ( $quality['evidence'] ?? '' ),
+			'corrections' => array_values( (array) ( $quality['corrections'] ?? array() ) ),
+		);
 	}
 
 	private static function translation_job_v2_source_approval( WP_Post $source ): array {
