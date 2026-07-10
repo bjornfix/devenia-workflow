@@ -350,15 +350,28 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 				continue;
 			}
 			$selected['assignment_id'] = $assignment_id;
+			$assignment_shell = array(
+				'assignment_id'    => $assignment_id,
+				'work_item_id'     => sanitize_text_field( (string) ( $selected['work_item_id'] ?? '' ) ),
+				'revision'         => sanitize_text_field( (string) ( $selected['revision'] ?? '' ) ),
+				'agent_session_id' => $agent_session_id,
+				'selected'         => $selected,
+			);
+			if ( ! self::assignment_acquire_item_lock( $assignment_shell, $ttl_seconds ) ) {
+				$skipped[] = self::heartbeat_skip_summary( $selected, 'assignment_conflict' );
+				continue;
+			}
 			$reservation_input = self::assignment_authority_reservation_input( $selected, $identity, $input, $ttl_seconds, $note );
 			$claim_result = self::reserve_translation_work( $reservation_input );
 			if ( empty( $claim_result['success'] ) ) {
+				self::assignment_release_item_lock( $assignment_shell );
 				$skipped[] = self::heartbeat_skip_summary( $selected, 'claim_conflict' );
 				continue;
 			}
 			$claim_identity = self::assignment_authority_claim_identity( $claim_result, $identity, $input );
 			if ( empty( $claim_identity['success'] ) ) {
 				self::assignment_release_claim_result( $selected, $claim_result );
+				self::assignment_release_item_lock( $assignment_shell );
 				$skipped[] = self::heartbeat_skip_summary( $selected, sanitize_key( (string) ( $claim_identity['code'] ?? 'claim_identity_mismatch' ) ) );
 				continue;
 			}
@@ -383,6 +396,7 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 			);
 			if ( ! self::assignment_compare_and_swap_option( $key, $pending, $assignment ) ) {
 				self::assignment_internal_release_reservation( $assignment );
+				self::assignment_release_item_lock( $assignment );
 				return self::assignment_error( 'The Assignment record changed after Reservation creation. The Reservation was released.', 'assignment_store_conflict' );
 			}
 
@@ -476,6 +490,35 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 			$assignment = array();
 		}
 		if ( $assignment && 'active' === $assignment['status'] ) {
+			$reservation = self::assignment_reservation_for_selected( $assignment['selected'], true );
+			$reservation_matches = $reservation && self::assignment_reservation_matches( $reservation, $assignment );
+			$remaining_ttl = max( 60, ( strtotime( (string) $assignment['expires_at'] ) ?: time() ) - time() );
+			$item_lock_matches = $reservation_matches && self::assignment_acquire_item_lock( $assignment, $remaining_ttl );
+			if ( ! $reservation_matches || ! $item_lock_matches ) {
+				$orphaned = $assignment;
+				$orphaned['status'] = 'completing';
+				$orphaned['updated_at'] = gmdate( 'c' );
+				$orphaned['pending_outcome'] = array(
+					'outcome'          => 'abandoned',
+					'blocker_category' => '',
+					'evidence_summary' => '',
+					'evidence'         => array( $reservation_matches ? 'assignment_item_lock_conflict' : 'assignment_reservation_ownership_lost' ),
+					'note'             => 'Server reconciled an Assignment that no longer owned its exclusion locks.',
+					'recorded_at'      => gmdate( 'c' ),
+				);
+				if ( self::assignment_compare_and_swap_option( $key, $assignment, $orphaned ) ) {
+					$finished = self::assignment_finish_terminal_transition( $orphaned );
+					if ( empty( $finished['success'] ) ) {
+						return $finished;
+					}
+				}
+				return array(
+					'success'        => true,
+					'has_assignment' => false,
+					'assignment'     => null,
+					'reconciled'     => true,
+				);
+			}
 			return array(
 				'success'        => true,
 				'has_assignment' => true,
@@ -543,6 +586,9 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 			'ttl_seconds'      => max( 60, $expires_ts - $claimed_ts ),
 			'note'             => sanitize_textarea_field( (string) ( $reservation['note'] ?? '' ) ),
 		);
+		if ( ! self::assignment_acquire_item_lock( $assignment, (int) $assignment['ttl_seconds'] ) ) {
+			return array();
+		}
 		$key = self::assignment_session_option_name( $agent_session_id );
 		$saved = $pending
 			? self::assignment_compare_and_swap_option( $key, $pending, $assignment )
@@ -649,6 +695,9 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 			return self::assignment_error( 'Only an active Assignment can be renewed.', 'assignment_not_active' );
 		}
 		$expires_at = gmdate( 'c', time() + $ttl_seconds );
+		if ( ! self::assignment_renew_item_lock( $assignment, $ttl_seconds ) ) {
+			return self::assignment_error( 'The Assignment Work Item lock is owned by another Assignment.', 'assignment_item_lock_conflict' );
+		}
 		$reservation = self::assignment_reservation_for_selected( $assignment['selected'], true );
 		if ( ! $reservation ) {
 			if ( self::assignment_work_item_revision_is_current( $assignment['selected'] ) ) {
@@ -694,6 +743,9 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 		}
 		if ( ! self::assignment_internal_release_reservation( $assignment ) ) {
 			return self::assignment_error( 'The Assignment Reservation could not be released safely.', 'assignment_release_failed' );
+		}
+		if ( ! self::assignment_release_item_lock( $assignment ) ) {
+			return self::assignment_error( 'The Assignment Work Item lock could not be released safely.', 'assignment_item_lock_release_failed' );
 		}
 
 		$outcome = self::assignment_outcome_record( $assignment );
@@ -765,10 +817,130 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 			return true;
 		}
 		if ( ! self::assignment_reservation_matches( $reservation, $assignment ) ) {
-			return false;
+			// A foreign Reservation is not this Assignment's lock to delete. The
+			// orphan Assignment may still terminate without disturbing its owner.
+			return true;
 		}
 
 		return delete_option( self::assignment_reservation_option_name_for_selected( $selected ) );
+	}
+
+	/**
+	 * Return the active Assignment item lock for one Work Item.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function assignment_item_lock_for_work_item( array $item ): array {
+		$work_item_id = sanitize_text_field( (string) ( $item['work_item_id'] ?? '' ) );
+		if ( '' === $work_item_id ) {
+			return array();
+		}
+		$key = self::assignment_item_option_name( $work_item_id );
+		$lock = get_option( $key, array() );
+		$lock = is_array( $lock ) ? self::sanitize_assignment_item_lock( $lock ) : array();
+		if ( ! $lock ) {
+			return array();
+		}
+		if ( ! empty( $lock['expired'] ) ) {
+			self::assignment_compare_and_delete_option( $key, $lock );
+			return array();
+		}
+
+		return $lock;
+	}
+
+	/**
+	 * Atomically acquire or idempotently retain one logical Work Item lock.
+	 */
+	private static function assignment_acquire_item_lock( array $assignment, int $ttl_seconds ): bool {
+		$work_item_id = sanitize_text_field( (string) ( $assignment['work_item_id'] ?? $assignment['selected']['work_item_id'] ?? '' ) );
+		if ( '' === $work_item_id ) {
+			return false;
+		}
+		$existing = self::assignment_item_lock_for_work_item( array( 'work_item_id' => $work_item_id ) );
+		if ( $existing ) {
+			return self::assignment_item_lock_matches( $existing, $assignment );
+		}
+
+		$now = time();
+		$lock = array(
+			'assignment_id'    => sanitize_text_field( (string) ( $assignment['assignment_id'] ?? '' ) ),
+			'work_item_id'     => $work_item_id,
+			'revision'         => sanitize_text_field( (string) ( $assignment['revision'] ?? $assignment['selected']['revision'] ?? '' ) ),
+			'agent_session_id' => self::normalize_control_scope_id( (string) ( $assignment['agent_session_id'] ?? '' ) ),
+			'claimed_at'       => gmdate( 'c', $now ),
+			'expires_at'       => gmdate( 'c', $now + max( 60, $ttl_seconds ) ),
+		);
+		$key = self::assignment_item_option_name( $work_item_id );
+		if ( add_option( $key, $lock, '', 'no' ) ) {
+			return true;
+		}
+		wp_cache_delete( $key, 'options' );
+		$existing = self::assignment_item_lock_for_work_item( array( 'work_item_id' => $work_item_id ) );
+		return $existing && self::assignment_item_lock_matches( $existing, $assignment );
+	}
+
+	private static function assignment_renew_item_lock( array $assignment, int $ttl_seconds ): bool {
+		$work_item_id = sanitize_text_field( (string) ( $assignment['work_item_id'] ?? $assignment['selected']['work_item_id'] ?? '' ) );
+		$lock = self::assignment_item_lock_for_work_item( array( 'work_item_id' => $work_item_id ) );
+		if ( ! $lock ) {
+			return self::assignment_acquire_item_lock( $assignment, $ttl_seconds );
+		}
+		if ( ! self::assignment_item_lock_matches( $lock, $assignment ) ) {
+			return false;
+		}
+
+		$renewed = $lock;
+		$renewed['expires_at'] = gmdate( 'c', time() + max( 60, $ttl_seconds ) );
+		return self::assignment_compare_and_swap_option( self::assignment_item_option_name( $work_item_id ), $lock, $renewed );
+	}
+
+	private static function assignment_release_item_lock( array $assignment ): bool {
+		$work_item_id = sanitize_text_field( (string) ( $assignment['work_item_id'] ?? $assignment['selected']['work_item_id'] ?? '' ) );
+		if ( '' === $work_item_id ) {
+			return true;
+		}
+		$lock = self::assignment_item_lock_for_work_item( array( 'work_item_id' => $work_item_id ) );
+		if ( ! $lock || ! self::assignment_item_lock_matches( $lock, $assignment ) ) {
+			return true;
+		}
+
+		return self::assignment_compare_and_delete_option( self::assignment_item_option_name( $work_item_id ), $lock );
+	}
+
+	private static function assignment_item_lock_matches( array $lock, array $assignment ): bool {
+		$assignment_id = sanitize_text_field( (string) ( $assignment['assignment_id'] ?? '' ) );
+		$agent_session_id = self::normalize_control_scope_id( (string) ( $assignment['agent_session_id'] ?? '' ) );
+		return '' !== $assignment_id
+			&& '' !== $agent_session_id
+			&& hash_equals( $assignment_id, (string) ( $lock['assignment_id'] ?? '' ) )
+			&& hash_equals( $agent_session_id, (string) ( $lock['agent_session_id'] ?? '' ) );
+	}
+
+	/**
+	 * Sanitize one stored Assignment item lock.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function sanitize_assignment_item_lock( array $lock ): array {
+		$assignment_id = sanitize_text_field( (string) ( $lock['assignment_id'] ?? '' ) );
+		$work_item_id = sanitize_text_field( (string) ( $lock['work_item_id'] ?? '' ) );
+		$agent_session_id = self::normalize_control_scope_id( (string) ( $lock['agent_session_id'] ?? '' ) );
+		$expires_at = sanitize_text_field( (string) ( $lock['expires_at'] ?? '' ) );
+		$expires_ts = strtotime( $expires_at ) ?: 0;
+		if ( '' === $assignment_id || '' === $work_item_id || '' === $agent_session_id || ! $expires_ts ) {
+			return array();
+		}
+
+		return array(
+			'assignment_id'    => $assignment_id,
+			'work_item_id'     => $work_item_id,
+			'revision'         => sanitize_text_field( (string) ( $lock['revision'] ?? '' ) ),
+			'agent_session_id' => $agent_session_id,
+			'claimed_at'       => sanitize_text_field( (string) ( $lock['claimed_at'] ?? '' ) ),
+			'expires_at'       => $expires_at,
+			'expired'          => $expires_ts <= time(),
+		);
 	}
 
 	private static function assignment_release_claim_result( array $selected, array $claim_result ): void {
@@ -1037,6 +1209,10 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 
 	private static function assignment_session_option_name( string $agent_session_id ): string {
 		return self::OPTION_ASSIGNMENT_PREFIX . hash( 'sha256', self::normalize_control_scope_id( $agent_session_id ) );
+	}
+
+	private static function assignment_item_option_name( string $work_item_id ): string {
+		return self::OPTION_ASSIGNMENT_ITEM_PREFIX . hash( 'sha256', sanitize_text_field( $work_item_id ) );
 	}
 
 	private static function assignment_outcome_option_name( string $assignment_id ): string {

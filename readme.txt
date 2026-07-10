@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.531
+Stable tag: 0.1.532
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.532 =
+* Makes Work Item revisions deterministic and adds an atomic logical item lock so concurrent sessions cannot own the same Work Item.
+* Reconciles orphan Assignments without deleting another session's valid Reservation.
 
 = 0.1.531 =
 * Adds a server-owned Assignment Lifecycle with idempotent accept, recovery, renewal, and structured outcomes.

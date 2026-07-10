@@ -31,6 +31,9 @@ Planner Module.
   Assignment again instead of a second Work Item.
 - The Assignment record stores the Work Item snapshot, revision, owner identity,
   expiry, Reservation authority, and outcome.
+- Assignment Lifecycle also owns an atomic logical lock keyed by stable
+  `work_item_id`; Reservation remains the storage/write gate, while the logical
+  lock prevents concurrent ownership when evidence revisions change.
 - Local `claim.json` is a regenerable Claim Cache.
 - Completed outcomes are accepted only when the assigned Work Item revision is
   no longer current.

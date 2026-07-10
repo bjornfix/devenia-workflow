@@ -68,7 +68,10 @@ trait Devenia_AI_Translations_Work_Item_Planner {
 			$reservation = 'source' === $work_scope
 				? self::source_work_reservation_for_type( $source_id, $work_type )
 				: self::translation_reservation_for_language( $source_id, $language );
-			$is_reserved = ! empty( $reservation );
+			$item_lock = method_exists( __CLASS__, 'assignment_item_lock_for_work_item' )
+				? self::assignment_item_lock_for_work_item( $item )
+				: array();
+			$is_reserved = ! empty( $reservation ) || ! empty( $item_lock );
 			if ( $is_reserved ) {
 				++$coverage['reserved_items'];
 			}
@@ -92,7 +95,7 @@ trait Devenia_AI_Translations_Work_Item_Planner {
 					continue;
 				}
 				if ( $is_reserved ) {
-					$item_skip_reason = 'reserved';
+					$item_skip_reason = $item_lock ? 'assigned' : 'reserved';
 					continue;
 				}
 				if ( method_exists( __CLASS__, 'assignment_outcome_blocks_work_item' ) && self::assignment_outcome_blocks_work_item( $item ) ) {

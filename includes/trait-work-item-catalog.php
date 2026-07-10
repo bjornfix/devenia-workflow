@@ -667,8 +667,22 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			'language'       => sanitize_key( $language ),
 		);
 		$item['work_item_id'] = 'wi_' . substr( hash( 'sha256', wp_json_encode( $work_item_identity ) ), 0, 32 );
-		$revision_payload = $item;
-		unset( $revision_payload['reservation_key'] );
+		$revision_payload = array_merge(
+			$work_item_identity,
+			array(
+				'planner_version'    => self::VERSION,
+				'post_status'        => $item['post_status'],
+				'writer_token_label' => $item['writer_token_label'],
+				'obligations'        => $item['obligations'],
+				'linguistic'         => $item['linguistic'],
+				'quality'            => $item['quality'],
+				'final'              => $item['final'],
+				'article_type'       => sanitize_key( (string) ( $item['article_type'] ?? '' ) ),
+				'template_id'        => sanitize_text_field( (string) ( $item['template_id'] ?? '' ) ),
+				'template_slug'      => sanitize_text_field( (string) ( $item['template_slug'] ?? '' ) ),
+				'template_version'   => sanitize_text_field( (string) ( $item['template_version'] ?? '' ) ),
+			)
+		);
 		$revision_payload['evidence'] = isset( $extra['revision_evidence'] ) && is_array( $extra['revision_evidence'] )
 			? $extra['revision_evidence']
 			: array();

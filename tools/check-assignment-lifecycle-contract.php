@@ -125,6 +125,7 @@ final class Devenia_AI_Translations_Assignment_Contract {
 	const OPTION_TRANSLATION_CLAIM_PREFIX = 'translation_claim_';
 	const OPTION_WORK_CLAIM_PREFIX = 'source_claim_';
 	const OPTION_ASSIGNMENT_PREFIX = 'assignment_';
+	const OPTION_ASSIGNMENT_ITEM_PREFIX = 'assignment_item_';
 	const OPTION_ASSIGNMENT_OUTCOME_PREFIX = 'assignment_outcome_';
 	const OPTION_ASSIGNMENT_BLOCK_PREFIX = 'assignment_block_';
 
@@ -422,6 +423,21 @@ $current_after_completion = Devenia_AI_Translations_Assignment_Contract::call( '
 $assert( ! empty( $current_after_completion['success'] ) && empty( $current_after_completion['has_assignment'] ), 'completion:no_current_assignment', $current_after_completion );
 
 assignment_contract_reset();
+$orphan_accept = Devenia_AI_Translations_Assignment_Contract::call( 'assignment_lifecycle_accept', array( $input, $identity ) );
+$orphan_selected = $orphan_accept['assignment']['selected'] ?? array();
+$orphan_reservation_key = Devenia_AI_Translations_Assignment_Contract::call( 'assignment_reservation_option_name_for_selected', array( $orphan_selected ) );
+$foreign_reservation = get_option( $orphan_reservation_key, array() );
+$foreign_reservation['token'] = 'foreign-token';
+$foreign_reservation['assignment_id'] = 'as_foreign';
+$foreign_reservation['agent_session_id'] = 'session-kari';
+$foreign_reservation['actor_id'] = 'kari';
+update_option( $orphan_reservation_key, $foreign_reservation );
+$orphan_current = Devenia_AI_Translations_Assignment_Contract::call( 'assignment_lifecycle_current_result', array( $input, $identity, true ) );
+$foreign_after_reconcile = get_option( $orphan_reservation_key, array() );
+$assert( ! empty( $orphan_current['success'] ) && empty( $orphan_current['has_assignment'] ) && ! empty( $orphan_current['reconciled'] ), 'orphan:assignment_reconciled', $orphan_current );
+$assert( 'as_foreign' === ( $foreign_after_reconcile['assignment_id'] ?? '' ), 'orphan:foreign_reservation_preserved', $foreign_after_reconcile );
+
+assignment_contract_reset();
 $blocked_assignment = Devenia_AI_Translations_Assignment_Contract::call( 'assignment_lifecycle_accept', array( $input, $identity ) );
 $blocked = Devenia_AI_Translations_Assignment_Contract::call(
 	'complete_assignment',
@@ -486,6 +502,7 @@ echo json_encode(
 			'idempotent_accept',
 			'single_active_assignment_per_session',
 			'crash_recovery_from_reservation',
+			'orphan_assignment_reconciliation',
 			'revision_aware_completion',
 			'blocked_revision_suppression',
 			'new_revision_eligibility',

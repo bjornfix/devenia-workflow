@@ -12,6 +12,8 @@ if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
 
 $session_id = sanitize_text_field( (string) ( $args[0] ?? '' ) );
 $actor_id   = sanitize_key( (string) ( $args[1] ?? '' ) );
+$parallel_session_id = sanitize_text_field( (string) ( $args[2] ?? '' ) );
+$parallel_actor_id   = sanitize_key( (string) ( $args[3] ?? '' ) );
 if ( '' === $session_id || '' === $actor_id ) {
 	fwrite( STDERR, "Session ID and actor ID are required.\n" );
 	exit( 2 );
@@ -39,6 +41,7 @@ $input = array(
 	'note'             => 'Assignment Lifecycle dev runtime contract',
 );
 $session_key = $invoke( 'assignment_session_option_name', array( $session_id ) );
+$parallel_session_key = '' !== $parallel_session_id ? $invoke( 'assignment_session_option_name', array( $parallel_session_id ) ) : '';
 $failures = array();
 $assert = static function ( bool $condition, string $case, $actual = null ) use ( &$failures ): void {
 	if ( ! $condition ) {
@@ -99,6 +102,46 @@ try {
 	$assert( ! empty( $first['success'] ) && 'claimed' === ( $first['mode'] ?? '' ), 'accept:first_claimed', $first_summary );
 	$assert( ! empty( $second['success'] ) && 'resumed' === ( $second['mode'] ?? '' ), 'accept:idempotent_resume', $second_summary );
 	$assert( ( $first['assignment']['assignment_id'] ?? '' ) === ( $second['assignment']['assignment_id'] ?? '' ), 'accept:same_assignment_id' );
+	if ( '' !== $parallel_session_id && '' !== $parallel_actor_id ) {
+		$parallel_identity = $identity;
+		$parallel_identity['actor_id'] = $parallel_actor_id;
+		$parallel_identity['step_token_label'] = $parallel_actor_id;
+		$parallel_identity['agent_session_id'] = $parallel_session_id;
+		$parallel_identity['control_scope_id'] = $parallel_session_id;
+		$parallel_identity['process_id'] = $parallel_session_id;
+		$parallel_input = $input;
+		$parallel_input['agent_session_id'] = $parallel_session_id;
+		$parallel = $invoke( 'assignment_lifecycle_accept', array( $parallel_input, $parallel_identity ) );
+		$parallel_work_item_id = (string) ( $parallel['assignment']['work_item_id'] ?? '' );
+		$assert(
+			! empty( $parallel['success'] )
+			&& ( 'wait' === ( $parallel['action'] ?? '' ) || ( '' !== $parallel_work_item_id && $parallel_work_item_id !== (string) ( $first['assignment']['work_item_id'] ?? '' ) ) ),
+			'concurrency:logical_item_lock',
+			array(
+				'mode'                  => (string) ( $parallel['mode'] ?? '' ),
+				'action'                => (string) ( $parallel['action'] ?? '' ),
+				'first_work_item_id'    => (string) ( $first['assignment']['work_item_id'] ?? '' ),
+				'parallel_work_item_id' => $parallel_work_item_id,
+			)
+		);
+		if ( ! empty( $parallel['assignment'] ) ) {
+			$parallel_assignment = $parallel['assignment'];
+			$parallel_transition = $parallel_assignment;
+			$parallel_transition['status'] = 'completing';
+			$parallel_transition['updated_at'] = gmdate( 'c' );
+			$parallel_transition['pending_outcome'] = array(
+				'outcome'          => 'abandoned',
+				'blocker_category' => '',
+				'evidence_summary' => '',
+				'evidence'         => array( 'dev_runtime_parallel_contract_no_editorial_work' ),
+				'note'             => 'Parallel runtime contract only; no editorial work was performed.',
+				'recorded_at'      => gmdate( 'c' ),
+			);
+			$parallel_swapped = $invoke( 'assignment_compare_and_swap_option', array( $parallel_session_key, $parallel_assignment, $parallel_transition ) );
+			$parallel_finished = $parallel_swapped ? $invoke( 'assignment_finish_terminal_transition', array( $parallel_transition ) ) : array();
+			$assert( $parallel_swapped && ! empty( $parallel_finished['success'] ), 'concurrency:parallel_cleanup', $parallel_finished['code'] ?? '' );
+		}
+	}
 
 	$assignment = $first['assignment'] ?? array();
 	delete_option( $session_key );
@@ -135,13 +178,16 @@ try {
 	$assert( ! empty( $plan['success'] ), 'planner:runtime_success', $plan['code'] ?? '' );
 	$assert( ( $plan['coverage']['claimable_for_actor'] ?? 0 ) >= 0, 'planner:coverage_present' );
 } finally {
-	$stored = get_option( $session_key, array() );
-	if ( is_array( $stored ) && ! empty( $stored ) ) {
-		$stored = $invoke( 'sanitize_assignment', array( $stored ) );
-		if ( $stored ) {
-			$invoke( 'assignment_internal_release_reservation', array( $stored ) );
+	foreach ( array_filter( array( $session_key, $parallel_session_key ) ) as $cleanup_key ) {
+		$stored = get_option( $cleanup_key, array() );
+		if ( is_array( $stored ) && ! empty( $stored ) ) {
+			$stored = $invoke( 'sanitize_assignment', array( $stored ) );
+			if ( $stored ) {
+				$invoke( 'assignment_internal_release_reservation', array( $stored ) );
+				$invoke( 'assignment_release_item_lock', array( $stored ) );
+			}
+			delete_option( $cleanup_key );
 		}
-		delete_option( $session_key );
 	}
 }
 
@@ -160,6 +206,7 @@ echo wp_json_encode(
 			'renewal',
 			'abandoned_outcome_cleanup',
 			'planner_runtime_coverage',
+			'logical_item_lock_across_sessions',
 		),
 	),
 	JSON_PRETTY_PRINT

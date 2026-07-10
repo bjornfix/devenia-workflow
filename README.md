@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.531
+**Stable tag:** 0.1.532
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -207,6 +207,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.532
+
+- Makes Work Item revisions deterministic and adds an atomic logical item lock so concurrent sessions cannot own the same Work Item.
+- Reconciles orphan Assignments without deleting another session's valid Reservation.
 
 ### 0.1.531
 
