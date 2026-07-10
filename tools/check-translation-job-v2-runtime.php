@@ -172,6 +172,8 @@ try {
 	$links = $packet['packet']['links'] ?? array();
 	$language_profile = $packet['packet']['language_profile'] ?? array();
 	$submission_contract = $packet['packet']['submission_contract'] ?? array();
+	$artifact_schema_properties = $submission_contract['input_schema']['properties']['artifact']['properties'] ?? array();
+	$fragment_schema_properties = $artifact_schema_properties['localized_fragments']['items']['properties'] ?? array();
 	if (
 		empty( $packet['success'] )
 		|| 1 !== count( $fragments )
@@ -182,7 +184,11 @@ try {
 		|| $linked_source_url !== (string) ( $links[0]['target_url'] ?? '' )
 		|| ! in_array( 'Google Search Console', (array) ( $language_profile['source_qa_preserve_terms'] ?? array() ), true )
 		|| 'ai-translations/v2-submit-artifact' !== (string) ( $submission_contract['ability'] ?? '' )
-		|| ! in_array( 'usage', (array) ( $submission_contract['required_top_level'] ?? array() ), true )
+		|| ! in_array( 'usage', (array) ( $submission_contract['input_schema']['required'] ?? array() ), true )
+		|| ! isset( $artifact_schema_properties['seo'] )
+		|| isset( $artifact_schema_properties['seo_title'] )
+		|| ! isset( $fragment_schema_properties['html'], $fragment_schema_properties['text'] )
+		|| isset( $fragment_schema_properties['html_or_text'] )
 	) {
 		throw new RuntimeException( 'Bounded packet failed: ' . wp_json_encode( $packet ) );
 	}
@@ -251,7 +257,8 @@ try {
 		empty( $quality_packet['success'] )
 		|| $links !== ( $quality_packet['packet']['links'] ?? array() )
 		|| 'ai-translations/v2-submit-quality-decision' !== (string) ( $quality_packet['packet']['submission_contract']['ability'] ?? '' )
-		|| 'array_of_strings' !== (string) ( $quality_packet['packet']['submission_contract']['corrections_type'] ?? '' )
+		|| 'array' !== (string) ( $quality_packet['packet']['submission_contract']['input_schema']['properties']['corrections']['type'] ?? '' )
+		|| 'string' !== (string) ( $quality_packet['packet']['submission_contract']['input_schema']['properties']['corrections']['items']['type'] ?? '' )
 	) {
 		throw new RuntimeException( 'Quality packet did not preserve the authoritative link policy: ' . wp_json_encode( $quality_packet ) );
 	}
@@ -411,6 +418,7 @@ try {
 			'full_fragment_wrappers_normalized' => true,
 			'source_scoped_preserve_terms_in_packet' => true,
 			'submission_contracts_in_packets' => true,
+			'submission_contracts_share_live_schema' => true,
 			'runtime_text_uses_wordpress_capability' => true,
 		)
 	) . PHP_EOL;

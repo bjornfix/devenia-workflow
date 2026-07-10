@@ -694,25 +694,42 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 	 * @return array<string,mixed>
 	 */
 	private static function translation_job_v2_submission_contract( string $role ): array {
-		$usage = array( 'input_tokens', 'cached_input_tokens', 'output_tokens', 'attempts', 'duration_ms', 'estimated_cost_microusd' );
 		if ( 'quality' === $role ) {
 			return array(
 				'ability' => 'ai-translations/v2-submit-quality-decision',
-				'required_top_level' => array( 'job_id', 'run_id', 'claim_token', 'artifact_revision', 'decision', 'checks', 'evidence', 'usage' ),
-				'checks' => self::translation_job_v2_quality_checks(),
-				'evidence_type' => 'string',
-				'corrections_type' => 'array_of_strings',
-				'usage_required' => $usage,
+				'input_schema' => self::translation_job_v2_quality_schema(),
+				'payload_example' => array(
+					'job_id' => '<packet.job.job_id>',
+					'run_id' => '<packet.run.run_id>',
+					'claim_token' => '<same claim token used to fetch this packet>',
+					'artifact_revision' => '<packet.artifact.artifact_revision>',
+					'decision' => 'pass|revise|reject',
+					'checks' => array_fill_keys( self::translation_job_v2_quality_checks(), true ),
+					'evidence' => '<concrete review evidence>',
+					'corrections' => array( '<required correction; omit array when empty>' ),
+					'usage' => array( 'input_tokens' => 0, 'cached_input_tokens' => 0, 'output_tokens' => 0, 'attempts' => 1, 'duration_ms' => 0, 'estimated_cost_microusd' => 0 ),
+				),
+				'rules' => array( 'Use only properties declared by input_schema.', 'corrections is an array of strings, not an object.' ),
 			);
 		}
 
 		return array(
 			'ability' => 'ai-translations/v2-submit-artifact',
-			'required_top_level' => array( 'job_id', 'run_id', 'claim_token', 'artifact', 'usage' ),
-			'artifact_required' => array( 'title', 'localized_slug', 'localized_fragments' ),
-			'localized_fragment_required' => array( 'key' ),
-			'localized_fragment_content' => 'html_or_text',
-			'usage_required' => $usage,
+			'input_schema' => self::translation_job_v2_artifact_schema(),
+			'payload_example' => array(
+				'job_id' => '<packet.job.job_id>',
+				'run_id' => '<packet.run.run_id>',
+				'claim_token' => '<same claim token used to fetch this packet>',
+				'artifact' => array(
+					'title' => '<localized title>',
+					'excerpt' => '<localized excerpt>',
+					'localized_slug' => '<localized slug>',
+					'seo' => array( 'title' => '<localized SEO title>', 'description' => '<localized meta description>', 'focus_keyword' => '<localized focus keyword>' ),
+					'localized_fragments' => array( array( 'key' => '<exact source fragment key>', 'html' => '<localized HTML; use text instead only for plain text>' ) ),
+				),
+				'usage' => array( 'input_tokens' => 0, 'cached_input_tokens' => 0, 'output_tokens' => 0, 'attempts' => 1, 'duration_ms' => 0, 'estimated_cost_microusd' => 0 ),
+			),
+			'rules' => array( 'Use only properties declared by input_schema.', 'SEO fields belong inside artifact.seo; never add seo_title or seo_description to artifact.', 'Each localized fragment must contain key and exactly one of html or text; html_or_text is not a property.' ),
 		);
 	}
 
