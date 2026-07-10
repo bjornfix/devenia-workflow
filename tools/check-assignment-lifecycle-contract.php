@@ -74,6 +74,14 @@ final class Assignment_Contract_WPDB {
 	public function query( array $prepared ): int {
 		$query = ltrim( $prepared['query'] );
 		$args  = $prepared['args'];
+		if ( 0 === strpos( $query, 'INSERT IGNORE ' ) ) {
+			list( $key, $serialized ) = $args;
+			if ( array_key_exists( $key, $GLOBALS['assignment_contract_options'] ) ) {
+				return 0;
+			}
+			$GLOBALS['assignment_contract_options'][ $key ] = unserialize( $serialized );
+			return 1;
+		}
 		if ( 0 === strpos( $query, 'UPDATE ' ) ) {
 			list( $replacement, $key, $expected ) = $args;
 			if ( ! array_key_exists( $key, $GLOBALS['assignment_contract_options'] ) || serialize( $GLOBALS['assignment_contract_options'][ $key ] ) !== $expected ) {
@@ -115,10 +123,12 @@ final class Assignment_Contract_WPDB {
 $GLOBALS['wpdb'] = new Assignment_Contract_WPDB();
 
 require_once dirname( __DIR__ ) . '/includes/trait-work-item-planner.php';
+require_once dirname( __DIR__ ) . '/includes/trait-atomic-option-store.php';
 require_once dirname( __DIR__ ) . '/includes/trait-assignment-lifecycle.php';
 
 final class Devenia_AI_Translations_Assignment_Contract {
 	use Devenia_AI_Translations_Work_Item_Planner;
+	use Devenia_AI_Translations_Atomic_Option_Store;
 	use Devenia_AI_Translations_Assignment_Lifecycle;
 
 	const MAX_TRANSLATION_CLAIM_TTL = 14400;
@@ -330,7 +340,7 @@ final class Devenia_AI_Translations_Assignment_Contract {
 			'expires_at'               => gmdate( 'c', time() + absint( $input['ttl_seconds'] ) ),
 			'note'                     => sanitize_textarea_field( (string) $input['note'] ),
 		);
-		if ( ! add_option( $key, $claim ) ) {
+		if ( ! self::atomic_create_option( $key, $claim ) ) {
 			return array( 'success' => false, 'claims' => array(), 'claim_token' => '' );
 		}
 
@@ -390,6 +400,13 @@ $assert = static function ( bool $condition, string $case, $actual = null ) use 
 		$failures[] = array( 'case' => $case, 'actual' => $actual );
 	}
 };
+
+assignment_contract_reset();
+$atomic_first = Devenia_AI_Translations_Assignment_Contract::call( 'atomic_create_option', array( 'atomic_lock', array( 'owner' => 'ola' ) ) );
+$atomic_second = Devenia_AI_Translations_Assignment_Contract::call( 'atomic_create_option', array( 'atomic_lock', array( 'owner' => 'kari' ) ) );
+$assert( $atomic_first, 'atomic_option:first_inserted' );
+$assert( ! $atomic_second, 'atomic_option:duplicate_rejected' );
+$assert( array( 'owner' => 'ola' ) === get_option( 'atomic_lock' ), 'atomic_option:existing_value_preserved', get_option( 'atomic_lock' ) );
 
 assignment_contract_reset();
 $identity = Devenia_AI_Translations_Assignment_Contract::$identity;
@@ -502,6 +519,7 @@ echo json_encode(
 	array(
 		'success'   => true,
 		'contracts' => array(
+			'atomic_option_create_only',
 			'idempotent_accept',
 			'single_active_assignment_per_session',
 			'crash_recovery_from_reservation',

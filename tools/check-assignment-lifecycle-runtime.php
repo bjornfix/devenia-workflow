@@ -43,6 +43,7 @@ $input = array(
 $session_key = $invoke( 'assignment_session_option_name', array( $session_id ) );
 $parallel_session_key = '' !== $parallel_session_id ? $invoke( 'assignment_session_option_name', array( $parallel_session_id ) ) : '';
 $failures = array();
+$assignment_ids = array();
 $assert = static function ( bool $condition, string $case, $actual = null ) use ( &$failures ): void {
 	if ( ! $condition ) {
 		$failures[] = array( 'case' => $case, 'actual' => $actual );
@@ -62,6 +63,9 @@ $redact = static function ( $value ) use ( &$redact ) {
 try {
 	delete_option( $session_key );
 	$first  = $invoke( 'assignment_lifecycle_accept', array( $input, $identity ) );
+	if ( ! empty( $first['assignment']['assignment_id'] ) ) {
+		$assignment_ids[] = (string) $first['assignment']['assignment_id'];
+	}
 	$raw_after_first = get_option( $session_key, array() );
 	$normalized_after_first = $invoke( 'sanitize_assignment', array( $raw_after_first ) );
 	$storage_after_first = $invoke( 'assignment_storage_record', array( $normalized_after_first ) );
@@ -112,6 +116,9 @@ try {
 		$parallel_input = $input;
 		$parallel_input['agent_session_id'] = $parallel_session_id;
 		$parallel = $invoke( 'assignment_lifecycle_accept', array( $parallel_input, $parallel_identity ) );
+		if ( ! empty( $parallel['assignment']['assignment_id'] ) ) {
+			$assignment_ids[] = (string) $parallel['assignment']['assignment_id'];
+		}
 		$parallel_work_item_id = (string) ( $parallel['assignment']['work_item_id'] ?? '' );
 		$assert(
 			! empty( $parallel['success'] )
@@ -188,6 +195,9 @@ try {
 			}
 			delete_option( $cleanup_key );
 		}
+	}
+	foreach ( array_unique( $assignment_ids ) as $assignment_id ) {
+		delete_option( $invoke( 'assignment_outcome_option_name', array( $assignment_id ) ) );
 	}
 }
 

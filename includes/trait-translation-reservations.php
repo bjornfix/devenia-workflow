@@ -226,7 +226,7 @@ trait Devenia_AI_Translations_Translation_Reservations {
 				self::assignment_reservation_metadata_from_input( $input )
 			);
 			$key   = self::translation_reservation_option_name( $source_id, $language );
-			$saved = $force ? update_option( $key, $claim, false ) : add_option( $key, $claim, '', 'no' );
+			$saved = $force ? update_option( $key, $claim, false ) : self::atomic_create_option( $key, $claim );
 			if ( ! $saved && ! $force ) {
 				$existing    = self::translation_reservation_for_language( $source_id, $language, true );
 				$conflicts[] = array(
@@ -635,7 +635,7 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			self::assignment_reservation_metadata_from_input( $input )
 		);
 		$key   = self::source_work_reservation_option_name( $source_id, $work_type );
-		$saved = $force ? update_option( $key, $claim, false ) : add_option( $key, $claim, '', 'no' );
+		$saved = $force ? update_option( $key, $claim, false ) : self::atomic_create_option( $key, $claim );
 		if ( ! $saved && ! $force ) {
 			$existing = self::source_work_reservation_for_type( $source_id, $work_type, true );
 			return array(

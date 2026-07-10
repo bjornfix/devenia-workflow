@@ -325,7 +325,7 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 		);
 		$pending = self::assignment_storage_record( self::sanitize_assignment( $pending ) );
 		$key = self::assignment_session_option_name( $agent_session_id );
-		if ( ! add_option( $key, $pending, '', 'no' ) ) {
+		if ( ! self::atomic_create_option( $key, $pending ) ) {
 			wp_cache_delete( $key, 'options' );
 			$current = self::assignment_wait_for_initialized_record( $input, $identity );
 			if ( ! empty( $current['has_assignment'] ) ) {
@@ -592,7 +592,7 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 		$key = self::assignment_session_option_name( $agent_session_id );
 		$saved = $pending
 			? self::assignment_compare_and_swap_option( $key, $pending, $assignment )
-			: add_option( $key, $assignment, '', 'no' );
+			: self::atomic_create_option( $key, $assignment );
 		if ( ! $saved ) {
 			wp_cache_delete( $key, 'options' );
 			$current = get_option( $key, array() );
@@ -908,7 +908,7 @@ trait Devenia_AI_Translations_Assignment_Lifecycle {
 			'expires_at'       => gmdate( 'c', $now + max( 60, $ttl_seconds ) ),
 		);
 		$key = self::assignment_item_option_name( $work_item_id );
-		if ( add_option( $key, $lock, '', 'no' ) ) {
+		if ( self::atomic_create_option( $key, $lock ) ) {
 			return true;
 		}
 		wp_cache_delete( $key, 'options' );

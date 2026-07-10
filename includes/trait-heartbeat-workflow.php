@@ -949,7 +949,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			$heartbeats = array_slice( $heartbeats, 0, 20, true );
 
 			if ( null === $stored_heartbeats ) {
-				if ( add_option( self::OPTION_HEARTBEATS, $heartbeats, '', false ) ) {
+				if ( self::atomic_create_option( self::OPTION_HEARTBEATS, $heartbeats ) ) {
 					return;
 				}
 			} else {

@@ -33,6 +33,15 @@ The storage-level exclusion used internally by Assignment Lifecycle to prevent
 two sessions from owning the same Work Item revision. A Reservation is not an
 Assignment and is not exposed as the contributor's source of truth.
 
+## Atomic Option Create
+
+The storage Module that creates an internal option row only when its unique
+`option_name` is absent. The Interface returns true only for the caller that
+inserted the row and never updates an existing value. Assignment session
+records, Work Item locks, Reservations, and first Heartbeat state use this
+Interface instead of WordPress 6.9 `add_option()`, whose duplicate-key behavior
+updates the existing row and therefore cannot provide exclusion.
+
 ## Contributor Outcome
 
 The structured result of an Assignment: `completed`, `blocked`, `abandoned`, or

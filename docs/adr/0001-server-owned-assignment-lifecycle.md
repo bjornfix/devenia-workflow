@@ -34,6 +34,9 @@ Planner Module.
 - Assignment Lifecycle also owns an atomic logical lock keyed by stable
   `work_item_id`; Reservation remains the storage/write gate, while the logical
   lock prevents concurrent ownership when evidence revisions change.
+- All create-only Assignment and Reservation rows use the Atomic Option Create
+  Module. It uses the database uniqueness constraint directly and never relies
+  on WordPress `add_option()` duplicate-key behavior for mutual exclusion.
 - Local `claim.json` is a regenerable Claim Cache.
 - Completed outcomes are accepted only when the assigned Work Item revision is
   no longer current.
