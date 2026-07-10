@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.534
+ * Version: 0.1.535
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -36,6 +36,7 @@ require_once __DIR__ . '/includes/trait-translation-provenance.php';
 require_once __DIR__ . '/includes/class-workflow-state-model.php';
 require_once __DIR__ . '/includes/trait-workflow-state.php';
 require_once __DIR__ . '/includes/trait-translation-index-read-model.php';
+require_once __DIR__ . '/includes/trait-internal-content-link-resolver.php';
 require_once __DIR__ . '/includes/trait-frontend-read-model.php';
 
 final class Devenia_AI_Translations {
@@ -53,8 +54,9 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Work_Item_Catalog;
 	use Devenia_AI_Translations_Work_Item_Planner;
 	use Devenia_AI_Translations_Assignment_Lifecycle;
+	use Devenia_AI_Translations_Internal_Content_Link_Resolver;
 
-	const VERSION = '0.1.534';
+	const VERSION = '0.1.535';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -22942,11 +22944,16 @@ final class Devenia_AI_Translations {
 			return array( 'resolved' => true, 'path' => $path, 'reason' => 'asset_or_file' );
 		}
 
-		$post_id = url_to_postid( home_url( $path ) );
+		$post_id = self::wordpress_content_id_from_internal_url( $url, $parts );
 		if ( $post_id ) {
 			$canonical_path = self::normalized_url_path( (string) get_permalink( $post_id ) );
 			if ( $canonical_path === $path ) {
-				return array( 'resolved' => true, 'path' => $path, 'reason' => 'post' );
+				return array(
+					'resolved'      => true,
+					'path'          => $path,
+					'reason'        => self::is_translation_post( $post_id ) ? 'registered_translation' : 'post',
+					'canonical_url' => (string) get_permalink( $post_id ),
+				);
 			}
 
 			return array(
@@ -26148,10 +26155,7 @@ final class Devenia_AI_Translations {
 			return 0;
 		}
 
-		$post_id = url_to_postid( $url );
-		if ( ! $post_id && empty( $parts['host'] ) ) {
-			$post_id = url_to_postid( home_url( self::normalized_url_path( $url ) ) );
-		}
+		$post_id = self::wordpress_content_id_from_internal_url( $url, $parts );
 		if ( ! $post_id ) {
 			return 0;
 		}

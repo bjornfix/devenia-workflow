@@ -55,3 +55,10 @@ only copy of release authority.
 
 Observability for contributor freshness and latest activity. Heartbeat state
 must not decide Assignment ownership, completion, or reassignment policy.
+
+## Internal Content Link Resolver
+
+The Module that resolves one site-internal URL to its canonical WordPress
+content identity. It covers both core permalink/query routes and registered
+localized translation paths that WordPress core `url_to_postid()` cannot map.
+Link integrity and source-link parity consume this one Interface.
