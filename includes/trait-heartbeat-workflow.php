@@ -204,6 +204,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 				'final_reviewed_at'      => (string) get_post_meta( $translation_id, self::META_FINAL_REVIEWED_AT, true ),
 				'writer_token_label'     => sanitize_key( (string) ( self::translation_writer_provenance( $translation_id )['token_label'] ?? '' ) ),
 				'content_integrity_issue_count' => absint( $content_integrity['issue_count'] ?? 0 ),
+				'content_integrity'       => $content_integrity,
 			);
 		}
 
@@ -230,6 +231,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 				'final_reviewed_at'      => (string) get_post_meta( $translation_id, self::META_FINAL_REVIEWED_AT, true ),
 				'writer_token_label'     => sanitize_key( (string) ( self::translation_writer_provenance( $translation_id )['token_label'] ?? '' ) ),
 				'content_integrity_issue_count' => absint( $content_integrity['issue_count'] ?? 0 ),
+				'content_integrity'       => $content_integrity,
 			);
 		}
 
@@ -307,7 +309,7 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 				'content_integrity_repair',
 				array(
 					'design_ownership' => $design_ownership,
-					'instructions'      => 'The assigned source or translation has invalid stored Gutenberg content that can break the public/rendered experience. Inspect the content_integrity issues on the work item, repair through the narrowest safe WordPress content ability, rerun the relevant QA/audit, then stop before reviewing or publishing your own correction. If current audits are already clean and a content save would be artificial, complete the no-op case with ai-translations/mark-source-content-integrity-reviewed using concrete evidence and the active claim token.',
+					'instructions'      => 'The assigned source has invalid stored Gutenberg content that can break the public/rendered experience. Inspect the content_integrity issues on the Work Item, repair through the narrowest safe WordPress content ability, rerun the relevant QA/audit, then stop before reviewing or publishing downstream translations. If current source audits are already clean and a content save would be artificial, complete the no-op case with ai-translations/mark-source-content-integrity-reviewed using concrete evidence and the active claim token.',
 				)
 			),
 			'source_design_repair' => self::heartbeat_source_work_action(
@@ -394,14 +396,25 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 		return array_merge( $action, $extra );
 	}
 
-	private static function heartbeat_action_for_obligation( string $obligation ): array {
+	private static function heartbeat_action_for_obligation( string $obligation, array $item = array() ): array {
 		$map = self::heartbeat_action_map();
-		return $map[ $obligation ] ?? array(
+		$action = $map[ $obligation ] ?? array(
 			'action' => 'wait',
 			'workflow_step' => '',
 			'required_ability' => '',
 			'instructions' => 'No supported obligation selected.',
 			);
+		if (
+			'content_integrity_repair' === $obligation
+			&& 'translation' === sanitize_key( (string) ( $item['work_scope'] ?? '' ) )
+		) {
+			$action['required_ability'] = 'ai-translations/upsert-page';
+			$action['completion_abilities'] = array( 'ai-translations/upsert-page' );
+			$action['completion_policy'] = 'Repair the assigned translation through ai-translations/upsert-page. Source-only review markers cannot resolve a translation Work Item.';
+			$action['instructions'] = 'The assigned translation has invalid stored Gutenberg content that can break the public/rendered experience. Inspect the concrete content_integrity issues carried on this Work Item, fetch the current translation and source-design contract, repair the translation through ai-translations/upsert-page with the active claim token, and rerun Gutenberg safety, translation QA, and the Work Item check. Do not call a source-only integrity marker for a translation Work Item, and stop before reviewing or publishing your own correction.';
+		}
+
+		return $action;
 	}
 
 	private static function heartbeat_review_surface_guidance( string $obligation, int $translation_id, string $language, string $post_status ): array {

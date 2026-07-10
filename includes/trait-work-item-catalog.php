@@ -505,6 +505,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 							'linguistic' => $linguistic_state,
 							'quality' => $quality_state,
 							'final' => $final_state,
+							'content_integrity' => isset( $translation['content_integrity'] ) && is_array( $translation['content_integrity'] ) ? $translation['content_integrity'] : array(),
 							'revision_evidence' => self::translation_work_item_revision_evidence( $translation, $current_source_hash ),
 						)
 					);

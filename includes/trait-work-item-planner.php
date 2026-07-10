@@ -84,7 +84,7 @@ trait Devenia_AI_Translations_Work_Item_Planner {
 					continue;
 				}
 				++$coverage['by_obligation'][ $obligation ];
-				$action = self::heartbeat_action_for_obligation( $obligation );
+				$action = self::heartbeat_action_for_obligation( $obligation, $item );
 				if ( 'wait' === sanitize_key( (string) ( $action['action'] ?? '' ) ) || '' === (string) ( $action['required_ability'] ?? '' ) ) {
 					$item_uncovered = true;
 					++$coverage['uncovered_by_obligation'][ $obligation ];
@@ -213,6 +213,7 @@ trait Devenia_AI_Translations_Work_Item_Planner {
 			'instructions'       => sanitize_textarea_field( (string) ( $action['instructions'] ?? '' ) ),
 			'review_surface_guidance' => self::heartbeat_review_surface_guidance( $obligation, $translation_id, $language, sanitize_key( (string) ( $item['post_status'] ?? '' ) ) ),
 			'design_ownership'   => isset( $action['design_ownership'] ) && is_array( $action['design_ownership'] ) ? $action['design_ownership'] : array(),
+			'content_integrity'  => isset( $item['content_integrity'] ) && is_array( $item['content_integrity'] ) ? $item['content_integrity'] : array(),
 			'claim_required_for_writes' => true,
 			'independence'       => self::heartbeat_independence_summary( $eligibility, $obligation ),
 		);
