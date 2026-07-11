@@ -35,6 +35,44 @@ A human-readable label attached to a Translation Run for operator visibility.
 It grants no authority, survives no session, and is not used to decide quality,
 assignment eligibility, or ownership.
 
+## Source Inventory
+
+The authoritative set of WordPress source content that must be considered for
+translation. Each Source Inventory row records the source identity, revision,
+post type, publication state, source-language classification, and an explicit
+inclusion or exclusion reason. A source with no translations still exists in
+the Source Inventory. Translation applicability is limited to source content
+that is publicly visible without authentication or a content password.
+Published, publicly viewable source `page` and `post` objects are included by
+default. Draft, pending, future, private, trashed, password-protected, deleted,
+translation, and non-public post-type objects remain visible in inventory
+evidence but are excluded with a structured reason. `noindex` does not make a
+publicly viewable source non-public and is not an exclusion reason.
+
+## Inventory Generation
+
+One immutable, rebuildable snapshot of the Source Inventory. An Inventory
+Generation records its generation ID, scan policy revision, start and finish
+times, source counts, inclusion and exclusion totals, and scan cursor state.
+Only a completed Inventory Generation may support an Exhaustion Proof.
+
+## Translation Obligation
+
+The current required outcome for one included Source Inventory row and one
+configured target language. A Translation Obligation derives its revision from
+the source revision, language-profile revision, and applicable route or
+taxonomy contract. Its state includes source approval work, missing, stale,
+queued, active Translation Job, published, or a structured technical outcome.
+
+## Exhaustion Proof
+
+Evidence that one completed Inventory Generation has been projected against
+every configured target language and has no unresolved Translation
+Obligations. It includes inventory and exclusion totals, target-language count,
+projected obligation count, unresolved state totals, and the exact policy and
+generation revisions. An empty page of queue results is never an Exhaustion
+Proof.
+
 ## Legacy V1 Workflow Terms
 
 The terms below describe the deployed 0.1.536 compatibility workflow. They are

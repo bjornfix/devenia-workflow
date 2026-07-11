@@ -23,6 +23,11 @@ trait Devenia_AI_Translations_Ability_Platform {
 		return array_merge(
 			self::translation_job_v2_dispatch_handlers(),
 			array(
+			'rebuild_source_inventory'         => 'rebuild_source_inventory',
+			'source_inventory'                 => 'source_inventory',
+			'translation_obligation_queue'     => 'translation_obligation_queue',
+			'translation_job_v2_next'          => 'translation_job_v2_next',
+			'translation_exhaustion_proof'     => 'translation_exhaustion_proof',
 			'list_languages'                  => 'run_list_languages_operation',
 			'get_presentation_surface'        => 'run_get_presentation_surface_operation',
 			'translation_fitness_status'      => 'translation_fitness_regression_status',

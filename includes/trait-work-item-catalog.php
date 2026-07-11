@@ -210,6 +210,25 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	 * @return array<int,WP_Post>
 	 */
 	private static function translation_workflow_source_candidates( int $scan_limit ): array {
+		$manifest = get_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, array() );
+		if ( is_array( $manifest ) && ! empty( $manifest['generation'] ) && '1' !== get_option( self::OPTION_SOURCE_INVENTORY_DIRTY, '1' ) ) {
+			global $wpdb;
+			$source_ids = $wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT DISTINCT source_id FROM %i WHERE generation = %s AND state <> 'published_verified' ORDER BY source_id ASC LIMIT %d",
+					self::translation_obligations_table(),
+					(string) $manifest['generation'],
+					max( 1, min( 2000, $scan_limit ) )
+				)
+			); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The active authoritative obligation projection replaces the old recent-content scan.
+			return array_values(
+				array_filter(
+					array_map( 'get_post', array_map( 'absint', $source_ids ) ),
+					static function ( $candidate ): bool { return $candidate instanceof WP_Post; }
+				)
+			);
+		}
+
 		$query = self::source_page_query(
 			array(
 				'post_status'    => 'publish',

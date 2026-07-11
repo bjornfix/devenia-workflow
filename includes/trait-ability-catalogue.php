@@ -18,6 +18,7 @@ trait Devenia_AI_Translations_Ability_Catalogue {
 		return self::normalize_ability_catalogue(
 			array_merge(
 				self::translation_job_v2_ability_catalogue(),
+				self::source_inventory_ability_catalogue(),
 				array(
 			'ai-translations/list-languages' => array(
 				'label'            => 'List Translation Languages',

@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.554
+**Stable tag:** 0.1.555
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -28,6 +28,13 @@ The plugin is a workflow and quality layer, not an automatic translation SaaS.
 Translation text can come from an AI assistant, automation client, or editor;
 AI Translation Workflow keeps the WordPress side reliable, reviewable,
 publishable, and portable.
+
+The authoritative source inventory records every public, password-free source
+page and post plus structured exclusions. It projects one durable translation
+obligation per source and target language, provides stable cursor reads and a
+v2 next-job adapter, and only reports exhaustion when a clean completed
+generation has exact source-by-language arithmetic and every obligation is
+published with live verification.
 
 Logged-in editors can make supported text fixes directly on the rendered page
 with the companion Frontend Text Edit plugin. Those saves go back through the stored Gutenberg content,
@@ -207,6 +214,16 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.555
+
+- Replace the recent-modified candidate window with an authoritative,
+  generation-bound public source inventory and complete translation obligation
+  projection.
+- Add stable-cursor inventory and obligation reads, a v2 next-job adapter, and
+  an arithmetic exhaustion proof that fails closed when content changes.
+- Keep the seven-operation Translation Job v2 model interface unchanged while
+  adapting the legacy queue to unresolved projected obligations.
 
 ### 0.1.554
 

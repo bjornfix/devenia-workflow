@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.554
+ * Version: 0.1.555
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -40,6 +40,7 @@ require_once __DIR__ . '/includes/trait-translation-index-read-model.php';
 require_once __DIR__ . '/includes/trait-internal-content-link-resolver.php';
 require_once __DIR__ . '/includes/trait-frontend-read-model.php';
 require_once __DIR__ . '/includes/trait-translation-job-v2.php';
+require_once __DIR__ . '/includes/trait-source-inventory.php';
 
 final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Source_Design_Inheritance;
@@ -59,8 +60,9 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Assignment_Lifecycle;
 	use Devenia_AI_Translations_Internal_Content_Link_Resolver;
 	use Devenia_AI_Translations_Translation_Job_V2;
+	use Devenia_AI_Translations_Source_Inventory;
 
-	const VERSION = '0.1.554';
+	const VERSION = '0.1.555';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -88,6 +90,10 @@ final class Devenia_AI_Translations {
 	const DEFAULT_TRANSLATION_CLAIM_TTL = 1800;
 	const MAX_TRANSLATION_CLAIM_TTL = 14400;
 	const TRANSLATION_INDEX_SCHEMA_VERSION = '2';
+	const OPTION_SOURCE_INVENTORY_SCHEMA = 'devenia_ai_translations_source_inventory_schema';
+	const OPTION_SOURCE_INVENTORY_ACTIVE = 'devenia_ai_translations_source_inventory_active';
+	const OPTION_SOURCE_INVENTORY_DIRTY = 'devenia_ai_translations_source_inventory_dirty';
+	const SOURCE_INVENTORY_SCHEMA_VERSION = '1';
 	const OPTION_LANGUAGE_RULE_EVENTS_SCHEMA = 'devenia_ai_translations_rule_events_schema';
 	const LANGUAGE_RULE_EVENTS_SCHEMA_VERSION = '1';
 
@@ -246,6 +252,10 @@ final class Devenia_AI_Translations {
 		add_action( 'post_updated', array( __CLASS__, 'capture_manual_reviewer_style_on_post_update' ), 30, 3 );
 		add_action( 'save_post', array( __CLASS__, 'mark_translations_stale_on_source_save' ), 20, 3 );
 		add_action( 'save_post', array( __CLASS__, 'queue_authored_original_intake_on_save' ), 25, 3 );
+		add_action( 'save_post', array( __CLASS__, 'mark_source_inventory_dirty' ), 40, 1 );
+		add_action( 'deleted_post', array( __CLASS__, 'mark_source_inventory_dirty' ), 40, 1 );
+		add_action( 'trashed_post', array( __CLASS__, 'mark_source_inventory_dirty' ), 40, 1 );
+		add_action( 'untrashed_post', array( __CLASS__, 'mark_source_inventory_dirty' ), 40, 1 );
 		add_action( 'delete_post', array( __CLASS__, 'delete_translation_index_for_post' ), 20, 2 );
 		add_filter( 'wp_nav_menu_args', array( __CLASS__, 'use_language_primary_menu' ), 20 );
 		add_filter( 'wp_nav_menu_objects', array( __CLASS__, 'localize_nav_menu_objects' ), 20, 2 );
@@ -394,6 +404,7 @@ final class Devenia_AI_Translations {
 	public static function activate(): void {
 		self::ensure_reviewer_capabilities();
 		self::install_translation_index_schema();
+		self::install_source_inventory_schema();
 		self::install_language_rule_events_schema();
 		self::rebuild_translation_index();
 	}
@@ -1138,7 +1149,8 @@ final class Devenia_AI_Translations {
 		$stored_version = (string) get_option( self::OPTION_VERSION, '' );
 		$translation_index_schema_current = self::TRANSLATION_INDEX_SCHEMA_VERSION === (string) get_option( self::OPTION_TRANSLATION_INDEX_SCHEMA, '' );
 		$language_rule_events_schema_current = self::LANGUAGE_RULE_EVENTS_SCHEMA_VERSION === (string) get_option( self::OPTION_LANGUAGE_RULE_EVENTS_SCHEMA, '' );
-		if ( self::VERSION === $stored_version && $translation_index_schema_current && $language_rule_events_schema_current ) {
+		$source_inventory_schema_current = self::SOURCE_INVENTORY_SCHEMA_VERSION === (string) get_option( self::OPTION_SOURCE_INVENTORY_SCHEMA, '' );
+		if ( self::VERSION === $stored_version && $translation_index_schema_current && $language_rule_events_schema_current && $source_inventory_schema_current ) {
 			return;
 		}
 
@@ -1153,6 +1165,10 @@ final class Devenia_AI_Translations {
 
 		if ( ! $language_rule_events_schema_current ) {
 			self::install_language_rule_events_schema();
+		}
+		if ( ! $source_inventory_schema_current ) {
+			self::install_source_inventory_schema();
+			self::mark_source_inventory_dirty();
 		}
 
 		if ( '' === $stored_version || version_compare( $stored_version, '0.1.180', '<' ) ) {
