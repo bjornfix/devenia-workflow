@@ -28,7 +28,11 @@ function get_permalink( int $post_id ): string {
 	return $permalinks[ $post_id ] ?? 'https://example.test/post-' . $post_id . '/';
 }
 
-function get_post_meta( int $post_id, string $key, bool $single = false ): string {
+function get_post_meta( int $post_id, string $key, bool $single = false ) {
+	unset( $single );
+	if ( 20 === $post_id && '_canonical_route' === $key && ! empty( $GLOBALS['index_contract_route'] ) ) {
+		return $GLOBALS['index_contract_route'];
+	}
 	return '';
 }
 
@@ -38,6 +42,7 @@ final class Devenia_AI_Translations_Index_Read_Model_Contract {
 	use Devenia_AI_Translations_Translation_Index_Read_Model;
 
 	private const META_LOCALIZED_PATH = '_localized_path';
+	private const META_CANONICAL_ROUTE = '_canonical_route';
 
 	private static function sanitize_translation_status( string $status ): string {
 		return sanitize_key( $status );
@@ -80,11 +85,25 @@ $raw_rows = array(
 );
 
 $normalized = invoke_index_read_model_method( 'normalize_translation_index_rows', array( $raw_rows, array( 'publish' ) ) );
+$GLOBALS['index_contract_route'] = array();
 $frontend = invoke_index_read_model_method( 'frontend_rows_from_index_rows', array( $normalized ) );
 $failures = array();
 
 if ( 1 !== count( $normalized ) || 20 !== (int) ( $normalized[0]['id'] ?? 0 ) ) {
 	$failures[] = 'publish status filtering or row identity changed';
+}
+
+$GLOBALS['index_contract_route'] = array(
+	'url'  => 'https://example.test/nb/om-oss/',
+	'path' => 'nb/om-oss',
+);
+$contract_frontend = invoke_index_read_model_method( 'frontend_rows_from_index_rows', array( $normalized ) );
+$contract_row = $contract_frontend[0] ?? array();
+if ( 'nb/om-oss' !== ( $contract_row['target_path'] ?? '' ) || empty( $contract_row['route_drift'] ) ) {
+	$failures[] = 'established canonical route did not remain authoritative over observed drift';
+}
+if ( 'nb/om-oss/tjenester' !== ( $contract_row['observed_target_path'] ?? '' ) ) {
+	$failures[] = 'observed drift route was not retained as separate evidence';
 }
 if ( 1 !== count( $frontend ) ) {
 	$failures[] = 'frontend row count changed';

@@ -120,7 +120,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 				'claim_token' => array( 'type' => 'string' ),
 				'artifact' => array(
 					'type' => 'object',
-					'required' => array( 'title', 'localized_slug', 'localized_fragments' ),
+					'required' => array( 'title', 'localized_fragments' ),
 					'properties' => array(
 						'title' => array( 'type' => 'string' ),
 						'excerpt' => array( 'type' => 'string' ),
@@ -674,6 +674,21 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		$contract = self::source_design_contract( $source );
 		$fragments = self::translation_job_v2_source_fragments( $contract );
 		$language = (string) $job['target_language'];
+		$existing_translation_id = self::find_translation_id( (int) $source->ID, $language, self::translation_workflow_post_statuses( false ) );
+		$existing_translation = $existing_translation_id ? get_post( $existing_translation_id ) : null;
+		$existing_route = array();
+		if ( $existing_translation instanceof WP_Post ) {
+			$existing_url = (string) get_permalink( $existing_translation );
+			$existing_route = array(
+				'translation_id' => (int) $existing_translation->ID,
+				'canonical_url'  => $existing_url,
+				'canonical_path' => $existing_url ? self::normalized_url_path( $existing_url ) : '',
+				'localized_slug' => (string) $existing_translation->post_name,
+				'parent_id'      => (int) $existing_translation->post_parent,
+				'localized_path' => trim( (string) get_post_meta( (int) $existing_translation->ID, self::META_LOCALIZED_PATH, true ), '/' ),
+				'route_locked'   => 'publish' === $existing_translation->post_status,
+			);
+		}
 		$packet = array(
 			'contract_version' => 2,
 			'job' => self::translation_job_v2_public_job( $job ),
@@ -686,7 +701,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 				'post_type' => (string) $source->post_type,
 			),
 			'fragments' => $fragments,
-			'route' => array( 'language_prefix' => self::language_prefix( $language ), 'source_slug' => (string) $source->post_name, 'source_parent_id' => (int) $source->post_parent ),
+			'route' => array( 'language_prefix' => self::language_prefix( $language ), 'source_slug' => (string) $source->post_name, 'source_parent_id' => (int) $source->post_parent, 'existing' => $existing_route, 'policy' => $existing_route && ! empty( $existing_route['route_locked'] ) ? 'Preserve the established canonical route exactly. Ordinary translation work cannot migrate a published URL.' : 'Create one localized route for this new translation; publication establishes its Canonical Route Contract.' ),
 			'taxonomy' => self::post_taxonomy_payload( $source ),
 			'links' => self::translation_job_v2_link_policy( $source, $language ),
 			'language_profile' => self::translation_job_v2_language_profile( (int) $source->ID, $language ),
@@ -854,13 +869,13 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 				'artifact' => array(
 					'title' => '<localized title>',
 					'excerpt' => '<localized excerpt>',
-					'localized_slug' => '<localized slug>',
+					'localized_slug' => '<for a new translation only; omit for an existing published translation>',
 					'seo' => array( 'title' => '<localized SEO title>', 'description' => '<localized meta description>', 'focus_keyword' => '<localized focus keyword>' ),
 					'localized_fragments' => array( array( 'key' => '<exact source fragment key>', 'html' => '<localized HTML; use text instead only for plain text>' ) ),
 				),
 				'usage' => array( 'input_tokens' => 0, 'cached_input_tokens' => 0, 'output_tokens' => 0, 'attempts' => 1, 'duration_ms' => 0, 'estimated_cost_microusd' => 0 ),
 			),
-			'rules' => array( 'Use only properties declared by input_schema.', 'SEO fields belong inside artifact.seo; never add seo_title or seo_description to artifact.', 'Each localized fragment must contain key and exactly one of html or text; html_or_text is not a property.' ),
+			'rules' => array( 'Use only properties declared by input_schema.', 'For an existing published translation, omit route fields; the server preserves packet.route.existing exactly.', 'SEO fields belong inside artifact.seo; never add seo_title or seo_description to artifact.', 'Each localized fragment must contain key and exactly one of html or text; html_or_text is not a property.' ),
 		);
 	}
 

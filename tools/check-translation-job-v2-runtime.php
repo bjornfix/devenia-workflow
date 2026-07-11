@@ -592,6 +592,9 @@ try {
 	$option_keys[] = 'devenia_ai_translation_run_v2_' . $post_publish_run_id;
 	$post_publish_artifact = $artifact;
 	$post_publish_artifact['title'] = 'Runtime translated title corrected after browser QA';
+	$post_publish_artifact['localized_slug'] = 'must-not-replace-published-route';
+	$published_route_before = (string) get_permalink( $translation_id );
+	$published_slug_before  = (string) get_post_field( 'post_name', $translation_id );
 	$post_publish_submit = $call(
 		'translation_job_v2_submit_artifact',
 		array(
@@ -602,7 +605,7 @@ try {
 			'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
 		)
 	);
-	if ( empty( $post_publish_submit['success'] ) || 'publish' !== get_post_status( $translation_id ) || 'quality_pending' !== (string) ( $post_publish_submit['job']['status'] ?? '' ) ) {
+	if ( empty( $post_publish_submit['success'] ) || 'publish' !== get_post_status( $translation_id ) || 'quality_pending' !== (string) ( $post_publish_submit['job']['status'] ?? '' ) || $published_slug_before !== (string) get_post_field( 'post_name', $translation_id ) || $published_route_before !== (string) get_permalink( $translation_id ) ) {
 		throw new RuntimeException( 'Published correction artifact was not saved safely: ' . wp_json_encode( $post_publish_submit ) );
 	}
 	$option_keys[] = 'devenia_ai_translation_artifact_v2_' . (string) $post_publish_submit['artifact_revision'];
@@ -679,6 +682,7 @@ try {
 			'published_job_media_reconciled_idempotently' => true,
 			'duplicate_thumbnail_meta_reconciled_using_wordpress_effective_value' => true,
 			'published_job_browser_correction_reentered_bounded_lifecycle' => true,
+			'published_job_route_preserved_during_correction' => true,
 			'orphaned_quality_decision_recovered' => true,
 			'expired_run_finalized_before_reclaim' => true,
 			'orphaned_run_finalized_during_publish' => true,

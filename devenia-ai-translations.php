@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.557
+ * Version: 0.1.558
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -62,7 +62,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Job_V2;
 	use Devenia_AI_Translations_Source_Inventory;
 
-	const VERSION = '0.1.557';
+	const VERSION = '0.1.558';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -119,6 +119,7 @@ final class Devenia_AI_Translations {
 	const META_LOCALIZED_FRAGMENTS = '_devenia_translation_localized_fragments';
 	const META_STATUS         = '_devenia_translation_status';
 	const META_LOCALIZED_PATH = '_devenia_translation_localized_path';
+	const META_CANONICAL_ROUTE = '_devenia_translation_canonical_route_v1';
 	const META_ALLOWED_SOURCE_SLUG = '_devenia_translation_allowed_source_slug';
 	const META_ALLOWED_SOURCE_SLUG_REASON = '_devenia_translation_allowed_source_slug_reason';
 	const META_LEGACY_SOURCE_REDIRECT_LANGUAGES = '_devenia_translation_block_legacy_source_routes';
@@ -242,6 +243,7 @@ final class Devenia_AI_Translations {
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_start_frontend_text_localization' ), 99 );
 		add_action( 'shutdown', array( __CLASS__, 'record_slow_frontend_request' ), 0 );
 		add_action( 'wp_abilities_api_init', array( __CLASS__, 'register_abilities' ) );
+		add_action( 'url_lockdown_public_route_migrated', array( __CLASS__, 'handle_explicit_translation_url_migration' ), 10, 4 );
 		add_action( 'admin_notices', array( __CLASS__, 'render_missing_abilities_api_notice' ) );
 		add_action( 'admin_menu', array( __CLASS__, 'register_presentation_admin_page' ) );
 		add_action( 'admin_post_devenia_ai_translations_save_runtime_text', array( __CLASS__, 'handle_admin_runtime_text_save' ) );
@@ -8649,7 +8651,7 @@ final class Devenia_AI_Translations {
 	private static function upsert_input_schema(): array {
 		return array(
 			'type'                 => 'object',
-				'required'             => array( 'source_id', 'language', 'localized_slug', 'title' ),
+				'required'             => array( 'source_id', 'language', 'title' ),
 			'properties'           => array(
 				'source_id'         => array( 'type' => 'integer' ),
 				'language'          => array( 'type' => 'string' ),
@@ -10704,6 +10706,51 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
+	 * Establish immutable-by-default route evidence for a published translation.
+	 */
+	private static function store_translation_canonical_route( WP_Post $post, string $language, bool $replace = false ): array {
+		$existing = get_post_meta( (int) $post->ID, self::META_CANONICAL_ROUTE, true );
+		if ( is_array( $existing ) && $existing && ! $replace ) {
+			return $existing;
+		}
+		$url = (string) get_permalink( $post );
+		$route = array(
+			'translation_id' => (int) $post->ID,
+			'language'       => sanitize_key( $language ),
+			'post_name'      => (string) $post->post_name,
+			'post_parent'    => (int) $post->post_parent,
+			'localized_path' => trim( (string) get_post_meta( (int) $post->ID, self::META_LOCALIZED_PATH, true ), '/' ),
+			'url'            => $url,
+			'path'           => $url ? self::normalized_url_path( $url ) : '',
+			'established_at' => gmdate( 'c' ),
+		);
+		update_post_meta( (int) $post->ID, self::META_CANONICAL_ROUTE, $route );
+		return $route;
+	}
+
+	/**
+	 * Refresh translation-owned route evidence only after an explicit URL Migration.
+	 */
+	public static function handle_explicit_translation_url_migration( int $post_id, array $old_route, array $new_route, array $audit ): void {
+		unset( $old_route, $new_route, $audit );
+		if ( ! self::is_translation_post( $post_id ) ) {
+			return;
+		}
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return;
+		}
+		$language = sanitize_key( (string) get_post_meta( $post_id, self::META_LANGUAGE, true ) );
+		update_post_meta( $post_id, self::META_LOCALIZED_PATH, self::localized_path_for_post( $post_id, $language ) );
+		self::store_translation_canonical_route( $post, $language, true );
+		self::sync_translation_index_row( $post_id );
+		self::localized_internal_link_map( $language, true );
+		self::localized_link_expected_target_map( $language, true );
+		self::localized_link_module( $language, true );
+		self::flush_sitemap_cache();
+	}
+
+	/**
 	 * Create or update translated content.
 	 */
 	private static function upsert_translation( array $input ): array {
@@ -10748,7 +10795,21 @@ final class Devenia_AI_Translations {
 			return $step_token_gate;
 		}
 
-		$raw_slug           = (string) ( $input['localized_slug'] ?? '' );
+		$translation_id = isset( $input['translation_id'] ) ? absint( $input['translation_id'] ) : 0;
+		if ( ! $translation_id ) {
+			$translation_id = self::find_translation_id( $source_id, $language );
+		}
+		$existing_translation = null;
+		if ( $translation_id ) {
+			$existing_translation = get_post( $translation_id );
+			if ( ! $existing_translation || $target_post_type !== $existing_translation->post_type ) {
+				return self::error( 'Translation ID does not match the source post type.' );
+			}
+		}
+		$published_route_locked = $existing_translation && 'publish' === $existing_translation->post_status;
+		$raw_slug = $published_route_locked
+			? (string) $existing_translation->post_name
+			: (string) ( $input['localized_slug'] ?? '' );
 		$slug               = sanitize_title( $raw_slug );
 		if ( '' === $slug ) {
 			return self::error( 'Localized slug is required.' );
@@ -10771,7 +10832,9 @@ final class Devenia_AI_Translations {
 			return self::error( 'Localized slug must not end with a WordPress duplicate suffix such as -2. Resolve the route collision instead.' );
 		}
 		$localized_path = '';
-		if ( 'post' === $target_post_type && ! empty( $input['localized_path'] ) ) {
+		if ( $published_route_locked && 'post' === $target_post_type ) {
+			$localized_path = trim( (string) get_post_meta( $translation_id, self::META_LOCALIZED_PATH, true ), '/' );
+		} elseif ( 'post' === $target_post_type && ! empty( $input['localized_path'] ) ) {
 			$localized_path = trim( sanitize_text_field( (string) $input['localized_path'] ), '/' );
 			$path_year_issue = self::validate_years_in_url_parts(
 				explode( '/', $localized_path ),
@@ -10785,8 +10848,12 @@ final class Devenia_AI_Translations {
 		$parent_id = 0;
 		$localized_parent_path = '';
 		if ( 'page' === $target_post_type ) {
-			$parent_id = isset( $input['localized_parent_id'] ) ? absint( $input['localized_parent_id'] ) : 0;
-			$localized_parent_path = isset( $input['localized_parent_path'] ) ? self::normalize_localized_parent_path( (string) $input['localized_parent_path'], $language ) : '';
+			$parent_id = $published_route_locked
+				? (int) $existing_translation->post_parent
+				: ( isset( $input['localized_parent_id'] ) ? absint( $input['localized_parent_id'] ) : 0 );
+			$localized_parent_path = $published_route_locked
+				? ''
+				: ( isset( $input['localized_parent_path'] ) ? self::normalize_localized_parent_path( (string) $input['localized_parent_path'], $language ) : '' );
 		}
 		if ( 'page' === $target_post_type ) {
 			$source_parent_result = self::authoritative_source_parent_for_translation( $source, $language, $parent_id, $localized_parent_path );
@@ -10846,18 +10913,6 @@ final class Devenia_AI_Translations {
 				'message'    => 'Translation guardrails failed. Fix structural content issues before saving.',
 				'guardrails' => $guardrails,
 			);
-		}
-
-		$translation_id = isset( $input['translation_id'] ) ? absint( $input['translation_id'] ) : 0;
-		if ( ! $translation_id ) {
-			$translation_id = self::find_translation_id( $source_id, $language );
-		}
-		$existing_translation = null;
-		if ( $translation_id ) {
-			$existing_translation = get_post( $translation_id );
-			if ( ! $existing_translation || $target_post_type !== $existing_translation->post_type ) {
-				return self::error( 'Translation ID does not match the source post type.' );
-			}
 		}
 
 		$status             = self::sanitize_post_status( (string) ( $input['status'] ?? 'draft' ), 'draft' );
@@ -10970,6 +11025,9 @@ final class Devenia_AI_Translations {
 		}
 		if ( 'post' === $target_post_type && '' !== $localized_path ) {
 			update_post_meta( $translation_id, self::META_LOCALIZED_PATH, $localized_path );
+		}
+		if ( $saved_post && 'publish' === $saved_post->post_status ) {
+			self::store_translation_canonical_route( $saved_post, $language );
 		}
 		self::store_translation_source_slug_exception( $translation_id, $allow_source_slug_in_url, $slug, $source_slug_reason );
 		if ( 'post' === $target_post_type ) {
@@ -13485,6 +13543,10 @@ final class Devenia_AI_Translations {
 
 		if ( $source ) {
 			self::enforce_translation_parent( $translation_id, $source, $language );
+			$published_post = get_post( $translation_id );
+			if ( $published_post instanceof WP_Post ) {
+				self::store_translation_canonical_route( $published_post, $language );
+			}
 			self::localize_internal_links_for_post( $translation_id, $language );
 			self::apply_translation_lifecycle_meta( $translation_id, $source_id, $language, 'published', $source );
 			self::localized_internal_link_map( $language, true );
@@ -16701,6 +16763,10 @@ final class Devenia_AI_Translations {
 
 		$post = get_post( $translation_id );
 		if ( ! $post || 'page' !== $post->post_type ) {
+			return;
+		}
+		if ( 'publish' === $post->post_status ) {
+			self::store_translation_canonical_route( $post, $language );
 			return;
 		}
 
@@ -23300,6 +23366,18 @@ final class Devenia_AI_Translations {
 					'expected_path' => $expected_path,
 				)
 			);
+		}
+		$canonical_route = get_post_meta( $translation_id, self::META_CANONICAL_ROUTE, true );
+		if ( is_array( $canonical_route ) && ! empty( $canonical_route['path'] ) ) {
+			$established_path = trim( (string) $canonical_route['path'], '/' );
+			$summary['established_canonical_path'] = $established_path;
+			if ( '' !== $actual_path && $actual_path !== $established_path ) {
+				$issues[] = self::qa_item(
+					'canonical_route_drift',
+					'Observed WordPress permalink differs from the established Canonical Route Contract. Use an explicit URL Migration or restore the established route.',
+					array( 'established_path' => $established_path, 'observed_path' => $actual_path )
+				);
+			}
 		}
 
 		$adapter_issues = apply_filters(

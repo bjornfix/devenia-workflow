@@ -149,3 +149,28 @@ The Module that resolves one site-internal URL to its canonical WordPress
 content identity. It covers both core permalink/query routes and registered
 localized translation paths that WordPress core `url_to_postid()` cannot map.
 Link integrity and source-link parity consume this one Interface.
+
+## Public Route
+
+The externally visible URL identity of a published WordPress object. For a post
+or page it includes every route-bearing value, including `post_name`, page
+hierarchy, and any registered localized path. For a taxonomy term it includes
+the term slug and route-bearing hierarchy. A title or content change is not a
+Public Route change.
+
+## Canonical Route Contract
+
+The durable evidence established when an object first becomes public. It binds
+the object identity to its Public Route. Ordinary content, translation, SEO,
+metadata, import, REST, MCP, and editor writes must preserve this contract. A
+different current permalink is route drift until an explicit URL Migration has
+completed successfully.
+
+## URL Migration
+
+The separate, explicit workflow for changing an established Public Route when
+the existing route has a concrete defect or a change is otherwise necessary.
+A URL Migration records the reason, old and proposed routes, affected child
+routes, authorization, redirect outcome, dependent-data refresh, verification,
+and audit evidence. Normal save and translation artifact Interfaces do not
+grant URL Migration authority.

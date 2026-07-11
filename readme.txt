@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.557
+Stable tag: 0.1.558
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,13 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.558 =
+* Treats the route of an existing published translation as immutable during ordinary v1 and v2 content updates.
+* Adds the established canonical route and route-lock policy to bounded translation packets; route fields are now creation-only for published translations.
+* Records translation-owned Canonical Route Contracts, reports route drift, and refreshes route evidence only after an explicit public-route migration.
+* Stops publish-time hierarchy enforcement from moving an already published translation.
+* Distinguishes established canonical, currently observed and historical route variants in the frontend read model.
 
 = 0.1.557 =
 

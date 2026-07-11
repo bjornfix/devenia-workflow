@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.557
+**Stable tag:** 0.1.558
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -214,6 +214,13 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.558
+- Makes published translation routes immutable during ordinary v1/v2 content updates.
+- Supplies established canonical route evidence and route-lock policy in bounded packets.
+- Adds translation-owned Canonical Route Contracts, route-drift QA and explicit public-route migration integration.
+- Prevents publish-time hierarchy repair from moving already published translations.
+- Separates established canonical, observed and historical routes in the frontend read model.
 
 ### 0.1.557
 

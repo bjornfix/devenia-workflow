@@ -638,6 +638,9 @@ trait Devenia_AI_Translations_Translation_Index_Read_Model {
 			$stored_target_path = trim( (string) ( $row['target_path'] ?? '' ), '/' );
 			$target_path    = $stored_target_path;
 			$target_url     = esc_url_raw( (string) ( $row['target_url'] ?? '' ) );
+			$observed_target_url = '';
+			$observed_target_path = '';
+			$canonical_route_contract = array();
 			if ( '' === $source_path && $source_id ) {
 				$source_url  = (string) get_permalink( $source_id );
 				$source_path = $source_url ? self::normalized_url_path( $source_url ) : '';
@@ -645,8 +648,17 @@ trait Devenia_AI_Translations_Translation_Index_Read_Model {
 			if ( $translation_id ) {
 				$current_target_url = esc_url_raw( (string) get_permalink( $translation_id ) );
 				if ( '' !== $current_target_url ) {
-					$target_url  = $current_target_url;
-					$target_path = self::normalized_url_path( $current_target_url );
+					$observed_target_url  = $current_target_url;
+					$observed_target_path = self::normalized_url_path( $current_target_url );
+					$target_url            = $current_target_url;
+					$target_path           = $observed_target_path;
+				}
+				$canonical_route_contract = get_post_meta( $translation_id, self::META_CANONICAL_ROUTE, true );
+				if ( is_array( $canonical_route_contract ) && ! empty( $canonical_route_contract['path'] ) ) {
+					$target_path = trim( (string) $canonical_route_contract['path'], '/' );
+					$target_url  = ! empty( $canonical_route_contract['url'] )
+						? esc_url_raw( (string) $canonical_route_contract['url'] )
+						: home_url( '/' . $target_path . '/' );
 				}
 			}
 			if ( '' === $target_path && $target_url ) {
@@ -680,6 +692,10 @@ trait Devenia_AI_Translations_Translation_Index_Read_Model {
 			$row['target_path'] = $target_path;
 			$row['localized_path'] = $canonical_path ?: $stored_localized_path;
 			$row['localized_path_variants'] = $localized_variants;
+			$row['established_canonical_route'] = is_array( $canonical_route_contract ) ? $canonical_route_contract : array();
+			$row['observed_target_url'] = $observed_target_url;
+			$row['observed_target_path'] = $observed_target_path;
+			$row['route_drift'] = '' !== $observed_target_path && '' !== $canonical_path && trim( $observed_target_path, '/' ) !== trim( $canonical_path, '/' );
 
 			$frontend_rows[] = $row;
 		}
