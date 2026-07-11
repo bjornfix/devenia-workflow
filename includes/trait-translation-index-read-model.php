@@ -635,14 +635,19 @@ trait Devenia_AI_Translations_Translation_Index_Read_Model {
 			$source_id      = absint( $row['source_id'] ?? 0 );
 			$translation_id = absint( $row['id'] ?? 0 );
 			$source_path    = trim( (string) ( $row['source_path'] ?? '' ), '/' );
-			$target_path    = trim( (string) ( $row['target_path'] ?? '' ), '/' );
+			$stored_target_path = trim( (string) ( $row['target_path'] ?? '' ), '/' );
+			$target_path    = $stored_target_path;
 			$target_url     = esc_url_raw( (string) ( $row['target_url'] ?? '' ) );
 			if ( '' === $source_path && $source_id ) {
 				$source_url  = (string) get_permalink( $source_id );
 				$source_path = $source_url ? self::normalized_url_path( $source_url ) : '';
 			}
-			if ( '' === $target_url && $translation_id ) {
-				$target_url = (string) get_permalink( $translation_id );
+			if ( $translation_id ) {
+				$current_target_url = esc_url_raw( (string) get_permalink( $translation_id ) );
+				if ( '' !== $current_target_url ) {
+					$target_url  = $current_target_url;
+					$target_path = self::normalized_url_path( $current_target_url );
+				}
 			}
 			if ( '' === $target_path && $target_url ) {
 				$target_path = self::normalized_url_path( $target_url );
@@ -653,14 +658,14 @@ trait Devenia_AI_Translations_Translation_Index_Read_Model {
 
 			$stored_localized_path = trim( (string) ( $row['localized_path'] ?? '' ), '/' );
 			$meta_localized_path   = '';
-			if ( '' === $stored_localized_path && $translation_id ) {
+			if ( $translation_id ) {
 				$meta_localized_path = trim( (string) get_post_meta( $translation_id, self::META_LOCALIZED_PATH, true ), '/' );
 			}
 			$canonical_path        = trim( (string) $target_path, '/' );
 			$localized_variants    = array_values(
 				array_unique(
 					array_filter(
-						array( $stored_localized_path, $meta_localized_path, $canonical_path ),
+						array( $stored_localized_path, $meta_localized_path, $stored_target_path, $canonical_path ),
 						static function ( string $path ): bool {
 							return '' !== $path;
 						}

@@ -22,7 +22,10 @@ function home_url( string $path = '' ): string {
 }
 
 function get_permalink( int $post_id ): string {
-	return 'https://example.test/post-' . $post_id . '/';
+	$permalinks = array(
+		20 => 'https://example.test/nb/om-oss/tjenester/',
+	);
+	return $permalinks[ $post_id ] ?? 'https://example.test/post-' . $post_id . '/';
 }
 
 function get_post_meta( int $post_id, string $key, bool $single = false ): string {
@@ -38,6 +41,11 @@ final class Devenia_AI_Translations_Index_Read_Model_Contract {
 
 	private static function sanitize_translation_status( string $status ): string {
 		return sanitize_key( $status );
+	}
+
+	private static function normalized_url_path( string $url ): string {
+		$path = (string) parse_url( $url, PHP_URL_PATH );
+		return trim( $path, '/' );
 	}
 }
 
@@ -85,11 +93,17 @@ if ( 1 !== count( $frontend ) ) {
 	if ( 'services' !== ( $row['source_path'] ?? '' ) ) {
 		$failures[] = 'source path changed';
 	}
-	if ( 'nb/tjenester' !== ( $row['localized_path'] ?? '' ) ) {
-		$failures[] = 'canonical localized path changed';
+	if ( 'nb/om-oss/tjenester' !== ( $row['localized_path'] ?? '' ) ) {
+		$failures[] = 'live WordPress permalink did not replace the stale indexed canonical path';
 	}
-	if ( array( 'nb/tjenester' ) !== ( $row['localized_path_variants'] ?? array() ) ) {
-		$failures[] = 'localized path variants changed';
+	if ( array( 'nb/tjenester', 'nb/om-oss/tjenester' ) !== ( $row['localized_path_variants'] ?? array() ) ) {
+		$failures[] = 'stale indexed path was not preserved as a non-canonical variant';
+	}
+	if ( 'https://example.test/nb/om-oss/tjenester/' !== ( $row['target_url'] ?? '' ) ) {
+		$failures[] = 'live WordPress permalink did not replace stale target URL';
+	}
+	if ( 'nb/om-oss/tjenester' !== ( $row['target_path'] ?? '' ) ) {
+		$failures[] = 'live WordPress permalink did not replace stale target path';
 	}
 	if ( 'https://example.test/services/' !== ( $row['source_url'] ?? '' ) ) {
 		$failures[] = 'source URL shaping changed';
