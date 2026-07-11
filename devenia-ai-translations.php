@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translation Workflow
  * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.558
+ * Version: 0.1.559
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -62,7 +62,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Job_V2;
 	use Devenia_AI_Translations_Source_Inventory;
 
-	const VERSION = '0.1.558';
+	const VERSION = '0.1.559';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -244,6 +244,7 @@ final class Devenia_AI_Translations {
 		add_action( 'shutdown', array( __CLASS__, 'record_slow_frontend_request' ), 0 );
 		add_action( 'wp_abilities_api_init', array( __CLASS__, 'register_abilities' ) );
 		add_action( 'url_lockdown_public_route_migrated', array( __CLASS__, 'handle_explicit_translation_url_migration' ), 10, 4 );
+		add_filter( 'url_lockdown_finalize_post_migration', array( __CLASS__, 'finalize_explicit_translation_url_migration' ), 10, 2 );
 		add_action( 'admin_notices', array( __CLASS__, 'render_missing_abilities_api_notice' ) );
 		add_action( 'admin_menu', array( __CLASS__, 'register_presentation_admin_page' ) );
 		add_action( 'admin_post_devenia_ai_translations_save_runtime_text', array( __CLASS__, 'handle_admin_runtime_text_save' ) );
@@ -10748,6 +10749,17 @@ final class Devenia_AI_Translations {
 		self::localized_link_expected_target_map( $language, true );
 		self::localized_link_module( $language, true );
 		self::flush_sitemap_cache();
+	}
+
+	/**
+	 * Remove SEO-plugin rules that would redirect the new canonical route to itself.
+	 */
+	public static function finalize_explicit_translation_url_migration( array $result, int $post_id ): array {
+		if ( ! self::is_translation_post( $post_id ) ) {
+			return $result;
+		}
+		$repair = apply_filters( 'ai_translation_workflow_repair_translation_self_redirects', array( 'success' => true, 'removed' => 0 ), $post_id, false );
+		return is_array( $repair ) ? $repair : array( 'success' => false, 'message' => 'Translation redirect finalization adapter returned an invalid result.' );
 	}
 
 	/**

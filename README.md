@@ -7,7 +7,7 @@ Portable workflow layer for AI-assisted multilingual WordPress content.
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.558
+**Stable tag:** 0.1.559
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -214,6 +214,9 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.559
+- Finalizes explicit translation URL migrations by removing self-redirect conflicts; failed cleanup forces a complete migration rollback.
 
 ### 0.1.558
 - Makes published translation routes immutable during ordinary v1/v2 content updates.
