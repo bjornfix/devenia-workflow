@@ -539,7 +539,9 @@ try {
 		throw new RuntimeException( 'Final Quality Decision failed: ' . wp_json_encode( $third_quality ) );
 	}
 	$option_keys[] = 'devenia_ai_translation_quality_v2_' . (string) $third_quality['quality_decision']['quality_revision'];
-	update_post_meta( $translation_id, '_thumbnail_id', $linked_source_id );
+	delete_post_meta( $translation_id, '_thumbnail_id' );
+	add_post_meta( $translation_id, '_thumbnail_id', $linked_source_id );
+	add_post_meta( $translation_id, '_thumbnail_id', $source_thumbnail_id );
 	$published = $call(
 		'translation_job_v2_publish',
 		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => false )
@@ -550,7 +552,9 @@ try {
 	$stored_job = get_option( 'devenia_ai_translation_job_v2_' . $job_id );
 	$stored_job['status'] = 'published';
 	update_option( 'devenia_ai_translation_job_v2_' . $job_id, $stored_job, false );
-	update_post_meta( $translation_id, '_thumbnail_id', $linked_source_id );
+	delete_post_meta( $translation_id, '_thumbnail_id' );
+	add_post_meta( $translation_id, '_thumbnail_id', $linked_source_id );
+	add_post_meta( $translation_id, '_thumbnail_id', $source_thumbnail_id );
 	$republished = $call(
 		'translation_job_v2_publish',
 		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => false )
@@ -673,6 +677,7 @@ try {
 			'mailto_query_copy_must_be_localized' => true,
 			'featured_image_synchronized_before_quality' => true,
 			'published_job_media_reconciled_idempotently' => true,
+			'duplicate_thumbnail_meta_reconciled_using_wordpress_effective_value' => true,
 			'published_job_browser_correction_reentered_bounded_lifecycle' => true,
 			'orphaned_quality_decision_recovered' => true,
 			'expired_run_finalized_before_reclaim' => true,

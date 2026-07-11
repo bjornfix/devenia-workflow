@@ -211,11 +211,13 @@ trait Devenia_AI_Translations_Featured_Image_Repair {
 	}
 
 	/**
-	 * Return the canonical featured image ID from postmeta, bypassing primed meta caches.
+	 * Return the effective WordPress featured image ID from postmeta, bypassing primed meta caches.
 	 *
 	 * Translation upsert/publish flows can prime postmeta for many translations in
-	 * one request. Reading _thumbnail_id from the database keeps repair and status
-	 * payloads tied to the stored value instead of a stale object-cache entry.
+	 * one request. WordPress uses the first stored single-meta value when duplicate
+	 * rows exist, so this read must use the oldest row. Reading the newest row can
+	 * make a repair falsely report success while the frontend still renders an
+	 * older thumbnail.
 	 *
 	 * @param int|WP_Post $post Post ID or object.
 	 */
@@ -228,7 +230,7 @@ trait Devenia_AI_Translations_Featured_Image_Repair {
 		global $wpdb;
 		$value = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Intentional canonical _thumbnail_id read; must bypass stale meta caches during translation repair/status flows.
 			$wpdb->prepare(
-				"SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s ORDER BY meta_id DESC LIMIT 1",
+				"SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s ORDER BY meta_id ASC LIMIT 1",
 				$post_id,
 				'_thumbnail_id'
 			)
