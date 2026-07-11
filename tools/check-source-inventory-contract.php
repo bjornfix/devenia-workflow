@@ -20,7 +20,7 @@ foreach ( array(
 	'stable obligation cursor' => 'obligation_id > %d',
 	'v2 next-job delegation' => 'translation_job_v2_discover',
 	'exhaustion arithmetic' => '$expected === $total',
-	'published verification gate' => 'published_verified',
+	'published verification gate' => 'live_verification_passed',
 ) as $contract => $needle ) {
 	if ( false === strpos( $module, $needle ) ) { $failures[] = "missing {$contract}"; }
 }

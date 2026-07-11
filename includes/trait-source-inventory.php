@@ -155,7 +155,7 @@ trait Devenia_AI_Translations_Source_Inventory {
 		$state = 'missing';
 		if ( $job ) {
 			$state = sanitize_key( (string) ( $job['status'] ?? 'queued' ) );
-			if ( 'published' === $state && ! empty( $job['live_verification']['passed'] ) && ! empty( $job['artifact_revision'] ) && ! empty( $job['quality_revision'] ) ) { $state = 'published_verified'; }
+			if ( 'published' === $state && ! empty( $job['live_verification_passed'] ) && ! empty( $job['artifact_revision'] ) && ! empty( $job['quality_revision'] ) ) { $state = 'published_verified'; }
 		}
 		if ( ! $job && $translation_id > 0 ) {
 			$translation = get_post( $translation_id );
