@@ -472,6 +472,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			'artifact' => self::translation_job_v2_sanitize_artifact_record( $artifact ),
 			'submitted_at' => gmdate( 'c' ),
 		);
+		$artifact_record = self::translation_job_v2_pack_artifact_record( $artifact_record );
 		if ( ! self::atomic_create_option( self::translation_job_v2_artifact_key( $artifact_revision ), $artifact_record ) ) {
 			$artifact_key = self::translation_job_v2_artifact_key( $artifact_revision );
 			$stored = get_option( $artifact_key );
@@ -750,7 +751,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 	}
 
 	private static function translation_job_v2_quality_packet( array $job, array $run, WP_Post $source ): array {
-		$artifact = get_option( self::translation_job_v2_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) );
+		$artifact = self::translation_job_v2_unpack_artifact_record( get_option( self::translation_job_v2_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) ) );
 		$source_contract = self::source_design_contract( $source );
 		return array(
 			'contract_version' => 2,
@@ -1195,7 +1196,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			return array();
 		}
 		$quality = get_option( self::translation_job_v2_quality_key( $quality_revision ) );
-		$artifact = get_option( self::translation_job_v2_artifact_key( $artifact_revision ) );
+		$artifact = self::translation_job_v2_unpack_artifact_record( get_option( self::translation_job_v2_artifact_key( $artifact_revision ) ) );
 		if ( ! is_array( $quality ) || ! is_array( $artifact ) || 'revise' !== (string) ( $quality['decision'] ?? '' ) ) {
 			return array();
 		}
@@ -1264,6 +1265,31 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 
 	private static function translation_job_v2_sanitize_artifact_record( array $artifact ): array {
 		return json_decode( wp_json_encode( $artifact ) ?: '{}', true ) ?: array();
+	}
+
+	private static function translation_job_v2_pack_artifact_record( array $record ): array {
+		$artifact = isset( $record['artifact'] ) && is_array( $record['artifact'] ) ? $record['artifact'] : array();
+		$encoded = base64_encode( wp_json_encode( $artifact ) ?: '{}' );
+		unset( $record['artifact'] );
+		$record['artifact_encoding'] = 'base64-json-v1';
+		$record['artifact_payload'] = $encoded;
+		return $record;
+	}
+
+	private static function translation_job_v2_unpack_artifact_record( $record ): array {
+		if ( ! is_array( $record ) ) {
+			return array();
+		}
+		if ( 'base64-json-v1' !== (string) ( $record['artifact_encoding'] ?? '' ) ) {
+			return $record;
+		}
+		$decoded = base64_decode( (string) ( $record['artifact_payload'] ?? '' ), true );
+		$artifact = false !== $decoded ? json_decode( $decoded, true ) : null;
+		if ( ! is_array( $artifact ) ) {
+			return array();
+		}
+		$record['artifact'] = $artifact;
+		return $record;
 	}
 
 	private static function translation_job_v2_revision( $value ): string {

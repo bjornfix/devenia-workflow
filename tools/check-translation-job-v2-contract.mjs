@@ -39,6 +39,9 @@ pass(() => assert.match(
 pass(() => assert.match(runtimeSource, /'artifact_store_failed'/));
 pass(() => assert.match(runtimeSource, /update_option\( \$artifact_key, \$artifact_record, false \)/));
 pass(() => assert.match(runtimeSource, /\$stored\['source_revision'\][\s\S]*\$job\['source_revision'\]/));
+pass(() => assert.match(runtimeSource, /translation_job_v2_pack_artifact_record\( \$artifact_record \)/));
+pass(() => assert.match(runtimeSource, /'artifact_encoding'\]\s*=\s*'base64-json-v1'/));
+pass(() => assert.match(runtimeSource, /base64_decode\([^;]+true \)/));
 
 pass(() => assert.deepEqual(
 	{ total: writerBudget.total_token_limit, attempts: writerBudget.max_attempts },
