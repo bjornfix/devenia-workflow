@@ -159,6 +159,15 @@ Adapter uses native Elementor abilities and requires element IDs, responsive
 settings, global Kit styles, and the established Public Route to remain under
 their owning controls. A Source Editor Adapter never creates translation work.
 
+## Workflow Mode
+
+The site-level choice between `multilingual` and `source_only`. Multilingual
+mode owns translated frontend routing, locale switching, and target Translation
+Obligations. Source-only mode keeps WordPress locale and HTML language
+authoritative, creates no target Translation Obligations, and retains native
+Source Editor Adapter and content-optimization abilities. Workflow Mode is
+configuration, not an inferred property of one page.
+
 ## Public Route
 
 The externally visible URL identity of a published WordPress object. For a post

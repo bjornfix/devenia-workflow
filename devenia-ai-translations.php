@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia AI Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.569
+ * Version: 0.1.570
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -31,6 +31,7 @@ require_once __DIR__ . '/includes/trait-translation-reservations.php';
 require_once __DIR__ . '/includes/trait-agent-session-identity.php';
 require_once __DIR__ . '/includes/trait-heartbeat-workflow.php';
 require_once __DIR__ . '/includes/trait-source-editor-adapter.php';
+require_once __DIR__ . '/includes/trait-workflow-mode.php';
 require_once __DIR__ . '/includes/trait-work-item-catalog.php';
 require_once __DIR__ . '/includes/trait-work-item-planner.php';
 require_once __DIR__ . '/includes/trait-translation-read-models.php';
@@ -57,6 +58,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Frontend_Read_Model;
 	use Devenia_AI_Translations_Workflow_State;
 	use Devenia_AI_Translations_Source_Editor_Adapter;
+	use Devenia_AI_Translations_Workflow_Mode;
 	use Devenia_AI_Translations_Work_Item_Catalog;
 	use Devenia_AI_Translations_Work_Item_Planner;
 	use Devenia_AI_Translations_Assignment_Lifecycle;
@@ -64,7 +66,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Job_V2;
 	use Devenia_AI_Translations_Source_Inventory;
 
-	const VERSION = '0.1.569';
+	const VERSION = '0.1.570';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -74,6 +76,7 @@ final class Devenia_AI_Translations {
 	private static $request_analysis_cache = array();
 
 	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
+	const OPTION_WORKFLOW_MODE = 'devenia_ai_workflow_mode';
 	const OPTION_VERSION   = 'devenia_ai_translations_version';
 	const OPTION_LANGUAGE_PACK_STATUS = 'devenia_ai_translations_language_pack_status';
 	const OPTION_TRANSLATION_INDEX_SCHEMA = 'devenia_ai_translations_index_schema';
@@ -14920,6 +14923,10 @@ final class Devenia_AI_Translations {
 	 * @return array<string,array<string,string>>
 	 */
 	private static function target_languages(): array {
+		if ( ! self::is_multilingual_workflow() ) {
+			return array();
+		}
+
 		return array_filter(
 			self::languages(),
 			static function ( array $config ): bool {
@@ -20639,7 +20646,7 @@ final class Devenia_AI_Translations {
 	 * Whether the current frontend request should receive language handling.
 	 */
 	private static function is_frontend_language_surface(): bool {
-		return self::is_frontend_runtime_request() && ( is_singular( array( 'page', 'post' ) ) || is_home() || is_author() || is_category() || is_tag() || is_404() );
+		return self::is_multilingual_workflow() && self::is_frontend_runtime_request() && ( is_singular( array( 'page', 'post' ) ) || is_home() || is_author() || is_category() || is_tag() || is_404() );
 	}
 
 	/**

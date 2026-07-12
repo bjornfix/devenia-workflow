@@ -1,5 +1,7 @@
 # Devenia AI Workflow
 
+Version 0.1.570 adds a typed site-level Workflow Mode. `source_only` keeps WordPress locale and HTML language authoritative and disables target translation obligations while preserving native source-editor and optimization abilities.
+
 AI-assisted workflow for improving and publishing WordPress content, with optional multilingual support.
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/gpl-2.0)
@@ -7,7 +9,7 @@ AI-assisted workflow for improving and publishing WordPress content, with option
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.568
+**Stable tag:** 0.1.570
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual

@@ -20,6 +20,33 @@ trait Devenia_AI_Translations_Ability_Catalogue {
 				self::translation_job_v2_ability_catalogue(),
 				self::source_inventory_ability_catalogue(),
 				array(
+			'ai-translations/get-workflow-mode' => array(
+				'label'            => 'Get AI Workflow Mode',
+				'description'      => 'Returns whether this site runs multilingual translation workflow or source-only content optimization.',
+				'input_schema'     => self::empty_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input = array() ) {
+					return self::run_ability_operation( 'get_workflow_mode', $input );
+				},
+				'meta'             => self::ability_meta( true, false, true ),
+			),
+			'ai-translations/update-workflow-mode' => array(
+				'label'            => 'Update AI Workflow Mode',
+				'description'      => 'Switches between multilingual and source-only workflow. Source-only mode leaves WordPress locale and HTML language authoritative and creates no target translation obligations.',
+				'input_schema'     => array(
+					'type'                 => 'object',
+					'required'             => array( 'mode' ),
+					'properties'           => array(
+						'mode' => array( 'type' => 'string', 'enum' => array( 'multilingual', 'source_only' ) ),
+					),
+					'additionalProperties' => false,
+				),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'update_workflow_mode', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
+			),
 			'ai-translations/list-languages' => array(
 				'label'            => 'List Translation Languages',
 				'description'      => 'Returns the configured Devenia AI Workflow translation language registry. Defaults to compact registry data; pass detail_level=full only when runtime text/profile payloads are needed.',
