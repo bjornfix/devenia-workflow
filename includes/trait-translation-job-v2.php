@@ -473,25 +473,31 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			'submitted_at' => gmdate( 'c' ),
 		);
 		if ( ! self::atomic_create_option( self::translation_job_v2_artifact_key( $artifact_revision ), $artifact_record ) ) {
-			$stored = get_option( self::translation_job_v2_artifact_key( $artifact_revision ) );
+			$artifact_key = self::translation_job_v2_artifact_key( $artifact_revision );
+			$stored = get_option( $artifact_key );
 			if ( ! is_array( $stored ) ) {
-				global $wpdb;
-				return array(
-					'success'           => false,
-					'code'              => 'artifact_store_failed',
-					'message'           => 'The artifact record could not be stored atomically.',
-					'artifact_revision' => $artifact_revision,
-					'storage_error'     => sanitize_text_field( (string) $wpdb->last_error ),
-				);
+				// Artifact revisions are scoped to this immutable Job contract, so
+				// this key cannot legitimately belong to another Job. Some hosts
+				// return zero affected rows for INSERT IGNORE without storing a row;
+				// use the WordPress option path, then verify the exact record.
+				update_option( $artifact_key, $artifact_record, false );
+				wp_cache_delete( $artifact_key, 'options' );
+				wp_cache_delete( 'notoptions', 'options' );
+				$stored = get_option( $artifact_key );
 			}
-			if ( (string) ( $stored['job_id'] ?? '' ) !== (string) $job['job_id'] ) {
+			if (
+				! is_array( $stored )
+				|| (string) ( $stored['job_id'] ?? '' ) !== (string) $job['job_id']
+				|| (string) ( $stored['artifact_revision'] ?? '' ) !== $artifact_revision
+				|| (string) ( $stored['source_revision'] ?? '' ) !== (string) $job['source_revision']
+			) {
 				return array(
 					'success'           => false,
-					'code'              => 'artifact_revision_conflict',
-					'message'           => 'Artifact revision already belongs to another Job.',
+					'code'              => is_array( $stored ) ? 'artifact_revision_conflict' : 'artifact_store_failed',
+					'message'           => is_array( $stored ) ? 'Artifact revision already belongs to another Job.' : 'The artifact record could not be stored.',
 					'artifact_revision' => $artifact_revision,
 					'expected_job_id'   => (string) $job['job_id'],
-					'stored_job_id'     => (string) ( $stored['job_id'] ?? '' ),
+					'stored_job_id'     => is_array( $stored ) ? (string) ( $stored['job_id'] ?? '' ) : '',
 				);
 			}
 		}
