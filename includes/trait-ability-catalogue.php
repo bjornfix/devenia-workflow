@@ -380,6 +380,23 @@ trait Devenia_AI_Translations_Ability_Catalogue {
 					},
 					'meta'             => self::ability_meta( false, false, false ),
 				),
+				'ai-translations/source-editor-status' => array(
+					'label'            => 'Get Native Source Editor Status',
+					'description'      => 'Returns the native WordPress or builder editor Adapter and safe read/write abilities for one source page or post. This does not create translation work.',
+					'input_schema'     => array(
+						'type'                 => 'object',
+						'required'             => array( 'source_id' ),
+						'properties'           => array(
+							'source_id' => array( 'type' => 'integer', 'description' => 'Original WordPress page or post ID.' ),
+						),
+						'additionalProperties' => false,
+					),
+					'output_schema'    => self::generic_output_schema(),
+					'execute_callback' => function ( $input ) {
+						return self::source_editor_status( is_array( $input ) ? $input : array() );
+					},
+					'meta'             => self::ability_meta( true, false, true ),
+				),
 				'ai-translations/get-source' => array(
 					'label'            => 'Get Translation Source Content',
 					'description'      => 'Returns source page/post content, metadata, source hash, taxonomies, and existing translations.',

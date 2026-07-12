@@ -544,6 +544,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 			return array();
 		}
 		$validation = isset( $gate['validation'] ) && is_array( $gate['validation'] ) ? $gate['validation'] : self::source_content_integrity_validation( $source );
+		$source_editor = self::source_editor_contract( $source );
 
 		return self::workflow_work_item(
 			'content_integrity_repair',
@@ -556,6 +557,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				'post_status' => sanitize_key( (string) $source->post_status ),
 				'content_integrity' => $validation,
 				'content_integrity_review' => isset( $gate['review'] ) && is_array( $gate['review'] ) ? $gate['review'] : array(),
+				'source_editor' => $source_editor,
 				'obligations' => array( 'content_integrity_repair' ),
 				'linguistic' => 'content_integrity_repair_required',
 				'quality' => 'content_integrity_repair_required',
@@ -578,6 +580,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		$review     = isset( $gate['review'] ) && is_array( $gate['review'] ) ? $gate['review'] : array();
 
 		$validation_summary = self::source_editorial_design_validation_summary( $validation );
+		$source_editor      = self::source_editor_contract( $source );
 
 		return self::workflow_work_item(
 			'source_design_repair',
@@ -594,6 +597,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				'template_version' => sanitize_text_field( (string) ( $validation_summary['template_version'] ?? '' ) ),
 				'editorial_source_validation' => $validation_summary,
 				'source_design_review' => $review,
+				'source_editor' => $source_editor,
 				'obligations' => array( 'source_design_repair' ),
 				'linguistic' => 'source_design_repair_required',
 				'quality' => 'source_design_repair_required',
@@ -675,6 +679,9 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		if ( isset( $extra['content_integrity'] ) && is_array( $extra['content_integrity'] ) ) {
 			$item['content_integrity'] = $extra['content_integrity'];
 		}
+		if ( isset( $extra['source_editor'] ) && is_array( $extra['source_editor'] ) ) {
+			$item['source_editor'] = $extra['source_editor'];
+		}
 		if ( isset( $extra['source_taxonomy'] ) && is_array( $extra['source_taxonomy'] ) ) {
 			$item['source_taxonomy'] = $extra['source_taxonomy'];
 		}
@@ -701,6 +708,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 				'template_id'        => sanitize_text_field( (string) ( $item['template_id'] ?? '' ) ),
 				'template_slug'      => sanitize_text_field( (string) ( $item['template_slug'] ?? '' ) ),
 				'template_version'   => sanitize_text_field( (string) ( $item['template_version'] ?? '' ) ),
+				'source_editor'      => isset( $item['source_editor'] ) && is_array( $item['source_editor'] ) ? $item['source_editor'] : array(),
 			)
 		);
 		$revision_payload['evidence'] = isset( $extra['revision_evidence'] ) && is_array( $extra['revision_evidence'] )

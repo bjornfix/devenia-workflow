@@ -34,6 +34,7 @@ const separateModules = [
 	"frontend-integrity-status", "warm-cache", "repair-term-archive-self-redirects", "repair-translation-author",
 	"reproject-source-design", "migrate-source-design-fragments", "repair-url-hierarchy", "repair-internal-links",
 	"repair-featured-images",
+	"source-editor-status",
 ];
 
 const retiredFromModel = [
@@ -52,7 +53,7 @@ assert.match(v2Module, /const TRANSLATION_JOB_V2_MAX_RUNS_PER_ROLE = 3;/, "A Job
 assert.match(v2Module, />= self::TRANSLATION_JOB_V2_MAX_RUNS_PER_ROLE/, "Run claims must enforce the finite per-role ceiling.");
 assert.deepEqual(
 	{ internal_adapters: internalAdapters.length, separate_modules: separateModules.length, retired_from_model: retiredFromModel.length },
-	{ internal_adapters: 19, separate_modules: 37, retired_from_model: 17 },
+	{ internal_adapters: 19, separate_modules: 38, retired_from_model: 17 },
 );
 
 console.log(JSON.stringify({

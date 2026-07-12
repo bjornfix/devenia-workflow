@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia AI Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.560
+ * Version: 0.1.561
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -30,6 +30,7 @@ require_once __DIR__ . '/includes/trait-presentation-adapter.php';
 require_once __DIR__ . '/includes/trait-translation-reservations.php';
 require_once __DIR__ . '/includes/trait-agent-session-identity.php';
 require_once __DIR__ . '/includes/trait-heartbeat-workflow.php';
+require_once __DIR__ . '/includes/trait-source-editor-adapter.php';
 require_once __DIR__ . '/includes/trait-work-item-catalog.php';
 require_once __DIR__ . '/includes/trait-work-item-planner.php';
 require_once __DIR__ . '/includes/trait-translation-read-models.php';
@@ -55,6 +56,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Quality_Engine;
 	use Devenia_AI_Translations_Frontend_Read_Model;
 	use Devenia_AI_Translations_Workflow_State;
+	use Devenia_AI_Translations_Source_Editor_Adapter;
 	use Devenia_AI_Translations_Work_Item_Catalog;
 	use Devenia_AI_Translations_Work_Item_Planner;
 	use Devenia_AI_Translations_Assignment_Lifecycle;
@@ -62,7 +64,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Job_V2;
 	use Devenia_AI_Translations_Source_Inventory;
 
-	const VERSION = '0.1.560';
+	const VERSION = '0.1.561';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.

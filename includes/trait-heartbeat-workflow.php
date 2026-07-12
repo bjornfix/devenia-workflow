@@ -404,6 +404,23 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 			'required_ability' => '',
 			'instructions' => 'No supported obligation selected.',
 			);
+		$source_editor = isset( $item['source_editor'] ) && is_array( $item['source_editor'] ) ? $item['source_editor'] : array();
+		if ( 'source' === sanitize_key( (string) ( $item['work_scope'] ?? '' ) ) && ! empty( $source_editor ) ) {
+			$write_ability = 'source_design_repair' === $obligation
+				? (string) ( $source_editor['design_write_ability'] ?? '' )
+				: (string) ( $source_editor['content_write_ability'] ?? '' );
+			if ( '' !== $write_ability ) {
+				$action['required_ability'] = sanitize_text_field( $write_ability );
+			}
+			if ( isset( $source_editor['completion_abilities'] ) && is_array( $source_editor['completion_abilities'] ) ) {
+				$action['completion_abilities'] = array_values( array_map( 'sanitize_text_field', $source_editor['completion_abilities'] ) );
+			}
+			$action['source_editor'] = $source_editor;
+			$editor_instructions = sanitize_textarea_field( (string) ( $source_editor['instructions'] ?? '' ) );
+			if ( '' !== $editor_instructions ) {
+				$action['instructions'] = $editor_instructions . ' ' . (string) ( $action['instructions'] ?? '' );
+			}
+		}
 		if (
 			'content_integrity_repair' === $obligation
 			&& 'translation' === sanitize_key( (string) ( $item['work_scope'] ?? '' ) )

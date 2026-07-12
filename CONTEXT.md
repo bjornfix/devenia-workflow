@@ -150,6 +150,15 @@ content identity. It covers both core permalink/query routes and registered
 localized translation paths that WordPress core `url_to_postid()` cannot map.
 Link integrity and source-link parity consume this one Interface.
 
+## Source Editor Adapter
+
+The builder-aware Adapter that identifies the native editor owning one source
+page or post and returns its safe read, content-write, and design-write
+abilities. The default Adapter uses WordPress content abilities. The Elementor
+Adapter uses native Elementor abilities and requires element IDs, responsive
+settings, global Kit styles, and the established Public Route to remain under
+their owning controls. A Source Editor Adapter never creates translation work.
+
 ## Public Route
 
 The externally visible URL identity of a published WordPress object. For a post

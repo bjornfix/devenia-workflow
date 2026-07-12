@@ -7,7 +7,7 @@ AI-assisted workflow for improving and publishing WordPress content, with option
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.560
+**Stable tag:** 0.1.561
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -214,6 +214,12 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.561
+
+- Add a builder-aware Source Editor Adapter seam for native WordPress and Elementor source optimization.
+- Expose read-only source editor status without creating translation work.
+- Route source Work Items to native Elementor abilities while preserving element IDs, global Kit styles, responsive settings, and Public Routes.
 
 ### 0.1.560
 
