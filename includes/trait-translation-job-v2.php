@@ -1100,6 +1100,20 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		if ( '' !== $role && $role !== (string) ( $run['role'] ?? '' ) ) {
 			return array( 'success' => false, 'code' => 'job_run_role_mismatch', 'message' => 'Run role does not match this operation.' );
 		}
+		$configured_budget = self::translation_job_v2_budget( (string) ( $run['role'] ?? '' ) );
+		$stored_budget = isset( $run['budget'] ) && is_array( $run['budget'] ) ? $run['budget'] : array();
+		if ( 'quality' === (string) ( $run['role'] ?? '' )
+			&& (int) ( $stored_budget['input_token_limit'] ?? 0 ) < (int) $configured_budget['input_token_limit'] ) {
+			$run['budget'] = $configured_budget;
+			$run['budget_migrated_at'] = gmdate( 'c' );
+			$run_key = self::translation_job_v2_run_key( $run_id );
+			update_option( $run_key, $run, false );
+			$stored_run = get_option( $run_key );
+			if ( ! is_array( $stored_run ) || (int) ( $stored_run['budget']['input_token_limit'] ?? 0 ) < (int) $configured_budget['input_token_limit'] ) {
+				return array( 'success' => false, 'code' => 'run_budget_migration_failed', 'message' => 'The active quality Run budget could not be upgraded safely.' );
+			}
+			$run = $stored_run;
+		}
 		return array( 'success' => true, 'job' => $job, 'run' => $run, 'claim' => $lock );
 	}
 

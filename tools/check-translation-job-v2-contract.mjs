@@ -42,6 +42,7 @@ pass(() => assert.match(runtimeSource, /\$stored\['source_revision'\][\s\S]*\$jo
 pass(() => assert.match(runtimeSource, /translation_job_v2_pack_artifact_record\( \$artifact_record \)/));
 pass(() => assert.match(runtimeSource, /'artifact_encoding'\]\s*=\s*'base64-json-v1'/));
 pass(() => assert.match(runtimeSource, /base64_decode\([^;]+true \)/));
+pass(() => assert.match(runtimeSource, /\$configured_budget = self::translation_job_v2_budget[\s\S]*'budget_migrated_at'[\s\S]*'run_budget_migration_failed'/));
 
 pass(() => assert.deepEqual(
 	{ total: writerBudget.total_token_limit, attempts: writerBudget.max_attempts },
