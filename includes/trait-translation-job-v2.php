@@ -1263,7 +1263,7 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 
 	private static function translation_job_v2_budget( string $role ): array {
 		return 'quality' === $role
-			? array( 'input_token_limit' => 30000, 'output_token_limit' => 10000, 'total_token_limit' => 40000, 'max_attempts' => 2 )
+			? array( 'input_token_limit' => 40000, 'output_token_limit' => 10000, 'total_token_limit' => 50000, 'max_attempts' => 2 )
 			: array( 'input_token_limit' => 30000, 'output_token_limit' => 30000, 'total_token_limit' => 60000, 'max_attempts' => 2 );
 	}
 

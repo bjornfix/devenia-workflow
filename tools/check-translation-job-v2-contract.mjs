@@ -50,7 +50,7 @@ pass(() => assert.deepEqual(
 ));
 pass(() => assert.deepEqual(
 	{ input: qualityBudget.input_token_limit, output: qualityBudget.output_token_limit, total: qualityBudget.total_token_limit },
-	{ input: 30000, output: 10000, total: 40000 },
+	{ input: 40000, output: 10000, total: 50000 },
 ));
 rejects("invalid_run_role", () => createTokenBudget("reviewer"));
 rejects("unexpected_field", () => createTokenBudget("translator", { session_lease: true }));
@@ -241,6 +241,14 @@ const qualityRun = createTranslationRun({
 	observability_label: "Italian quality subagent",
 });
 pass(() => assert.equal(qualityRun.coordinator_id, writerRun.coordinator_id));
+pass(() => assert.equal(
+	evaluateTokenUsage(
+		qualityRun,
+		{ input_tokens: 30123, cached_input_tokens: 0, output_tokens: 1000, estimated_cost_microusd: 0 },
+		1,
+	).within_budget,
+	true,
+));
 
 const checks = Object.fromEntries([
 	["source_quality", "The current source revision is useful, accurate, current, and approved before translation."],

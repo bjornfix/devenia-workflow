@@ -215,6 +215,10 @@ Before changing the plugin:
 
 ## Changelog
 
+### 0.1.569
+
+- Raise the bounded quality Run input budget to cover complete RTL review packets and safely upgrade active quality Runs in place.
+
 ### 0.1.568
 
 - Safely upgrade the budget of an already-running quality Run created before the larger bounded review budget was released.
