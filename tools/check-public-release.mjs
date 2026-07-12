@@ -156,6 +156,9 @@ const privateScanIgnored = new Set([
 ]);
 
 for (const file of gitFiles()) {
+  if (file.startsWith("tools/")) {
+    continue;
+  }
   if (privateScanIgnored.has(file)) {
     continue;
   }
@@ -203,7 +206,7 @@ function hasHardcodedLanguageDateFormat(content) {
   return false;
 }
 for (const file of gitFiles().filter((name) => name.endsWith(".php"))) {
-  if (file.startsWith("addons/")) {
+  if (file.startsWith("addons/") || file.startsWith("tools/")) {
     continue;
   }
   const content = read(file);

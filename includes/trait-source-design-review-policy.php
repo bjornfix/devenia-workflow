@@ -90,7 +90,7 @@ trait Devenia_AI_Translations_Source_Design_Review_Policy {
 	private static function mark_source_design_reviewed( array $input ): array {
 		$source_id = absint( $input['source_id'] ?? 0 );
 		$source    = $source_id ? get_post( $source_id ) : null;
-		if ( ! $source instanceof WP_Post || 'post' !== (string) $source->post_type || self::is_translation_post( $source_id ) ) {
+		if ( ! $source instanceof WP_Post || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
 			return self::error( 'Source post not found.', 'source_post_not_found' );
 		}
 		if ( empty( $input['design_already_suitable'] ) ) {

@@ -7,6 +7,7 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const source = fs.readFileSync(path.join(root, "includes/trait-ability-catalogue.php"), "utf8");
 const runtime = fs.readFileSync(path.join(root, "devenia-ai-translations.php"), "utf8");
 const indexReadModel = fs.readFileSync(path.join(root, "includes/trait-translation-index-read-model.php"), "utf8");
+const sourceDesignReview = fs.readFileSync(path.join(root, "includes/trait-source-design-review-policy.php"), "utf8");
 const required = [
   "ai-translations/frontend-integrity-status",
   "ai-translations/reserve-work",
@@ -50,6 +51,13 @@ for (const method of [
   if (runtime.includes(`function ${method}(`)) {
     failures.push(`main runtime still owns: ${method}`);
   }
+}
+
+if (!sourceDesignReview.includes("! self::is_translatable_post_type( (string) $source->post_type )")) {
+  failures.push("source design review must support every translatable post type");
+}
+if (sourceDesignReview.includes("'post' !== (string) $source->post_type")) {
+  failures.push("source design review still hard-codes the post post type");
 }
 
 if (failures.length) {
