@@ -474,8 +474,25 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 		);
 		if ( ! self::atomic_create_option( self::translation_job_v2_artifact_key( $artifact_revision ), $artifact_record ) ) {
 			$stored = get_option( self::translation_job_v2_artifact_key( $artifact_revision ) );
-			if ( ! is_array( $stored ) || ( $stored['job_id'] ?? '' ) !== $job['job_id'] ) {
-				return array( 'success' => false, 'code' => 'artifact_revision_conflict', 'message' => 'Artifact revision already belongs to another Job.' );
+			if ( ! is_array( $stored ) ) {
+				global $wpdb;
+				return array(
+					'success'           => false,
+					'code'              => 'artifact_store_failed',
+					'message'           => 'The artifact record could not be stored atomically.',
+					'artifact_revision' => $artifact_revision,
+					'storage_error'     => sanitize_text_field( (string) $wpdb->last_error ),
+				);
+			}
+			if ( (string) ( $stored['job_id'] ?? '' ) !== (string) $job['job_id'] ) {
+				return array(
+					'success'           => false,
+					'code'              => 'artifact_revision_conflict',
+					'message'           => 'Artifact revision already belongs to another Job.',
+					'artifact_revision' => $artifact_revision,
+					'expected_job_id'   => (string) $job['job_id'],
+					'stored_job_id'     => (string) ( $stored['job_id'] ?? '' ),
+				);
 			}
 		}
 		self::translation_job_v2_finish_run( $run, 'submitted', $usage['usage'] );

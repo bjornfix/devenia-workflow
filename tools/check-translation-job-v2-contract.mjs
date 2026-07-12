@@ -36,6 +36,8 @@ pass(() => assert.match(
 	runtimeSource,
 	/'job_id'\s*=>\s*\(string\) \$job\['job_id'\][\s\S]*'source_revision'\s*=>\s*\(string\) \$job\['source_revision'\][\s\S]*'target_language'\s*=>\s*\(string\) \$job\['target_language'\][\s\S]*'artifact'\s*=>\s*\$artifact/,
 ));
+pass(() => assert.match(runtimeSource, /'code'\s*=>\s*'artifact_store_failed'/));
+pass(() => assert.match(runtimeSource, /'storage_error'\s*=>\s*sanitize_text_field/));
 
 pass(() => assert.deepEqual(
 	{ total: writerBudget.total_token_limit, attempts: writerBudget.max_attempts },
