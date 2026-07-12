@@ -451,7 +451,17 @@ trait Devenia_AI_Translations_Translation_Job_V2 {
 			self::record_translation_visible_media_provenance( $translation_id, $v2_identity, 'translation_job_v2_artifact_submit' );
 			self::sync_translation_index_row( $translation_id );
 		}
-		$artifact_revision = self::translation_job_v2_revision( $artifact );
+		// Scope the content-addressed revision to its immutable Job contract.
+		// Identical localized payloads can legitimately occur after a source
+		// revision changes; they must not collide with another Job's record.
+		$artifact_revision = self::translation_job_v2_revision(
+			array(
+				'job_id'          => (string) $job['job_id'],
+				'source_revision' => (string) $job['source_revision'],
+				'target_language' => (string) $job['target_language'],
+				'artifact'        => $artifact,
+			)
+		);
 		$content_revision = self::translation_job_v2_translation_revision( $translation_id );
 		$artifact_record = array(
 			'artifact_revision' => $artifact_revision,

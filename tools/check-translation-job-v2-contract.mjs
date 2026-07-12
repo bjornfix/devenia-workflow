@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
 	TranslationJobContractError,
 	assertPublishable,
@@ -29,6 +30,12 @@ function rejects(code, fn) {
 const now = "2026-07-10T12:00:00.000Z";
 const writerBudget = createTokenBudget("translator");
 const qualityBudget = createTokenBudget("quality");
+const runtimeSource = readFileSync(new URL("../includes/trait-translation-job-v2.php", import.meta.url), "utf8");
+
+pass(() => assert.match(
+	runtimeSource,
+	/'job_id'\s*=>\s*\(string\) \$job\['job_id'\][\s\S]*'source_revision'\s*=>\s*\(string\) \$job\['source_revision'\][\s\S]*'target_language'\s*=>\s*\(string\) \$job\['target_language'\][\s\S]*'artifact'\s*=>\s*\$artifact/,
+));
 
 pass(() => assert.deepEqual(
 	{ total: writerBudget.total_token_limit, attempts: writerBudget.max_attempts },
@@ -157,6 +164,23 @@ const submitted = submitTranslation({
 pass(() => assert.equal(submitted.job.status, "quality_pending"));
 pass(() => assert.equal(submitted.run.usage.total_tokens, 44000));
 pass(() => assert.match(submitted.artifact.artifact_revision, /^a_[a-f0-9]{32}$/));
+pass(() => {
+	const samePayloadOtherJob = submitTranslation({
+		job: { ...claimedJob, job_id: "tj_source-4122_it_r2", source_revision: "r_source_4122_v2" },
+		run: { ...writerRun, job_id: "tj_source-4122_it_r2" },
+		packet: {
+			...packet,
+			job: { ...packet.job, job_id: "tj_source-4122_it_r2", source_revision: "r_source_4122_v2" },
+			run: { ...packet.run, job_id: "tj_source-4122_it_r2" },
+		},
+		localized_fragments: localizedFragments,
+		metadata,
+		usage: writerUsage,
+		attempts: 1,
+		finished_at: "2026-07-10T12:06:00.000Z",
+	});
+	assert.notEqual(samePayloadOtherJob.artifact.artifact_revision, submitted.artifact.artifact_revision);
+});
 rejects("incomplete_translation", () => submitTranslation({
 	job: claimedJob, run: writerRun, packet, localized_fragments: localizedFragments.slice(1), metadata,
 	usage: writerUsage, attempts: 1, finished_at: "2026-07-10T12:06:00.000Z",
