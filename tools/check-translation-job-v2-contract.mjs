@@ -47,7 +47,10 @@ pass(() => assert.deepEqual(
 	{ total: writerBudget.total_token_limit, attempts: writerBudget.max_attempts },
 	{ total: 60000, attempts: 2 },
 ));
-pass(() => assert.equal(qualityBudget.total_token_limit, 30000));
+pass(() => assert.deepEqual(
+	{ input: qualityBudget.input_token_limit, output: qualityBudget.output_token_limit, total: qualityBudget.total_token_limit },
+	{ input: 30000, output: 10000, total: 40000 },
+));
 rejects("invalid_run_role", () => createTokenBudget("reviewer"));
 rejects("unexpected_field", () => createTokenBudget("translator", { session_lease: true }));
 

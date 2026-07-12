@@ -94,7 +94,7 @@ export function createTokenBudget(role, overrides = {}) {
 	});
 	const defaults = role === "translator"
 		? { input_token_limit: 30000, output_token_limit: 30000, total_token_limit: 60000, max_attempts: 2 }
-		: { input_token_limit: 20000, output_token_limit: 10000, total_token_limit: 30000, max_attempts: 2 };
+		: { input_token_limit: 30000, output_token_limit: 10000, total_token_limit: 40000, max_attempts: 2 };
 	const budget = { ...defaults, max_estimated_cost_microusd: 0, ...overrides };
 	for (const key of ["input_token_limit", "output_token_limit", "total_token_limit", "max_attempts", "max_estimated_cost_microusd"]) {
 		integer(budget[key], `budget.${key}`, { min: key === "max_estimated_cost_microusd" ? 0 : 1 });
