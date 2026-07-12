@@ -7,9 +7,12 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 [![WordPress](https://img.shields.io/badge/WordPress-6.9%2B-blue.svg)](https://wordpress.org)
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
-**Tested up to:** 7.0  
-**Stable tag:** 0.1.573  
-**License:** GPLv2 or later  
+**Tested up to:** 7.0
+
+**Stable tag:** 0.1.573
+
+**License:** GPLv2 or later
+
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 
 ## What It Does
