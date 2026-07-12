@@ -42,14 +42,16 @@ try {
 	$result = $invoke( 'rebuild_source_inventory', array( array() ) );
 	if ( empty( $result['success'] ) ) { $failures[] = 'rebuild failed'; }
 	$manifest = $result['inventory'] ?? array();
-	$sources = $wpdb->prefix . 'devenia_translation_sources';
-	$obligations = $wpdb->prefix . 'devenia_translation_obligations';
 	$generation = (string) ( $manifest['generation'] ?? '' );
-	$old_row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$sources} WHERE generation = %s AND source_id = %d", $generation, $old_source ), ARRAY_A );
-	$draft_reason = $wpdb->get_var( $wpdb->prepare( "SELECT exclusion_reason FROM {$sources} WHERE generation = %s AND source_id = %d", $generation, $draft ) );
-	$password_reason = $wpdb->get_var( $wpdb->prepare( "SELECT exclusion_reason FROM {$sources} WHERE generation = %s AND source_id = %d", $generation, $password ) );
-	$noindex_applicable = $wpdb->get_var( $wpdb->prepare( "SELECT applicable FROM {$sources} WHERE generation = %s AND source_id = %d", $generation, $noindex ) );
-	$old_obligations = absint( $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$obligations} WHERE generation = %s AND source_id = %d", $generation, $old_source ) ) );
+	$source_rows = $invoke( 'inventory_store_read_rows', array( $generation, 'source' ) );
+	$obligation_rows = $invoke( 'inventory_store_read_rows', array( $generation, 'obligation' ) );
+	$source_by_id = array();
+	foreach ( $source_rows as $row ) { $source_by_id[ absint( $row['source_id'] ?? 0 ) ] = $row; }
+	$old_row = $source_by_id[ $old_source ] ?? null;
+	$draft_reason = $source_by_id[ $draft ]['exclusion_reason'] ?? '';
+	$password_reason = $source_by_id[ $password ]['exclusion_reason'] ?? '';
+	$noindex_applicable = $source_by_id[ $noindex ]['applicable'] ?? 0;
+	$old_obligations = count( array_filter( $obligation_rows, static function ( $row ) use ( $old_source ) { return absint( $row['source_id'] ?? 0 ) === $old_source; } ) );
 	if ( ! $old_row || 1 !== absint( $old_row['applicable'] ?? 0 ) ) { $failures[] = 'older zero-translation source was hidden by 501 newer translations'; }
 	if ( 'status_draft' !== $draft_reason ) { $failures[] = 'draft exclusion reason missing'; }
 	if ( 'password_protected' !== $password_reason ) { $failures[] = 'password exclusion reason missing'; }
