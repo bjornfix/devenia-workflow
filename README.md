@@ -1,6 +1,6 @@
 # Devenia AI Workflow
 
-Version 0.1.570 adds a typed site-level Workflow Mode. `source_only` keeps WordPress locale and HTML language authoritative and disables target translation obligations while preserving native source-editor and optimization abilities.
+Version 0.1.571 keeps `source_only` publication ownership with the selected native source editor, so native Elementor saves use Elementor guardrails instead of multilingual editorial design gates.
 
 AI-assisted workflow for improving and publishing WordPress content, with optional multilingual support.
 
@@ -9,7 +9,7 @@ AI-assisted workflow for improving and publishing WordPress content, with option
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.570
+**Stable tag:** 0.1.571
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -216,6 +216,14 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.571
+
+- Keep `source_only` publication ownership with the selected native source editor instead of applying multilingual editorial design gates to native Elementor saves.
+
+### 0.1.570
+
+- Add a typed site-level workflow mode for Norwegian-only and other source-only sites.
 
 ### 0.1.569
 

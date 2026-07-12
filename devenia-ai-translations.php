@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia AI Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.570
+ * Version: 0.1.571
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -66,7 +66,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Job_V2;
 	use Devenia_AI_Translations_Source_Inventory;
 
-	const VERSION = '0.1.570';
+	const VERSION = '0.1.571';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -20000,6 +20000,13 @@ final class Devenia_AI_Translations {
 	 * @return array<string,mixed>
 	 */
 	public static function block_unready_source_post_publish_before_save( array $data, array $postarr ): array {
+		// Source-only sites delegate source writes to the native WordPress or
+		// builder adapter. Translation editorial gates do not own publication
+		// there; the selected editor's native write/design guardrails do.
+		if ( ! self::is_multilingual_workflow() ) {
+			return $data;
+		}
+
 		$post_id = absint( $postarr['ID'] ?? 0 );
 		if ( $post_id > 0 && wp_is_post_revision( $post_id ) ) {
 			return $data;
