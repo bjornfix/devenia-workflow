@@ -8,8 +8,80 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 trait Devenia_AI_Translations_Source_Inventory {
-	private static function source_inventory_table(): string { global $wpdb; return $wpdb->prefix . 'devenia_translation_sources'; }
-	private static function translation_obligations_table(): string { global $wpdb; return $wpdb->prefix . 'devenia_translation_obligations'; }
+	private const INVENTORY_STORE_SHARD_SIZE = 200;
+
+	private static function inventory_store_index_name( string $generation ): string {
+		return 'devenia_ai_inventory_' . sanitize_key( $generation ) . '_index';
+	}
+
+	private static function inventory_store_shard_name( string $generation, string $kind, int $shard ): string {
+		return 'devenia_ai_inventory_' . sanitize_key( $generation ) . '_' . sanitize_key( $kind ) . '_' . max( 0, $shard );
+	}
+
+	/** @param array<int,array<string,mixed>> $rows */
+	private static function inventory_store_write_rows( string $generation, string $kind, array $rows ): int {
+		$chunks = array_chunk( array_values( $rows ), self::INVENTORY_STORE_SHARD_SIZE );
+		foreach ( $chunks as $shard => $chunk ) {
+			update_option( self::inventory_store_shard_name( $generation, $kind, $shard ), $chunk, false );
+		}
+		return count( $chunks );
+	}
+
+	/** @return array<int,array<string,mixed>> */
+	private static function inventory_store_read_rows( string $generation, string $kind ): array {
+		$index = get_option( self::inventory_store_index_name( $generation ), array() );
+		$count = is_array( $index ) ? absint( $index[ $kind . '_shards' ] ?? 0 ) : 0;
+		$rows  = array();
+		for ( $shard = 0; $shard < $count; ++$shard ) {
+			$chunk = get_option( self::inventory_store_shard_name( $generation, $kind, $shard ), array() );
+			if ( is_array( $chunk ) ) {
+				$rows = array_merge( $rows, $chunk );
+			}
+		}
+		return $rows;
+	}
+
+	/** @param array<int,array<string,mixed>> $sources @param array<int,array<string,mixed>> $obligations */
+	private static function inventory_store_write_generation( string $generation, array $sources, array $obligations ): array {
+		$index = array(
+			'generation'          => $generation,
+			'source_shards'       => self::inventory_store_write_rows( $generation, 'source', $sources ),
+			'obligation_shards'   => self::inventory_store_write_rows( $generation, 'obligation', $obligations ),
+			'source_count'        => count( $sources ),
+			'obligation_count'    => count( $obligations ),
+			'written_at'          => gmdate( 'c' ),
+		);
+		update_option( self::inventory_store_index_name( $generation ), $index, false );
+		return $index;
+	}
+
+	/** @param array<int,array<string,mixed>> $rows */
+	private static function inventory_store_replace_obligations( string $generation, array $rows ): void {
+		$index = get_option( self::inventory_store_index_name( $generation ), array() );
+		if ( ! is_array( $index ) ) { return; }
+		$old_count = absint( $index['obligation_shards'] ?? 0 );
+		$new_count = self::inventory_store_write_rows( $generation, 'obligation', $rows );
+		for ( $shard = $new_count; $shard < $old_count; ++$shard ) {
+			delete_option( self::inventory_store_shard_name( $generation, 'obligation', $shard ) );
+		}
+		$index['obligation_shards'] = $new_count;
+		$index['obligation_count']  = count( $rows );
+		$index['refreshed_at']      = gmdate( 'c' );
+		update_option( self::inventory_store_index_name( $generation ), $index, false );
+	}
+
+	private static function inventory_store_delete_generation( string $generation ): void {
+		$index = get_option( self::inventory_store_index_name( $generation ), array() );
+		if ( is_array( $index ) ) {
+			foreach ( array( 'source', 'obligation' ) as $kind ) {
+				$count = absint( $index[ $kind . '_shards' ] ?? 0 );
+				for ( $shard = 0; $shard < $count; ++$shard ) {
+					delete_option( self::inventory_store_shard_name( $generation, $kind, $shard ) );
+				}
+			}
+		}
+		delete_option( self::inventory_store_index_name( $generation ) );
+	}
 
 	private static function source_inventory_ability_catalogue(): array {
 		$cursor_schema = array(
@@ -65,28 +137,6 @@ trait Devenia_AI_Translations_Source_Inventory {
 	}
 
 	private static function install_source_inventory_schema(): void {
-		global $wpdb;
-		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-		$charset = $wpdb->get_charset_collate();
-		$sources = self::source_inventory_table();
-		$obligations = self::translation_obligations_table();
-		dbDelta( "CREATE TABLE {$sources} (
-			generation varchar(64) NOT NULL, source_id bigint(20) unsigned NOT NULL,
-			post_type varchar(20) NOT NULL, post_status varchar(20) NOT NULL,
-			applicable tinyint(1) unsigned NOT NULL DEFAULT '0', exclusion_reason varchar(64) NOT NULL DEFAULT '',
-			source_revision varchar(64) NOT NULL DEFAULT '', modified_gmt datetime NOT NULL,
-			PRIMARY KEY  (generation, source_id),
-			KEY applicable_cursor (generation, applicable, source_id)
-		) {$charset};" );
-		dbDelta( "CREATE TABLE {$obligations} (
-			obligation_id bigint(20) unsigned NOT NULL AUTO_INCREMENT, generation varchar(64) NOT NULL,
-			source_id bigint(20) unsigned NOT NULL, target_language varchar(20) NOT NULL,
-			state varchar(40) NOT NULL, job_id varchar(100) NOT NULL DEFAULT '', translation_id bigint(20) unsigned NOT NULL DEFAULT 0,
-			source_revision varchar(64) NOT NULL, updated_gmt datetime NOT NULL,
-			PRIMARY KEY  (obligation_id),
-			UNIQUE KEY generation_source_language (generation, source_id, target_language),
-			KEY unresolved_cursor (generation, state, obligation_id)
-		) {$charset};" );
 		update_option( self::OPTION_SOURCE_INVENTORY_SCHEMA, self::SOURCE_INVENTORY_SCHEMA_VERSION, false );
 	}
 
@@ -99,19 +149,15 @@ trait Devenia_AI_Translations_Source_Inventory {
 	}
 
 	private static function rebuild_source_inventory( array $input = array() ): array {
-		global $wpdb;
 		self::install_source_inventory_schema();
 		$generation = gmdate( 'YmdHis' ) . '-' . substr( wp_generate_uuid4(), 0, 8 );
 		$post_types = self::translatable_post_types();
-		$placeholders = implode( ', ', array_fill( 0, count( $post_types ), '%s' ) );
-		$included = 0; $excluded = 0; $reasons = array(); $source_rows = array();
-		$last_id = 0;
+		$included = 0; $excluded = 0; $reasons = array(); $source_rows = array(); $inventory_rows = array();
+		$page = 1;
 		do {
-			$sql = "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ({$placeholders}) AND ID > %d ORDER BY ID ASC LIMIT 500";
-			$args = array_merge( $post_types, array( $last_id ) );
-			$ids = array_map( 'absint', $wpdb->get_col( $wpdb->prepare( $sql, $args ) ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-		foreach ( $ids as $id ) {
-			$last_id = $id;
+			$query = new WP_Query( array( 'post_type' => $post_types, 'post_status' => array_keys( get_post_stati() ), 'posts_per_page' => 500, 'paged' => $page, 'orderby' => 'ID', 'order' => 'ASC', 'fields' => 'ids', 'no_found_rows' => true ) );
+			$ids = array_map( 'absint', $query->posts );
+			foreach ( $ids as $id ) {
 			$post = get_post( $id );
 			if ( ! $post ) { continue; }
 			$reason = '';
@@ -121,31 +167,34 @@ trait Devenia_AI_Translations_Source_Inventory {
 			elseif ( ! is_post_publicly_viewable( $post ) ) { $reason = 'not_publicly_viewable'; }
 			$applicable = '' === $reason;
 			$revision = $applicable ? self::source_hash( $post ) : '';
-				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Rebuilds the plugin-owned inventory table; option/object caching would make the generation inconsistent.
-				$wpdb->replace( self::source_inventory_table(), array(
+			$inventory_rows[] = array(
 				'generation' => $generation, 'source_id' => $id, 'post_type' => $post->post_type,
 				'post_status' => $post->post_status, 'applicable' => $applicable ? 1 : 0,
 				'exclusion_reason' => $reason, 'source_revision' => $revision,
 				'modified_gmt' => '0000-00-00 00:00:00' === $post->post_modified_gmt ? gmdate( 'Y-m-d H:i:s' ) : $post->post_modified_gmt,
-				) );
+			);
 			if ( $applicable ) { ++$included; $source_rows[] = array( $id, $revision ); }
 			else { ++$excluded; $reasons[ $reason ] = 1 + ( $reasons[ $reason ] ?? 0 ); }
-		}
+			}
+			++$page;
 		} while ( 500 === count( $ids ) );
 		$languages = array_keys( self::target_languages() );
-		$state_counts = array();
+		$state_counts = array(); $obligation_rows = array(); $obligation_id = 0;
 		foreach ( $source_rows as $source_row ) {
 			foreach ( $languages as $language ) {
 				$projection = self::project_translation_obligation( $source_row[0], $language, $source_row[1] );
 				$state_counts[ $projection['state'] ] = 1 + ( $state_counts[ $projection['state'] ] ?? 0 );
-				$wpdb->insert( self::translation_obligations_table(), array_merge( $projection, array( 'generation' => $generation, 'updated_gmt' => gmdate( 'Y-m-d H:i:s' ) ) ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+				$obligation_rows[] = array_merge( $projection, array( 'obligation_id' => ++$obligation_id, 'generation' => $generation, 'updated_gmt' => gmdate( 'Y-m-d H:i:s' ) ) );
 			}
 		}
 		$manifest = array( 'generation' => $generation, 'completed_at' => gmdate( 'c' ), 'included_sources' => $included, 'excluded_sources' => $excluded, 'excluded_by_reason' => $reasons, 'target_languages' => count( $languages ), 'projected_obligations' => $included * count( $languages ), 'source_signature' => hash( 'sha256', wp_json_encode( $source_rows ) ), 'state_counts' => $state_counts );
+		self::inventory_store_write_generation( $generation, $inventory_rows, $obligation_rows );
+		$previous = get_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, array() );
 		update_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, $manifest, false );
 		update_option( self::OPTION_SOURCE_INVENTORY_DIRTY, '0', false );
-		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE generation <> %s', self::source_inventory_table(), $generation ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE generation <> %s', self::translation_obligations_table(), $generation ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		if ( is_array( $previous ) && ! empty( $previous['generation'] ) && $generation !== (string) $previous['generation'] ) {
+			self::inventory_store_delete_generation( (string) $previous['generation'] );
+		}
 		return array( 'success' => true, 'inventory' => $manifest );
 	}
 
@@ -167,34 +216,41 @@ trait Devenia_AI_Translations_Source_Inventory {
 	}
 
 	private static function source_inventory( array $input ): array {
-		global $wpdb; $manifest = get_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, array() );
+		$manifest = get_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, array() );
 		if ( ! is_array( $manifest ) || empty( $manifest['generation'] ) ) { return array( 'success' => false, 'code' => 'inventory_not_built' ); }
+		if ( ! is_array( get_option( self::inventory_store_index_name( (string) $manifest['generation'] ), null ) ) ) { return array( 'success' => false, 'code' => 'inventory_store_rebuild_required' ); }
 		$cursor = absint( $input['cursor'] ?? 0 ); $limit = min( 500, max( 1, absint( $input['limit'] ?? 100 ) ) );
-		$rows = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE generation = %s AND source_id > %d ORDER BY source_id ASC LIMIT %d', self::source_inventory_table(), $manifest['generation'], $cursor, $limit ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = array_values( array_filter( self::inventory_store_read_rows( (string) $manifest['generation'], 'source' ), static function ( $row ) use ( $cursor ) { return is_array( $row ) && absint( $row['source_id'] ?? 0 ) > $cursor; } ) );
+		$rows = array_slice( $rows, 0, $limit );
 		$next = $rows ? absint( end( $rows )['source_id'] ) : 0;
 		return array( 'success' => true, 'inventory' => $manifest, 'dirty' => '1' === get_option( self::OPTION_SOURCE_INVENTORY_DIRTY, '1' ), 'items' => $rows, 'next_cursor' => count( $rows ) === $limit ? $next : null );
 	}
 
 	private static function refresh_active_obligations(): array {
-		global $wpdb; $manifest = get_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, array() );
+		$manifest = get_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, array() );
 		if ( ! is_array( $manifest ) || empty( $manifest['generation'] ) ) { return array(); }
+		if ( ! is_array( get_option( self::inventory_store_index_name( (string) $manifest['generation'] ), null ) ) ) { return array(); }
 		if ( '1' === get_option( self::OPTION_SOURCE_INVENTORY_DIRTY, '1' ) && hash_equals( (string) ( $manifest['source_signature'] ?? '' ), self::current_source_inventory_signature() ) ) {
 			update_option( self::OPTION_SOURCE_INVENTORY_DIRTY, '0', false );
 		}
-		$rows = $wpdb->get_results( $wpdb->prepare( 'SELECT source_id, target_language, source_revision FROM %i WHERE generation = %s ORDER BY obligation_id ASC', self::translation_obligations_table(), $manifest['generation'] ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-		foreach ( $rows as $row ) {
+		$rows = self::inventory_store_read_rows( (string) $manifest['generation'], 'obligation' );
+		$changed = false;
+		foreach ( $rows as $index => $row ) {
 			$projection = self::project_translation_obligation( absint( $row['source_id'] ), sanitize_key( $row['target_language'] ), (string) $row['source_revision'] );
-			$wpdb->update( self::translation_obligations_table(), array( 'state' => $projection['state'], 'job_id' => $projection['job_id'], 'translation_id' => $projection['translation_id'], 'updated_gmt' => gmdate( 'Y-m-d H:i:s' ) ), array( 'generation' => $manifest['generation'], 'source_id' => $projection['source_id'], 'target_language' => $projection['target_language'] ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+			foreach ( array( 'state', 'job_id', 'translation_id' ) as $field ) {
+				if ( (string) ( $rows[ $index ][ $field ] ?? '' ) !== (string) ( $projection[ $field ] ?? '' ) ) { $changed = true; }
+				$rows[ $index ][ $field ] = $projection[ $field ];
+			}
+			$rows[ $index ]['updated_gmt'] = gmdate( 'Y-m-d H:i:s' );
 		}
+		if ( $changed ) { self::inventory_store_replace_obligations( (string) $manifest['generation'], $rows ); }
 		return $manifest;
 	}
 
 	private static function current_source_inventory_signature(): string {
-		global $wpdb;
 		$post_types = self::translatable_post_types();
-		$placeholders = implode( ', ', array_fill( 0, count( $post_types ), '%s' ) );
-		$sql = "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ({$placeholders}) AND post_status = 'publish' AND post_password = '' ORDER BY ID ASC";
-		$ids = array_map( 'absint', $wpdb->get_col( $wpdb->prepare( $sql, $post_types ) ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$query = new WP_Query( array( 'post_type' => $post_types, 'post_status' => 'publish', 'posts_per_page' => -1, 'orderby' => 'ID', 'order' => 'ASC', 'fields' => 'ids', 'no_found_rows' => true, 'has_password' => false ) );
+		$ids = array_map( 'absint', $query->posts );
 		$rows = array();
 		foreach ( $ids as $id ) {
 			$post = get_post( $id );
@@ -204,10 +260,11 @@ trait Devenia_AI_Translations_Source_Inventory {
 	}
 
 	private static function translation_obligation_queue( array $input ): array {
-		global $wpdb; $manifest = self::refresh_active_obligations();
+		$manifest = self::refresh_active_obligations();
 		if ( ! $manifest ) { return array( 'success' => false, 'code' => 'inventory_not_built' ); }
 		$cursor = absint( $input['cursor'] ?? 0 ); $limit = min( 500, max( 1, absint( $input['limit'] ?? 100 ) ) );
-		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM %i WHERE generation = %s AND obligation_id > %d AND state <> 'published_verified' ORDER BY obligation_id ASC LIMIT %d", self::translation_obligations_table(), $manifest['generation'], $cursor, $limit ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = array_values( array_filter( self::inventory_store_read_rows( (string) $manifest['generation'], 'obligation' ), static function ( $row ) use ( $cursor ) { return is_array( $row ) && absint( $row['obligation_id'] ?? 0 ) > $cursor && 'published_verified' !== (string) ( $row['state'] ?? '' ); } ) );
+		$rows = array_slice( $rows, 0, $limit );
 		$next = $rows ? absint( end( $rows )['obligation_id'] ) : 0;
 		return array( 'success' => true, 'generation' => $manifest['generation'], 'items' => $rows, 'item_count' => count( $rows ), 'next_cursor' => count( $rows ) === $limit ? $next : null );
 	}
@@ -221,11 +278,12 @@ trait Devenia_AI_Translations_Source_Inventory {
 	}
 
 	private static function translation_exhaustion_proof( array $input = array() ): array {
-		global $wpdb; $manifest = self::refresh_active_obligations();
+		$manifest = self::refresh_active_obligations();
 		if ( ! $manifest ) { return array( 'success' => false, 'complete' => false, 'code' => 'inventory_not_built' ); }
 		$generation = (string) $manifest['generation'];
-		$total = absint( $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE generation = %s', self::translation_obligations_table(), $generation ) ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-		$unresolved = absint( $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM %i WHERE generation = %s AND state <> 'published_verified'", self::translation_obligations_table(), $generation ) ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$obligations = self::inventory_store_read_rows( $generation, 'obligation' );
+		$total = count( $obligations );
+		$unresolved = count( array_filter( $obligations, static function ( $row ) { return is_array( $row ) && 'published_verified' !== (string) ( $row['state'] ?? '' ); } ) );
 		$expected = absint( $manifest['included_sources'] ?? 0 ) * absint( $manifest['target_languages'] ?? 0 );
 		$dirty = '1' === get_option( self::OPTION_SOURCE_INVENTORY_DIRTY, '1' );
 		$complete = ! $dirty && $expected === $total && 0 === $unresolved;

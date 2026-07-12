@@ -95,7 +95,8 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 == Changelog ==
 
 = 0.1.572 =
-* Quality: document intentional direct access to plugin-owned inventory and obligation tables at the exact query sites so the release passes the strict Plugin Check gate.
+* Architecture: replace raw SQL Source Inventory persistence with a deep Inventory Generation Store using bounded, generation-keyed, non-autoloaded WordPress option shards.
+* Quality: Work Item Planner and Exhaustion Proof now consume the same Store Interface with no direct database access or Plugin Check suppression in the inventory seam.
 
 = 0.1.571 =
 * Fixed: `source_only` delegates publication safety to the selected native source editor instead of applying multilingual editorial design gates to native Elementor saves.

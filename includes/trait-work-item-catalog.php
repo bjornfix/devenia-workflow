@@ -212,19 +212,15 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 	private static function translation_workflow_source_candidates( int $scan_limit ): array {
 		$manifest = get_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, array() );
 		if ( is_array( $manifest ) && ! empty( $manifest['generation'] ) && '1' !== get_option( self::OPTION_SOURCE_INVENTORY_DIRTY, '1' ) ) {
-			global $wpdb;
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Reads the plugin-owned live obligation queue; a cached result can assign completed work again.
-			$source_ids = $wpdb->get_col(
-				$wpdb->prepare(
-					"SELECT DISTINCT source_id FROM %i WHERE generation = %s AND state <> 'published_verified' ORDER BY source_id ASC LIMIT %d",
-					self::translation_obligations_table(),
-					(string) $manifest['generation'],
-					max( 1, min( 2000, $scan_limit ) )
-				)
-			); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The active authoritative obligation projection replaces the old recent-content scan.
+			$source_ids = array();
+			foreach ( self::inventory_store_read_rows( (string) $manifest['generation'], 'obligation' ) as $row ) {
+				if ( ! is_array( $row ) || 'published_verified' === (string) ( $row['state'] ?? '' ) ) { continue; }
+				$source_ids[ absint( $row['source_id'] ?? 0 ) ] = true;
+				if ( count( $source_ids ) >= max( 1, min( 2000, $scan_limit ) ) ) { break; }
+			}
 			return array_values(
 				array_filter(
-					array_map( 'get_post', array_map( 'absint', $source_ids ) ),
+					array_map( 'get_post', array_keys( $source_ids ) ),
 					static function ( $candidate ): bool { return $candidate instanceof WP_Post; }
 				)
 			);

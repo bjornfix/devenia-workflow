@@ -56,6 +56,15 @@ Generation records its generation ID, scan policy revision, start and finish
 times, source counts, inclusion and exclusion totals, and scan cursor state.
 Only a completed Inventory Generation may support an Exhaustion Proof.
 
+## Inventory Generation Store
+
+The Module that persists one immutable Inventory Generation behind a small
+Interface for source pages, unresolved Translation Obligations, counts,
+refresh, activation, and cleanup. Its WordPress Adapter writes bounded,
+generation-keyed, non-autoloaded option shards first and activates them only by
+flipping the completed generation manifest. Work Item Planner and Exhaustion
+Proof consume this same Interface.
+
 ## Translation Obligation
 
 The current required outcome for one included Source Inventory row and one

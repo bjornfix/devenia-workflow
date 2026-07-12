@@ -1,6 +1,6 @@
 # Devenia AI Workflow
 
-Version 0.1.572 keeps `source_only` publication ownership with the selected native source editor and documents intentional plugin-owned workflow table access at the exact query sites required by Plugin Check.
+Version 0.1.572 keeps `source_only` publication ownership with the selected native source editor and moves Source Inventory persistence behind a deep Inventory Generation Store built on bounded WordPress option shards.
 
 AI-assisted workflow for improving and publishing WordPress content, with optional multilingual support.
 
@@ -219,7 +219,8 @@ Before changing the plugin:
 
 ### 0.1.572
 
-- Document intentional direct access to plugin-owned inventory and obligation tables at the exact query sites required by the strict Plugin Check gate.
+- Replace raw SQL Source Inventory persistence with a deep Inventory Generation Store using bounded, generation-keyed, non-autoloaded WordPress option shards.
+- Route Work Item Planner and Exhaustion Proof through the same Store Interface without direct database access or Plugin Check suppression in the inventory seam.
 
 ### 0.1.571
 

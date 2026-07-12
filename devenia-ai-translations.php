@@ -98,7 +98,7 @@ final class Devenia_AI_Translations {
 	const OPTION_SOURCE_INVENTORY_SCHEMA = 'devenia_ai_translations_source_inventory_schema';
 	const OPTION_SOURCE_INVENTORY_ACTIVE = 'devenia_ai_translations_source_inventory_active';
 	const OPTION_SOURCE_INVENTORY_DIRTY = 'devenia_ai_translations_source_inventory_dirty';
-	const SOURCE_INVENTORY_SCHEMA_VERSION = '1';
+	const SOURCE_INVENTORY_SCHEMA_VERSION = '2';
 	const OPTION_LANGUAGE_RULE_EVENTS_SCHEMA = 'devenia_ai_translations_rule_events_schema';
 	const LANGUAGE_RULE_EVENTS_SCHEMA_VERSION = '1';
 

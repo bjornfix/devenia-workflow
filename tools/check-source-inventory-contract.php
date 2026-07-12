@@ -10,14 +10,15 @@ $main = file_get_contents( $root . '/devenia-ai-translations.php' );
 $failures = array();
 
 foreach ( array(
-	'Authoritative Source Inventory' => 'source_inventory_table',
+	'Inventory Generation Store' => 'inventory_store_write_generation',
+	'bounded option shards' => 'INVENTORY_STORE_SHARD_SIZE',
 	'atomic generation activation' => 'OPTION_SOURCE_INVENTORY_ACTIVE',
 	'structured exclusions' => 'exclusion_reason',
 	'password exclusion' => 'password_protected',
 	'public viewability' => 'is_post_publicly_viewable',
 	'complete obligation product' => '$included * count( $languages )',
-	'stable source cursor' => 'source_id > %d',
-	'stable obligation cursor' => 'obligation_id > %d',
+	'stable source cursor' => "absint( \$row['source_id'] ?? 0 ) > \$cursor",
+	'stable obligation cursor' => "absint( \$row['obligation_id'] ?? 0 ) > \$cursor",
 	'v2 next-job delegation' => 'translation_job_v2_discover',
 	'exhaustion arithmetic' => '$expected === $total',
 	'published verification gate' => 'live_verification_passed',
@@ -31,7 +32,8 @@ foreach ( array( 'rebuild-source-inventory', 'source-inventory', 'translation-ob
 
 if ( false === strpos( $catalogue, 'source_inventory_ability_catalogue' ) ) { $failures[] = 'catalogue integration missing'; }
 if ( false === strpos( $platform, 'translation_exhaustion_proof' ) ) { $failures[] = 'dispatch integration missing'; }
-if ( false === strpos( $work_items, "state <> 'published_verified'" ) ) { $failures[] = 'legacy queue is not adapted to obligations'; }
+if ( false === strpos( $work_items, 'inventory_store_read_rows' ) ) { $failures[] = 'Work Item Planner does not consume Inventory Generation Store'; }
+if ( false !== strpos( $module, '$wpdb' ) || false !== strpos( $module, 'phpcs:ignore' ) ) { $failures[] = 'Inventory Generation Store leaks raw database access or suppression'; }
 if ( false === strpos( $main, "add_action( 'save_post', array( __CLASS__, 'mark_source_inventory_dirty' )" ) ) { $failures[] = 'save invalidation missing'; }
 
 if ( $failures ) {
