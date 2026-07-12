@@ -2,14 +2,14 @@
 /**
  * Publication experience readiness for AI Translation Workflow.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Publication_Experience {
+trait Devenia_Workflow_Publication_Experience {
 	/**
 	 * Current publication-experience readiness for source and translated content.
 	 *
@@ -80,7 +80,7 @@ trait Devenia_AI_Translations_Publication_Experience {
 		);
 
 		$filtered = apply_filters(
-			'ai_translation_workflow_publication_experience_state',
+			'devenia_workflow_publication_experience_state',
 			$state,
 			$post,
 			$language,
@@ -189,7 +189,7 @@ trait Devenia_AI_Translations_Publication_Experience {
 		);
 
 		$filtered = apply_filters(
-			'ai_translation_workflow_publication_experience_subject_state',
+			'devenia_workflow_publication_experience_subject_state',
 			$state,
 			$post,
 			sanitize_key( $language ),

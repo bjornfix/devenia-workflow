@@ -2,14 +2,14 @@
 /**
  * Source design review policy for AI Translation Workflow.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Source_Design_Review_Policy {
+trait Devenia_Workflow_Source_Design_Review_Policy {
 	/**
 	 * Return the unified source-design gate state used by queues and guardrails.
 	 *
@@ -97,14 +97,6 @@ trait Devenia_AI_Translations_Source_Design_Review_Policy {
 			return self::error( 'Only mark source design reviewed when the current page is already suitable and should not be rewritten.', 'source_design_not_marked_suitable' );
 		}
 
-		$reservation = self::source_work_reservation_for_type( $source_id, 'source_design_repair' );
-		if ( $reservation ) {
-			$claim_token = (string) ( $input['claim_token'] ?? '' );
-			if ( '' === $claim_token || ! hash_equals( (string) ( $reservation['token'] ?? '' ), $claim_token ) ) {
-				return self::error( 'Source design review requires the active source_design_repair claim token.', 'source_design_review_claim_token_mismatch', array( 'reservation' => self::public_source_work_reservation( $reservation ) ) );
-			}
-		}
-
 		$public_url = esc_url_raw( (string) ( $input['public_url'] ?? '' ) );
 		if ( '' === $public_url || ! preg_match( '#^https?://#i', $public_url ) ) {
 			return self::error( 'A public HTTP(S) URL inspected in a browser is required.', 'source_design_review_public_url_required' );
@@ -128,7 +120,7 @@ trait Devenia_AI_Translations_Source_Design_Review_Policy {
 
 		$validation = self::source_editorial_design_validation( $source, (string) $source->post_content );
 		$summary    = self::source_editorial_design_validation_summary( $validation );
-		$reviewer   = sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia AI Workflow' ) );
+		$reviewer   = sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia Workflow' ) );
 		$evidence   = array(
 			'design_already_suitable' => true,
 			'public_url'              => $public_url,

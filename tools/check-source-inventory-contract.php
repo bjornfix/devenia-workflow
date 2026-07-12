@@ -5,7 +5,6 @@ $root = dirname( __DIR__ );
 $module = file_get_contents( $root . '/includes/trait-source-inventory.php' );
 $catalogue = file_get_contents( $root . '/includes/trait-ability-catalogue.php' );
 $platform = file_get_contents( $root . '/includes/trait-ability-platform.php' );
-$work_items = file_get_contents( $root . '/includes/trait-work-item-catalog.php' );
 $main = file_get_contents( $root . '/devenia-workflow.php' );
 $failures = array();
 
@@ -19,20 +18,19 @@ foreach ( array(
 	'complete obligation product' => '$included * count( $languages )',
 	'stable source cursor' => "absint( \$row['source_id'] ?? 0 ) > \$cursor",
 	'stable obligation cursor' => "absint( \$row['obligation_id'] ?? 0 ) > \$cursor",
-	'v2 next-job delegation' => 'translation_job_v2_discover',
+	'Translation Job delegation' => 'translation_job_discover',
 	'exhaustion arithmetic' => '$expected === $total',
 	'published verification gate' => 'live_verification_passed',
 ) as $contract => $needle ) {
 	if ( false === strpos( $module, $needle ) ) { $failures[] = "missing {$contract}"; }
 }
 
-foreach ( array( 'rebuild-source-inventory', 'source-inventory', 'translation-obligation-queue', 'translation-job-v2-next', 'translation-exhaustion-proof' ) as $ability ) {
-	if ( false === strpos( $module, "ai-translations/{$ability}" ) ) { $failures[] = "ability {$ability} missing"; }
+foreach ( array( 'rebuild-source-inventory', 'source-inventory', 'translation-obligation-queue', 'translation-job-next', 'translation-exhaustion-proof' ) as $ability ) {
+	if ( false === strpos( $module, "devenia-workflow/{$ability}" ) ) { $failures[] = "ability {$ability} missing"; }
 }
 
 if ( false === strpos( $catalogue, 'source_inventory_ability_catalogue' ) ) { $failures[] = 'catalogue integration missing'; }
 if ( false === strpos( $platform, 'translation_exhaustion_proof' ) ) { $failures[] = 'dispatch integration missing'; }
-if ( false === strpos( $work_items, 'inventory_store_read_rows' ) ) { $failures[] = 'Work Item Planner does not consume Inventory Generation Store'; }
 if ( false !== strpos( $module, '$wpdb' ) || false !== strpos( $module, 'phpcs:ignore' ) ) { $failures[] = 'Inventory Generation Store leaks raw database access or suppression'; }
 if ( false === strpos( $main, "add_action( 'save_post', array( __CLASS__, 'mark_source_inventory_dirty' )" ) ) { $failures[] = 'save invalidation missing'; }
 

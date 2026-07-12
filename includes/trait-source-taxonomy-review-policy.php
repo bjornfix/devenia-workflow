@@ -2,14 +2,14 @@
 /**
  * Source taxonomy review policy for AI Translation Workflow.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Source_Taxonomy_Review_Policy {
+trait Devenia_Workflow_Source_Taxonomy_Review_Policy {
 	private static function source_taxonomy_review_hash( WP_Post $source ): string {
 		$payload = array(
 			'source_hash' => self::source_hash( $source ),
@@ -141,7 +141,7 @@ trait Devenia_AI_Translations_Source_Taxonomy_Review_Policy {
 			return $term_decisions;
 		}
 
-		$reviewer = sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia AI Workflow' ) );
+		$reviewer = sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia Workflow' ) );
 		$evidence = array(
 			'categories_fit'            => true,
 			'tags_fit'                  => true,

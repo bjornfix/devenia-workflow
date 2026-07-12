@@ -1,10 +1,10 @@
-=== Devenia AI Workflow ===
+=== Devenia Workflow ===
 Contributors: basicus
 Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.573
+Stable tag: 0.1.574
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -12,7 +12,7 @@ AI-assisted workflow for improving and publishing WordPress content, with option
 
 == Description ==
 
-Devenia AI Workflow helps site operators improve, review, and publish WordPress pages and posts through controlled AI-assisted workflows. Multilingual publishing is an optional capability, not a requirement.
+Devenia Workflow helps site operators improve, review, and publish WordPress pages and posts through controlled AI-assisted workflows. Multilingual publishing is an optional capability, not a requirement.
 
 The plugin keeps translations as ordinary WordPress content, so it can be removed later without rebuilding the site from a proprietary translation store. Around that native content model, it adds workflow support for localized URLs, source mapping, stale-source detection, hreflang output, language-menu sync, QA guardrails, review evidence, frontend copy editing, reviewer learning, repair tools, runtime text, and publish checks.
 
@@ -26,7 +26,7 @@ It is designed for controlled translation workflows where an AI assistant, autom
 * Output hreflang data for mapped translations.
 * Keep language menus in sync with available translations.
 * Run QA checks for source-language carryover, terminology, structure, script issues, and link integrity.
-* Require linguistic, quality, and final review evidence before publishing.
+* Require a Quality Decision bound to the exact complete artifact before publishing.
 * Integrate with Frontend Text Edit for supported rendered frontend text fixes.
 * Capture human edits and reviewer feedback as learning that can become style guidance or QA rules.
 * Support authored-original intake when content starts in a non-source language.
@@ -38,15 +38,15 @@ It is designed for controlled translation workflows where an AI assistant, autom
 == Installation ==
 
 1. Upload the plugin files to the `/wp-content/plugins/devenia-workflow/` directory, or install the plugin through the WordPress plugins screen.
-2. Activate "Devenia AI Workflow" through the Plugins screen in WordPress.
-3. Configure the supported language registry and review workflow for your site.
-4. Use the plugin's workflow abilities from your AI or automation client to read sources, create drafts, run QA, record review evidence, and publish approved translations.
+2. Activate "Devenia Workflow" through the Plugins screen in WordPress.
+3. Configure the supported language registry for your site.
+4. Use the bounded Translation Job abilities to read packets, submit complete artifacts, run QA, record Quality Decisions, and publish approved translations.
 
 == Frequently Asked Questions ==
 
 = Is this a replacement for WPML or Polylang? =
 
-No. Devenia AI Workflow provides controlled content-quality, review, publishing, and optional multilingual workflows. It keeps content in WordPress instead of replacing WordPress content management.
+No. Devenia Workflow provides controlled content-quality, review, publishing, and optional multilingual workflows. It keeps content in WordPress instead of replacing WordPress content management.
 
 = Does the plugin translate content by itself? =
 
@@ -54,7 +54,7 @@ No. The plugin provides the workflow, metadata, guardrails, and review gates aro
 
 = How is this different from automatic translation plugins? =
 
-Most automatic translation plugins focus on generating translated text or proxying translated pages. Devenia AI Workflow focuses on the controlled content and publishing layer: WordPress-native pages and posts, source-quality checks, review evidence, runtime text, and repair operations, with localized URLs, source mapping, stale-source detection, and hreflang available when multilingual publishing is enabled.
+Most automatic translation plugins focus on generating translated text or proxying translated pages. Devenia Workflow focuses on the controlled content and publishing layer: WordPress-native pages and posts, source-quality checks, review evidence, runtime text, and repair operations, with localized URLs, source mapping, stale-source detection, and hreflang available when multilingual publishing is enabled.
 
 = Can editors fix translated copy on the frontend? =
 
@@ -93,6 +93,12 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.574 =
+* Architecture: removes the superseded persona, Heartbeat, Assignment, Reservation, and Work Item orchestration system.
+* Workflow: makes the bounded seven-operation Translation Job the only translation orchestration Interface.
+* Naming: aligns current PHP, hooks, options, assets, abilities, and repository references under `devenia-workflow`.
+* Preservation: retains Source Inventory, complete artifacts, Quality Decisions, publishing, localized routes, and ordinary WordPress translations.
 
 = 0.1.573 =
 * Public identity: adopts `devenia-workflow` as the WordPress text domain.
@@ -135,14 +141,14 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 * Routes source Work Items to native Elementor abilities while preserving element IDs, global Kit styles, responsive settings, and Public Routes.
 
 = 0.1.560 =
-* Renames the user-facing product to Devenia AI Workflow so the name covers source-content optimization as well as optional multilingual publishing.
+* Renames the user-facing product to Devenia Workflow so the name covers source-content optimization as well as optional multilingual publishing.
 * Keeps the existing plugin slug, directory, text domain, option keys, metadata, and ability names unchanged for backward compatibility.
 
 = 0.1.559 =
 * Finalizes explicit translation URL migrations by removing SEO-plugin self-redirects at the new canonical route; a failed cleanup forces the migration owner to roll back.
 
 = 0.1.558 =
-* Treats the route of an existing published translation as immutable during ordinary v1 and v2 content updates.
+* Treats the route of an existing published translation as immutable during ordinary content updates.
 * Adds the established canonical route and route-lock policy to bounded translation packets; route fields are now creation-only for published translations.
 * Records translation-owned Canonical Route Contracts, reports route drift, and refreshes route evidence only after an explicit public-route migration.
 * Stops publish-time hierarchy enforcement from moving an already published translation.
@@ -155,24 +161,24 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 = 0.1.556 =
 
-* Count published v2 jobs through the canonical flat live-verification field in the obligation projection.
+* Count published Translation Jobs through the canonical flat live-verification field in the obligation projection.
 
 = 0.1.555 =
 
 * Add an authoritative public source inventory and complete target-language obligation projection.
-* Add stable cursor reads, v2 next-job selection, dirty invalidation, and whole-site exhaustion proof.
+* Add stable cursor reads, Translation Job selection, dirty invalidation, and whole-site exhaustion proof.
 * Make the legacy translation queue select from unresolved projected obligations instead of a recent-content window.
 
 = 0.1.554 =
 * Reconciles duplicate featured-image metadata using the same effective value WordPress renders.
-* Prevents v2 media synchronization from falsely passing while an older thumbnail remains visible.
+* Prevents Translation Job media synchronization from falsely passing while an older thumbnail remains visible.
 
 = 0.1.553 =
-* Lets a published v2 Job use a remaining bounded translator Run when browser QA finds a real copy defect.
+* Lets a published Translation Job use a remaining bounded translator Run when browser QA finds a real copy defect.
 * Requires the corrected artifact to complete a new exact quality decision and publication cycle while the WordPress post stays live.
 
 = 0.1.552 =
-* Finalizes historical non-active running Runs during idempotent v2 publication.
+* Finalizes historical non-active running Runs during idempotent Translation Job publication.
 * Lets a verified republish repair orphaned Run history created before the reclaim fix shipped.
 
 = 0.1.551 =
@@ -180,12 +186,12 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 * Keeps status and cost history free of permanently running Runs after lawful lease recovery.
 
 = 0.1.550 =
-* Makes v2 publication idempotently reconcile approved source media for already-published Jobs.
-* Keeps media repair under v2 coordinator authority without reviving retired translation-session leases.
+* Makes Translation Job publication idempotently reconcile approved source media for already-published Jobs.
+* Keeps media repair under Translation Job coordinator authority without reviving retired translation-session leases.
 
 = 0.1.549 =
-* Synchronizes the approved source featured image during bounded v2 artifact submission before quality review.
-* Fails closed when the featured-image write cannot be verified and records v2 media provenance when the visible image changes.
+* Synchronizes the approved source featured image during bounded Translation Job artifact submission before quality review.
+* Fails closed when the featured-image write cannot be verified and records Translation Job media provenance when the visible image changes.
 
 = 0.1.548 =
 * Recovers orphaned Quality Decisions by immutable Job, artifact, content, translation, and revision identity.
@@ -233,8 +239,8 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 * Includes the complete approved source fragment packet in quality Runs and adds source quality as a required Quality Decision check.
 
 = 0.1.537 =
-* Adds a finite, cost-bounded Translation Job v2 workflow with seven focused abilities.
-* Replaces persona leases and independent-session review requirements in v2 with atomic job claims, exact artifact revisions, measured Token Budgets, deterministic QA, and coordinator-owned Quality Decisions.
+* Adds a finite, cost-bounded Translation Job workflow with seven focused abilities.
+* Replaces persona leases and independent-session review requirements with atomic job claims, exact artifact revisions, measured Token Budgets, deterministic QA, and coordinator-owned Quality Decisions.
 * Preserves inline source markup in bounded translation packets and publishes approved artifacts through the existing WordPress-native route, SEO, taxonomy, menu, cache, and live-verification adapters.
 
 = 0.1.536 =
@@ -330,7 +336,7 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 * Keeps frontend slow-request logging focused on frontend requests by ignoring WordPress cron executions.
 
 = 0.1.510 =
-* Makes `ai-translations/warm-cache` batch-safe with `offset`, `next_offset`, and lower per-request limits so cache warming does not become a long-running frontend request.
+* Makes `devenia-workflow/warm-cache` batch-safe with `offset`, `next_offset`, and lower per-request limits so cache warming does not become a long-running frontend request.
 
 = 0.1.509 =
 * Adds a source content-integrity guard for stale year claims in evergreen posts.

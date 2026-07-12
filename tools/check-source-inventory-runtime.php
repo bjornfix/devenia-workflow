@@ -2,10 +2,10 @@
 /** WP-CLI runtime regression for complete source inventory and obligation projection. */
 
 if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) { fwrite( STDERR, "Run through WP-CLI.\n" ); exit( 1 ); }
-if ( ! class_exists( 'Devenia_AI_Translations' ) ) { fwrite( STDERR, "Plugin is not active.\n" ); exit( 1 ); }
+if ( ! class_exists( 'Devenia_Workflow' ) ) { fwrite( STDERR, "Plugin is not active.\n" ); exit( 1 ); }
 
 $invoke = static function ( string $method, array $args = array() ) {
-	$reflection = new ReflectionMethod( Devenia_AI_Translations::class, $method );
+	$reflection = new ReflectionMethod( Devenia_Workflow::class, $method );
 	$reflection->setAccessible( true );
 	return $reflection->invokeArgs( null, $args );
 };

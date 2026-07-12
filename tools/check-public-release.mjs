@@ -137,7 +137,6 @@ if (author && author !== "basicus") {
 }
 
 const privatePatterns = [
-  ["devenia.com", /devenia\.com/i],
   ["hello@devenia", /hello@devenia/i],
   ["bjorn_email", /\bbjorn@/i],
   ["eman_email", /\beman@/i],

@@ -2,14 +2,14 @@
 /**
  * Source design inheritance for AI Translation Workflow.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Source_Design_Inheritance {
+trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 	/**
 	 * Source design contract used by translation workers.
 	 *
@@ -447,10 +447,10 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		$next_action = '';
 		if ( $expected !== $actual ) {
 			$state = $fragment_count > 0 ? 'needs_reprojection' : 'manual_design_drift';
-			$next_action = $fragment_count > 0 ? 'ai-translations/reproject-source-design' : 'recreate_or_reextract_localized_fragments_before_reprojection';
+			$next_action = $fragment_count > 0 ? 'devenia-workflow/reproject-source-design' : 'recreate_or_reextract_localized_fragments_before_reprojection';
 		} elseif ( '' !== $stored_design_hash && $stored_design_hash !== $expected ) {
 			$state = $fragment_count > 0 ? 'needs_reprojection' : 'missing_localized_fragments';
-			$next_action = $fragment_count > 0 ? 'ai-translations/reproject-source-design' : 'recreate_or_reextract_localized_fragments_before_reprojection';
+			$next_action = $fragment_count > 0 ? 'devenia-workflow/reproject-source-design' : 'recreate_or_reextract_localized_fragments_before_reprojection';
 		} elseif ( 0 === $fragment_count ) {
 			$state = 'fragments_not_persisted';
 			$next_action = 'next_upsert_or_reprojection_will_store_localized_fragments';
@@ -679,7 +679,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			),
 			'policy' => array(
 				'stores_only_complete_fragment_contracts' => true,
-				'next_action_after_successful_apply' => 'ai-translations/reproject-source-design',
+				'next_action_after_successful_apply' => 'devenia-workflow/reproject-source-design',
 				'order_fallback_requires_human_or_independent_review' => true,
 			),
 			'totals' => $totals,
@@ -713,7 +713,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				'language' => $language,
 			);
 		}
-		$claim_gate = self::translation_claim_write_gate( (int) $source->ID, $language, (string) ( $input['claim_token'] ?? '' ), $input );
+		$claim_gate = self::translation_job_write_gate( (int) $source->ID, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			$claim_gate['translation_id'] = $translation_id;
 			return $claim_gate;
@@ -1253,7 +1253,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 				'language' => $language,
 			);
 		}
-		$claim_gate = self::translation_claim_write_gate( (int) $source->ID, $language, (string) ( $input['claim_token'] ?? '' ), $input );
+		$claim_gate = self::translation_job_write_gate( (int) $source->ID, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			$claim_gate['translation_id'] = $translation_id;
 			return $claim_gate;
@@ -1907,7 +1907,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			self::collect_structured_text_attr_collection( $value, $fragments, array( $key ), array( $key ) );
 		}
 
-		$filtered = apply_filters( 'ai_translation_workflow_structured_text_attr_fragments', $fragments, $block_name, $attrs );
+		$filtered = apply_filters( 'devenia_workflow_structured_text_attr_fragments', $fragments, $block_name, $attrs );
 		if ( ! is_array( $filtered ) ) {
 			return $fragments;
 		}

@@ -2,14 +2,14 @@
 /**
  * Optional GeneratePress integration.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-final class AI_Translation_Workflow_GeneratePress_Addon {
+final class Devenia_Workflow_GeneratePress_Adapter {
 	/**
 	 * Register late enough for the active theme to have loaded.
 	 */
@@ -25,21 +25,21 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 			return;
 		}
 
-		add_filter( 'generate_body_itemtype', array( 'Devenia_AI_Translations', 'filter_translated_posts_page_body_itemtype' ), 20 );
-		add_action( 'generate_after_entry_title', array( 'Devenia_AI_Translations', 'render_source_blog_archive_updated_on' ), 12 );
-		add_action( 'generate_menu_bar_items', array( 'Devenia_AI_Translations', 'render_mobile_language_menu_bar_item' ), 18 );
-		add_filter( 'generate_logo_href', array( 'Devenia_AI_Translations', 'filter_logo_home_href' ), 20 );
-		add_filter( 'generate_site_title_href', array( 'Devenia_AI_Translations', 'filter_logo_home_href' ), 20 );
-		add_filter( 'generate_excerpt_more_output', array( 'Devenia_AI_Translations', 'localize_read_more_output' ), 20 );
-		add_filter( 'ai_translation_workflow_sync_source_presentation_meta', array( __CLASS__, 'sync_source_presentation_meta' ), 10, 3 );
-		add_action( 'wp_enqueue_scripts', array( 'Devenia_AI_Translations', 'enqueue_rtl_layout_styles' ), 22 );
+		add_filter( 'generate_body_itemtype', array( 'Devenia_Workflow', 'filter_translated_posts_page_body_itemtype' ), 20 );
+		add_action( 'generate_after_entry_title', array( 'Devenia_Workflow', 'render_source_blog_archive_updated_on' ), 12 );
+		add_action( 'generate_menu_bar_items', array( 'Devenia_Workflow', 'render_mobile_language_menu_bar_item' ), 18 );
+		add_filter( 'generate_logo_href', array( 'Devenia_Workflow', 'filter_logo_home_href' ), 20 );
+		add_filter( 'generate_site_title_href', array( 'Devenia_Workflow', 'filter_logo_home_href' ), 20 );
+		add_filter( 'generate_excerpt_more_output', array( 'Devenia_Workflow', 'localize_read_more_output' ), 20 );
+		add_filter( 'devenia_workflow_sync_source_presentation_meta', array( __CLASS__, 'sync_source_presentation_meta' ), 10, 3 );
+		add_action( 'wp_enqueue_scripts', array( 'Devenia_Workflow', 'enqueue_rtl_layout_styles' ), 22 );
 
-		add_action( 'ai_translation_workflow_before_translated_posts_page_main_content', array( __CLASS__, 'before_main_content' ) );
-		add_action( 'ai_translation_workflow_before_translated_posts_page_loop', array( __CLASS__, 'before_loop' ) );
-		add_action( 'ai_translation_workflow_after_translated_posts_page_loop', array( __CLASS__, 'after_loop' ) );
-		add_action( 'ai_translation_workflow_after_translated_posts_page_primary_content_area', array( __CLASS__, 'after_primary_content_area' ) );
-		add_action( 'ai_translation_workflow_after_translated_posts_page_main_content', array( __CLASS__, 'after_main_content' ) );
-		add_filter( 'ai_translation_workflow_render_translated_posts_page_default_sidebar', '__return_false' );
+		add_action( 'devenia_workflow_before_translated_posts_page_main_content', array( __CLASS__, 'before_main_content' ) );
+		add_action( 'devenia_workflow_before_translated_posts_page_loop', array( __CLASS__, 'before_loop' ) );
+		add_action( 'devenia_workflow_after_translated_posts_page_loop', array( __CLASS__, 'after_loop' ) );
+		add_action( 'devenia_workflow_after_translated_posts_page_primary_content_area', array( __CLASS__, 'after_primary_content_area' ) );
+		add_action( 'devenia_workflow_after_translated_posts_page_main_content', array( __CLASS__, 'after_main_content' ) );
+		add_filter( 'devenia_workflow_render_translated_posts_page_default_sidebar', '__return_false' );
 	}
 
 	/**
@@ -156,4 +156,4 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 	}
 }
 
-AI_Translation_Workflow_GeneratePress_Addon::register();
+Devenia_Workflow_GeneratePress_Adapter::register();

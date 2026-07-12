@@ -9,34 +9,16 @@ const runtime = fs.readFileSync(path.join(root, "devenia-workflow.php"), "utf8")
 const indexReadModel = fs.readFileSync(path.join(root, "includes/trait-translation-index-read-model.php"), "utf8");
 const sourceDesignReview = fs.readFileSync(path.join(root, "includes/trait-source-design-review-policy.php"), "utf8");
 const required = [
-  "ai-translations/frontend-integrity-status",
-  "ai-translations/reserve-work",
-  "ai-translations/release-reservation",
-  "ai-translations/upsert-page",
-  "ai-translations/reproject-source-design",
-  "ai-translations/next-heartbeat-action",
-	"ai-translations/accept-assignment",
-	"ai-translations/current-assignment",
-	"ai-translations/renew-assignment",
-	"ai-translations/complete-assignment",
-	"ai-translations/resolve-assignment-block",
+  "devenia-workflow/frontend-integrity-status",
+  "devenia-workflow/reproject-source-design",
 ];
 
 const failures = required.filter((name) => !source.includes(`'${name}' => array(`));
-if (!source.includes("trait Devenia_AI_Translations_Ability_Catalogue") || !source.includes("private static function ability_catalogue(): array")) {
+if (!source.includes("trait Devenia_Workflow_Ability_Catalogue") || !source.includes("private static function ability_catalogue(): array")) {
   failures.push("ability catalogue seam");
 }
 if (!runtime.includes("private static function run_ability_operation")) {
   failures.push("ability operation seam");
-}
-for (const [file, contract] of [
-	["includes/trait-work-item-planner.php", "trait Devenia_AI_Translations_Work_Item_Planner"],
-	["includes/trait-assignment-lifecycle.php", "trait Devenia_AI_Translations_Assignment_Lifecycle"],
-]) {
-	const moduleSource = fs.readFileSync(path.join(root, file), "utf8");
-	if (!moduleSource.includes(contract)) {
-		failures.push(`deep module missing: ${contract}`);
-	}
 }
 for (const method of [
   "translation_index_available",

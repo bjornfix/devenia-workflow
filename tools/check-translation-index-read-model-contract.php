@@ -38,8 +38,8 @@ function get_post_meta( int $post_id, string $key, bool $single = false ) {
 
 require_once dirname( __DIR__ ) . '/includes/trait-translation-index-read-model.php';
 
-final class Devenia_AI_Translations_Index_Read_Model_Contract {
-	use Devenia_AI_Translations_Translation_Index_Read_Model;
+final class Devenia_Workflow_Index_Read_Model_Contract {
+	use Devenia_Workflow_Translation_Index_Read_Model;
 
 	private const META_LOCALIZED_PATH = '_localized_path';
 	private const META_CANONICAL_ROUTE = '_canonical_route';
@@ -55,7 +55,7 @@ final class Devenia_AI_Translations_Index_Read_Model_Contract {
 }
 
 function invoke_index_read_model_method( string $method, array $arguments ) {
-	$reflection = new ReflectionMethod( Devenia_AI_Translations_Index_Read_Model_Contract::class, $method );
+	$reflection = new ReflectionMethod( Devenia_Workflow_Index_Read_Model_Contract::class, $method );
 	$reflection->setAccessible( true );
 	return $reflection->invokeArgs( null, $arguments );
 }

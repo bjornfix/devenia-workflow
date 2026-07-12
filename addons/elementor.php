@@ -2,14 +2,14 @@
 /**
  * Optional Elementor write-guard integration.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-final class AI_Translation_Workflow_Elementor_Addon {
+final class Devenia_Workflow_Elementor_Adapter {
 	/**
 	 * Register Elementor-adjacent shared hooks.
 	 */
@@ -32,7 +32,7 @@ final class AI_Translation_Workflow_Elementor_Addon {
 			3
 		);
 		add_filter(
-			'devenia_ai_workflow_source_editor_contract',
+			'devenia_workflow_source_editor_contract',
 			array( __CLASS__, 'filter_source_editor_contract' ),
 			10,
 			2
@@ -50,7 +50,7 @@ final class AI_Translation_Workflow_Elementor_Addon {
 	public static function filter_translation_sibling_post_ids( array $sibling_ids, int $post_id, WP_Post $post ): array {
 		unset( $post );
 
-		return Devenia_AI_Translations::translation_sibling_ids_for_write_guards( $sibling_ids, $post_id );
+		return Devenia_Workflow::translation_sibling_ids_for_write_guards( $sibling_ids, $post_id );
 	}
 
 	/**
@@ -78,7 +78,7 @@ final class AI_Translation_Workflow_Elementor_Addon {
 				'elementor/merge-element-settings',
 				'elementor/update-element',
 				'elementor/delete-element',
-				'ai-translations/mark-source-content-integrity-reviewed',
+				'devenia-workflow/mark-source-content-integrity-reviewed',
 			),
 			'native_controls_only'   => true,
 			'public_route_immutable' => true,
@@ -97,4 +97,4 @@ final class AI_Translation_Workflow_Elementor_Addon {
 	}
 }
 
-AI_Translation_Workflow_Elementor_Addon::register();
+Devenia_Workflow_Elementor_Adapter::register();

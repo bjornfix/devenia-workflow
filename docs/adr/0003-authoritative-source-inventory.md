@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-The legacy queue sampled at most 500 recently modified posts/pages and removed
+The superseded queue sampled at most 500 recently modified posts/pages and removed
 translation objects after the query. A large set of newer translations could
 therefore hide an older source with no translations. An empty queue only proved
 that the sample was empty, not that the website was complete.
@@ -27,9 +27,9 @@ finish. Post saves, trashing, restoration and deletion dirty the active
 generation and invalidate exhaustion until a rebuild completes.
 
 Expose operator abilities for full rebuild, stable-cursor inventory reads,
-stable-cursor unresolved obligation reads, selecting the next v2 job, and an
-Exhaustion Proof. The next-job adapter delegates creation to the existing v2
-discover operation; the seven model-facing v2 operations remain unchanged.
+stable-cursor unresolved obligation reads, selecting the next Translation Job, and an
+Exhaustion Proof. The next-job adapter delegates creation to the current
+Translation Job discover operation; the seven model-facing Translation Job operations remain unchanged.
 
 Exhaustion is true only when the active generation is clean and completed,
 `included_sources * target_languages` equals the stored obligation count, zero
@@ -38,6 +38,6 @@ obligations are unresolved, and all obligations are `published_verified`.
 ## Consequences
 
 Queue priority cannot change which work exists. A source older than any finite
-recent-content window remains represented. Empty legacy or obligation queue
+recent-content window remains represented. Empty sampled or obligation queue
 output is no longer accepted as whole-site completion evidence; the Exhaustion
 Proof is authoritative.

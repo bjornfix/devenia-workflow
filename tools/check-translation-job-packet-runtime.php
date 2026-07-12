@@ -26,7 +26,7 @@ HTML;
 		array(
 			'post_type'    => 'page',
 			'post_status'  => 'draft',
-			'post_title'   => 'Translation Job V2 packet runtime fixture',
+			'post_title'   => 'Translation Job packet runtime fixture',
 			'post_content' => $content,
 		),
 		true
@@ -36,7 +36,7 @@ HTML;
 		throw new RuntimeException( $post_id->get_error_message() );
 	}
 
-	$method = new ReflectionMethod( Devenia_AI_Translations::class, 'source_design_contract' );
+	$method = new ReflectionMethod( Devenia_Workflow::class, 'source_design_contract' );
 	$method->setAccessible( true );
 	$contract  = $method->invoke( null, get_post( $post_id ) );
 	$fragments = isset( $contract['fragments'] ) && is_array( $contract['fragments'] ) ? $contract['fragments'] : array();

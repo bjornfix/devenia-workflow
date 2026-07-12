@@ -2,19 +2,19 @@
 /**
  * Translation writer, media, and runtime mutation provenance helpers.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Translation_Provenance {
+trait Devenia_Workflow_Translation_Provenance {
 	/**
 	 * Store who authored the current translated content revision.
 	 */
 	private static function record_translation_writer_provenance( int $translation_id, array $verified_identity ): void {
-		$provenance = self::agent_session_provenance_from_verified_identity( $verified_identity );
+		$provenance = self::execution_provenance_from_identity( $verified_identity );
 		$process_id = (string) ( $provenance['process_id'] ?? '' );
 		$control_scope_id = (string) ( $provenance['control_scope_id'] ?? '' );
 		$session_origin = (string) ( $provenance['session_origin'] ?? '' );
@@ -54,7 +54,7 @@ trait Devenia_AI_Translations_Translation_Provenance {
 	}
 
 	private static function runtime_mutation_provenance_from_verified_identity( array $verified_identity ): array {
-		return self::agent_session_provenance_from_verified_identity( $verified_identity );
+		return self::execution_provenance_from_identity( $verified_identity );
 	}
 
 	private static function runtime_mutation_registry(): array {
@@ -169,7 +169,7 @@ trait Devenia_AI_Translations_Translation_Provenance {
 		}
 
 		return array_merge(
-			self::agent_session_provenance_from_stored_payload( $decoded ),
+			self::execution_provenance_from_stored_payload( $decoded ),
 			array(
 				'reason'            => sanitize_key( (string) ( $decoded['reason'] ?? '' ) ),
 				'featured_image_id' => absint( $decoded['featured_image_id'] ?? 0 ),
@@ -211,7 +211,7 @@ trait Devenia_AI_Translations_Translation_Provenance {
 		return array(
 			'process_id'  => (string) get_post_meta( $translation_id, self::META_WRITER_PROCESS, true ),
 			'control_scope_id' => self::normalize_control_scope_id( (string) get_post_meta( $translation_id, self::META_WRITER_CONTROL_SCOPE, true ) ),
-			'agent_session_id' => self::normalize_control_scope_id( (string) get_post_meta( $translation_id, self::META_WRITER_CONTROL_SCOPE, true ) ),
+			'execution_id' => self::normalize_control_scope_id( (string) get_post_meta( $translation_id, self::META_WRITER_CONTROL_SCOPE, true ) ),
 			'session_origin' => self::normalize_session_origin( (string) get_post_meta( $translation_id, self::META_WRITER_SESSION_ORIGIN, true ) ),
 			'parent_process_id' => self::normalize_process_id( (string) get_post_meta( $translation_id, self::META_WRITER_PARENT_PROCESS, true ) ),
 			'controller_process_id' => self::normalize_process_id( (string) get_post_meta( $translation_id, self::META_WRITER_CONTROLLER_PROCESS, true ) ),
@@ -226,12 +226,12 @@ trait Devenia_AI_Translations_Translation_Provenance {
 	 * Build reviewer provenance from ability input.
 	 */
 	private static function reviewer_provenance_from_verified_identity( array $verified_identity, int $translation_id ): array {
-		$provenance = self::agent_session_provenance_from_verified_identity( $verified_identity );
+		$provenance = self::execution_provenance_from_identity( $verified_identity );
 
 		return array(
 			'process_id'            => $provenance['process_id'],
 			'control_scope_id'      => $provenance['control_scope_id'],
-			'agent_session_id'      => $provenance['agent_session_id'],
+			'execution_id'      => $provenance['execution_id'],
 			'llm_vendor'            => $provenance['llm_vendor'],
 			'llm_client'            => $provenance['llm_client'],
 			'authority_vendor'      => $provenance['authority_vendor'],

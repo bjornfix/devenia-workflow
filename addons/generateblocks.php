@@ -2,27 +2,27 @@
 /**
  * Optional GenerateBlocks integration.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-final class AI_Translation_Workflow_GenerateBlocks_Addon {
+final class Devenia_Workflow_GenerateBlocks_Adapter {
 	/**
 	 * Register optional GenerateBlocks assets.
 	 */
 	public static function register(): void {
 		add_action( 'wp', array( __CLASS__, 'maybe_register_hooks' ), 20 );
-		add_filter( 'ai_translation_workflow_copy_quality_text_block_names', array( __CLASS__, 'add_copy_quality_text_blocks' ) );
-		add_filter( 'ai_translation_workflow_semantic_text_unit_block_names', array( __CLASS__, 'add_semantic_text_unit_blocks' ) );
-		add_filter( 'ai_translation_workflow_semantic_button_block_names', array( __CLASS__, 'add_button_blocks' ) );
-		add_filter( 'ai_translation_workflow_semantic_image_block_names', array( __CLASS__, 'add_image_blocks' ) );
-		add_filter( 'ai_translation_workflow_is_heading_block', array( __CLASS__, 'is_heading_block' ), 10, 3 );
-		add_filter( 'ai_translation_workflow_normalize_gutenberg_content_for_storage', array( __CLASS__, 'normalize_gutenberg_content_for_storage' ) );
-		add_filter( 'ai_translation_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
-		add_filter( 'ai_translation_workflow_gutenberg_guardrails', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
+		add_filter( 'devenia_workflow_copy_quality_text_block_names', array( __CLASS__, 'add_copy_quality_text_blocks' ) );
+		add_filter( 'devenia_workflow_semantic_text_unit_block_names', array( __CLASS__, 'add_semantic_text_unit_blocks' ) );
+		add_filter( 'devenia_workflow_semantic_button_block_names', array( __CLASS__, 'add_button_blocks' ) );
+		add_filter( 'devenia_workflow_semantic_image_block_names', array( __CLASS__, 'add_image_blocks' ) );
+		add_filter( 'devenia_workflow_is_heading_block', array( __CLASS__, 'is_heading_block' ), 10, 3 );
+		add_filter( 'devenia_workflow_normalize_gutenberg_content_for_storage', array( __CLASS__, 'normalize_gutenberg_content_for_storage' ) );
+		add_filter( 'devenia_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
+		add_filter( 'devenia_workflow_gutenberg_guardrails', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 	}
 
 	/**
@@ -37,7 +37,7 @@ final class AI_Translation_Workflow_GenerateBlocks_Addon {
 	}
 
 	public static function enqueue_source_styles(): void {
-		if ( ! Devenia_AI_Translations::is_translated_posts_page_request() ) {
+		if ( ! Devenia_Workflow::is_translated_posts_page_request() ) {
 			return;
 		}
 
@@ -47,7 +47,7 @@ final class AI_Translation_Workflow_GenerateBlocks_Addon {
 		}
 
 		wp_enqueue_style(
-			'ai-translation-workflow-generateblocks-source',
+			'devenia-workflow-generateblocks-source',
 			(string) $asset['url'],
 			array(),
 			(string) filemtime( (string) $asset['path'] )
@@ -324,4 +324,4 @@ final class AI_Translation_Workflow_GenerateBlocks_Addon {
 	}
 }
 
-AI_Translation_Workflow_GenerateBlocks_Addon::register();
+Devenia_Workflow_GenerateBlocks_Adapter::register();

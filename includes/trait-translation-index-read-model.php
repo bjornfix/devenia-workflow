@@ -2,14 +2,14 @@
 /**
  * Persistent translation index and localized frontend read model.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Translation_Index_Read_Model {
+trait Devenia_Workflow_Translation_Index_Read_Model {
 	/**
 	 * Translation registry table name.
 	 */

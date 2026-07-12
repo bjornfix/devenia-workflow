@@ -2,14 +2,14 @@
 /**
  * Ability registration and dispatch platform.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Ability_Platform {
+trait Devenia_Workflow_Ability_Platform {
 	/**
 	 * Operation handler catalogue for MCP abilities.
 	 *
@@ -21,15 +21,15 @@ trait Devenia_AI_Translations_Ability_Platform {
 	 */
 	private static function ability_dispatch_handlers(): array {
 		return array_merge(
-			self::translation_job_v2_dispatch_handlers(),
+			self::translation_job_dispatch_handlers(),
 			array(
 			'rebuild_source_inventory'         => 'rebuild_source_inventory',
 			'source_inventory'                 => 'source_inventory',
 			'translation_obligation_queue'     => 'translation_obligation_queue',
-			'translation_job_v2_next'          => 'translation_job_v2_next',
+			'translation_job_next'          => 'translation_job_next',
 			'translation_exhaustion_proof'     => 'translation_exhaustion_proof',
-			'get_workflow_mode'                => 'workflow_mode_status',
-			'update_workflow_mode'             => 'update_workflow_mode',
+			'get_mode'                         => 'workflow_mode_status',
+			'update_mode'                      => 'update_workflow_mode',
 			'list_languages'                  => 'run_list_languages_operation',
 			'get_presentation_surface'        => 'run_get_presentation_surface_operation',
 			'translation_fitness_status'      => 'translation_fitness_regression_status',
@@ -66,42 +66,15 @@ trait Devenia_AI_Translations_Ability_Platform {
 			'create_source_from_authored_original' => 'create_source_from_authored_original',
 			'mark_source_generation_reviewed' => 'mark_source_generation_reviewed',
 			'get_source'                      => 'run_get_source_operation',
-			'reserve_work'                    => 'reserve_translation_work',
-			'reserve_translation_work'        => 'reserve_translation_work',
-			'release_reservation'             => 'release_translation_reservation',
-			'release_translation_reservation' => 'release_translation_reservation',
-			'list_reservations'               => 'list_translation_reservations',
-			'list_translation_reservations'   => 'list_translation_reservations',
-			'upsert_page'                     => 'upsert_translation',
 			'repair_translation_author'       => 'repair_translation_author',
 			'reproject_source_design'         => 'reproject_source_design',
 			'migrate_source_design_fragments' => 'migrate_source_design_fragments',
 			'list_translations'               => 'list_translations',
-			'mark_reviewed'                   => 'run_mark_reviewed_operation',
-			'qa_translation'                  => 'qa_translation',
-			'mark_linguistic_reviewed'        => 'mark_linguistic_reviewed',
-			'publish_translation'             => 'publish_translation',
 			'verify_live_translation'         => 'verify_live_translation',
-			'workflow_status'                 => 'workflow_status_from_input',
-			'workflow_obligations'            => 'workflow_obligations',
-			'production_flow'                 => 'production_flow',
-			'accept_assignment'               => 'accept_assignment',
-			'current_assignment'              => 'current_assignment',
-			'renew_assignment'                => 'renew_assignment',
-			'complete_assignment'             => 'complete_assignment',
-			'resolve_assignment_block'        => 'resolve_assignment_block',
-			'next_heartbeat_action'           => 'next_heartbeat_action',
-			'heartbeat_assignment_coverage'   => 'heartbeat_assignment_coverage',
-			'heartbeat_status'                => 'heartbeat_status',
-			'queue'                           => 'translation_queue',
-			'review_queue'                    => 'review_queue',
 			'author_archive_queue'            => 'author_archive_queue',
 			'update_author_archive_translation' => 'update_author_archive_translation',
-			'quality_review_queue'            => 'quality_review_queue',
 			'quality_verdict'                 => 'quality_verdict',
 			'internal_link_opportunities'     => 'internal_link_opportunities',
-			'mark_quality_reviewed'           => 'mark_quality_reviewed',
-			'mark_final_reviewed'             => 'mark_final_reviewed',
 			'sync_menu'                       => 'sync_language_menu',
 			'repair_url_hierarchy'            => 'repair_url_hierarchy',
 			'repair_internal_links'           => 'repair_internal_links',
@@ -123,9 +96,6 @@ trait Devenia_AI_Translations_Ability_Platform {
 			if ( isset( $handlers[ $operation ] ) ) {
 				$args['operation']        = $operation;
 				$args['execute_callback'] = self::ability_operation_callback( $operation );
-			}
-			if ( isset( $args['input_schema'] ) && is_array( $args['input_schema'] ) ) {
-				$args['input_schema'] = self::neutralize_agent_session_schema( $args['input_schema'] );
 			}
 			$catalogue[ $name ] = $args;
 		}

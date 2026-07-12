@@ -2,14 +2,14 @@
 /**
  * Site-level workflow mode.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Workflow_Mode {
+trait Devenia_Workflow_Mode {
 	private static function workflow_mode(): string {
 		$mode = sanitize_key( (string) get_option( self::OPTION_WORKFLOW_MODE, 'multilingual' ) );
 		return in_array( $mode, array( 'multilingual', 'source_only' ), true ) ? $mode : 'multilingual';

@@ -28,8 +28,8 @@ function get_post( int $post_id ) {
 
 require_once dirname( __DIR__ ) . '/includes/trait-internal-content-link-resolver.php';
 
-final class Devenia_AI_Translations_Internal_Content_Link_Resolver_Contract {
-	use Devenia_AI_Translations_Internal_Content_Link_Resolver;
+final class Devenia_Workflow_Internal_Content_Link_Resolver_Contract {
+	use Devenia_Workflow_Internal_Content_Link_Resolver;
 
 	private static function normalized_url_path( string $url ): string {
 		$path = wp_parse_url( $url, PHP_URL_PATH );
@@ -63,7 +63,7 @@ $cases = array(
 );
 $failures = array();
 foreach ( $cases as $case => $values ) {
-	$actual = Devenia_AI_Translations_Internal_Content_Link_Resolver_Contract::resolve( $values[0] );
+	$actual = Devenia_Workflow_Internal_Content_Link_Resolver_Contract::resolve( $values[0] );
 	if ( $actual !== $values[1] ) {
 		$failures[] = array( 'case' => $case, 'expected' => $values[1], 'actual' => $actual );
 	}

@@ -30,7 +30,7 @@ function rejects(code, fn) {
 const now = "2026-07-10T12:00:00.000Z";
 const writerBudget = createTokenBudget("translator");
 const qualityBudget = createTokenBudget("quality");
-const runtimeSource = readFileSync(new URL("../includes/trait-translation-job-v2.php", import.meta.url), "utf8");
+const runtimeSource = readFileSync(new URL("../includes/trait-translation-job.php", import.meta.url), "utf8");
 
 pass(() => assert.match(
 	runtimeSource,
@@ -39,10 +39,10 @@ pass(() => assert.match(
 pass(() => assert.match(runtimeSource, /'artifact_store_failed'/));
 pass(() => assert.match(runtimeSource, /update_option\( \$artifact_key, \$artifact_record, false \)/));
 pass(() => assert.match(runtimeSource, /\$stored\['source_revision'\][\s\S]*\$job\['source_revision'\]/));
-pass(() => assert.match(runtimeSource, /translation_job_v2_pack_artifact_record\( \$artifact_record \)/));
+pass(() => assert.match(runtimeSource, /translation_job_pack_artifact_record\( \$artifact_record \)/));
 pass(() => assert.match(runtimeSource, /'artifact_encoding'\]\s*=\s*'base64-json-v1'/));
 pass(() => assert.match(runtimeSource, /base64_decode\([^;]+true \)/));
-pass(() => assert.match(runtimeSource, /\$configured_budget = self::translation_job_v2_budget[\s\S]*'budget_migrated_at'[\s\S]*'run_budget_migration_failed'/));
+pass(() => assert.match(runtimeSource, /\$configured_budget = self::translation_job_budget[\s\S]*'budget_migrated_at'[\s\S]*'run_budget_migration_failed'/));
 
 pass(() => assert.deepEqual(
 	{ total: writerBudget.total_token_limit, attempts: writerBudget.max_attempts },
@@ -176,12 +176,12 @@ pass(() => assert.equal(submitted.run.usage.total_tokens, 44000));
 pass(() => assert.match(submitted.artifact.artifact_revision, /^a_[a-f0-9]{32}$/));
 pass(() => {
 	const samePayloadOtherJob = submitTranslation({
-		job: { ...claimedJob, job_id: "tj_source-4122_it_r2", source_revision: "r_source_4122_v2" },
-		run: { ...writerRun, job_id: "tj_source-4122_it_r2" },
+		job: { ...claimedJob, job_id: "tj_source-4122_it_revision2", source_revision: "r_source_4122_revision2" },
+		run: { ...writerRun, job_id: "tj_source-4122_it_revision2" },
 		packet: {
 			...packet,
-			job: { ...packet.job, job_id: "tj_source-4122_it_r2", source_revision: "r_source_4122_v2" },
-			run: { ...packet.run, job_id: "tj_source-4122_it_r2" },
+			job: { ...packet.job, job_id: "tj_source-4122_it_revision2", source_revision: "r_source_4122_revision2" },
+			run: { ...packet.run, job_id: "tj_source-4122_it_revision2" },
 		},
 		localized_fragments: localizedFragments,
 		metadata,

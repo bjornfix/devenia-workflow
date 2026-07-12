@@ -2,14 +2,14 @@
 /**
  * Presentation adapter helpers.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Presentation_Adapter {
+trait Devenia_Workflow_Presentation_Adapter {
 	/**
 	 * Resolve a presentation surface through one seam.
 	 *

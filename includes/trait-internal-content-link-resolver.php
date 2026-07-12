@@ -2,14 +2,14 @@
 /**
  * Canonical WordPress content resolution for internal links.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Internal_Content_Link_Resolver {
+trait Devenia_Workflow_Internal_Content_Link_Resolver {
 
 	/**
 	 * Resolve an internal URL through core routes or the translation registry.

@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: Devenia AI Workflow
+ * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.573
+ * Version: 0.1.574
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -22,51 +22,40 @@ require_once __DIR__ . '/includes/trait-featured-image-repair.php';
 require_once __DIR__ . '/includes/trait-ability-platform.php';
 require_once __DIR__ . '/includes/trait-ability-catalogue.php';
 require_once __DIR__ . '/includes/trait-atomic-option-store.php';
-require_once __DIR__ . '/includes/trait-assignment-authority.php';
-require_once __DIR__ . '/includes/trait-assignment-lifecycle.php';
+require_once __DIR__ . '/includes/trait-execution-identity.php';
 require_once __DIR__ . '/includes/trait-quality-engine.php';
-require_once __DIR__ . '/includes/trait-read-model-snapshots.php';
 require_once __DIR__ . '/includes/trait-presentation-adapter.php';
-require_once __DIR__ . '/includes/trait-translation-reservations.php';
-require_once __DIR__ . '/includes/trait-agent-session-identity.php';
-require_once __DIR__ . '/includes/trait-heartbeat-workflow.php';
 require_once __DIR__ . '/includes/trait-source-editor-adapter.php';
 require_once __DIR__ . '/includes/trait-workflow-mode.php';
-require_once __DIR__ . '/includes/trait-work-item-catalog.php';
-require_once __DIR__ . '/includes/trait-work-item-planner.php';
 require_once __DIR__ . '/includes/trait-translation-read-models.php';
 require_once __DIR__ . '/includes/trait-translation-provenance.php';
-require_once __DIR__ . '/includes/class-workflow-state-model.php';
-require_once __DIR__ . '/includes/trait-workflow-state.php';
 require_once __DIR__ . '/includes/trait-translation-index-read-model.php';
 require_once __DIR__ . '/includes/trait-internal-content-link-resolver.php';
 require_once __DIR__ . '/includes/trait-frontend-read-model.php';
-require_once __DIR__ . '/includes/trait-translation-job-v2.php';
+require_once __DIR__ . '/includes/trait-translation-job.php';
 require_once __DIR__ . '/includes/trait-source-inventory.php';
 
-final class Devenia_AI_Translations {
-	use Devenia_AI_Translations_Source_Design_Inheritance;
-	use Devenia_AI_Translations_Source_Design_Review_Policy;
-	use Devenia_AI_Translations_Publication_Experience;
-	use Devenia_AI_Translations_Source_Taxonomy_Review_Policy;
-	use Devenia_AI_Translations_Taxonomy_Localization;
-	use Devenia_AI_Translations_Featured_Image_Repair;
-	use Devenia_AI_Translations_Ability_Platform;
-	use Devenia_AI_Translations_Ability_Catalogue;
-	use Devenia_AI_Translations_Atomic_Option_Store;
-	use Devenia_AI_Translations_Quality_Engine;
-	use Devenia_AI_Translations_Frontend_Read_Model;
-	use Devenia_AI_Translations_Workflow_State;
-	use Devenia_AI_Translations_Source_Editor_Adapter;
-	use Devenia_AI_Translations_Workflow_Mode;
-	use Devenia_AI_Translations_Work_Item_Catalog;
-	use Devenia_AI_Translations_Work_Item_Planner;
-	use Devenia_AI_Translations_Assignment_Lifecycle;
-	use Devenia_AI_Translations_Internal_Content_Link_Resolver;
-	use Devenia_AI_Translations_Translation_Job_V2;
-	use Devenia_AI_Translations_Source_Inventory;
+final class Devenia_Workflow {
+	use Devenia_Workflow_Translation_Source_Design_Inheritance;
+	use Devenia_Workflow_Source_Design_Review_Policy;
+	use Devenia_Workflow_Publication_Experience;
+	use Devenia_Workflow_Source_Taxonomy_Review_Policy;
+	use Devenia_Workflow_Translation_Taxonomy_Localization;
+	use Devenia_Workflow_Translation_Featured_Image_Repair;
+	use Devenia_Workflow_Ability_Platform;
+	use Devenia_Workflow_Ability_Catalogue;
+	use Devenia_Workflow_Atomic_Option_Store;
+	use Devenia_Workflow_Execution_Identity;
+	use Devenia_Workflow_Translation_Provenance;
+	use Devenia_Workflow_Quality_Engine;
+	use Devenia_Workflow_Translation_Frontend_Read_Model;
+	use Devenia_Workflow_Source_Editor_Adapter;
+	use Devenia_Workflow_Mode;
+	use Devenia_Workflow_Internal_Content_Link_Resolver;
+	use Devenia_Workflow_Translation_Job;
+	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.573';
+	const VERSION = '0.1.574';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -75,31 +64,21 @@ final class Devenia_AI_Translations {
 	 */
 	private static $request_analysis_cache = array();
 
-	const OPTION_LANGUAGES = 'devenia_ai_translations_languages';
-	const OPTION_WORKFLOW_MODE = 'devenia_ai_workflow_mode';
-	const OPTION_VERSION   = 'devenia_ai_translations_version';
-	const OPTION_LANGUAGE_PACK_STATUS = 'devenia_ai_translations_language_pack_status';
-	const OPTION_TRANSLATION_INDEX_SCHEMA = 'devenia_ai_translations_index_schema';
-	const OPTION_FRONTEND_SLOW_LOG = 'devenia_ai_translations_frontend_slow_log';
-	const OPTION_REVIEWER_STYLE_PROFILES = 'devenia_ai_translations_reviewer_style_profiles';
-	const OPTION_AUTHOR_ARCHIVES = 'devenia_ai_translations_author_archives';
-	const OPTION_HEARTBEATS = 'devenia_ai_translations_heartbeats';
-	const OPTION_RUNTIME_MUTATION_PROVENANCE = 'devenia_ai_translations_runtime_mutation_provenance';
-	const OPTION_TRANSLATION_CLAIM_PREFIX = 'devenia_ai_translation_claim_';
-	const OPTION_WORK_CLAIM_PREFIX = 'devenia_ai_work_claim_';
-	const OPTION_ASSIGNMENT_PREFIX = 'devenia_ai_assignment_';
-	const OPTION_ASSIGNMENT_ITEM_PREFIX = 'devenia_ai_assignment_item_';
-	const OPTION_ASSIGNMENT_OUTCOME_PREFIX = 'devenia_ai_assignment_outcome_';
-	const OPTION_ASSIGNMENT_LATEST_OUTCOME_PREFIX = 'devenia_ai_assignment_latest_outcome_';
-	const OPTION_ASSIGNMENT_BLOCK_PREFIX = 'devenia_ai_assignment_block_';
-	const DEFAULT_TRANSLATION_CLAIM_TTL = 1800;
-	const MAX_TRANSLATION_CLAIM_TTL = 14400;
+	const OPTION_LANGUAGES = 'devenia_workflow_language_registry';
+	const OPTION_WORKFLOW_MODE = 'devenia_workflow_mode';
+	const OPTION_VERSION   = 'devenia_workflow_version';
+	const OPTION_LANGUAGE_PACK_STATUS = 'devenia_workflow_translation_language_pack_status';
+	const OPTION_TRANSLATION_INDEX_SCHEMA = 'devenia_workflow_translation_index_schema';
+	const OPTION_FRONTEND_SLOW_LOG = 'devenia_workflow_frontend_slow_log';
+	const OPTION_REVIEWER_STYLE_PROFILES = 'devenia_workflow_reviewer_style_profiles';
+	const OPTION_AUTHOR_ARCHIVES = 'devenia_workflow_translation_author_archives';
+	const OPTION_RUNTIME_MUTATION_PROVENANCE = 'devenia_workflow_runtime_mutation_provenance';
 	const TRANSLATION_INDEX_SCHEMA_VERSION = '2';
-	const OPTION_SOURCE_INVENTORY_SCHEMA = 'devenia_ai_translations_source_inventory_schema';
-	const OPTION_SOURCE_INVENTORY_ACTIVE = 'devenia_ai_translations_source_inventory_active';
-	const OPTION_SOURCE_INVENTORY_DIRTY = 'devenia_ai_translations_source_inventory_dirty';
+	const OPTION_SOURCE_INVENTORY_SCHEMA = 'devenia_workflow_source_inventory_schema';
+	const OPTION_SOURCE_INVENTORY_ACTIVE = 'devenia_workflow_source_inventory_active';
+	const OPTION_SOURCE_INVENTORY_DIRTY = 'devenia_workflow_source_inventory_dirty';
 	const SOURCE_INVENTORY_SCHEMA_VERSION = '2';
-	const OPTION_LANGUAGE_RULE_EVENTS_SCHEMA = 'devenia_ai_translations_rule_events_schema';
+	const OPTION_LANGUAGE_RULE_EVENTS_SCHEMA = 'devenia_workflow_translation_rule_events_schema';
 	const LANGUAGE_RULE_EVENTS_SCHEMA_VERSION = '1';
 
 	const META_SOURCE_ID      = '_devenia_translation_source_id';
@@ -217,8 +196,8 @@ final class Devenia_AI_Translations {
 	public static function init(): void {
 		add_filter( 'locale', array( __CLASS__, 'filter_locale' ) );
 		add_filter( 'language_attributes', array( __CLASS__, 'filter_language_attributes' ) );
-		add_filter( 'ai_translation_workflow_language_codes', array( __CLASS__, 'filter_runtime_language_codes' ) );
-		add_filter( 'ai_translation_workflow_runtime_text', array( __CLASS__, 'filter_runtime_text_value' ), 10, 5 );
+		add_filter( 'devenia_workflow_translation_language_codes', array( __CLASS__, 'filter_runtime_language_codes' ) );
+		add_filter( 'devenia_workflow_translation_runtime_text', array( __CLASS__, 'filter_runtime_text_value' ), 10, 5 );
 		add_filter( 'query_vars', array( __CLASS__, 'register_translation_query_vars' ) );
 		add_filter( 'devenia_site_presentation_author_archive_context', array( __CLASS__, 'filter_author_archive_context' ), 10, 2 );
 		add_filter( 'devenia_site_presentation_single_post_context', array( __CLASS__, 'filter_site_presentation_single_post_context' ), 10, 2 );
@@ -252,8 +231,8 @@ final class Devenia_AI_Translations {
 		add_filter( 'url_lockdown_finalize_post_migration', array( __CLASS__, 'finalize_explicit_translation_url_migration' ), 10, 2 );
 		add_action( 'admin_notices', array( __CLASS__, 'render_missing_abilities_api_notice' ) );
 		add_action( 'admin_menu', array( __CLASS__, 'register_presentation_admin_page' ) );
-		add_action( 'admin_post_devenia_ai_translations_save_runtime_text', array( __CLASS__, 'handle_admin_runtime_text_save' ) );
-		add_action( 'admin_post_devenia_ai_translations_save_author_archive', array( __CLASS__, 'handle_admin_author_archive_save' ) );
+		add_action( 'admin_post_devenia_workflow_save_translation_runtime_text', array( __CLASS__, 'handle_admin_runtime_text_save' ) );
+		add_action( 'admin_post_devenia_workflow_save_translation_author_archive', array( __CLASS__, 'handle_admin_author_archive_save' ) );
 		add_filter( 'wp_insert_post_data', array( __CLASS__, 'normalize_invalid_translation_content_before_save' ), 5, 2 );
 		add_filter( 'wp_insert_post_data', array( __CLASS__, 'block_unready_source_post_publish_before_save' ), 9, 2 );
 		add_action( 'pre_post_update', array( __CLASS__, 'block_invalid_translation_content_save' ), 5, 2 );
@@ -1107,7 +1086,7 @@ final class Devenia_AI_Translations {
 			return $base;
 		}
 
-		$template_option = (string) apply_filters( 'ai_translation_workflow_title_template_option_name', '', 'author_archive_title' );
+		$template_option = (string) apply_filters( 'devenia_workflow_translation_title_template_option_name', '', 'author_archive_title' );
 		return self::title_from_template_option(
 			$template_option,
 			'author_archive_title',
@@ -1378,7 +1357,7 @@ final class Devenia_AI_Translations {
 			array_filter(
 				$post_types,
 				static function ( string $post_type ): bool {
-					return Devenia_AI_Translations::is_translatable_post_type( $post_type );
+					return Devenia_Workflow::is_translatable_post_type( $post_type );
 				}
 			)
 		);
@@ -1455,7 +1434,7 @@ final class Devenia_AI_Translations {
 			array_filter(
 				array_map( 'absint', $ids ),
 				static function ( int $translation_id ) use ( $filters ): bool {
-					return Devenia_AI_Translations::translation_fitness_scan_id_matches_filters( $translation_id, $filters );
+					return Devenia_Workflow::translation_fitness_scan_id_matches_filters( $translation_id, $filters );
 				}
 			)
 		);
@@ -2535,7 +2514,7 @@ final class Devenia_AI_Translations {
 			'success' => true,
 			'process_id' => '' !== $process_id ? $process_id : 'wordpress-user-' . $user_id,
 			'control_scope_id' => '',
-			'agent_session_id' => '',
+			'execution_id' => '',
 			'llm_vendor' => '',
 			'llm_client' => 'wordpress-abilities-api',
 			'authority_vendor' => 'wordpress',
@@ -3666,7 +3645,7 @@ final class Devenia_AI_Translations {
 			$base_item = array(
 				'status'          => $status,
 				'severity'        => $severity,
-				'reviewer'        => sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia AI Workflow' ) ),
+				'reviewer'        => sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia Workflow' ) ),
 				'updated_at'      => $now,
 				'content_hash'    => self::translation_review_content_hash( $post ),
 				'source_hash'     => $source ? self::source_hash( $source ) : '',
@@ -4002,7 +3981,7 @@ final class Devenia_AI_Translations {
 	 */
 	private static function reviewer_style_supersede_window_seconds(): int {
 		$default = 30 * MINUTE_IN_SECONDS;
-		$value   = apply_filters( 'devenia_ai_translations_reviewer_style_supersede_window_seconds', $default );
+		$value   = apply_filters( 'devenia_workflow_reviewer_style_supersede_window_seconds', $default );
 
 		return max( 0, min( DAY_IN_SECONDS, absint( $value ) ) );
 	}
@@ -5605,9 +5584,9 @@ final class Devenia_AI_Translations {
 		if ( empty( $fixture['success'] ) ) {
 			return $fixture;
 		}
-		$agent_session_id = self::agent_session_id_from_input( $input );
-		if ( '' === $agent_session_id ) {
-			return self::error( 'agent_session_id is required when run_write_test is true so lifecycle regression can exercise the same workflow authority seam as production upserts.' );
+		$execution_id = self::execution_id_from_input( $input );
+		if ( '' === $execution_id ) {
+			return self::error( 'execution_id is required when run_write_test is true so lifecycle regression can exercise the same workflow authority seam as production upserts.' );
 		}
 
 		$created = array(
@@ -5656,7 +5635,7 @@ final class Devenia_AI_Translations {
 						'excerpt'            => (string) $fixture['excerpt'],
 						'status'             => 'draft',
 						'translation_status' => 'needs_review',
-						'agent_session_id'   => $agent_session_id,
+						'execution_id'   => $execution_id,
 					)
 				);
 				self::add_lifecycle_check(
@@ -5679,7 +5658,7 @@ final class Devenia_AI_Translations {
 						'excerpt'            => (string) $fixture['excerpt'],
 						'status'             => 'draft',
 						'translation_status' => 'needs_review',
-						'agent_session_id'   => $agent_session_id,
+						'execution_id'   => $execution_id,
 					)
 				);
 				self::add_lifecycle_check(
@@ -5702,7 +5681,7 @@ final class Devenia_AI_Translations {
 					'excerpt'            => (string) $fixture['excerpt'],
 					'status'             => 'draft',
 					'translation_status' => 'needs_review',
-					'agent_session_id'   => $agent_session_id,
+					'execution_id'   => $execution_id,
 				)
 			);
 			self::add_lifecycle_check( $checks, $failed, 'translation_created', ! empty( $upsert['success'] ), self::lifecycle_compact_upsert_result( $upsert ) );
@@ -5723,7 +5702,7 @@ final class Devenia_AI_Translations {
 					'translation_id' => $created['translation_id'],
 					'verify_live'    => $verify_live,
 					'sync_menu'      => false,
-					'agent_session_id' => $agent_session_id,
+					'execution_id' => $execution_id,
 				)
 			);
 			self::add_lifecycle_check(
@@ -5741,7 +5720,7 @@ final class Devenia_AI_Translations {
 						'reviewer'       => 'Lifecycle regression',
 						'note'           => 'Temporary lifecycle regression proof.',
 						'run_qa'         => true,
-						'agent_session_id' => $agent_session_id,
+						'execution_id' => $execution_id,
 					),
 					self::review_check_input( self::required_linguistic_review_checks( $language ) )
 				)
@@ -5770,7 +5749,7 @@ final class Devenia_AI_Translations {
 					'status'               => 'publish',
 					'translation_status'   => 'published',
 					'allow_update_published' => true,
-					'agent_session_id'     => $agent_session_id,
+					'execution_id'     => $execution_id,
 				)
 			);
 			self::add_lifecycle_check(
@@ -6336,7 +6315,7 @@ final class Devenia_AI_Translations {
 			unset( $input['live_verification_timeout'] );
 		}
 
-		return self::normalize_agent_session_input( $input );
+		return self::normalize_execution_identity_input( $input );
 	}
 
 	/**
@@ -6356,7 +6335,7 @@ final class Devenia_AI_Translations {
 	 * Convert public ability name to its operation key.
 	 */
 	private static function ability_operation_from_name( string $name ): string {
-		$prefix = 'ai-translations/';
+		$prefix = 'devenia-workflow/';
 		if ( 0 === strpos( $name, $prefix ) ) {
 			$name = substr( $name, strlen( $prefix ) );
 		}
@@ -6369,7 +6348,7 @@ final class Devenia_AI_Translations {
 	 */
 	private static function ability_operation_callback( string $operation ): callable {
 		return static function ( $input = array() ) use ( $operation ): array {
-			return Devenia_AI_Translations::run_ability_operation( $operation, $input );
+			return Devenia_Workflow::run_ability_operation( $operation, $input );
 		};
 	}
 
@@ -6523,7 +6502,7 @@ final class Devenia_AI_Translations {
 
 		printf(
 			'<div class="notice notice-warning"><p>%s</p></div>',
-			esc_html__( 'Devenia AI Workflow is active, but the WordPress Abilities API is not available. Workflow abilities will be registered after WordPress or an installed abilities provider makes wp_register_ability() available.', 'devenia-workflow' )
+			esc_html__( 'Devenia Workflow is active, but the WordPress Abilities API is not available. Workflow abilities will be registered after WordPress or an installed abilities provider makes wp_register_ability() available.', 'devenia-workflow' )
 		);
 	}
 
@@ -6532,10 +6511,10 @@ final class Devenia_AI_Translations {
 	 */
 	public static function register_presentation_admin_page(): void {
 		add_management_page(
-			__( 'Devenia AI Workflow Presentation', 'devenia-workflow' ),
+			__( 'Devenia Workflow Presentation', 'devenia-workflow' ),
 			__( 'Workflow Presentation', 'devenia-workflow' ),
 			'manage_options',
-			'devenia-ai-translations-presentation',
+			'devenia-workflow-presentation',
 			array( __CLASS__, 'render_presentation_admin_page' )
 		);
 	}
@@ -6555,7 +6534,7 @@ final class Devenia_AI_Translations {
 		$author_language = self::admin_current_author_language();
 		?>
 		<div class="wrap">
-			<h1><?php echo esc_html__( 'Devenia AI Workflow Presentation', 'devenia-workflow' ); ?></h1>
+			<h1><?php echo esc_html__( 'Devenia Workflow Presentation', 'devenia-workflow' ); ?></h1>
 			<p><?php echo esc_html__( 'Edit runtime values that feed localized public presentation output. Page, post, term, media, comment, and user fields remain editable in their normal WordPress screens.', 'devenia-workflow' ); ?></p>
 
 			<h2 class="nav-tab-wrapper">
@@ -6581,7 +6560,7 @@ final class Devenia_AI_Translations {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-workflow' ) );
 		}
-		check_admin_referer( 'devenia_ai_translations_runtime_text' );
+		check_admin_referer( 'devenia_workflow_translation_runtime_text' );
 
 		$language = sanitize_key( (string) filter_input( INPUT_POST, 'language', FILTER_UNSAFE_RAW ) );
 		$section  = sanitize_key( (string) filter_input( INPUT_POST, 'section', FILTER_UNSAFE_RAW ) );
@@ -6628,7 +6607,7 @@ final class Devenia_AI_Translations {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-workflow' ) );
 		}
-		check_admin_referer( 'devenia_ai_translations_author_archive' );
+		check_admin_referer( 'devenia_workflow_translation_author_archive' );
 
 		$author_id = absint( filter_input( INPUT_POST, 'author_id', FILTER_UNSAFE_RAW ) );
 		$language  = sanitize_key( (string) filter_input( INPUT_POST, 'language', FILTER_UNSAFE_RAW ) );
@@ -6681,7 +6660,7 @@ final class Devenia_AI_Translations {
 		$json      = wp_json_encode( $config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 		?>
 		<form method="get" action="<?php echo esc_url( admin_url( 'tools.php' ) ); ?>">
-			<input type="hidden" name="page" value="devenia-ai-translations-presentation" />
+			<input type="hidden" name="page" value="devenia-workflow-presentation" />
 			<input type="hidden" name="tab" value="runtime_text" />
 			<label for="devenia-runtime-language"><?php echo esc_html__( 'Language', 'devenia-workflow' ); ?></label>
 			<select id="devenia-runtime-language" name="language">
@@ -6701,8 +6680,8 @@ final class Devenia_AI_Translations {
 		</form>
 
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-			<?php wp_nonce_field( 'devenia_ai_translations_runtime_text' ); ?>
-			<input type="hidden" name="action" value="devenia_ai_translations_save_runtime_text" />
+			<?php wp_nonce_field( 'devenia_workflow_translation_runtime_text' ); ?>
+			<input type="hidden" name="action" value="devenia_workflow_save_translation_runtime_text" />
 			<input type="hidden" name="language" value="<?php echo esc_attr( $language ); ?>" />
 			<input type="hidden" name="section" value="<?php echo esc_attr( $section ); ?>" />
 			<p><label for="devenia-runtime-text-json"><?php echo esc_html__( 'Runtime text JSON', 'devenia-workflow' ); ?></label></p>
@@ -6748,7 +6727,7 @@ final class Devenia_AI_Translations {
 		$json = wp_json_encode( $record, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 		?>
 		<form method="get" action="<?php echo esc_url( admin_url( 'tools.php' ) ); ?>">
-			<input type="hidden" name="page" value="devenia-ai-translations-presentation" />
+			<input type="hidden" name="page" value="devenia-workflow-presentation" />
 			<input type="hidden" name="tab" value="author_archives" />
 			<label for="devenia-author-id"><?php echo esc_html__( 'Author', 'devenia-workflow' ); ?></label>
 			<select id="devenia-author-id" name="author_id">
@@ -6770,8 +6749,8 @@ final class Devenia_AI_Translations {
 		</form>
 
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-			<?php wp_nonce_field( 'devenia_ai_translations_author_archive' ); ?>
-			<input type="hidden" name="action" value="devenia_ai_translations_save_author_archive" />
+			<?php wp_nonce_field( 'devenia_workflow_translation_author_archive' ); ?>
+			<input type="hidden" name="action" value="devenia_workflow_save_translation_author_archive" />
 			<input type="hidden" name="author_id" value="<?php echo esc_attr( (string) $author_id ); ?>" />
 			<input type="hidden" name="language" value="<?php echo esc_attr( $language ); ?>" />
 			<p><label for="devenia-author-archive-json"><?php echo esc_html__( 'Author archive JSON', 'devenia-workflow' ); ?></label></p>
@@ -6791,7 +6770,7 @@ final class Devenia_AI_Translations {
 		return add_query_arg(
 			array_filter(
 				array_merge(
-					array( 'page' => 'devenia-ai-translations-presentation' ),
+					array( 'page' => 'devenia-workflow-presentation' ),
 					$args
 				),
 				static function ( $value ): bool {
@@ -7268,11 +7247,10 @@ final class Devenia_AI_Translations {
 					'default'     => true,
 					'description' => 'Delete temporary source and translation posts after the write regression.',
 				),
-				'agent_session_id' => array(
+				'execution_id' => array(
 					'type'        => 'string',
-					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
+					'description' => 'Stable identifier for the bounded Workflow execution.',
 				),
-				'session_binding_token' => self::session_binding_token_input_schema(),
 				'source_title' => array(
 					'type'        => 'string',
 					'description' => 'Optional custom source post title for languages without a bundled lifecycle fixture.',
@@ -7384,14 +7362,13 @@ final class Devenia_AI_Translations {
 					'default'     => false,
 					'description' => 'Remove the localized override and fall back to attachment alt/title.',
 				),
-				'agent_session_id'    => array(
+				'execution_id'    => array(
 					'type'        => 'string',
-					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
+					'description' => 'Stable identifier for the bounded Workflow execution.',
 				),
-				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id'  => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session updating the alt text. Defaults to agent_session_id.',
+					'description' => 'Optional stable identifier for the process/session updating the alt text. Defaults to execution_id.',
 				),
 				'writer_actor'       => array(
 					'type'        => 'string',
@@ -8054,118 +8031,6 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Optional persona/session proof field used by protected workflow abilities.
-	 */
-	private static function session_binding_token_input_schema(): array {
-		return array(
-			'type'        => 'string',
-			'description' => 'Agent/session secret proof from heartbeat bootstrap. Required when the server-side workflow lease is session-bound.',
-		);
-	}
-
-	/**
-	 * Input schema for the conservative heartbeat work assignment surface.
-	 */
-	private static function heartbeat_action_input_schema(): array {
-		return array(
-			'type'                 => 'object',
-			'required'             => array(),
-			'properties'           => array(
-				'agent_session_id' => array(
-					'type'        => 'string',
-					'description' => 'Required stable agent/client session identifier for the real independent heartbeat session.',
-				),
-				'llm_vendor' => self::agent_session_input_schema_properties()['llm_vendor'],
-				'llm_client' => self::agent_session_input_schema_properties()['llm_client'],
-				'authority_vendor' => self::agent_session_input_schema_properties()['authority_vendor'],
-				'authority_client' => self::agent_session_input_schema_properties()['authority_client'],
-				'session_binding_token' => self::session_binding_token_input_schema(),
-					'limit' => array(
-						'type'        => 'integer',
-						'default'     => 100,
-						'minimum'     => 1,
-						'maximum'     => 200,
-						'description' => 'Maximum source posts/pages to scan while choosing one action.',
-					),
-				'claim' => array(
-					'type'        => 'boolean',
-					'default'     => false,
-					'description' => 'When true, reserve the selected source/language item. Default false only observes.',
-				),
-				'ttl_seconds' => array(
-					'type'        => 'integer',
-					'default'     => 600,
-					'minimum'     => 60,
-					'maximum'     => self::MAX_TRANSLATION_CLAIM_TTL,
-					'description' => 'Reservation TTL when claim=true.',
-				),
-				'note' => array(
-					'type'        => 'string',
-					'description' => 'Optional heartbeat note stored in health state and reservations.',
-				),
-			),
-			'additionalProperties' => false,
-		);
-	}
-
-	/**
-	 * Input schema for assignment coverage audits.
-	 */
-	private static function heartbeat_assignment_coverage_input_schema(): array {
-		return array(
-			'type'                 => 'object',
-			'properties'           => array(
-				'agent_session_id' => array(
-					'type'        => 'string',
-					'description' => 'Optional stable agent/client session identifier. When present, the audit includes current-actor eligibility and skip reasons.',
-				),
-				'llm_vendor' => self::agent_session_input_schema_properties()['llm_vendor'],
-				'llm_client' => self::agent_session_input_schema_properties()['llm_client'],
-				'authority_vendor' => self::agent_session_input_schema_properties()['authority_vendor'],
-				'authority_client' => self::agent_session_input_schema_properties()['authority_client'],
-				'session_binding_token' => self::session_binding_token_input_schema(),
-				'limit' => array(
-					'type'        => 'integer',
-					'default'     => 500,
-					'minimum'     => 1,
-					'maximum'     => 500,
-					'description' => 'Maximum source posts/pages to inspect.',
-				),
-				'include_items' => array(
-					'type'        => 'boolean',
-					'default'     => false,
-					'description' => 'Include compact uncovered/skipped item samples.',
-				),
-			),
-			'additionalProperties' => false,
-		);
-	}
-
-	/**
-	 * Input schema for the read-only heartbeat health surface.
-	 */
-	private static function heartbeat_status_input_schema(): array {
-		return array(
-			'type'                 => 'object',
-			'properties'           => array(
-				'expected_actors' => array(
-					'type'        => 'array',
-					'description' => 'Optional actor IDs expected to have fresh independent heartbeat state, such as hilde, kari, and ola.',
-					'items'       => array( 'type' => 'string' ),
-				),
-				'max_age_seconds' => array(
-					'type'        => 'integer',
-					'default'     => 900,
-					'minimum'     => 1,
-					'maximum'     => 86400,
-					'description' => 'Maximum allowed age for a heartbeat to count as fresh.',
-				),
-			),
-			'additionalProperties' => false,
-		);
-	}
-
-	/**
 	 * Input schema for translation review queue ability.
 	 */
 	private static function review_queue_input_schema(): array {
@@ -8384,16 +8249,15 @@ final class Devenia_AI_Translations {
 				),
 				'claim_token' => array(
 					'type'        => 'string',
-					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
+					'description' => 'Optional bounded Translation Job claim token.',
 				),
-				'agent_session_id' => array(
+				'execution_id' => array(
 					'type'        => 'string',
-					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
+					'description' => 'Stable identifier for the bounded Workflow execution.',
 				),
-				'session_binding_token' => self::session_binding_token_input_schema(),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional for translated content: stable identifier for the separate reviewer process/session. Defaults to agent_session_id and must differ from the writer process.',
+					'description' => 'Optional for translated content: stable identifier for the separate reviewer process/session. Defaults to execution_id and must differ from the writer process.',
 				),
 				'reviewer' => array(
 					'type'        => 'string',
@@ -8410,11 +8274,11 @@ final class Devenia_AI_Translations {
 				'review_surface' => array(
 					'type'        => 'string',
 					'enum'        => array( 'public_url', 'presentation_surface' ),
-					'description' => 'Surface actually used for quality review. Use public_url for published frontend pages, or presentation_surface for WordPress draft translations reviewed through ai-translations/get-presentation-surface.',
+					'description' => 'Surface actually used for quality review. Use public_url for published frontend pages, or presentation_surface for WordPress draft translations reviewed through devenia-workflow/get-presentation-surface.',
 				),
 				'presentation_surface_post_id' => array(
 					'type'        => 'integer',
-					'description' => 'Required when review_surface is presentation_surface: post ID reviewed through ai-translations/get-presentation-surface.',
+					'description' => 'Required when review_surface is presentation_surface: post ID reviewed through devenia-workflow/get-presentation-surface.',
 				),
 				'headings_checked' => array(
 					'type'        => 'array',
@@ -8552,7 +8416,7 @@ final class Devenia_AI_Translations {
 				),
 				'reader_action_clear' => array(
 					'type'        => 'boolean',
-					'description' => 'Required when agency-copy profile is enabled: the reader knows what to send or do next and what Devenia AI Workflow will return.',
+					'description' => 'Required when agency-copy profile is enabled: the reader knows what to send or do next and what Devenia Workflow will return.',
 				),
 			),
 			'additionalProperties' => false,
@@ -8570,16 +8434,15 @@ final class Devenia_AI_Translations {
 				'translation_id' => array( 'type' => 'integer' ),
 				'claim_token' => array(
 					'type'        => 'string',
-					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
+					'description' => 'Optional bounded Translation Job claim token.',
 				),
-				'agent_session_id' => array(
+				'execution_id' => array(
 					'type'        => 'string',
-					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
+					'description' => 'Stable identifier for the bounded Workflow execution.',
 				),
-				'session_binding_token' => self::session_binding_token_input_schema(),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the separate final reviewer process/session. Defaults to agent_session_id.',
+					'description' => 'Optional stable identifier for the separate final reviewer process/session. Defaults to execution_id.',
 				),
 				'reviewer' => array( 'type' => 'string' ),
 				'note' => array( 'type' => 'string' ),
@@ -8727,7 +8590,7 @@ final class Devenia_AI_Translations {
 				'title'             => array( 'type' => 'string' ),
 				'content'           => array(
 					'type'        => 'string',
-					'description' => 'Legacy escape hatch for already-projected Gutenberg content. Apply any source-design policy registered by the site first; prefer inherit_source_design with localized_fragments so translators translate text instead of rebuilding design.',
+					'description' => 'Workflow escape hatch for already-projected Gutenberg content. Apply any source-design policy registered by the site first; prefer inherit_source_design with localized_fragments so translators translate text instead of rebuilding design.',
 				),
 				'inherit_source_design' => array(
 					'type'        => 'boolean',
@@ -8813,20 +8676,19 @@ final class Devenia_AI_Translations {
 				'translation_id'    => array( 'type' => 'integer' ),
 				'claim_token'       => array(
 					'type'        => 'string',
-					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
+					'description' => 'Optional bounded Translation Job claim token.',
 				),
-				'agent_session_id'   => array(
+				'execution_id'   => array(
 					'type'        => 'string',
-					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
+					'description' => 'Stable identifier for the bounded Workflow execution.',
 				),
-				'session_binding_token' => self::session_binding_token_input_schema(),
 				'allow_update_published' => array(
 					'type'    => 'boolean',
 					'default' => false,
 				),
 				'writer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session that authored this translation draft. Defaults to agent_session_id; reviewer processes must be different.',
+					'description' => 'Optional stable identifier for the process/session that authored this translation draft. Defaults to execution_id; reviewer processes must be different.',
 				),
 				'writer_actor' => array(
 					'type'        => 'string',
@@ -8873,16 +8735,15 @@ final class Devenia_AI_Translations {
 				),
 				'claim_token'    => array(
 					'type'        => 'string',
-					'description' => 'Optional reservation token from ai-translations/reserve-work.',
+					'description' => 'Optional bounded Translation Job claim token.',
 				),
-				'agent_session_id' => array(
+				'execution_id' => array(
 					'type'        => 'string',
-					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
+					'description' => 'Stable identifier for the bounded Workflow execution.',
 				),
-				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session doing this metadata write. Defaults to agent_session_id.',
+					'description' => 'Optional stable identifier for the process/session doing this metadata write. Defaults to execution_id.',
 				),
 				'writer_actor'   => array(
 					'type'        => 'string',
@@ -8932,16 +8793,15 @@ final class Devenia_AI_Translations {
 				),
 				'claim_token' => array(
 					'type'        => 'string',
-					'description' => 'Optional reservation token from ai-translations/reserve-work.',
+					'description' => 'Optional bounded Translation Job claim token.',
 				),
-				'agent_session_id' => array(
+				'execution_id' => array(
 					'type'        => 'string',
-					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
+					'description' => 'Stable identifier for the bounded Workflow execution.',
 				),
-				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session doing the reprojection write. Defaults to agent_session_id.',
+					'description' => 'Optional stable identifier for the process/session doing the reprojection write. Defaults to execution_id.',
 				),
 				'writer_actor' => array(
 					'type'        => 'string',
@@ -9034,16 +8894,15 @@ final class Devenia_AI_Translations {
 				),
 				'claim_token' => array(
 					'type'        => 'string',
-					'description' => 'Optional reservation token from ai-translations/reserve-work.',
+					'description' => 'Optional bounded Translation Job claim token.',
 				),
-				'agent_session_id' => array(
+				'execution_id' => array(
 					'type'        => 'string',
-					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
+					'description' => 'Stable identifier for the bounded Workflow execution.',
 				),
-				'session_binding_token' => self::session_binding_token_input_schema(),
 				'writer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session doing the migration write. Defaults to agent_session_id.',
+					'description' => 'Optional stable identifier for the process/session doing the migration write. Defaults to execution_id.',
 				),
 				'writer_actor' => array(
 					'type'        => 'string',
@@ -9121,7 +8980,7 @@ final class Devenia_AI_Translations {
 				),
 				'no_term_sprawl_reviewed' => array(
 					'type'        => 'boolean',
-					'description' => 'True only after checking that the assignment does not create or preserve avoidable one-post category/tag sprawl.',
+					'description' => 'True only after checking that the taxonomy review does not create or preserve avoidable one-post category/tag sprawl.',
 				),
 				'singleton_terms_reviewed' => array(
 					'type'        => 'boolean',
@@ -9249,7 +9108,7 @@ final class Devenia_AI_Translations {
 			'properties'           => array(
 				'source_id' => array(
 					'type'        => 'integer',
-					'description' => 'English source post ID whose content-integrity repair assignment was inspected.',
+					'description' => 'English source post ID whose content-integrity repair was inspected.',
 				),
 				'content_integrity_already_clean' => array(
 					'type'        => 'boolean',
@@ -9537,16 +9396,15 @@ final class Devenia_AI_Translations {
 				'translation_id'       => array( 'type' => 'integer' ),
 				'reviewer_process_id'  => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the separate reviewer process/session. Defaults to agent_session_id and must differ from the writer process.',
+					'description' => 'Optional stable identifier for the separate reviewer process/session. Defaults to execution_id and must differ from the writer process.',
 				),
-				'agent_session_id'      => array(
+				'execution_id'      => array(
 					'type'        => 'string',
-					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
+					'description' => 'Stable identifier for the bounded Workflow execution.',
 				),
-				'session_binding_token' => self::session_binding_token_input_schema(),
 				'claim_token'          => array(
 					'type'        => 'string',
-					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
+					'description' => 'Optional bounded Translation Job claim token.',
 				),
 				'run_qa'               => array( 'type' => 'boolean', 'default' => true ),
 				'dry_run'              => array(
@@ -9610,16 +9468,15 @@ final class Devenia_AI_Translations {
 				'translation_id' => array( 'type' => 'integer' ),
 				'reviewer_process_id' => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the separate reviewer process/session. Defaults to agent_session_id and must differ from the writer process.',
+					'description' => 'Optional stable identifier for the separate reviewer process/session. Defaults to execution_id and must differ from the writer process.',
 				),
-				'agent_session_id' => array(
+				'execution_id' => array(
 					'type'        => 'string',
-					'description' => 'Deprecated. Protected workflow calls require agent_session_id.',
+					'description' => 'Stable identifier for the bounded Workflow execution.',
 				),
-				'session_binding_token' => self::session_binding_token_input_schema(),
 				'claim_token'    => array(
 					'type'        => 'string',
-					'description' => 'Optional reservation token from ai-translations/reserve-work when this source/language is claimed.',
+					'description' => 'Optional bounded Translation Job claim token.',
 				),
 				'reviewer'       => array( 'type' => 'string' ),
 				'note'           => array( 'type' => 'string' ),
@@ -10134,7 +9991,7 @@ final class Devenia_AI_Translations {
 			'source_id' => $source_id,
 			'target_language' => $target_language,
 			'source_generation_status' => $status,
-			'suggested_ability' => 'ai-translations/mark-source-generation-reviewed',
+			'suggested_ability' => 'devenia-workflow/mark-source-generation-reviewed',
 		);
 	}
 
@@ -10657,7 +10514,7 @@ final class Devenia_AI_Translations {
 	private static function authored_original_intake_suggested_next( int $post_id, string $language, string $status, int $generated_source_id ): array {
 		if ( in_array( $status, array( 'pending', 'stale', 'error' ), true ) ) {
 			return array(
-				'ability' => 'ai-translations/create-source-from-authored-original',
+				'ability' => 'devenia-workflow/create-source-from-authored-original',
 				'input_basis' => array(
 					'authored_id'       => $post_id,
 					'authored_language' => $language,
@@ -10670,7 +10527,7 @@ final class Devenia_AI_Translations {
 		}
 		if ( 'source_created' === $status && $generated_source_id ) {
 			return array(
-				'ability' => 'ai-translations/mark-source-generation-reviewed',
+				'ability' => 'devenia-workflow/mark-source-generation-reviewed',
 				'input_basis' => array(
 					'source_id' => $generated_source_id,
 					'meaning_preserved' => true,
@@ -10763,7 +10620,7 @@ final class Devenia_AI_Translations {
 		if ( ! self::is_translation_post( $post_id ) ) {
 			return $result;
 		}
-		$repair = apply_filters( 'ai_translation_workflow_repair_translation_self_redirects', array( 'success' => true, 'removed' => 0 ), $post_id, false );
+		$repair = apply_filters( 'devenia_workflow_repair_translation_self_redirects', array( 'success' => true, 'removed' => 0 ), $post_id, false );
 		return is_array( $repair ) ? $repair : array( 'success' => false, 'message' => 'Translation redirect finalization adapter returned an invalid result.' );
 	}
 
@@ -10781,7 +10638,7 @@ final class Devenia_AI_Translations {
 		if ( ! self::is_translation_language( $language ) ) {
 			return self::error( 'Unknown or source language.' );
 		}
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
+		$claim_gate = self::translation_job_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
@@ -11114,7 +10971,7 @@ final class Devenia_AI_Translations {
 			return self::error( 'Translation post type does not match the source post type.' );
 		}
 
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
+		$claim_gate = self::translation_job_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
@@ -11233,7 +11090,7 @@ final class Devenia_AI_Translations {
 		);
 
 		$result = apply_filters(
-			'ai_translation_workflow_sync_seo_meta',
+			'devenia_workflow_translation_sync_seo_meta',
 			$result,
 			$translation_id,
 			$fields,
@@ -11939,7 +11796,7 @@ final class Devenia_AI_Translations {
 		}
 		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
 		$language  = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, $claim_token, $input );
+		$claim_gate = self::translation_job_write_gate( $source_id, $language, $claim_token, $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
@@ -11949,7 +11806,7 @@ final class Devenia_AI_Translations {
 			return self::error( 'Use publish-translation to publish reviewed translations.' );
 		}
 		if ( 'reviewed' === $status ) {
-			return self::error( 'Legacy mark-reviewed cannot promote translations. Use mark-linguistic-reviewed with a separate reviewer process and step token.' );
+			return self::error( 'Workflow mark-reviewed cannot promote translations. Use mark-linguistic-reviewed with a separate reviewer process and step token.' );
 		}
 		update_post_meta( $translation_id, self::META_STATUS, $status );
 		if ( 'reviewed' === $status ) {
@@ -12220,7 +12077,7 @@ final class Devenia_AI_Translations {
 						'code'                 => $code,
 						'severity'             => sanitize_key( (string) ( $blocker['severity'] ?? '' ) ),
 						'message'              => (string) ( $blocker['message'] ?? '' ),
-						'next_action_category' => Devenia_AI_Translations::quality_verdict_next_action_category( $code ),
+						'next_action_category' => Devenia_Workflow::quality_verdict_next_action_category( $code ),
 					);
 				},
 				$blockers
@@ -12288,7 +12145,7 @@ final class Devenia_AI_Translations {
 					'Run translation QA and repair the reported integrity issue before publishing.',
 					'critical',
 					false,
-					'ai-translations/qa-translation'
+					'devenia-workflow/qa-translation'
 				);
 			case 'linguistic_review_not_current':
 				return self::quality_verdict_next_action(
@@ -12297,7 +12154,7 @@ final class Devenia_AI_Translations {
 					'Refresh linguistic review evidence after checking the current translated content.',
 					'high',
 					true,
-					'ai-translations/mark-linguistic-reviewed'
+					'devenia-workflow/mark-linguistic-reviewed'
 				);
 			case 'missing_source':
 				return self::quality_verdict_next_action(
@@ -12306,7 +12163,7 @@ final class Devenia_AI_Translations {
 					'Inspect the translation mapping because the source content could not be resolved.',
 					'critical',
 					true,
-					'ai-translations/list-translations'
+					'devenia-workflow/list-translations'
 				);
 			case 'content_not_published':
 				return self::quality_verdict_next_action(
@@ -12315,7 +12172,7 @@ final class Devenia_AI_Translations {
 					'Publish the content or request a pre-publish verdict for draft-stage work.',
 					'medium',
 					false,
-					'ai-translations/publish-translation'
+					'devenia-workflow/publish-translation'
 				);
 			case 'quality_review_not_current':
 				return self::quality_verdict_next_action(
@@ -12324,7 +12181,7 @@ final class Devenia_AI_Translations {
 					'Review the visible page and mark quality review evidence when it passes.',
 					'high',
 					true,
-					'ai-translations/mark-quality-reviewed'
+					'devenia-workflow/mark-quality-reviewed'
 				);
 			case 'seo_meta_not_current':
 				return self::quality_verdict_next_action(
@@ -12333,7 +12190,7 @@ final class Devenia_AI_Translations {
 					'Refresh stored SEO metadata so search, social, and schema titles match the current content.',
 					'medium',
 					false,
-						'ai-translations/upsert-translation'
+						'devenia-workflow/upsert-translation'
 				);
 			case 'open_copy_feedback':
 				return self::quality_verdict_next_action(
@@ -12342,7 +12199,7 @@ final class Devenia_AI_Translations {
 					'Resolve open native or agency copy feedback before treating the page as ready.',
 					'high',
 					true,
-					'ai-translations/record-copy-feedback'
+					'devenia-workflow/record-copy-feedback'
 				);
 			default:
 				return self::quality_verdict_next_action(
@@ -12697,7 +12554,7 @@ final class Devenia_AI_Translations {
 			'adapters'          => array(),
 		);
 
-		$state = apply_filters( 'ai_translation_workflow_seo_meta_state', $state, $post );
+		$state = apply_filters( 'devenia_workflow_translation_seo_meta_state', $state, $post );
 
 		return is_array( $state ) ? $state : array(
 			'passed'       => true,
@@ -13400,7 +13257,7 @@ final class Devenia_AI_Translations {
 		}
 		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
 		$language  = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
+		$claim_gate = self::translation_job_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
@@ -13638,7 +13495,7 @@ final class Devenia_AI_Translations {
 	 * Keep SEO discovery files fresh after translation changes.
 	 */
 	private static function flush_sitemap_cache(): void {
-		do_action( 'ai_translation_workflow_flush_sitemap_cache' );
+		do_action( 'devenia_workflow_translation_flush_sitemap_cache' );
 	}
 
 	/**
@@ -13655,7 +13512,7 @@ final class Devenia_AI_Translations {
 		}
 		$language = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
 		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
+		$claim_gate = self::translation_job_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
@@ -13720,7 +13577,7 @@ final class Devenia_AI_Translations {
 
 		$note     = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$reviewer_provenance = $reviewer_gate['reviewer'];
-		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'Devenia AI Workflow' ) );
+		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'Devenia Workflow' ) );
 
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWER, $reviewer );
@@ -13773,7 +13630,7 @@ final class Devenia_AI_Translations {
 			}
 			$is_content_integrity_issue = str_starts_with( $code, 'rankmath_faq_' );
 			$is_content_integrity_issue = (bool) apply_filters(
-				'ai_translation_workflow_source_content_integrity_issue',
+				'devenia_workflow_source_content_integrity_issue',
 				$is_content_integrity_issue,
 				$issue,
 				$post
@@ -13879,14 +13736,6 @@ final class Devenia_AI_Translations {
 			return self::error( 'Only mark source content integrity reviewed when no useful content rewrite is needed.', 'source_content_integrity_not_clean' );
 		}
 
-		$reservation = self::source_work_reservation_for_type( $source_id, 'content_integrity_repair' );
-		if ( $reservation ) {
-			$claim_token = (string) ( $input['claim_token'] ?? '' );
-			if ( '' === $claim_token || ! hash_equals( (string) ( $reservation['token'] ?? '' ), $claim_token ) ) {
-				return self::error( 'Source content integrity review requires the active content_integrity_repair claim token.', 'source_content_integrity_review_claim_token_mismatch', array( 'reservation' => self::public_source_work_reservation( $reservation ) ) );
-			}
-		}
-
 		$public_url = esc_url_raw( (string) ( $input['public_url'] ?? '' ) );
 		if ( '' === $public_url || ! preg_match( '#^https?://#i', $public_url ) ) {
 			return self::error( 'A public HTTP(S) URL inspected in a browser is required.', 'source_content_integrity_public_url_required' );
@@ -13907,7 +13756,7 @@ final class Devenia_AI_Translations {
 		}
 
 		$validation = self::source_content_integrity_validation( $source );
-		$reviewer   = sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia AI Workflow' ) );
+		$reviewer   = sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia Workflow' ) );
 		$evidence   = array(
 			'content_integrity_already_clean' => true,
 			'public_url'         => $public_url,
@@ -13945,7 +13794,7 @@ final class Devenia_AI_Translations {
 			'excerpt' => self::normalize_review_text( wp_strip_all_tags( (string) $post->post_excerpt ) ),
 			'content' => self::normalized_plain_text_for_review( (string) $post->post_content ),
 		);
-		$fields = apply_filters( 'ai_translation_workflow_source_currentness_text_fields', $fields, $post );
+		$fields = apply_filters( 'devenia_workflow_source_currentness_text_fields', $fields, $post );
 		$fields = is_array( $fields ) ? $fields : array();
 		$stale  = array();
 
@@ -14165,7 +14014,7 @@ final class Devenia_AI_Translations {
 		$language        = self::is_translation_post( $page_id ) ? sanitize_key( (string) get_post_meta( $page_id, self::META_LANGUAGE, true ) ) : self::source_language_code();
 		if ( self::is_translation_post( $page_id ) ) {
 			$source_id = absint( get_post_meta( $page_id, self::META_SOURCE_ID, true ) );
-			$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
+			$claim_gate = self::translation_job_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 			if ( $claim_gate ) {
 				return $claim_gate;
 			}
@@ -14211,11 +14060,11 @@ final class Devenia_AI_Translations {
 		$note     = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$reviewer_provenance = isset( $reviewer_gate['reviewer'] ) && is_array( $reviewer_gate['reviewer'] ) ? $reviewer_gate['reviewer'] : array(
 			'process_id'  => '',
-			'actor'       => 'Devenia AI Workflow',
+			'actor'       => 'Devenia Workflow',
 			'recorded_at' => gmdate( 'c' ),
 			'writer'      => array(),
 		);
-		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'Devenia AI Workflow' ) );
+		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'Devenia Workflow' ) );
 
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWER, $reviewer );
@@ -14255,7 +14104,7 @@ final class Devenia_AI_Translations {
 
 		$language = sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
 		$source_id = absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) );
-		$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
+		$claim_gate = self::translation_job_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ), $input );
 		if ( $claim_gate ) {
 			return $claim_gate;
 		}
@@ -14330,7 +14179,7 @@ final class Devenia_AI_Translations {
 		}
 
 		$note = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
-		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'Devenia AI Workflow' ) );
+		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'Devenia Workflow' ) );
 		$evidence = $candidate_evidence;
 			$evidence['prior_reviews'] = array(
 				'linguistic_reviewed_at' => (string) get_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, true ),
@@ -15071,7 +14920,7 @@ final class Devenia_AI_Translations {
 			if ( 'presentation_surface' === $review_surface ) {
 				$presentation_surface_post_id = absint( $input['presentation_surface_post_id'] ?? ( $input['content_id'] ?? ( $input['page_id'] ?? 0 ) ) );
 				if ( ! $presentation_surface_post_id ) {
-					$errors[] = 'presentation_surface_post_id must identify the draft post reviewed through ai-translations/get-presentation-surface.';
+					$errors[] = 'presentation_surface_post_id must identify the draft post reviewed through devenia-workflow/get-presentation-surface.';
 				} else {
 					$presentation_post = get_post( $presentation_surface_post_id );
 					if ( ! $presentation_post || ! self::is_translatable_post_type( (string) $presentation_post->post_type ) ) {
@@ -15239,7 +15088,7 @@ final class Devenia_AI_Translations {
 				'Write concrete naturalness, source-fidelity, and terminology notes.',
 			),
 			'quality_review' => array(
-				'Provide the live page URL for published pages, or review_surface=presentation_surface plus presentation_surface_post_id for draft translations reviewed through ai-translations/get-presentation-surface.',
+				'Provide the live page URL for published pages, or review_surface=presentation_surface plus presentation_surface_post_id for draft translations reviewed through devenia-workflow/get-presentation-surface.',
 					'Provide at least two rendered headings and checked links/actions from the reviewed surface.',
 					'Provide visual evidence from the reviewed surface: design reference, desktop and mobile observations, hero/section/card/media hierarchy, featured/hero image suitability, and at least two concrete visual observations or screenshot/viewport identifiers.',
 					'Write an explicit good/bad design assessment from the rendered page, list at least two alternative design solutions considered, and explain why the chosen solution fits this specific article better.',
@@ -15398,17 +15247,17 @@ final class Devenia_AI_Translations {
 				'step'    => $step,
 			);
 		}
-		$v2_identity = self::translation_job_v2_internal_step_identity( $step );
-		if ( $v2_identity ) {
-			return $v2_identity;
+		$translation_job_identity = self::translation_job_internal_step_identity( $step );
+		if ( $translation_job_identity ) {
+			return $translation_job_identity;
 		}
 
-		$agent_session_id = self::agent_session_id_from_input( $input );
-		if ( '' === $agent_session_id ) {
+		$execution_id = self::execution_id_from_input( $input );
+		if ( '' === $execution_id ) {
 			return array(
 				'success' => false,
 				'code'    => 'workflow_authority_identity_required',
-				'message' => 'Provide agent_session_id so the workflow authority adapter can verify the server-side workflow lease.',
+				'message' => 'Provide execution_id so the workflow authority adapter can verify the server-side workflow lease.',
 				'step'    => $step,
 			);
 		}
@@ -15418,7 +15267,7 @@ final class Devenia_AI_Translations {
 				return array(
 					'success' => false,
 					'code'    => 'workflow_process_id_required',
-					'message' => 'A stable writer_process_id, reviewer_process_id, or agent_session_id is required so the workflow authority adapter can bind the operation to one process/session.',
+					'message' => 'A stable writer_process_id, reviewer_process_id, or execution_id is required so the workflow authority adapter can bind the operation to one process/session.',
 					'step'    => $step,
 				);
 			}
@@ -15432,7 +15281,7 @@ final class Devenia_AI_Translations {
 				'input'       => $input,
 				'token_label' => $token_label,
 				'process_id'  => $process_id,
-				'agent_session_id' => $agent_session_id,
+				'execution_id' => $execution_id,
 				'llm_vendor' => sanitize_text_field( (string) ( $input['llm_vendor'] ?? '' ) ),
 				'llm_client' => sanitize_text_field( (string) ( $input['llm_client'] ?? '' ) ),
 				'authority_vendor' => sanitize_text_field( (string) ( $input['authority_vendor'] ?? '' ) ),
@@ -15484,7 +15333,7 @@ final class Devenia_AI_Translations {
 			'step_token_label' => $verified_token_label,
 			'process_id' => $verified_process_id,
 			'control_scope_id' => self::normalize_control_scope_id( (string) ( $decision['control_scope_id'] ?? '' ) ),
-			'agent_session_id' => self::normalize_control_scope_id( (string) ( $decision['agent_session_id'] ?? $agent_session_id ) ),
+			'execution_id' => self::normalize_control_scope_id( (string) ( $decision['execution_id'] ?? $execution_id ) ),
 			'llm_vendor' => sanitize_text_field( (string) ( $decision['llm_vendor'] ?? $input['llm_vendor'] ?? '' ) ),
 			'llm_client' => sanitize_text_field( (string) ( $decision['llm_client'] ?? $input['llm_client'] ?? '' ) ),
 			'authority_vendor' => sanitize_text_field( (string) ( $decision['authority_vendor'] ?? $input['authority_vendor'] ?? $decision['authority'] ?? '' ) ),
@@ -15505,14 +15354,14 @@ final class Devenia_AI_Translations {
 			if ( 'draft_write' === $step ) {
 				$process_id = self::normalize_process_id( (string) ( $input['writer_process_id'] ?? '' ) );
 				if ( '' === $process_id ) {
-					$process_id = self::normalize_process_id( self::agent_session_id_from_input( $input ) );
+					$process_id = self::normalize_process_id( self::execution_id_from_input( $input ) );
 				}
 				return $process_id;
 			}
 
 		$process_id = self::normalize_process_id( (string) ( $input['reviewer_process_id'] ?? '' ) );
 		if ( '' === $process_id ) {
-			$process_id = self::normalize_process_id( self::agent_session_id_from_input( $input ) );
+			$process_id = self::normalize_process_id( self::execution_id_from_input( $input ) );
 		}
 		return $process_id;
 	}
@@ -19542,7 +19391,7 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		self::enqueue_plugin_style( 'ai-translation-workflow-language-menu', 'assets/language-menu.css' );
+		self::enqueue_plugin_style( 'devenia-workflow-language-menu', 'assets/language-menu.css' );
 	}
 
 	/**
@@ -20048,7 +19897,7 @@ final class Devenia_AI_Translations {
 			return $data;
 		}
 		$allow_validated_source_design_save = apply_filters(
-			'devenia_ai_translations_allow_source_publish_design_gate_failure',
+			'devenia_workflow_allow_source_publish_design_gate_failure',
 			false,
 			array(
 				'post_id'      => (int) $guard_post->ID,
@@ -20320,7 +20169,7 @@ final class Devenia_AI_Translations {
 		}
 
 		$allow_validated_contract_save = apply_filters(
-			'devenia_ai_translations_allow_translation_direct_save_source_design_mismatch',
+			'devenia_workflow_allow_translation_direct_save_source_design_mismatch',
 			false,
 			array(
 				'source_id'               => $source_id,
@@ -20340,14 +20189,14 @@ final class Devenia_AI_Translations {
 		return array(
 			self::qa_item(
 				'source_design_signature_mismatch',
-				'Direct translated-content save would change the source-owned Gutenberg design tree. Edit source design, then run ai-translations/reproject-source-design; translated posts may only localize text, URLs, metadata, and taxonomy.',
+				'Direct translated-content save would change the source-owned Gutenberg design tree. Edit source design, then run devenia-workflow/reproject-source-design; translated posts may only localize text, URLs, metadata, and taxonomy.',
 				array(
 					'source_id'               => $source_id,
 					'translation_id'          => $post_id,
 					'language'                => $language,
 					'expected_design_hash'    => $expected,
 					'translation_design_hash' => $actual,
-					'next_action'             => 'ai-translations/reproject-source-design',
+					'next_action'             => 'devenia-workflow/reproject-source-design',
 				)
 			),
 		);
@@ -20386,7 +20235,7 @@ final class Devenia_AI_Translations {
 		}
 
 		return (bool) apply_filters(
-			'devenia_ai_translations_allow_frontend_text_edit_direct_text_save',
+			'devenia_workflow_allow_frontend_text_edit_direct_text_save',
 			true,
 			array(
 				'post_id'      => $post_id,
@@ -20946,10 +20795,10 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		self::enqueue_plugin_style( 'devenia-ai-translations-heading-fit', 'assets/frontend-heading-fit.css' );
-		self::enqueue_plugin_script( 'devenia-ai-translations-heading-fit', 'assets/frontend-heading-fit.js' );
+		self::enqueue_plugin_style( 'devenia-workflow-heading-fit', 'assets/frontend-heading-fit.css' );
+		self::enqueue_plugin_script( 'devenia-workflow-heading-fit', 'assets/frontend-heading-fit.js' );
 		wp_localize_script(
-			'devenia-ai-translations-heading-fit',
+			'devenia-workflow-heading-fit',
 			'AITranslationWorkflowHeadingFit',
 			array(
 				'minScale' => 0.88,
@@ -21374,7 +21223,7 @@ final class Devenia_AI_Translations {
 	public static function render_translated_posts_page_article(): void {
 		?>
 		<article id="post-<?php the_ID(); ?>" <?php post_class(); ?> itemtype="https://schema.org/CreativeWork" itemscope>
-			<div class="inside-article ai-translation-workflow-post-card">
+			<div class="inside-article devenia-workflow-post-card">
 				<?php if ( has_post_thumbnail() ) : ?>
 					<div class="post-image">
 						<?php
@@ -21417,7 +21266,7 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		self::enqueue_plugin_style( 'devenia-ai-translations-rtl-layout', 'assets/rtl-layout.css' );
+		self::enqueue_plugin_style( 'devenia-workflow-rtl-layout', 'assets/rtl-layout.css' );
 	}
 
 	/**
@@ -21428,7 +21277,7 @@ final class Devenia_AI_Translations {
 			return;
 		}
 
-		self::enqueue_plugin_style( 'devenia-ai-translations-translated-posts-page', 'assets/translated-posts-page.css' );
+		self::enqueue_plugin_style( 'devenia-workflow-translated-posts-page', 'assets/translated-posts-page.css' );
 	}
 
 	/**
@@ -21830,7 +21679,7 @@ final class Devenia_AI_Translations {
 		 * @param int                 $translation_id Translation post ID.
 		 * @param WP_Post             $source Source post.
 		 */
-		return apply_filters( 'ai_translation_workflow_sync_source_presentation_meta', $result, $translation_id, $source );
+		return apply_filters( 'devenia_workflow_sync_source_presentation_meta', $result, $translation_id, $source );
 	}
 
 	/**
@@ -22622,7 +22471,7 @@ final class Devenia_AI_Translations {
 			self::inspect_gutenberg_content_safety_blocks( $blocks, $issues, $warnings, $summary );
 
 			$adapter_safety = apply_filters(
-				'ai_translation_workflow_gutenberg_content_safety',
+				'devenia_workflow_gutenberg_content_safety',
 				array(
 					'issues'   => array(),
 					'warnings' => array(),
@@ -22669,7 +22518,7 @@ final class Devenia_AI_Translations {
 		$content = self::normalize_core_heading_saved_markup( $content );
 		$content = self::normalize_core_paragraph_saved_markup( $content );
 
-		return (string) apply_filters( 'ai_translation_workflow_normalize_gutenberg_content_for_storage', $content );
+		return (string) apply_filters( 'devenia_workflow_normalize_gutenberg_content_for_storage', $content );
 	}
 
 	/**
@@ -23409,7 +23258,7 @@ final class Devenia_AI_Translations {
 		}
 
 		$adapter_issues = apply_filters(
-			'ai_translation_workflow_route_integrity_issues',
+			'devenia_workflow_translation_route_integrity_issues',
 			array(),
 			$translation_id,
 			$language,
@@ -23585,7 +23434,7 @@ final class Devenia_AI_Translations {
 		);
 
 		$result = apply_filters(
-			'ai_translation_workflow_repair_translation_self_redirects',
+			'devenia_workflow_repair_translation_self_redirects',
 			$result,
 			$translation_id,
 			$dry_run
@@ -23668,7 +23517,7 @@ final class Devenia_AI_Translations {
 				'url'      => (string) $url,
 			);
 			$result  = apply_filters(
-				'ai_translation_workflow_repair_term_archive_self_redirects',
+				'devenia_workflow_translation_repair_term_archive_self_redirects',
 				array(
 					'success' => true,
 					'changed' => false,
@@ -24092,7 +23941,7 @@ final class Devenia_AI_Translations {
 				array_filter(
 					array_map( array( __CLASS__, 'normalize_review_text' ), $terms ),
 					static function ( string $term ): bool {
-						return '' !== $term && Devenia_AI_Translations::unicode_letter_count( $term ) >= 5;
+						return '' !== $term && Devenia_Workflow::unicode_letter_count( $term ) >= 5;
 					}
 				)
 			);
@@ -25457,7 +25306,7 @@ final class Devenia_AI_Translations {
 	 */
 	private static function copy_quality_text_block_names(): array {
 		$names = array( 'core/paragraph', 'core/heading', 'core/list-item', 'core/button' );
-		$names = apply_filters( 'ai_translation_workflow_copy_quality_text_block_names', $names );
+		$names = apply_filters( 'devenia_workflow_copy_quality_text_block_names', $names );
 
 		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/paragraph', 'core/heading', 'core/list-item', 'core/button' );
 	}
@@ -25776,7 +25625,7 @@ final class Devenia_AI_Translations {
 		);
 
 		self::collect_semantic_structure( $blocks, $summary );
-		$link_count_content = apply_filters( 'ai_translation_workflow_semantic_link_count_content', $content, $blocks );
+		$link_count_content = apply_filters( 'devenia_workflow_semantic_link_count_content', $content, $blocks );
 		$link_count_content = is_string( $link_count_content ) ? $link_count_content : $content;
 		if ( preg_match_all( '/\bhref=([\"\'])([^\"\']+)\1/i', $link_count_content, $matches ) ) {
 			$summary['link_count'] = count( $matches[2] );
@@ -25829,7 +25678,7 @@ final class Devenia_AI_Translations {
 	 */
 	private static function semantic_text_unit_block_names(): array {
 		$names = array( 'core/paragraph', 'core/list-item' );
-		$names = apply_filters( 'ai_translation_workflow_semantic_text_unit_block_names', $names );
+		$names = apply_filters( 'devenia_workflow_semantic_text_unit_block_names', $names );
 
 		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/paragraph', 'core/list-item' );
 	}
@@ -25841,7 +25690,7 @@ final class Devenia_AI_Translations {
 	 */
 	private static function semantic_button_block_names(): array {
 		$names = array( 'core/button' );
-		$names = apply_filters( 'ai_translation_workflow_semantic_button_block_names', $names );
+		$names = apply_filters( 'devenia_workflow_semantic_button_block_names', $names );
 
 		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/button' );
 	}
@@ -25853,7 +25702,7 @@ final class Devenia_AI_Translations {
 	 */
 	private static function semantic_image_block_names(): array {
 		$names = array( 'core/image' );
-		$names = apply_filters( 'ai_translation_workflow_semantic_image_block_names', $names );
+		$names = apply_filters( 'devenia_workflow_semantic_image_block_names', $names );
 
 		return is_array( $names ) ? array_values( array_unique( array_map( 'strval', $names ) ) ) : array( 'core/image' );
 	}
@@ -26524,7 +26373,7 @@ final class Devenia_AI_Translations {
 			'modified'  => self::presentation_date_payload( $modified_ts, $post, 'modified', $language ),
 		);
 
-		return apply_filters( 'ai_translation_workflow_presentation_surface', $surface, array( 'post' => $post ) );
+		return apply_filters( 'devenia_workflow_presentation_surface', $surface, array( 'post' => $post ) );
 	}
 
 	/**
@@ -26590,7 +26439,7 @@ final class Devenia_AI_Translations {
 		);
 		$surface['navigation']['language_links'] = self::language_links_presentation_payload( self::language_links_for_blog_archive(), $language );
 
-		return apply_filters( 'ai_translation_workflow_presentation_surface', $surface, array( 'post' => $post ) );
+		return apply_filters( 'devenia_workflow_presentation_surface', $surface, array( 'post' => $post ) );
 	}
 
 	/**
@@ -26671,7 +26520,7 @@ final class Devenia_AI_Translations {
 		);
 		$surface['navigation']['language_links'] = self::language_links_presentation_payload( self::language_links_for_author_id( $author_id ), $language );
 
-		return apply_filters( 'ai_translation_workflow_presentation_surface', $surface, array( 'author' => $author ) );
+		return apply_filters( 'devenia_workflow_presentation_surface', $surface, array( 'author' => $author ) );
 	}
 
 	/**
@@ -26742,7 +26591,7 @@ final class Devenia_AI_Translations {
 		);
 		$surface['navigation']['language_links'] = self::language_links_presentation_payload( self::language_links_for_term_id( (int) $term->term_id, (string) $term->taxonomy ), $language );
 
-		return apply_filters( 'ai_translation_workflow_presentation_surface', $surface, array( 'term' => $term ) );
+		return apply_filters( 'devenia_workflow_presentation_surface', $surface, array( 'term' => $term ) );
 	}
 
 	/**
@@ -26774,7 +26623,7 @@ final class Devenia_AI_Translations {
 			'type' => 'not_found',
 		);
 
-		return apply_filters( 'ai_translation_workflow_presentation_surface', $surface, array() );
+		return apply_filters( 'devenia_workflow_presentation_surface', $surface, array() );
 	}
 
 	/**
@@ -27096,7 +26945,7 @@ final class Devenia_AI_Translations {
 			return $base;
 		}
 
-		$template_option = (string) apply_filters( 'ai_translation_workflow_title_template_option_name', '', 'author_archive_title' );
+		$template_option = (string) apply_filters( 'devenia_workflow_translation_title_template_option_name', '', 'author_archive_title' );
 		return self::title_from_template_option(
 			$template_option,
 			'author_archive_title',
@@ -27885,7 +27734,7 @@ final class Devenia_AI_Translations {
 		}
 
 		$adapter_guardrails = apply_filters(
-			'ai_translation_workflow_gutenberg_guardrails',
+			'devenia_workflow_gutenberg_guardrails',
 			array(
 				'issues'   => array(),
 				'warnings' => array(),
@@ -28008,7 +27857,7 @@ final class Devenia_AI_Translations {
 		if ( 'core/heading' === $name ) {
 			return true;
 		}
-		return (bool) apply_filters( 'ai_translation_workflow_is_heading_block', false, $name, $attrs );
+		return (bool) apply_filters( 'devenia_workflow_is_heading_block', false, $name, $attrs );
 	}
 
 	/**
@@ -28221,5 +28070,5 @@ require_once __DIR__ . '/addons/generateblocks.php';
 require_once __DIR__ . '/addons/rankmath.php';
 require_once __DIR__ . '/addons/elementor.php';
 
-register_activation_hook( __FILE__, array( 'Devenia_AI_Translations', 'activate' ) );
-Devenia_AI_Translations::init();
+register_activation_hook( __FILE__, array( 'Devenia_Workflow', 'activate' ) );
+Devenia_Workflow::init();

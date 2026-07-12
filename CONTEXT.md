@@ -1,5 +1,22 @@
 # Domain Context
 
+## Workflow Core
+
+The deep Module that owns site-level Workflow Mode, Source Editor Adapters,
+bounded source improvement, Translation Job orchestration, observability, and
+ability registration. Its Interface is named `Devenia_Workflow` in PHP,
+`devenia_workflow_*` for WordPress hooks and storage, and
+`devenia-workflow/*` for abilities. AI is an implementation choice and is not
+part of this Module's domain name.
+
+## Translation Module
+
+The deep Module inside Workflow Core that owns Translation Jobs, Translation
+Runs, Quality Decisions, Translation Obligations, localized routes, language
+rules, translation provenance, and translation read models. Translation
+specific Interfaces retain `Translation` in their functional names while using
+the shared `Devenia_Workflow` product namespace.
+
 ## Translation Job
 
 A bounded obligation to produce or review one target-language artifact for one
@@ -33,7 +50,7 @@ structured technical outcome. It never starts an unbounded retry or wait loop.
 
 A human-readable label attached to a Translation Run for operator visibility.
 It grants no authority, survives no session, and is not used to decide quality,
-assignment eligibility, or ownership.
+Job eligibility, or ownership.
 
 ## Source Inventory
 
@@ -62,8 +79,8 @@ The Module that persists one immutable Inventory Generation behind a small
 Interface for source pages, unresolved Translation Obligations, counts,
 refresh, activation, and cleanup. Its WordPress Adapter writes bounded,
 generation-keyed, non-autoloaded option shards first and activates them only by
-flipping the completed generation manifest. Work Item Planner and Exhaustion
-Proof consume this same Interface.
+flipping the completed generation manifest. Translation Job discovery and
+Exhaustion Proof consume this same Interface.
 
 ## Translation Obligation
 
@@ -82,75 +99,13 @@ projected obligation count, unresolved state totals, and the exact policy and
 generation revisions. An empty page of queue results is never an Exhaustion
 Proof.
 
-## Legacy V1 Workflow Terms
-
-The terms below describe the deployed 0.1.536 compatibility workflow. They are
-not requirements for the Translation Job Interface proposed in ADR 0002.
-
-## Work Item
-
-A current editorial obligation for one source or translation. A Work Item has a
-stable `work_item_id` and a `revision` derived from the evidence that makes the
-obligation current. Queue, coverage, and assignment selection must use the same
-Work Item representation.
-
-## Work Item Planner
-
-The Module that produces ordered Work Items for a verified contributor session.
-It owns eligibility, independence, reservation visibility, ordering, skip
-reasons, and exhaustion semantics. Coverage aggregates Planner output; it does
-not reimplement planning.
-
-## Assignment
-
-A server-owned, time-bounded allocation of one Work Item revision to one
-independent contributor session. An Assignment has an `assignment_id`, identity,
-Work Item snapshot, expiry, and lifecycle state. At most one active Assignment
-may exist per session and per Work Item revision.
-
-## Assignment Lifecycle
-
-The Module that owns Assignment transitions: `accept`, `current`, `renew`,
-`complete`, `block`, `abandon`, and `expire`. The server record is authoritative
-and acceptance is idempotent for the owning session.
-
-## Reservation
-
-The storage-level exclusion used internally by Assignment Lifecycle to prevent
-two sessions from owning the same Work Item revision. A Reservation is not an
-Assignment and is not exposed as the contributor's source of truth.
-
 ## Atomic Option Create
 
 The storage Module that creates an internal option row only when its unique
 `option_name` is absent. The Interface returns true only for the caller that
-inserted the row and never updates an existing value. Assignment session
-records, Work Item locks, Reservations, and first Heartbeat state use this
-Interface instead of WordPress 6.9 `add_option()`, whose duplicate-key behavior
-updates the existing row and therefore cannot provide exclusion.
-
-## Contributor Outcome
-
-The structured result of an Assignment: `completed`, `blocked`, `abandoned`, or
-`expired`. Completed outcomes require the assigned Work Item revision to be
-resolved. Blocked outcomes include a controlled blocker category and evidence.
-
-## Work Item Cursor
-
-The latest `completed` or `blocked` Contributor Outcome for a stable Work Item.
-Planner uses the cursor to keep the same actor/session from receiving its own
-successor revision; an independent contributor may continue the Work Item.
-
-## Claim Cache
-
-The local `claim.json` projection used by the contributor command. It is a cache
-of the server Assignment and can be recreated with `current`; it is never the
-only copy of release authority.
-
-## Heartbeat
-
-Observability for contributor freshness and latest activity. Heartbeat state
-must not decide Assignment ownership, completion, or reassignment policy.
+inserted the row and never updates an existing value. Translation Job, Run,
+artifact, and Quality Decision records use this Interface for bounded atomic
+state transitions.
 
 ## Internal Content Link Resolver
 

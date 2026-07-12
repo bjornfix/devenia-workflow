@@ -2,14 +2,14 @@
 /**
  * Atomic create-only storage for internal WordPress option records.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Atomic_Option_Store {
+trait Devenia_Workflow_Atomic_Option_Store {
 	/**
 	 * Create one option only when its unique option_name is absent.
 	 *

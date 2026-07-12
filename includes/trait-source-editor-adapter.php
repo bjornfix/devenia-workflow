@@ -2,14 +2,14 @@
 /**
  * Builder-aware source editor contract.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Source_Editor_Adapter {
+trait Devenia_Workflow_Source_Editor_Adapter {
 	/**
 	 * Resolve the native editor contract for a source object.
 	 *
@@ -26,7 +26,7 @@ trait Devenia_AI_Translations_Source_Editor_Adapter {
 			'design_write_ability'   => '',
 			'completion_abilities'   => array(
 				$is_page ? 'content/update-page' : 'content/update-post',
-				'ai-translations/mark-source-content-integrity-reviewed',
+				'devenia-workflow/mark-source-content-integrity-reviewed',
 			),
 			'native_controls_only'   => true,
 			'public_route_immutable' => true,
@@ -40,7 +40,7 @@ trait Devenia_AI_Translations_Source_Editor_Adapter {
 		 * @param array<string,mixed> $contract Default editor contract.
 		 * @param WP_Post             $source Source post/page.
 		 */
-		$contract = apply_filters( 'devenia_ai_workflow_source_editor_contract', $contract, $source );
+		$contract = apply_filters( 'devenia_workflow_source_editor_contract', $contract, $source );
 		$contract = is_array( $contract ) ? $contract : array();
 
 		$editor = sanitize_key( (string) ( $contract['editor'] ?? 'wordpress' ) );

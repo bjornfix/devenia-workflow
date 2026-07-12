@@ -1,6 +1,6 @@
 <?php
 /**
- * Dev runtime contract for the finite Translation Job v2 lifecycle.
+ * Dev runtime contract for the finite Translation Job lifecycle.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -13,17 +13,17 @@ $translation_id = 0;
 $source_thumbnail_id = 0;
 $option_keys = array();
 $original_user_id = get_current_user_id();
-$languages_option_before = get_option( 'devenia_ai_translations_languages' );
-$runtime_provenance_before = get_option( 'devenia_ai_translations_runtime_mutation_provenance' );
+$languages_option_before = get_option( 'devenia_workflow_language_registry' );
+$runtime_provenance_before = get_option( 'devenia_workflow_runtime_mutation_provenance' );
 
 $call = static function ( string $method, array $input = array() ) {
-	$reflection = new ReflectionMethod( Devenia_AI_Translations::class, $method );
+	$reflection = new ReflectionMethod( Devenia_Workflow::class, $method );
 	$reflection->setAccessible( true );
 	return $reflection->invoke( null, $input );
 };
 
 try {
-	$replace_fragment = new ReflectionMethod( Devenia_AI_Translations::class, 'replace_source_design_text_html' );
+	$replace_fragment = new ReflectionMethod( Devenia_Workflow::class, 'replace_source_design_text_html' );
 	$replace_fragment->setAccessible( true );
 	$projected_heading = (string) $replace_fragment->invoke(
 		null,
@@ -43,7 +43,7 @@ try {
 		array(
 			'post_type' => 'page',
 			'post_status' => 'publish',
-			'post_title' => 'Translation Job V2 linked source fixture',
+			'post_title' => 'Translation Job linked source fixture',
 			'post_content' => '<!-- wp:paragraph --><p>A valid internal link target.</p><!-- /wp:paragraph -->',
 		),
 		true
@@ -57,7 +57,7 @@ try {
 		array(
 			'post_type' => 'page',
 			'post_status' => 'draft',
-			'post_title' => 'Translation Job V2 source fixture',
+			'post_title' => 'Translation Job source fixture',
 			'post_excerpt' => 'A useful source excerpt.',
 			'post_content' => '<!-- wp:paragraph --><p><strong>Useful source</strong><br>Read <a href="' . esc_url( $linked_source_url ) . '">the linked source</a>, then <a href="mailto:hello@example.com?subject=Source%20question&amp;body=Hello%20from%20the%20source">contact us</a> for a concrete next step.</p><!-- /wp:paragraph -->',
 		),
@@ -68,7 +68,7 @@ try {
 	}
 	$source_thumbnail_id = wp_insert_attachment(
 		array(
-			'post_title' => 'Translation Job V2 source media fixture',
+			'post_title' => 'Translation Job source media fixture',
 			'post_status' => 'inherit',
 			'post_mime_type' => 'image/webp',
 		)
@@ -78,7 +78,7 @@ try {
 	}
 	update_post_meta( $source_id, '_thumbnail_id', $source_thumbnail_id );
 
-	$languages_method = new ReflectionMethod( Devenia_AI_Translations::class, 'target_languages' );
+	$languages_method = new ReflectionMethod( Devenia_Workflow::class, 'target_languages' );
 	$languages_method->setAccessible( true );
 	$languages = $languages_method->invoke( null );
 	$language_keys = array_keys( $languages );
@@ -89,9 +89,9 @@ try {
 	$runtime_text_input = array(
 		'language' => $language,
 		'section' => 'share_text',
-		'source' => 'translation_job_v2_runtime_fixture',
+		'source' => 'translation_job_runtime_fixture',
 		'translated' => 'Runtime fixture translation',
-		'writer_process_id' => 'translation-job-v2-runtime',
+		'writer_process_id' => 'translation-job-runtime',
 		'writer_actor' => 'Runtime contract',
 	);
 	wp_set_current_user( 0 );
@@ -119,7 +119,7 @@ try {
 	if ( empty( $source_qa_options['success'] ) ) {
 		throw new RuntimeException( 'Source-scoped QA options failed: ' . wp_json_encode( $source_qa_options ) );
 	}
-	$carryover_candidates = new ReflectionMethod( Devenia_AI_Translations::class, 'source_language_carryover_candidates' );
+	$carryover_candidates = new ReflectionMethod( Devenia_Workflow::class, 'source_language_carryover_candidates' );
 	$carryover_candidates->setAccessible( true );
 	$product_name_candidates = (array) $carryover_candidates->invoke(
 		null,
@@ -130,7 +130,7 @@ try {
 	if ( in_array( 'Search', $product_name_candidates, true ) || in_array( 'Console', $product_name_candidates, true ) ) {
 		throw new RuntimeException( 'Tokens inside a source-scoped preserved product name were still treated as carryover.' );
 	}
-	$unapproved_discover = $call( 'translation_job_v2_discover', array( 'source_id' => $source_id, 'language' => $language ) );
+	$unapproved_discover = $call( 'translation_job_discover', array( 'source_id' => $source_id, 'language' => $language ) );
 	if ( ! empty( $unapproved_discover['success'] ) || 'source_quality_approval_required' !== (string) ( $unapproved_discover['code'] ?? '' ) ) {
 		throw new RuntimeException( 'Unapproved source was not blocked: ' . wp_json_encode( $unapproved_discover ) );
 	}
@@ -143,7 +143,7 @@ try {
 			'public_url' => get_permalink( $source_id ),
 			'no_rewrite_reason' => 'The runtime fixture is intentionally minimal and complete for the contract it verifies; additional source copy would not improve the test evidence.',
 			'reviewer_statement' => 'The runtime contract inspected the entire fixture source and accepts responsibility for this hash-bound source approval before translation.',
-			'reviewer' => 'translation-job-v2-runtime',
+			'reviewer' => 'translation-job-runtime',
 		)
 	);
 	if ( empty( $source_review['success'] ) ) {
@@ -154,15 +154,15 @@ try {
 	if ( empty( $expiry_languages ) ) {
 		throw new RuntimeException( 'A second configured target language is required for the expired-Run fixture.' );
 	}
-	$expiry_discover = $call( 'translation_job_v2_discover', array( 'source_id' => $source_id, 'language' => (string) $expiry_languages[0], 'observability_label' => 'runtime-expired-run' ) );
+	$expiry_discover = $call( 'translation_job_discover', array( 'source_id' => $source_id, 'language' => (string) $expiry_languages[0], 'observability_label' => 'runtime-expired-run' ) );
 	$expiry_job_id = (string) ( $expiry_discover['job']['job_id'] ?? '' );
 	if ( empty( $expiry_discover['success'] ) || '' === $expiry_job_id ) {
 		throw new RuntimeException( 'Expired-Run fixture discovery failed: ' . wp_json_encode( $expiry_discover ) );
 	}
-	$option_keys[] = 'devenia_ai_translation_job_v2_' . $expiry_job_id;
-	$option_keys[] = 'devenia_ai_translation_job_v2_claim_' . $expiry_job_id;
+	$option_keys[] = 'devenia_workflow_translation_job_' . $expiry_job_id;
+	$option_keys[] = 'devenia_workflow_translation_job_claim_' . $expiry_job_id;
 	$expiry_claim = $call(
-		'translation_job_v2_claim',
+		'translation_job_claim',
 		array(
 			'job_id' => $expiry_job_id,
 			'run_id' => 'runtime-expiring-' . wp_generate_password( 8, false, false ),
@@ -175,12 +175,12 @@ try {
 		throw new RuntimeException( 'Expired-Run fixture claim failed: ' . wp_json_encode( $expiry_claim ) );
 	}
 	$expired_run_id = (string) $expiry_claim['run']['run_id'];
-	$option_keys[] = 'devenia_ai_translation_run_v2_' . $expired_run_id;
-	$expired_lock = get_option( 'devenia_ai_translation_job_v2_claim_' . $expiry_job_id );
+	$option_keys[] = 'devenia_workflow_translation_run_' . $expired_run_id;
+	$expired_lock = get_option( 'devenia_workflow_translation_job_claim_' . $expiry_job_id );
 	$expired_lock['expires_at'] = gmdate( 'c', time() - 1 );
-	update_option( 'devenia_ai_translation_job_v2_claim_' . $expiry_job_id, $expired_lock, false );
+	update_option( 'devenia_workflow_translation_job_claim_' . $expiry_job_id, $expired_lock, false );
 	$replacement_claim = $call(
-		'translation_job_v2_claim',
+		'translation_job_claim',
 		array(
 			'job_id' => $expiry_job_id,
 			'run_id' => 'runtime-replacement-' . wp_generate_password( 8, false, false ),
@@ -190,7 +190,7 @@ try {
 		)
 	);
 	$replacement_run_id = (string) ( $replacement_claim['run']['run_id'] ?? '' );
-	$expired_run = get_option( 'devenia_ai_translation_run_v2_' . $expired_run_id );
+	$expired_run = get_option( 'devenia_workflow_translation_run_' . $expired_run_id );
 	if (
 		empty( $replacement_claim['success'] )
 		|| 'completed' !== (string) ( $expired_run['status'] ?? '' )
@@ -199,18 +199,18 @@ try {
 	) {
 		throw new RuntimeException( 'Expired Run was not finalized before replacement claim: ' . wp_json_encode( array( 'replacement' => $replacement_claim, 'expired_run' => $expired_run ) ) );
 	}
-	$option_keys[] = 'devenia_ai_translation_run_v2_' . $replacement_run_id;
+	$option_keys[] = 'devenia_workflow_translation_run_' . $replacement_run_id;
 
-	$discover = $call( 'translation_job_v2_discover', array( 'source_id' => $source_id, 'language' => $language, 'observability_label' => 'runtime-contract' ) );
+	$discover = $call( 'translation_job_discover', array( 'source_id' => $source_id, 'language' => $language, 'observability_label' => 'runtime-contract' ) );
 	if ( empty( $discover['success'] ) || empty( $discover['job']['job_id'] ) ) {
 		throw new RuntimeException( 'Discover failed: ' . wp_json_encode( $discover ) );
 	}
 	$job_id = (string) $discover['job']['job_id'];
-	$option_keys[] = 'devenia_ai_translation_job_v2_' . $job_id;
-	$option_keys[] = 'devenia_ai_translation_job_v2_claim_' . $job_id;
+	$option_keys[] = 'devenia_workflow_translation_job_' . $job_id;
+	$option_keys[] = 'devenia_workflow_translation_job_claim_' . $job_id;
 
 	$claim = $call(
-		'translation_job_v2_claim',
+		'translation_job_claim',
 		array(
 			'job_id' => $job_id,
 			'run_id' => 'runtime-translator-' . wp_generate_password( 8, false, false ),
@@ -224,13 +224,13 @@ try {
 	}
 	$translator_run_id = (string) $claim['run']['run_id'];
 	$translator_token = (string) $claim['claim_token'];
-	$option_keys[] = 'devenia_ai_translation_run_v2_' . $translator_run_id;
-	$stored_claim = get_option( 'devenia_ai_translation_job_v2_claim_' . $job_id );
+	$option_keys[] = 'devenia_workflow_translation_run_' . $translator_run_id;
+	$stored_claim = get_option( 'devenia_workflow_translation_job_claim_' . $job_id );
 	if ( false !== strpos( wp_json_encode( $stored_claim ) ?: '', $translator_token ) ) {
 		throw new RuntimeException( 'Claim token was stored in plaintext.' );
 	}
 
-	$packet = $call( 'translation_job_v2_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $translator_run_id, 'claim_token' => $translator_token ) );
+	$packet = $call( 'translation_job_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $translator_run_id, 'claim_token' => $translator_token ) );
 	$fragments = $packet['packet']['fragments'] ?? array();
 	$links = $packet['packet']['links'] ?? array();
 	$language_profile = $packet['packet']['language_profile'] ?? array();
@@ -246,7 +246,7 @@ try {
 		|| 'retain_source_url_until_localized_target_is_published' !== (string) ( $links[0]['policy'] ?? '' )
 		|| $linked_source_url !== (string) ( $links[0]['target_url'] ?? '' )
 		|| ! in_array( 'Google Search Console', (array) ( $language_profile['source_qa_preserve_terms'] ?? array() ), true )
-		|| 'ai-translations/v2-submit-artifact' !== (string) ( $submission_contract['ability'] ?? '' )
+		|| 'devenia-workflow/translation-job-submit-artifact' !== (string) ( $submission_contract['ability'] ?? '' )
 		|| ! in_array( 'usage', (array) ( $submission_contract['input_schema']['required'] ?? array() ), true )
 		|| ! isset( $artifact_schema_properties['seo'] )
 		|| isset( $artifact_schema_properties['seo_title'] )
@@ -275,7 +275,7 @@ try {
 		$invalid_contact_artifact['localized_fragments'][0]['html']
 	);
 	$invalid_contact_submit = $call(
-		'translation_job_v2_submit_artifact',
+		'translation_job_submit_artifact',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $translator_run_id,
@@ -289,7 +289,7 @@ try {
 	}
 	$invalid_artifact['localized_fragments'][0]['html'] = str_replace( $linked_source_url, home_url( '/invented-localized-route/' ), $invalid_artifact['localized_fragments'][0]['html'] );
 	$invalid_submit = $call(
-		'translation_job_v2_submit_artifact',
+		'translation_job_submit_artifact',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $translator_run_id,
@@ -302,7 +302,7 @@ try {
 		throw new RuntimeException( 'Invented localized link was not rejected: ' . wp_json_encode( $invalid_submit ) );
 	}
 	$submit = $call(
-		'translation_job_v2_submit_artifact',
+		'translation_job_submit_artifact',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $translator_run_id,
@@ -323,10 +323,10 @@ try {
 		throw new RuntimeException( 'Artifact submission did not synchronize the approved source featured image: ' . wp_json_encode( $submit ) );
 	}
 	$artifact_revision = (string) $submit['artifact_revision'];
-	$option_keys[] = 'devenia_ai_translation_artifact_v2_' . $artifact_revision;
+	$option_keys[] = 'devenia_workflow_translation_artifact_' . $artifact_revision;
 
 	$quality_claim = $call(
-		'translation_job_v2_claim',
+		'translation_job_claim',
 		array(
 			'job_id' => $job_id,
 			'run_id' => 'runtime-quality-' . wp_generate_password( 8, false, false ),
@@ -340,13 +340,13 @@ try {
 	}
 	$quality_run_id = (string) $quality_claim['run']['run_id'];
 	$quality_token = (string) $quality_claim['claim_token'];
-	$option_keys[] = 'devenia_ai_translation_run_v2_' . $quality_run_id;
-	$quality_packet = $call( 'translation_job_v2_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $quality_run_id, 'claim_token' => $quality_token ) );
+	$option_keys[] = 'devenia_workflow_translation_run_' . $quality_run_id;
+	$quality_packet = $call( 'translation_job_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $quality_run_id, 'claim_token' => $quality_token ) );
 	$quality_contact_actions = $quality_packet['packet']['contact_actions'] ?? array();
 	if (
 		empty( $quality_packet['success'] )
 		|| $links !== ( $quality_packet['packet']['links'] ?? array() )
-		|| 'ai-translations/v2-submit-quality-decision' !== (string) ( $quality_packet['packet']['submission_contract']['ability'] ?? '' )
+		|| 'devenia-workflow/translation-job-submit-quality-decision' !== (string) ( $quality_packet['packet']['submission_contract']['ability'] ?? '' )
 		|| 'array' !== (string) ( $quality_packet['packet']['submission_contract']['input_schema']['properties']['corrections']['type'] ?? '' )
 		|| 'string' !== (string) ( $quality_packet['packet']['submission_contract']['input_schema']['properties']['corrections']['items']['type'] ?? '' )
 		|| 'Source question' !== (string) ( $quality_contact_actions['source'][0]['subject'] ?? '' )
@@ -357,10 +357,10 @@ try {
 	$checks = array_fill_keys( array( 'source_quality', 'natural_language', 'factual_accuracy', 'source_coverage', 'localized_search_intent', 'offer_and_contact', 'links_and_route', 'rendered_experience' ), true );
 	$quality_evidence = 'Runtime contract reviewed every required dimension and requests a deliberate revision.';
 	$quality_corrections = array( 'Runtime fixture intentionally stops before publication.' );
-	$revision_method = new ReflectionMethod( Devenia_AI_Translations::class, 'translation_job_v2_revision' );
+	$revision_method = new ReflectionMethod( Devenia_Workflow::class, 'translation_job_revision' );
 	$revision_method->setAccessible( true );
 	$orphaned_quality_revision = (string) $revision_method->invoke( null, array( $artifact_revision, 'revise', $checks, $quality_evidence, $quality_corrections ) );
-	$orphaned_quality_key = 'devenia_ai_translation_quality_v2_' . $orphaned_quality_revision;
+	$orphaned_quality_key = 'devenia_workflow_translation_quality_' . $orphaned_quality_revision;
 	$option_keys[] = $orphaned_quality_key;
 	add_option(
 		$orphaned_quality_key,
@@ -384,7 +384,7 @@ try {
 		false
 	);
 	$quality = $call(
-		'translation_job_v2_submit_quality_decision',
+		'translation_job_submit_quality_decision',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $quality_run_id,
@@ -400,9 +400,9 @@ try {
 	if ( empty( $quality['success'] ) || 'changes_requested' !== (string) ( $quality['job']['status'] ?? '' ) ) {
 		throw new RuntimeException( 'Idempotent orphaned Quality Decision recovery failed: ' . wp_json_encode( $quality ) );
 	}
-	$option_keys[] = 'devenia_ai_translation_quality_v2_' . (string) $quality['quality_decision']['quality_revision'];
+	$option_keys[] = 'devenia_workflow_translation_quality_' . (string) $quality['quality_decision']['quality_revision'];
 	$correction_claim = $call(
-		'translation_job_v2_claim',
+		'translation_job_claim',
 		array(
 			'job_id' => $job_id,
 			'run_id' => 'runtime-correction-' . wp_generate_password( 8, false, false ),
@@ -415,9 +415,9 @@ try {
 		throw new RuntimeException( 'Correction claim failed: ' . wp_json_encode( $correction_claim ) );
 	}
 	$correction_run_id = (string) $correction_claim['run']['run_id'];
-	$option_keys[] = 'devenia_ai_translation_run_v2_' . $correction_run_id;
+	$option_keys[] = 'devenia_workflow_translation_run_' . $correction_run_id;
 	$correction_packet = $call(
-		'translation_job_v2_fetch_packet',
+		'translation_job_fetch_packet',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $correction_run_id,
@@ -434,7 +434,7 @@ try {
 		throw new RuntimeException( 'Correction context missing: ' . wp_json_encode( $correction_packet ) );
 	}
 	$second_artifact = $call(
-		'translation_job_v2_submit_artifact',
+		'translation_job_submit_artifact',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $correction_run_id,
@@ -447,7 +447,7 @@ try {
 		throw new RuntimeException( 'Second artifact submission failed: ' . wp_json_encode( $second_artifact ) );
 	}
 	$second_quality_claim = $call(
-		'translation_job_v2_claim',
+		'translation_job_claim',
 		array(
 			'job_id' => $job_id,
 			'run_id' => 'runtime-quality-second-' . wp_generate_password( 8, false, false ),
@@ -460,9 +460,9 @@ try {
 		throw new RuntimeException( 'Second quality claim failed: ' . wp_json_encode( $second_quality_claim ) );
 	}
 	$second_quality_run_id = (string) $second_quality_claim['run']['run_id'];
-	$option_keys[] = 'devenia_ai_translation_run_v2_' . $second_quality_run_id;
+	$option_keys[] = 'devenia_workflow_translation_run_' . $second_quality_run_id;
 	$second_quality = $call(
-		'translation_job_v2_submit_quality_decision',
+		'translation_job_submit_quality_decision',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $second_quality_run_id,
@@ -478,9 +478,9 @@ try {
 	if ( empty( $second_quality['success'] ) || 'changes_requested' !== (string) ( $second_quality['job']['status'] ?? '' ) ) {
 		throw new RuntimeException( 'Second Quality Decision failed: ' . wp_json_encode( $second_quality ) );
 	}
-	$option_keys[] = 'devenia_ai_translation_quality_v2_' . (string) $second_quality['quality_decision']['quality_revision'];
+	$option_keys[] = 'devenia_workflow_translation_quality_' . (string) $second_quality['quality_decision']['quality_revision'];
 	$third_correction_claim = $call(
-		'translation_job_v2_claim',
+		'translation_job_claim',
 		array(
 			'job_id' => $job_id,
 			'run_id' => 'runtime-correction-third-' . wp_generate_password( 8, false, false ),
@@ -493,9 +493,9 @@ try {
 		throw new RuntimeException( 'Third translator Run was not available after a valid second Quality Decision: ' . wp_json_encode( $third_correction_claim ) );
 	}
 	$third_correction_run_id = (string) $third_correction_claim['run']['run_id'];
-	$option_keys[] = 'devenia_ai_translation_run_v2_' . $third_correction_run_id;
+	$option_keys[] = 'devenia_workflow_translation_run_' . $third_correction_run_id;
 	$third_artifact = $call(
-		'translation_job_v2_submit_artifact',
+		'translation_job_submit_artifact',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $third_correction_run_id,
@@ -508,7 +508,7 @@ try {
 		throw new RuntimeException( 'Third artifact submission failed: ' . wp_json_encode( $third_artifact ) );
 	}
 	$third_quality_claim = $call(
-		'translation_job_v2_claim',
+		'translation_job_claim',
 		array(
 			'job_id' => $job_id,
 			'run_id' => 'runtime-quality-third-' . wp_generate_password( 8, false, false ),
@@ -520,9 +520,9 @@ try {
 	if ( empty( $third_quality_claim['success'] ) ) {
 		throw new RuntimeException( 'Third quality Run was not available after the final correction: ' . wp_json_encode( $third_quality_claim ) );
 	}
-	$option_keys[] = 'devenia_ai_translation_run_v2_' . (string) $third_quality_claim['run']['run_id'];
+	$option_keys[] = 'devenia_workflow_translation_run_' . (string) $third_quality_claim['run']['run_id'];
 	$third_quality = $call(
-		'translation_job_v2_submit_quality_decision',
+		'translation_job_submit_quality_decision',
 		array(
 			'job_id' => $job_id,
 			'run_id' => (string) $third_quality_claim['run']['run_id'],
@@ -538,34 +538,34 @@ try {
 	if ( empty( $third_quality['success'] ) || 'ready_to_publish' !== (string) ( $third_quality['job']['status'] ?? '' ) ) {
 		throw new RuntimeException( 'Final Quality Decision failed: ' . wp_json_encode( $third_quality ) );
 	}
-	$option_keys[] = 'devenia_ai_translation_quality_v2_' . (string) $third_quality['quality_decision']['quality_revision'];
+	$option_keys[] = 'devenia_workflow_translation_quality_' . (string) $third_quality['quality_decision']['quality_revision'];
 	delete_post_meta( $translation_id, '_thumbnail_id' );
 	add_post_meta( $translation_id, '_thumbnail_id', $linked_source_id );
 	add_post_meta( $translation_id, '_thumbnail_id', $source_thumbnail_id );
 	$published = $call(
-		'translation_job_v2_publish',
+		'translation_job_publish',
 		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => false )
 	);
 	if ( $source_thumbnail_id !== absint( get_post_meta( $translation_id, '_thumbnail_id', true ) ) ) {
-		throw new RuntimeException( 'Ready-to-publish v2 call did not reconcile stale featured media: ' . wp_json_encode( $published ) );
+		throw new RuntimeException( 'Ready-to-publish Translation Job call did not reconcile stale featured media: ' . wp_json_encode( $published ) );
 	}
-	$stored_job = get_option( 'devenia_ai_translation_job_v2_' . $job_id );
+	$stored_job = get_option( 'devenia_workflow_translation_job_' . $job_id );
 	$stored_job['status'] = 'published';
-	update_option( 'devenia_ai_translation_job_v2_' . $job_id, $stored_job, false );
+	update_option( 'devenia_workflow_translation_job_' . $job_id, $stored_job, false );
 	delete_post_meta( $translation_id, '_thumbnail_id' );
 	add_post_meta( $translation_id, '_thumbnail_id', $linked_source_id );
 	add_post_meta( $translation_id, '_thumbnail_id', $source_thumbnail_id );
 	$republished = $call(
-		'translation_job_v2_publish',
+		'translation_job_publish',
 		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => false )
 	);
 	if (
 		'job_not_ready_to_publish' === (string) ( $republished['code'] ?? '' )
 		|| $source_thumbnail_id !== absint( get_post_meta( $translation_id, '_thumbnail_id', true ) )
 	) {
-		throw new RuntimeException( 'Idempotent v2 publication did not reconcile stale featured media: ' . wp_json_encode( $republished ) );
+		throw new RuntimeException( 'Idempotent Translation Job publication did not reconcile stale featured media: ' . wp_json_encode( $republished ) );
 	}
-	$published_job = get_option( 'devenia_ai_translation_job_v2_' . $job_id );
+	$published_job = get_option( 'devenia_workflow_translation_job_' . $job_id );
 	$published_job['run_ids'] = array_values(
 		array_filter(
 			(array) $published_job['run_ids'],
@@ -574,10 +574,10 @@ try {
 			}
 		)
 	);
-	update_option( 'devenia_ai_translation_job_v2_' . $job_id, $published_job, false );
+	update_option( 'devenia_workflow_translation_job_' . $job_id, $published_job, false );
 	$post_publish_run_id = 'runtime-translator-post-publish-' . wp_generate_password( 8, false, false );
 	$post_publish_claim = $call(
-		'translation_job_v2_claim',
+		'translation_job_claim',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $post_publish_run_id,
@@ -589,14 +589,14 @@ try {
 	if ( empty( $post_publish_claim['success'] ) || 'published' !== (string) ( $post_publish_claim['claim']['previous_status'] ?? '' ) ) {
 		throw new RuntimeException( 'Published Job could not enter a bounded correction Run: ' . wp_json_encode( $post_publish_claim ) );
 	}
-	$option_keys[] = 'devenia_ai_translation_run_v2_' . $post_publish_run_id;
+	$option_keys[] = 'devenia_workflow_translation_run_' . $post_publish_run_id;
 	$post_publish_artifact = $artifact;
 	$post_publish_artifact['title'] = 'Runtime translated title corrected after browser QA';
 	$post_publish_artifact['localized_slug'] = 'must-not-replace-published-route';
 	$published_route_before = (string) get_permalink( $translation_id );
 	$published_slug_before  = (string) get_post_field( 'post_name', $translation_id );
 	$post_publish_submit = $call(
-		'translation_job_v2_submit_artifact',
+		'translation_job_submit_artifact',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $post_publish_run_id,
@@ -608,10 +608,10 @@ try {
 	if ( empty( $post_publish_submit['success'] ) || 'publish' !== get_post_status( $translation_id ) || 'quality_pending' !== (string) ( $post_publish_submit['job']['status'] ?? '' ) || $published_slug_before !== (string) get_post_field( 'post_name', $translation_id ) || $published_route_before !== (string) get_permalink( $translation_id ) ) {
 		throw new RuntimeException( 'Published correction artifact was not saved safely: ' . wp_json_encode( $post_publish_submit ) );
 	}
-	$option_keys[] = 'devenia_ai_translation_artifact_v2_' . (string) $post_publish_submit['artifact_revision'];
+	$option_keys[] = 'devenia_workflow_translation_artifact_' . (string) $post_publish_submit['artifact_revision'];
 	$post_publish_quality_run_id = 'runtime-quality-post-publish-' . wp_generate_password( 8, false, false );
 	$post_publish_quality_claim = $call(
-		'translation_job_v2_claim',
+		'translation_job_claim',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $post_publish_quality_run_id,
@@ -623,9 +623,9 @@ try {
 	if ( empty( $post_publish_quality_claim['success'] ) ) {
 		throw new RuntimeException( 'Published correction could not enter bounded quality review: ' . wp_json_encode( $post_publish_quality_claim ) );
 	}
-	$option_keys[] = 'devenia_ai_translation_run_v2_' . $post_publish_quality_run_id;
+	$option_keys[] = 'devenia_workflow_translation_run_' . $post_publish_quality_run_id;
 	$post_publish_quality = $call(
-		'translation_job_v2_submit_quality_decision',
+		'translation_job_submit_quality_decision',
 		array(
 			'job_id' => $job_id,
 			'run_id' => $post_publish_quality_run_id,
@@ -641,16 +641,16 @@ try {
 	if ( empty( $post_publish_quality['success'] ) || 'changes_requested' !== (string) ( $post_publish_quality['job']['status'] ?? '' ) ) {
 		throw new RuntimeException( 'Published correction did not receive an exact Quality Decision: ' . wp_json_encode( $post_publish_quality ) );
 	}
-	$option_keys[] = 'devenia_ai_translation_quality_v2_' . (string) $post_publish_quality['quality_decision']['quality_revision'];
+	$option_keys[] = 'devenia_workflow_translation_quality_' . (string) $post_publish_quality['quality_decision']['quality_revision'];
 	if ( 'publish' !== get_post_status( $translation_id ) || 'Runtime translated title corrected after browser QA' !== get_the_title( $translation_id ) ) {
 		throw new RuntimeException( 'Published correction did not remain live while re-entering quality review.' );
 	}
-	$orphaned_run = get_option( 'devenia_ai_translation_run_v2_' . $translator_run_id );
+	$orphaned_run = get_option( 'devenia_workflow_translation_run_' . $translator_run_id );
 	$orphaned_run['status'] = 'running';
 	unset( $orphaned_run['outcome'], $orphaned_run['finished_at'] );
-	update_option( 'devenia_ai_translation_run_v2_' . $translator_run_id, $orphaned_run, false );
-	$finalized_count = $call( 'translation_job_v2_finalize_orphaned_runs', get_option( 'devenia_ai_translation_job_v2_' . $job_id ) );
-	$finalized_orphaned_run = get_option( 'devenia_ai_translation_run_v2_' . $translator_run_id );
+	update_option( 'devenia_workflow_translation_run_' . $translator_run_id, $orphaned_run, false );
+	$finalized_count = $call( 'translation_job_finalize_orphaned_runs', get_option( 'devenia_workflow_translation_job_' . $job_id ) );
+	$finalized_orphaned_run = get_option( 'devenia_workflow_translation_run_' . $translator_run_id );
 	if (
 		1 !== $finalized_count
 		|| 'completed' !== (string) ( $finalized_orphaned_run['status'] ?? '' )
@@ -693,8 +693,8 @@ try {
 	exit( 1 );
 } finally {
 	wp_set_current_user( $original_user_id );
-	update_option( 'devenia_ai_translations_languages', $languages_option_before, false );
-	update_option( 'devenia_ai_translations_runtime_mutation_provenance', $runtime_provenance_before, false );
+	update_option( 'devenia_workflow_language_registry', $languages_option_before, false );
+	update_option( 'devenia_workflow_runtime_mutation_provenance', $runtime_provenance_before, false );
 	if ( $translation_id > 0 ) {
 		wp_delete_post( $translation_id, true );
 	}

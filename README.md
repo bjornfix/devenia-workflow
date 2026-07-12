@@ -1,15 +1,15 @@
-# Devenia AI Workflow
+# Devenia Workflow
 
 Run controlled AI-assisted content improvement and multilingual publishing workflows inside WordPress.
 
-[![GitHub release](https://img.shields.io/github/v/release/bjornfix/ai-translation-workflow)](https://github.com/bjornfix/ai-translation-workflow/releases)
+[![GitHub release](https://img.shields.io/github/v/release/bjornfix/devenia-workflow)](https://github.com/bjornfix/devenia-workflow/releases)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/gpl-2.0)
 [![WordPress](https://img.shields.io/badge/WordPress-6.9%2B-blue.svg)](https://wordpress.org)
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.573
+**Stable tag:** 0.1.574
 
 **License:** GPLv2 or later
 
@@ -17,7 +17,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 ## What It Does
 
-Devenia AI Workflow gives WordPress operators a controlled workflow for improving source content, creating localized pages and posts, checking quality, recording review evidence, and publishing verified results.
+Devenia Workflow gives WordPress operators a controlled workflow for improving source content, creating localized pages and posts, checking quality, recording review evidence, and publishing verified results.
 
 Translations remain ordinary WordPress content. The plugin owns workflow state, source relationships, localized routes, validation, review gates, and publication evidence without replacing WordPress as the content system.
 
@@ -40,7 +40,7 @@ The operator describes the outcome and reviews evidence. The workflow keeps sour
 
 ## Why This Feels Different
 
-Most translation plugins focus on generating text or proxying translated pages. Devenia AI Workflow focuses on the controlled publishing layer around the work:
+Most translation plugins focus on generating text or proxying translated pages. Devenia Workflow focuses on the controlled publishing layer around the work:
 
 - WordPress-native pages and posts
 - complete source inventory before prioritization
@@ -100,36 +100,36 @@ The plugin remains active if the Abilities API is unavailable, but workflow abil
 ## Documentation
 
 - [Plugin Page](https://devenia.com/plugins/devenia-workflow/)
-- [GitHub Releases](https://github.com/bjornfix/ai-translation-workflow/releases)
+- [GitHub Releases](https://github.com/bjornfix/devenia-workflow/releases)
 - [Latest ZIP](https://downloads.devenia.com/devenia-workflow.zip)
 - [Devenia Plugins](https://devenia.com/plugins/)
 
 ## Start Here
 
 1. Download and install the latest ZIP.
-2. Activate **Devenia AI Workflow**.
+2. Activate **Devenia Workflow**.
 3. Confirm the Abilities API is available.
-4. Read the current workflow mode with `ai-translations/get-workflow-mode`.
-5. Build Source Inventory with `ai-translations/rebuild-source-inventory`.
-6. Inspect `ai-translations/translation-exhaustion-proof`.
-7. Process work through the bounded v2 Translation Job abilities.
+4. Read the current workflow mode with `devenia-workflow/get-mode`.
+5. Build Source Inventory with `devenia-workflow/rebuild-source-inventory`.
+6. Inspect `devenia-workflow/translation-exhaustion-proof`.
+7. Process work through the bounded Translation Job abilities.
 
 ## Core Workflow Interfaces
 
-- `ai-translations/rebuild-source-inventory`
-- `ai-translations/source-inventory`
-- `ai-translations/translation-obligation-queue`
-- `ai-translations/translation-exhaustion-proof`
-- `ai-translations/translation-job-v2-next`
-- `ai-translations/v2-discover-job`
-- `ai-translations/v2-claim-job`
-- `ai-translations/v2-fetch-packet`
-- `ai-translations/v2-submit-artifact`
-- `ai-translations/v2-submit-quality-decision`
-- `ai-translations/v2-publish`
-- `ai-translations/v2-status`
+- `devenia-workflow/rebuild-source-inventory`
+- `devenia-workflow/source-inventory`
+- `devenia-workflow/translation-obligation-queue`
+- `devenia-workflow/translation-exhaustion-proof`
+- `devenia-workflow/translation-job-next`
+- `devenia-workflow/translation-job-discover`
+- `devenia-workflow/translation-job-claim`
+- `devenia-workflow/translation-job-fetch-packet`
+- `devenia-workflow/translation-job-submit-artifact`
+- `devenia-workflow/translation-job-submit-quality-decision`
+- `devenia-workflow/translation-job-publish`
+- `devenia-workflow/translation-job-status`
 
-Additional abilities cover source inspection, workflow mode, language configuration, QA, localized routes, taxonomy, internal links, review evidence, frontend verification, and compatibility workflows.
+Additional abilities cover source inspection, workflow mode, language configuration, QA, localized routes, taxonomy, internal links, review evidence, and frontend verification.
 
 ## Storage and Portability
 
@@ -142,6 +142,13 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.574
+
+- Removes the superseded persona, Heartbeat, Assignment, Reservation, and Work Item orchestration system.
+- Makes the bounded Translation Job the only translation orchestration Interface, with seven explicit operations.
+- Renames current PHP, hooks, options, assets, abilities, and repository references consistently under `devenia-workflow`.
+- Keeps Source Inventory, complete artifacts, Quality Decisions, publishing, localized routes, and ordinary WordPress translations intact.
 
 ### 0.1.573
 
@@ -165,11 +172,11 @@ GPL-2.0+
 ## Links
 
 - [Plugin Page](https://devenia.com/plugins/devenia-workflow/)
-- [GitHub Repository](https://github.com/bjornfix/ai-translation-workflow)
-- [GitHub Releases](https://github.com/bjornfix/ai-translation-workflow/releases)
+- [GitHub Repository](https://github.com/bjornfix/devenia-workflow)
+- [GitHub Releases](https://github.com/bjornfix/devenia-workflow/releases)
 - [Direct Download](https://downloads.devenia.com/devenia-workflow.zip)
 - [Devenia Plugins](https://devenia.com/plugins/)
 
 ## Star and Share
 
-If Devenia AI Workflow helps you run safer WordPress content operations, star the repository and share the public plugin page with other WordPress operators.
+If Devenia Workflow helps you run safer WordPress content operations, star the repository and share the public plugin page with other WordPress operators.

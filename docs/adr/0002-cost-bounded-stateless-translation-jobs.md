@@ -4,9 +4,9 @@
 
 Accepted
 
-For v2 model orchestration this supersedes ADR 0001's independent-contributor
-session model. ADR 0001 continues to describe the deployed 0.1.536 compatibility
-implementation until migration is complete.
+This is the only supported translation orchestration model. The superseded
+persona, Heartbeat, Assignment, Reservation, and Work Item implementation has
+been removed rather than retained behind compatibility aliases.
 
 ## Context
 
@@ -42,8 +42,7 @@ learning, and worker orchestration are presented through one plugin Interface.
 
 ## Decision
 
-Introduce a small Translation Job Module alongside the existing workflow. Do
-not extend Heartbeat/persona orchestration while this decision is evaluated.
+Use one bounded Translation Job Module inside Workflow Core.
 
 ### Job Lifecycle
 
@@ -145,14 +144,10 @@ The target Translation Job Interface is deliberately small:
 6. publish an approved artifact;
 7. inspect Job and Run status, including cost.
 
-Existing abilities such as `upsert-page`, `qa-translation`, `workflow-status`,
-and `publish-translation` may serve as migration adapters. The v2 Interface must
-not expose the existing 73-ability surface to a Translation Run.
-
-The migration adapter may map a passing Quality Decision to legacy review
-metadata while production remains on v1. The target publish gate checks the
-artifact revision, required validation results, Quality Decision, and normal
-WordPress capability; it does not consult Ydepi or translation Actor leases.
+Internal content, QA, and publication implementations remain reusable behind
+the Translation Job Module, but their former orchestration abilities are not a
+parallel public workflow. The publish gate checks the artifact revision,
+required validation results, Quality Decision, and normal WordPress capability.
 
 ### Responsibility Split
 
@@ -177,8 +172,7 @@ These responsibilities must not be part of the Translation Job Interface:
 - author archive, cache, performance, and general repair operations;
 - reviewer-learning administration and broad site maintenance queues.
 
-They may remain temporarily as compatibility Modules, move to owning plugins,
-or be retired after migration evidence proves they are unnecessary.
+They are not part of this plugin's supported orchestration system.
 
 ## Acceptance Evidence
 
@@ -205,20 +199,12 @@ The comparison report must show completion rate, interventions, elapsed time,
 model tokens, estimated cost, validation failures, quality edits, and final
 state against the 2026-07-10 baseline.
 
-## Migration
+## Replacement
 
-1. Freeze new Heartbeat/persona features and keep production 0.1.536 stable.
-2. Implement the bounded packet builder and Job/Run contracts without writes.
-3. Run local fixture translations and measure prompt/output budgets.
-4. Enable draft-only submission on the validation WordPress site through
-   existing guarded storage adapters.
-5. Add a dev-only v2 capability adapter that accepts coordinator-owned Quality
-   Decisions without Actor leases, then prove correction/publish gating.
-6. Canary one source and three languages on production without auto-publish.
-7. Move or retire compatibility Modules only after the canary report passes.
-
-Rollback is immediate during phases 2-6 because the existing workflow remains
-authoritative and no v2 artifact is published automatically.
+The two owned installations replace the removed orchestration system directly.
+The active inventory and Job/Run records may be rebuilt; ordinary WordPress
+posts, translation relationships, localized routes, and published content stay
+authoritative. There is no compatibility runtime or dual-write period.
 
 ## Consequences
 
@@ -228,8 +214,8 @@ authoritative and no v2 artifact is published automatically.
   authorization topology.
 - Cost, completion, and language quality become product metrics rather than
   incidental logs.
-- The existing plugin is not made smaller immediately. Reduction follows only
-  after the v2 Interface proves which compatibility Modules can be deleted.
+- The public Interface is smaller because removed orchestration operations are
+  not registered alongside the Translation Job operations.
 - Some current abilities will move to other owning Modules or lose automatic
   worker exposure. That is intentional: fewer choices increase locality and
   reduce prompt/tool selection cost.
@@ -252,8 +238,3 @@ durable Actor state.
 Rejected as a product requirement. A separate critical pass can improve
 quality, but it may be a subagent under the same coordinator. Names, accounts,
 leases, and control-chain separation do not make copy better by themselves.
-
-### Rewrite the Production Plugin Immediately
-
-Rejected. A flag-day rewrite would risk live routing, stored translations, and
-publish gates before the smaller model has proven its quality and cost.

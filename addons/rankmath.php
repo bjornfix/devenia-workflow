@@ -2,15 +2,15 @@
 /**
  * Optional Rank Math integration.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-final class AI_Translation_Workflow_RankMath_Addon {
-	const META_SEO_SYNC_SIGNATURE = '_devenia_ai_translations_rankmath_sync_signature';
+final class Devenia_Workflow_Translation_RankMath_Adapter {
+	const META_SEO_SYNC_SIGNATURE = '_devenia_workflow_rankmath_sync_signature';
 
 	/**
 	 * Register Rank Math hooks.
@@ -43,16 +43,16 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		add_filter( 'rank_math/opengraph/twitter/description', array( __CLASS__, 'filter_author_archive_seo_description' ), 20 );
 		add_filter( 'rank_math/json_ld', array( __CLASS__, 'filter_translated_posts_page_json_ld' ), 99, 2 );
 		add_filter( 'rank_math/json_ld', array( __CLASS__, 'filter_author_archive_json_ld' ), 100, 2 );
-		add_action( 'ai_translation_workflow_flush_sitemap_cache', array( __CLASS__, 'flush_sitemap_cache' ) );
-		add_filter( 'ai_translation_workflow_title_template_option_name', array( __CLASS__, 'title_template_option_name' ), 10, 2 );
-		add_filter( 'ai_translation_workflow_sync_seo_meta', array( __CLASS__, 'sync_seo_meta' ), 10, 4 );
-		add_filter( 'ai_translation_workflow_seo_meta_state', array( __CLASS__, 'seo_meta_state' ), 10, 2 );
-		add_filter( 'ai_translation_workflow_route_integrity_issues', array( __CLASS__, 'route_integrity_issues' ), 10, 4 );
-		add_filter( 'ai_translation_workflow_repair_translation_self_redirects', array( __CLASS__, 'repair_translation_self_redirects' ), 10, 3 );
-		add_filter( 'ai_translation_workflow_repair_term_archive_self_redirects', array( __CLASS__, 'repair_term_archive_self_redirects' ), 10, 4 );
-		add_filter( 'ai_translation_workflow_semantic_link_count_content', array( __CLASS__, 'filter_semantic_link_count_content' ), 10, 2 );
-		add_filter( 'ai_translation_workflow_normalize_gutenberg_content_for_storage', array( __CLASS__, 'normalize_faq_saved_markup' ) );
-		add_filter( 'ai_translation_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_content_safety' ), 10, 3 );
+		add_action( 'devenia_workflow_translation_flush_sitemap_cache', array( __CLASS__, 'flush_sitemap_cache' ) );
+		add_filter( 'devenia_workflow_translation_title_template_option_name', array( __CLASS__, 'title_template_option_name' ), 10, 2 );
+		add_filter( 'devenia_workflow_translation_sync_seo_meta', array( __CLASS__, 'sync_seo_meta' ), 10, 4 );
+		add_filter( 'devenia_workflow_translation_seo_meta_state', array( __CLASS__, 'seo_meta_state' ), 10, 2 );
+		add_filter( 'devenia_workflow_translation_route_integrity_issues', array( __CLASS__, 'route_integrity_issues' ), 10, 4 );
+		add_filter( 'devenia_workflow_repair_translation_self_redirects', array( __CLASS__, 'repair_translation_self_redirects' ), 10, 3 );
+		add_filter( 'devenia_workflow_translation_repair_term_archive_self_redirects', array( __CLASS__, 'repair_term_archive_self_redirects' ), 10, 4 );
+		add_filter( 'devenia_workflow_semantic_link_count_content', array( __CLASS__, 'filter_semantic_link_count_content' ), 10, 2 );
+		add_filter( 'devenia_workflow_normalize_gutenberg_content_for_storage', array( __CLASS__, 'normalize_faq_saved_markup' ) );
+		add_filter( 'devenia_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_content_safety' ), 10, 3 );
 	}
 
 	public static function normalize_faq_saved_markup( string $content ): string {
@@ -187,7 +187,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	}
 
 	public static function filter_translated_posts_page_opengraph_type( string $type ): string {
-		return Devenia_AI_Translations::is_translated_posts_page_request() ? 'website' : $type;
+		return Devenia_Workflow::is_translated_posts_page_request() ? 'website' : $type;
 	}
 
 	/**
@@ -211,21 +211,21 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	}
 
 	public static function filter_translated_posts_page_canonical( string $canonical ): string {
-		if ( ! Devenia_AI_Translations::is_translated_posts_page_request() ) {
+		if ( ! Devenia_Workflow::is_translated_posts_page_request() ) {
 			return $canonical;
 		}
 
-		if ( method_exists( 'Devenia_AI_Translations', 'translated_posts_page_canonical_url' ) ) {
-			$canonical_url = Devenia_AI_Translations::translated_posts_page_canonical_url();
+		if ( method_exists( 'Devenia_Workflow', 'translated_posts_page_canonical_url' ) ) {
+			$canonical_url = Devenia_Workflow::translated_posts_page_canonical_url();
 			return $canonical_url ?: $canonical;
 		}
 
-		$base_url = Devenia_AI_Translations::translated_posts_page_base_url();
+		$base_url = Devenia_Workflow::translated_posts_page_base_url();
 		return $base_url ?: $canonical;
 	}
 
 	public static function filter_translated_posts_page_seo_title( string $title ): string {
-		if ( ! Devenia_AI_Translations::is_translated_posts_page_request() ) {
+		if ( ! Devenia_Workflow::is_translated_posts_page_request() ) {
 			return $title;
 		}
 
@@ -234,10 +234,10 @@ final class AI_Translation_Workflow_RankMath_Addon {
 			$post_title = __( 'Blog', 'devenia-workflow' );
 		}
 
-		if ( method_exists( 'Devenia_AI_Translations', 'translated_posts_page_current_page' ) && method_exists( 'Devenia_AI_Translations', 'translated_posts_page_page_label' ) ) {
-			$page = Devenia_AI_Translations::translated_posts_page_current_page();
+		if ( method_exists( 'Devenia_Workflow', 'translated_posts_page_current_page' ) && method_exists( 'Devenia_Workflow', 'translated_posts_page_page_label' ) ) {
+			$page = Devenia_Workflow::translated_posts_page_current_page();
 			if ( $page > 1 ) {
-				$page_label = Devenia_AI_Translations::translated_posts_page_page_label( Devenia_AI_Translations::frontend_language() );
+				$page_label = Devenia_Workflow::translated_posts_page_page_label( Devenia_Workflow::frontend_language() );
 				$post_title = sprintf(
 					'%1$s - %2$s %3$d',
 					$post_title,
@@ -247,7 +247,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 			}
 		}
 
-		return Devenia_AI_Translations::title_from_template_option(
+		return Devenia_Workflow::title_from_template_option(
 			'rank-math-options-titles',
 			'pt_page_title',
 			array(
@@ -258,11 +258,11 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	}
 
 	public static function filter_translated_posts_page_seo_description( string $description ): string {
-		if ( ! Devenia_AI_Translations::is_translated_posts_page_request() ) {
+		if ( ! Devenia_Workflow::is_translated_posts_page_request() ) {
 			return $description;
 		}
 
-		$runtime_description = Devenia_AI_Translations::translated_posts_page_meta_description( Devenia_AI_Translations::frontend_language() );
+		$runtime_description = Devenia_Workflow::translated_posts_page_meta_description( Devenia_Workflow::frontend_language() );
 		return '' !== $runtime_description ? $runtime_description : $description;
 	}
 
@@ -273,12 +273,12 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	 * @return mixed
 	 */
 	public static function filter_author_archive_seo_title( $title ) {
-		$base_title = Devenia_AI_Translations::current_author_archive_title( false );
+		$base_title = Devenia_Workflow::current_author_archive_title( false );
 		if ( '' === $base_title ) {
 			return $title;
 		}
 
-		$seo_title = Devenia_AI_Translations::title_from_template_option(
+		$seo_title = Devenia_Workflow::title_from_template_option(
 			'rank-math-options-titles',
 			'author_archive_title',
 			array(
@@ -295,7 +295,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	 * Use runtime author archive data for Rank Math description surfaces.
 	 */
 	public static function filter_author_archive_seo_description( string $description ): string {
-		$localized_description = Devenia_AI_Translations::current_author_archive_meta_description();
+		$localized_description = Devenia_Workflow::current_author_archive_meta_description();
 
 		return '' !== $localized_description ? $localized_description : $description;
 	}
@@ -310,7 +310,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	public static function filter_author_archive_json_ld( array $data, $jsonld ): array {
 		unset( $jsonld );
 
-		$localized_base = Devenia_AI_Translations::current_localized_author_archive_url();
+		$localized_base = Devenia_Workflow::current_localized_author_archive_url();
 		if ( '' === $localized_base ) {
 			return $data;
 		}
@@ -365,7 +365,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	 * @return array<string,mixed>
 	 */
 	public static function filter_translated_posts_page_json_ld( array $data, $jsonld ): array {
-		if ( ! Devenia_AI_Translations::is_translated_posts_page_request() ) {
+		if ( ! Devenia_Workflow::is_translated_posts_page_request() ) {
 			return $data;
 		}
 
@@ -534,7 +534,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	 * @return array<int,array<string,mixed>>
 	 */
 	private static function self_redirects_for_url( string $url ): array {
-		$target_path = Devenia_AI_Translations::normalized_url_path( $url );
+		$target_path = Devenia_Workflow::normalized_url_path( $url );
 		if ( '' === $target_path ) {
 			return array();
 		}
@@ -554,7 +554,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 		$conflicts = array();
 		foreach ( $rows as $row ) {
 			$destination = isset( $row['url_to'] ) ? (string) $row['url_to'] : '';
-			if ( Devenia_AI_Translations::normalized_url_path( $destination ) !== $target_path ) {
+			if ( Devenia_Workflow::normalized_url_path( $destination ) !== $target_path ) {
 				continue;
 			}
 			foreach ( self::redirection_sources( $row['sources'] ?? array() ) as $source ) {
@@ -562,7 +562,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 					continue;
 				}
 				$pattern = isset( $source['pattern'] ) ? (string) $source['pattern'] : '';
-				if ( Devenia_AI_Translations::normalized_url_path( $pattern ) !== $target_path ) {
+				if ( Devenia_Workflow::normalized_url_path( $pattern ) !== $target_path ) {
 					continue;
 				}
 				$conflicts[] = array(
@@ -746,4 +746,4 @@ final class AI_Translation_Workflow_RankMath_Addon {
 	}
 }
 
-AI_Translation_Workflow_RankMath_Addon::register();
+Devenia_Workflow_Translation_RankMath_Adapter::register();

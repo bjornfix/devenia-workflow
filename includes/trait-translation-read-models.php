@@ -2,14 +2,14 @@
 /**
  * Translation/source read models and payload shaping helpers.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Translation_Read_Models {
+trait Devenia_Workflow_Translation_Read_Models {
 	/**
 	 * Translation rows for a source page.
 	 */
@@ -308,7 +308,7 @@ trait Devenia_AI_Translations_Translation_Read_Models {
 			'taxonomies'  => $taxonomies,
 			'languages'   => array_values( $languages ),
 			'terms'       => $out,
-			'instructions'=> 'Use terms.<taxonomy>[].source_term_id in ai-translations/upsert-page taxonomies.category[] or taxonomies.post_tag[]. For existing localized terms, reuse the listed name/slug/description when they fit. For missing localized terms, provide a useful localized name, the expected language-prefixed slug, and either a reader-useful description or description_not_useful_reason.',
+			'instructions'=> 'Use terms.<taxonomy>[].source_term_id in devenia-workflow/upsert-page taxonomies.category[] or taxonomies.post_tag[]. For existing localized terms, reuse the listed name/slug/description when they fit. For missing localized terms, provide a useful localized name, the expected language-prefixed slug, and either a reader-useful description or description_not_useful_reason.',
 		);
 	}
 

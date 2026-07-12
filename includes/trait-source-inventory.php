@@ -2,20 +2,20 @@
 /**
  * Authoritative public source inventory and translation obligation projection.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-trait Devenia_AI_Translations_Source_Inventory {
+trait Devenia_Workflow_Source_Inventory {
 	private const INVENTORY_STORE_SHARD_SIZE = 200;
 
 	private static function inventory_store_index_name( string $generation ): string {
-		return 'devenia_ai_inventory_' . sanitize_key( $generation ) . '_index';
+		return 'devenia_workflow_inventory_' . sanitize_key( $generation ) . '_index';
 	}
 
 	private static function inventory_store_shard_name( string $generation, string $kind, int $shard ): string {
-		return 'devenia_ai_inventory_' . sanitize_key( $generation ) . '_' . sanitize_key( $kind ) . '_' . max( 0, $shard );
+		return 'devenia_workflow_inventory_' . sanitize_key( $generation ) . '_' . sanitize_key( $kind ) . '_' . max( 0, $shard );
 	}
 
 	/** @param array<int,array<string,mixed>> $rows */
@@ -93,7 +93,7 @@ trait Devenia_AI_Translations_Source_Inventory {
 			'additionalProperties' => false,
 		);
 		return array(
-			'ai-translations/rebuild-source-inventory' => array(
+			'devenia-workflow/rebuild-source-inventory' => array(
 				'label' => 'Rebuild Authoritative Source Inventory',
 				'description' => 'Builds and atomically activates a complete generation of publicly visible source pages/posts and every target-language obligation.',
 				'input_schema' => array( 'type' => 'object', 'required' => array( 'confirm_rebuild' ), 'properties' => array( 'confirm_rebuild' => array( 'type' => 'boolean', 'enum' => array( true ) ) ), 'additionalProperties' => false ),
@@ -101,7 +101,7 @@ trait Devenia_AI_Translations_Source_Inventory {
 				'execute_callback' => function ( $input = array() ) { return self::run_ability_operation( 'rebuild_source_inventory', $input ); },
 				'meta' => self::ability_meta( false, false, true ),
 			),
-			'ai-translations/source-inventory' => array(
+			'devenia-workflow/source-inventory' => array(
 				'label' => 'Read Authoritative Source Inventory',
 				'description' => 'Reads the active inventory generation with a stable source-ID cursor, including structured exclusions.',
 				'input_schema' => $cursor_schema,
@@ -109,7 +109,7 @@ trait Devenia_AI_Translations_Source_Inventory {
 				'execute_callback' => function ( $input = array() ) { return self::run_ability_operation( 'source_inventory', $input ); },
 				'meta' => self::ability_meta( true, false, true ),
 			),
-			'ai-translations/translation-obligation-queue' => array(
+			'devenia-workflow/translation-obligation-queue' => array(
 				'label' => 'Read Complete Translation Obligation Queue',
 				'description' => 'Reads unresolved obligations from the active whole-site projection with a stable obligation cursor.',
 				'input_schema' => $cursor_schema,
@@ -117,15 +117,15 @@ trait Devenia_AI_Translations_Source_Inventory {
 				'execute_callback' => function ( $input = array() ) { return self::run_ability_operation( 'translation_obligation_queue', $input ); },
 				'meta' => self::ability_meta( true, false, true ),
 			),
-			'ai-translations/translation-job-v2-next' => array(
+			'devenia-workflow/translation-job-next' => array(
 				'label' => 'Discover Next Complete-Inventory Translation Job',
-				'description' => 'Selects the first unresolved whole-site obligation and delegates job creation to the existing v2 discover lifecycle.',
+				'description' => 'Selects the first unresolved whole-site obligation and delegates job creation to the current Translation Job discover lifecycle.',
 				'input_schema' => array( 'type' => 'object', 'properties' => array( 'observability_label' => array( 'type' => 'string' ) ), 'additionalProperties' => false ),
 				'output_schema' => self::generic_output_schema(),
-				'execute_callback' => function ( $input = array() ) { return self::run_ability_operation( 'translation_job_v2_next', $input ); },
+				'execute_callback' => function ( $input = array() ) { return self::run_ability_operation( 'translation_job_next', $input ); },
 				'meta' => self::ability_meta( false, false, true ),
 			),
-			'ai-translations/translation-exhaustion-proof' => array(
+			'devenia-workflow/translation-exhaustion-proof' => array(
 				'label' => 'Prove Whole-Site Translation Exhaustion',
 				'description' => 'Proves a clean complete generation, exact source-language arithmetic, and zero unresolved obligations.',
 				'input_schema' => array( 'type' => 'object', 'properties' => array( 'refresh' => array( 'type' => 'boolean', 'default' => true ) ), 'additionalProperties' => false ),
@@ -200,8 +200,8 @@ trait Devenia_AI_Translations_Source_Inventory {
 
 	private static function project_translation_obligation( int $source_id, string $language, string $revision ): array {
 		$translation_id = self::translation_index_id_for_source_language( $source_id, $language, self::translation_workflow_post_statuses( false ) );
-		$job_id = self::translation_job_v2_id( $source_id, $language, $revision );
-		$job = self::translation_job_v2_get_job( $job_id );
+		$job_id = self::translation_job_id( $source_id, $language, $revision );
+		$job = self::translation_job_get_job( $job_id );
 		$state = 'missing';
 		if ( $job ) {
 			$state = sanitize_key( (string) ( $job['status'] ?? 'queued' ) );
@@ -210,7 +210,7 @@ trait Devenia_AI_Translations_Source_Inventory {
 		if ( ! $job && $translation_id > 0 ) {
 			$translation = get_post( $translation_id );
 			$stored_hash = (string) get_post_meta( $translation_id, self::META_SOURCE_HASH, true );
-			$state = $translation && 'publish' === $translation->post_status && hash_equals( $revision, $stored_hash ) ? 'legacy_review_required' : 'stale';
+			$state = $translation && 'publish' === $translation->post_status && hash_equals( $revision, $stored_hash ) ? 'review_required' : 'stale';
 		}
 		return array( 'source_id' => $source_id, 'target_language' => $language, 'state' => $state, 'job_id' => $job_id, 'translation_id' => $translation_id, 'source_revision' => $revision );
 	}
@@ -269,11 +269,11 @@ trait Devenia_AI_Translations_Source_Inventory {
 		return array( 'success' => true, 'generation' => $manifest['generation'], 'items' => $rows, 'item_count' => count( $rows ), 'next_cursor' => count( $rows ) === $limit ? $next : null );
 	}
 
-	private static function translation_job_v2_next( array $input ): array {
+	private static function translation_job_next( array $input ): array {
 		$queue = self::translation_obligation_queue( array( 'cursor' => 0, 'limit' => 1 ) );
 		if ( empty( $queue['success'] ) || empty( $queue['items'] ) ) { return array( 'success' => ! empty( $queue['success'] ), 'exhausted' => ! empty( $queue['success'] ), 'queue' => $queue ); }
 		$item = $queue['items'][0];
-		$result = self::translation_job_v2_discover( array( 'source_id' => absint( $item['source_id'] ), 'language' => sanitize_key( $item['target_language'] ), 'observability_label' => sanitize_text_field( (string) ( $input['observability_label'] ?? '' ) ) ) );
+		$result = self::translation_job_discover( array( 'source_id' => absint( $item['source_id'] ), 'language' => sanitize_key( $item['target_language'] ), 'observability_label' => sanitize_text_field( (string) ( $input['observability_label'] ?? '' ) ) ) );
 		return array( 'success' => ! empty( $result['success'] ), 'obligation' => $item, 'discover' => $result );
 	}
 

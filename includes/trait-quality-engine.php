@@ -2,14 +2,14 @@
 /**
  * Translation quality engine helpers.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Quality_Engine {
+trait Devenia_Workflow_Quality_Engine {
 	/**
 	 * Build a cached content snapshot for quality and guardrail checks.
 	 *

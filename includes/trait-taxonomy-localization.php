@@ -2,14 +2,14 @@
 /**
  * Taxonomy localization for AI Translation Workflow.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Taxonomy_Localization {
+trait Devenia_Workflow_Translation_Taxonomy_Localization {
 	/**
 	 * Sync translated post categories and tags through language-scoped term variants.
 	 *
@@ -103,7 +103,7 @@ trait Devenia_AI_Translations_Taxonomy_Localization {
 				'language'          => sanitize_key( $language ),
 				'source_id'         => (int) $source->ID,
 				'source_taxonomy'   => $source_taxonomy_review,
-				'required_next_step'=> 'Claim the source_taxonomy_review work item, inspect the English source categories/tags, update the source terms with content/update-post if needed, then call ai-translations/mark-source-taxonomy-reviewed.',
+				'required_next_step'=> 'Review the source taxonomy, inspect the English source categories/tags, update the source terms with content/update-post if needed, then call devenia-workflow/mark-source-taxonomy-reviewed.',
 			);
 		}
 		$category_assignment_review = self::validate_source_category_assignment_review( $source, $language, $taxonomy_input );

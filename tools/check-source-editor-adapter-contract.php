@@ -45,8 +45,8 @@ function mcp_abilities_elementor_load_document(): array { return array( 'success
 require_once dirname( __DIR__ ) . '/includes/trait-source-editor-adapter.php';
 require_once dirname( __DIR__ ) . '/addons/elementor.php';
 
-final class Devenia_AI_Translations_Source_Editor_Contract_Test {
-	use Devenia_AI_Translations_Source_Editor_Adapter;
+final class Devenia_Workflow_Source_Editor_Contract_Test {
+	use Devenia_Workflow_Source_Editor_Adapter;
 
 	public static function contract( WP_Post $source ): array {
 		return self::source_editor_contract( $source );
@@ -55,15 +55,15 @@ final class Devenia_AI_Translations_Source_Editor_Contract_Test {
 
 $failures = array();
 $page     = new WP_Post( 10, 'page' );
-$default  = Devenia_AI_Translations_Source_Editor_Contract_Test::contract( $page );
+$default  = Devenia_Workflow_Source_Editor_Contract_Test::contract( $page );
 if ( 'wordpress' !== ( $default['editor'] ?? '' ) || 'content/update-page' !== ( $default['content_write_ability'] ?? '' ) ) {
 	$failures[] = array( 'case' => 'wordpress_page_adapter', 'actual' => $default );
 }
 
 $test_meta[10]['_elementor_edit_mode'] = 'builder';
 $test_meta[10]['_elementor_data']      = '[{"id":"hero"}]';
-AI_Translation_Workflow_Elementor_Addon::maybe_register_hooks();
-$elementor = Devenia_AI_Translations_Source_Editor_Contract_Test::contract( $page );
+Devenia_Workflow_Elementor_Adapter::maybe_register_hooks();
+$elementor = Devenia_Workflow_Source_Editor_Contract_Test::contract( $page );
 if ( 'elementor' !== ( $elementor['editor'] ?? '' ) || 'elementor/get-data' !== ( $elementor['read_ability'] ?? '' ) ) {
 	$failures[] = array( 'case' => 'elementor_adapter_selected', 'actual' => $elementor );
 }

@@ -1,8 +1,8 @@
 <?php
 /**
- * Uninstall cleanup for Devenia AI Workflow.
+ * Uninstall cleanup for Devenia Workflow.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
@@ -12,18 +12,18 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 /**
  * Clean plugin-owned options and custom tables for one site.
  */
-function ai_translation_workflow_uninstall_site(): void {
+function devenia_workflow_uninstall_site(): void {
 	global $wpdb;
 
 	$options = array(
-		'devenia_ai_translations_languages',
-		'devenia_ai_translations_version',
-		'devenia_ai_translations_language_pack_status',
-		'devenia_ai_translations_language_text_seeded',
-		'devenia_ai_translations_index_schema',
-		'devenia_ai_translations_frontend_slow_log',
-		'devenia_ai_translations_reviewer_style_profiles',
-		'devenia_ai_translations_rule_events_schema',
+		'devenia_workflow_language_registry',
+		'devenia_workflow_version',
+		'devenia_workflow_translation_language_pack_status',
+		'devenia_workflow_translation_language_text_seeded',
+		'devenia_workflow_translation_index_schema',
+		'devenia_workflow_frontend_slow_log',
+		'devenia_workflow_reviewer_style_profiles',
+		'devenia_workflow_translation_rule_events_schema',
 	);
 
 	foreach ( $options as $option ) {
@@ -31,20 +31,14 @@ function ai_translation_workflow_uninstall_site(): void {
 	}
 
 	$option_prefixes = array(
-		'devenia_ai_translation_claim_',
-		'devenia_ai_work_claim_',
-		'devenia_ai_assignment_',
-		'devenia_ai_assignment_item_',
-		'devenia_ai_assignment_outcome_',
-		'devenia_ai_assignment_latest_outcome_',
-		'devenia_ai_assignment_block_',
-		'devenia_ai_translation_job_v2_',
-		'devenia_ai_translation_run_v2_',
-		'devenia_ai_translation_artifact_v2_',
-		'devenia_ai_translation_quality_v2_',
+		'devenia_workflow_translation_job_',
+		'devenia_workflow_translation_run_',
+		'devenia_workflow_translation_artifact_',
+		'devenia_workflow_translation_quality_',
+		'devenia_workflow_inventory_',
 	);
 	foreach ( $option_prefixes as $option_prefix ) {
-		$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Uninstall must remove plugin-owned dynamic Assignment and Reservation options.
+		$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Uninstall must remove plugin-owned dynamic Job, Run, artifact, quality, and inventory options.
 			$wpdb->prepare(
 				"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
 				$wpdb->esc_like( $option_prefix ) . '%'
@@ -67,16 +61,16 @@ if ( is_multisite() ) {
 	require_once ABSPATH . 'wp-admin/includes/plugin.php';
 
 	if ( is_plugin_active_for_network( 'devenia-workflow/devenia-workflow.php' ) ) {
-		$ai_translation_workflow_site_ids = get_sites(
+		$devenia_workflow_site_ids = get_sites(
 			array(
 				'fields' => 'ids',
 				'number' => 0,
 			)
 		);
 
-		foreach ( $ai_translation_workflow_site_ids as $ai_translation_workflow_site_id ) {
-			switch_to_blog( (int) $ai_translation_workflow_site_id );
-			ai_translation_workflow_uninstall_site();
+		foreach ( $devenia_workflow_site_ids as $devenia_workflow_site_id ) {
+			switch_to_blog( (int) $devenia_workflow_site_id );
+			devenia_workflow_uninstall_site();
 			restore_current_blog();
 		}
 
@@ -84,4 +78,4 @@ if ( is_multisite() ) {
 	}
 }
 
-ai_translation_workflow_uninstall_site();
+devenia_workflow_uninstall_site();

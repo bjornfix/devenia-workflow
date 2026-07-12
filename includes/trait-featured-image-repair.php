@@ -2,14 +2,14 @@
 /**
  * Featured-image repair and canonical thumbnail reads for AI Translation Workflow.
  *
- * @package Devenia_AI_Translations
+ * @package Devenia_Workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-trait Devenia_AI_Translations_Featured_Image_Repair {
+trait Devenia_Workflow_Translation_Featured_Image_Repair {
 	/**
 	 * Input schema for featured-image workflow repairs.
 	 */
@@ -35,19 +35,19 @@ trait Devenia_AI_Translations_Featured_Image_Repair {
 				),
 				'claim_token'                      => array(
 					'type'        => 'string',
-					'description' => 'Optional reservation token from ai-translations/reserve-work. Used when repairing one claimed source/language item.',
+					'description' => 'Optional bounded Translation Job claim token.',
 				),
-				'agent_session_id'                 => array(
+				'execution_id'                 => array(
 					'type'        => 'string',
 					'description' => 'Required for writes: stable agent/client session identifier.',
 				),
-				'llm_vendor'                       => self::agent_session_input_schema_properties()['llm_vendor'],
-				'llm_client'                       => self::agent_session_input_schema_properties()['llm_client'],
-				'authority_vendor'                 => self::agent_session_input_schema_properties()['authority_vendor'],
-				'authority_client'                 => self::agent_session_input_schema_properties()['authority_client'],
+				'llm_vendor'                       => self::execution_identity_schema_properties()['llm_vendor'],
+				'llm_client'                       => self::execution_identity_schema_properties()['llm_client'],
+				'authority_vendor'                 => self::execution_identity_schema_properties()['authority_vendor'],
+				'authority_client'                 => self::execution_identity_schema_properties()['authority_client'],
 				'writer_process_id'                => array(
 					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session doing this visible media repair. Defaults to agent_session_id.',
+					'description' => 'Optional stable identifier for the process/session doing this visible media repair. Defaults to execution_id.',
 				),
 				'writer_actor'                     => array(
 					'type'        => 'string',
@@ -124,13 +124,13 @@ trait Devenia_AI_Translations_Featured_Image_Repair {
 				continue;
 			}
 			if ( ! $dry_run ) {
-				$claim_gate = self::translation_claim_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
+				$claim_gate = self::translation_job_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
 				if ( $claim_gate ) {
 					$skipped[] = array(
 						'translation_id' => $translation_id,
 						'source_id'      => $source_id,
 						'language'       => $language,
-						'reason'         => sanitize_key( (string) ( $claim_gate['code'] ?? 'reservation_conflict' ) ),
+						'reason'         => sanitize_key( (string) ( $claim_gate['code'] ?? 'job_claim_conflict' ) ),
 						'message'        => sanitize_text_field( (string) ( $claim_gate['message'] ?? 'Translation work is currently reserved by another worker.' ) ),
 					);
 					continue;
