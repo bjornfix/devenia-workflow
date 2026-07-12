@@ -22,7 +22,7 @@ trait Devenia_AI_Translations_Ability_Catalogue {
 				array(
 			'ai-translations/list-languages' => array(
 				'label'            => 'List Translation Languages',
-				'description'      => 'Returns the configured AI Translation Workflow translation language registry. Defaults to compact registry data; pass detail_level=full only when runtime text/profile payloads are needed.',
+				'description'      => 'Returns the configured Devenia AI Workflow translation language registry. Defaults to compact registry data; pass detail_level=full only when runtime text/profile payloads are needed.',
 				'input_schema'     => self::language_list_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input = array() ) {
@@ -62,7 +62,7 @@ trait Devenia_AI_Translations_Ability_Catalogue {
 			),
 				'ai-translations/language-packs-status' => array(
 					'label'            => 'Check WordPress Core Language Packs',
-					'description'      => 'Returns WordPress core language-pack status for all configured AI Translation Workflow translation locales, and can install missing packs.',
+					'description'      => 'Returns WordPress core language-pack status for all configured Devenia AI Workflow translation locales, and can install missing packs.',
 				'input_schema'     => array(
 					'type'                 => 'object',
 					'properties'           => array(

@@ -1,23 +1,23 @@
-# AI Translation Workflow
+# Devenia AI Workflow
 
-Portable workflow layer for AI-assisted multilingual WordPress content.
+AI-assisted workflow for improving and publishing WordPress content, with optional multilingual support.
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/gpl-2.0)
 [![WordPress](https://img.shields.io/badge/WordPress-6.9%2B-blue.svg)](https://wordpress.org)
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.559
+**Stable tag:** 0.1.560
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
 
 ## What It Does
 
-AI Translation Workflow gives site operators a controlled way to create and
-maintain multilingual content as ordinary WordPress pages and posts. The
-translated content stays in WordPress, so the plugin can be removed later
-without rebuilding the site from a proprietary translation store.
+Devenia AI Workflow gives site operators a controlled way to improve, review,
+and publish ordinary WordPress pages and posts. It supports source-content
+optimization on single-language sites as well as optional multilingual
+publishing without moving content into a proprietary store.
 
 Around that native content model, the plugin adds localized URLs, mapping
 metadata, stale-source detection, hreflang output, language-menu sync, QA
@@ -26,7 +26,7 @@ tools, and publish checks.
 
 The plugin is a workflow and quality layer, not an automatic translation SaaS.
 Translation text can come from an AI assistant, automation client, or editor;
-AI Translation Workflow keeps the WordPress side reliable, reviewable,
+Devenia AI Workflow keeps the WordPress side reliable, reviewable,
 publishable, and portable.
 
 The authoritative source inventory records every public, password-free source
@@ -56,7 +56,7 @@ The core plugin is theme-neutral. Theme or builder integrations live in optional
 ## Positioning
 
 Most AI translation plugins compete on automatic generation, number of
-languages, or external translation services. AI Translation Workflow is built
+languages, or external translation services. Devenia AI Workflow is built
 for teams that want the translation work to remain ordinary WordPress content
 instead of being locked into a proxy layer, external store, or replacement
 content system.
@@ -74,7 +74,7 @@ Uninstalling the plugin removes plugin-owned options and workflow tables, but it
 does not delete translated posts, pages, menus, terms, media, or regular
 WordPress content.
 
-If you stop using AI Translation Workflow, the workflow automation, localized
+If you stop using Devenia AI Workflow, the workflow automation, localized
 routing helpers, hreflang output, menus sync, and QA gates stop with it. The
 translated content itself remains editable in WordPress, so the site can be
 continued manually, migrated to another multilingual setup, or archived without
@@ -196,7 +196,7 @@ same design instead of being redesigned per language.
 
 1. Build or download the release ZIP.
 2. Install it through WordPress or WP-CLI.
-3. Activate `AI Translation Workflow`.
+3. Activate `Devenia AI Workflow`.
 4. Verify the language registry, translation index, language packs, and QA
    regression status before production use.
 
@@ -214,6 +214,11 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.560
+
+- Rename the user-facing product to Devenia AI Workflow so the name covers source-content optimization as well as optional multilingual publishing.
+- Keep the existing plugin slug, directory, text domain, option keys, metadata, and ability names unchanged for backward compatibility.
 
 ### 0.1.559
 - Finalizes explicit translation URL migrations by removing self-redirect conflicts; failed cleanup forces a complete migration rollback.

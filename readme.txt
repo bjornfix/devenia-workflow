@@ -1,18 +1,18 @@
-=== AI Translation Workflow ===
+=== Devenia AI Workflow ===
 Contributors: basicus
 Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.559
+Stable tag: 0.1.560
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Portable workflow layer for AI-assisted multilingual WordPress content.
+AI-assisted workflow for improving and publishing WordPress content, with optional multilingual support.
 
 == Description ==
 
-AI Translation Workflow helps site operators manage AI-assisted page and post translations without turning translated content into a separate content system.
+Devenia AI Workflow helps site operators improve, review, and publish WordPress pages and posts through controlled AI-assisted workflows. Multilingual publishing is an optional capability, not a requirement.
 
 The plugin keeps translations as ordinary WordPress content, so it can be removed later without rebuilding the site from a proprietary translation store. Around that native content model, it adds workflow support for localized URLs, source mapping, stale-source detection, hreflang output, language-menu sync, QA guardrails, review evidence, frontend copy editing, reviewer learning, repair tools, runtime text, and publish checks.
 
@@ -38,7 +38,7 @@ It is designed for controlled translation workflows where an AI assistant, autom
 == Installation ==
 
 1. Upload the plugin files to the `/wp-content/plugins/devenia-ai-translations/` directory, or install the plugin through the WordPress plugins screen.
-2. Activate "AI Translation Workflow" through the Plugins screen in WordPress.
+2. Activate "Devenia AI Workflow" through the Plugins screen in WordPress.
 3. Configure the supported language registry and review workflow for your site.
 4. Use the plugin's workflow abilities from your AI or automation client to read sources, create drafts, run QA, record review evidence, and publish approved translations.
 
@@ -46,7 +46,7 @@ It is designed for controlled translation workflows where an AI assistant, autom
 
 = Is this a replacement for WPML or Polylang? =
 
-No. AI Translation Workflow focuses on controlled AI-assisted translation workflow, QA, review evidence, localized URLs, and publishing checks. It keeps translated content in WordPress instead of replacing WordPress content management.
+No. Devenia AI Workflow provides controlled content-quality, review, publishing, and optional multilingual workflows. It keeps content in WordPress instead of replacing WordPress content management.
 
 = Does the plugin translate content by itself? =
 
@@ -54,7 +54,7 @@ No. The plugin provides the workflow, metadata, guardrails, and review gates aro
 
 = How is this different from automatic translation plugins? =
 
-Most automatic translation plugins focus on generating translated text or proxying translated pages. AI Translation Workflow focuses on the controlled publishing layer around that work: WordPress-native translated posts and pages, localized URLs, source mapping, stale-source detection, hreflang, QA checks, review evidence, runtime text, and repair operations before publishing.
+Most automatic translation plugins focus on generating translated text or proxying translated pages. Devenia AI Workflow focuses on the controlled content and publishing layer: WordPress-native pages and posts, source-quality checks, review evidence, runtime text, and repair operations, with localized URLs, source mapping, stale-source detection, and hreflang available when multilingual publishing is enabled.
 
 = Can editors fix translated copy on the frontend? =
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.560 =
+* Renames the user-facing product to Devenia AI Workflow so the name covers source-content optimization as well as optional multilingual publishing.
+* Keeps the existing plugin slug, directory, text domain, option keys, metadata, and ability names unchanged for backward compatibility.
 
 = 0.1.559 =
 * Finalizes explicit translation URL migrations by removing SEO-plugin self-redirects at the new canonical route; a failed cleanup forces the migration owner to roll back.

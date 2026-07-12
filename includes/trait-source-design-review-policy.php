@@ -128,7 +128,7 @@ trait Devenia_AI_Translations_Source_Design_Review_Policy {
 
 		$validation = self::source_editorial_design_validation( $source, (string) $source->post_content );
 		$summary    = self::source_editorial_design_validation_summary( $validation );
-		$reviewer   = sanitize_text_field( (string) ( $input['reviewer'] ?? 'AI Translation Workflow' ) );
+		$reviewer   = sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia AI Workflow' ) );
 		$evidence   = array(
 			'design_already_suitable' => true,
 			'public_url'              => $public_url,

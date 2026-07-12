@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: AI Translation Workflow
- * Description: Portable AI-assisted multilingual workflow with WordPress-native content, frontend copy editing, reviewer learning, localized URLs, hreflang, and QA guardrails.
- * Version: 0.1.559
+ * Plugin Name: Devenia AI Workflow
+ * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
+ * Version: 0.1.560
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -62,7 +62,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Job_V2;
 	use Devenia_AI_Translations_Source_Inventory;
 
-	const VERSION = '0.1.559';
+	const VERSION = '0.1.560';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -3661,7 +3661,7 @@ final class Devenia_AI_Translations {
 			$base_item = array(
 				'status'          => $status,
 				'severity'        => $severity,
-				'reviewer'        => sanitize_text_field( (string) ( $input['reviewer'] ?? 'AI Translation Workflow' ) ),
+				'reviewer'        => sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia AI Workflow' ) ),
 				'updated_at'      => $now,
 				'content_hash'    => self::translation_review_content_hash( $post ),
 				'source_hash'     => $source ? self::source_hash( $source ) : '',
@@ -6518,7 +6518,7 @@ final class Devenia_AI_Translations {
 
 		printf(
 			'<div class="notice notice-warning"><p>%s</p></div>',
-			esc_html__( 'AI Translation Workflow is active, but the WordPress Abilities API is not available. Workflow abilities will be registered after WordPress or an installed abilities provider makes wp_register_ability() available.', 'devenia-ai-translations' )
+			esc_html__( 'Devenia AI Workflow is active, but the WordPress Abilities API is not available. Workflow abilities will be registered after WordPress or an installed abilities provider makes wp_register_ability() available.', 'devenia-ai-translations' )
 		);
 	}
 
@@ -6527,8 +6527,8 @@ final class Devenia_AI_Translations {
 	 */
 	public static function register_presentation_admin_page(): void {
 		add_management_page(
-			__( 'AI Translation Presentation', 'devenia-ai-translations' ),
-			__( 'Translation Presentation', 'devenia-ai-translations' ),
+			__( 'Devenia AI Workflow Presentation', 'devenia-ai-translations' ),
+			__( 'Workflow Presentation', 'devenia-ai-translations' ),
 			'manage_options',
 			'devenia-ai-translations-presentation',
 			array( __CLASS__, 'render_presentation_admin_page' )
@@ -6550,7 +6550,7 @@ final class Devenia_AI_Translations {
 		$author_language = self::admin_current_author_language();
 		?>
 		<div class="wrap">
-			<h1><?php echo esc_html__( 'AI Translation Presentation', 'devenia-ai-translations' ); ?></h1>
+			<h1><?php echo esc_html__( 'Devenia AI Workflow Presentation', 'devenia-ai-translations' ); ?></h1>
 			<p><?php echo esc_html__( 'Edit runtime values that feed localized public presentation output. Page, post, term, media, comment, and user fields remain editable in their normal WordPress screens.', 'devenia-ai-translations' ); ?></p>
 
 			<h2 class="nav-tab-wrapper">
@@ -8547,7 +8547,7 @@ final class Devenia_AI_Translations {
 				),
 				'reader_action_clear' => array(
 					'type'        => 'boolean',
-					'description' => 'Required when agency-copy profile is enabled: the reader knows what to send or do next and what AI Translation Workflow will return.',
+					'description' => 'Required when agency-copy profile is enabled: the reader knows what to send or do next and what Devenia AI Workflow will return.',
 				),
 			),
 			'additionalProperties' => false,
@@ -13715,7 +13715,7 @@ final class Devenia_AI_Translations {
 
 		$note     = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$reviewer_provenance = $reviewer_gate['reviewer'];
-		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'AI Translation Workflow' ) );
+		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'Devenia AI Workflow' ) );
 
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWER, $reviewer );
@@ -13902,7 +13902,7 @@ final class Devenia_AI_Translations {
 		}
 
 		$validation = self::source_content_integrity_validation( $source );
-		$reviewer   = sanitize_text_field( (string) ( $input['reviewer'] ?? 'AI Translation Workflow' ) );
+		$reviewer   = sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia AI Workflow' ) );
 		$evidence   = array(
 			'content_integrity_already_clean' => true,
 			'public_url'         => $public_url,
@@ -14206,11 +14206,11 @@ final class Devenia_AI_Translations {
 		$note     = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$reviewer_provenance = isset( $reviewer_gate['reviewer'] ) && is_array( $reviewer_gate['reviewer'] ) ? $reviewer_gate['reviewer'] : array(
 			'process_id'  => '',
-			'actor'       => 'AI Translation Workflow',
+			'actor'       => 'Devenia AI Workflow',
 			'recorded_at' => gmdate( 'c' ),
 			'writer'      => array(),
 		);
-		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'AI Translation Workflow' ) );
+		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'Devenia AI Workflow' ) );
 
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWED_AT, gmdate( 'c' ) );
 		update_post_meta( $page_id, self::META_QUALITY_REVIEWER, $reviewer );
@@ -14325,7 +14325,7 @@ final class Devenia_AI_Translations {
 		}
 
 		$note = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
-		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'AI Translation Workflow' ) );
+		$reviewer = sanitize_text_field( (string) ( $reviewer_provenance['actor'] ?? 'Devenia AI Workflow' ) );
 		$evidence = $candidate_evidence;
 			$evidence['prior_reviews'] = array(
 				'linguistic_reviewed_at' => (string) get_post_meta( $translation_id, self::META_LINGUISTIC_REVIEWED_AT, true ),

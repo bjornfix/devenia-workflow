@@ -1,6 +1,6 @@
 <?php
 /**
- * Uninstall cleanup for AI Translation Workflow.
+ * Uninstall cleanup for Devenia AI Workflow.
  *
  * @package Devenia_AI_Translations
  */

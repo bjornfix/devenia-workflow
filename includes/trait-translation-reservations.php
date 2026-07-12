@@ -184,7 +184,7 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			? max( 60, min( self::MAX_TRANSLATION_CLAIM_TTL, absint( $input['ttl_seconds'] ) ) )
 			: self::DEFAULT_TRANSLATION_CLAIM_TTL;
 		$force      = ! empty( $input['force'] );
-		$owner      = ! empty( $input['owner'] ) ? sanitize_text_field( (string) $input['owner'] ) : 'AI Translation Workflow';
+		$owner      = ! empty( $input['owner'] ) ? sanitize_text_field( (string) $input['owner'] ) : 'Devenia AI Workflow';
 		$note       = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$agent_session_id = self::agent_session_id_from_input( $input );
 		$session_binding_token = sanitize_text_field( (string) ( $input['session_binding_token'] ?? '' ) );
@@ -585,7 +585,7 @@ trait Devenia_AI_Translations_Translation_Reservations {
 			? max( 60, min( self::MAX_TRANSLATION_CLAIM_TTL, absint( $input['ttl_seconds'] ) ) )
 			: self::DEFAULT_TRANSLATION_CLAIM_TTL;
 		$force      = ! empty( $input['force'] );
-		$owner      = ! empty( $input['owner'] ) ? sanitize_text_field( (string) $input['owner'] ) : 'AI Translation Workflow';
+		$owner      = ! empty( $input['owner'] ) ? sanitize_text_field( (string) $input['owner'] ) : 'Devenia AI Workflow';
 		$note       = ! empty( $input['note'] ) ? sanitize_textarea_field( (string) $input['note'] ) : '';
 		$agent_session_id = self::agent_session_id_from_input( $input );
 		$session_binding_token = sanitize_text_field( (string) ( $input['session_binding_token'] ?? '' ) );

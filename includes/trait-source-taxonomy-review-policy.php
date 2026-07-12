@@ -141,7 +141,7 @@ trait Devenia_AI_Translations_Source_Taxonomy_Review_Policy {
 			return $term_decisions;
 		}
 
-		$reviewer = sanitize_text_field( (string) ( $input['reviewer'] ?? 'AI Translation Workflow' ) );
+		$reviewer = sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia AI Workflow' ) );
 		$evidence = array(
 			'categories_fit'            => true,
 			'tags_fit'                  => true,
