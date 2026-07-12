@@ -1,6 +1,6 @@
 # Devenia AI Workflow
 
-Version 0.1.571 keeps `source_only` publication ownership with the selected native source editor, so native Elementor saves use Elementor guardrails instead of multilingual editorial design gates.
+Version 0.1.572 keeps `source_only` publication ownership with the selected native source editor and documents intentional plugin-owned workflow table access at the exact query sites required by Plugin Check.
 
 AI-assisted workflow for improving and publishing WordPress content, with optional multilingual support.
 
@@ -9,7 +9,7 @@ AI-assisted workflow for improving and publishing WordPress content, with option
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.571
+**Stable tag:** 0.1.572
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -216,6 +216,10 @@ Before changing the plugin:
 7. run WordPress Plugin Check before production deployment
 
 ## Changelog
+
+### 0.1.572
+
+- Document intentional direct access to plugin-owned inventory and obligation tables at the exact query sites required by the strict Plugin Check gate.
 
 ### 0.1.571
 

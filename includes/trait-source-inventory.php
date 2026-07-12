@@ -121,12 +121,13 @@ trait Devenia_AI_Translations_Source_Inventory {
 			elseif ( ! is_post_publicly_viewable( $post ) ) { $reason = 'not_publicly_viewable'; }
 			$applicable = '' === $reason;
 			$revision = $applicable ? self::source_hash( $post ) : '';
-			$wpdb->replace( self::source_inventory_table(), array(
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Rebuilds the plugin-owned inventory table; option/object caching would make the generation inconsistent.
+				$wpdb->replace( self::source_inventory_table(), array(
 				'generation' => $generation, 'source_id' => $id, 'post_type' => $post->post_type,
 				'post_status' => $post->post_status, 'applicable' => $applicable ? 1 : 0,
 				'exclusion_reason' => $reason, 'source_revision' => $revision,
 				'modified_gmt' => '0000-00-00 00:00:00' === $post->post_modified_gmt ? gmdate( 'Y-m-d H:i:s' ) : $post->post_modified_gmt,
-			) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+				) );
 			if ( $applicable ) { ++$included; $source_rows[] = array( $id, $revision ); }
 			else { ++$excluded; $reasons[ $reason ] = 1 + ( $reasons[ $reason ] ?? 0 ); }
 		}

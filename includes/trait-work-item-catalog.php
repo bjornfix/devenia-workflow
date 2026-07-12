@@ -213,6 +213,7 @@ trait Devenia_AI_Translations_Work_Item_Catalog {
 		$manifest = get_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, array() );
 		if ( is_array( $manifest ) && ! empty( $manifest['generation'] ) && '1' !== get_option( self::OPTION_SOURCE_INVENTORY_DIRTY, '1' ) ) {
 			global $wpdb;
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Reads the plugin-owned live obligation queue; a cached result can assign completed work again.
 			$source_ids = $wpdb->get_col(
 				$wpdb->prepare(
 					"SELECT DISTINCT source_id FROM %i WHERE generation = %s AND state <> 'published_verified' ORDER BY source_id ASC LIMIT %d",
