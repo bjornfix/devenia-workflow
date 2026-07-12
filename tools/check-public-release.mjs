@@ -6,8 +6,8 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const base = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const slug = "devenia-ai-translations";
-const mainFile = "devenia-ai-translations.php";
+const slug = "devenia-workflow";
+const mainFile = "devenia-workflow.php";
 const issues = [];
 
 function read(relativePath) {
@@ -227,6 +227,24 @@ for (const file of gitFiles().filter((name) => name.endsWith(".php"))) {
   }
   if (hasHardcodedLanguageDateFormat(content)) {
     issue(file, "language_date_format_hardcoded", "Language-specific date formats belong in runtime language configuration, not PHP maps.");
+  }
+}
+
+const privatePresentationPatterns = [
+  ["private_presentation_ability", /devenia-site-presentation\//i],
+  ["private_editorial_validation_hook", /devenia_editorial_source_post_validation/i],
+  ["private_presentation_shortcode", /\[devenia_presentation\b/i],
+  ["private_design_class", /\bdv-(?:section|blog|container|link)-/i],
+];
+for (const file of gitFiles().filter((name) => name.endsWith(".php") || name.endsWith(".css") || name.endsWith(".js"))) {
+  if (file.startsWith("tools/")) {
+    continue;
+  }
+  const content = read(file);
+  for (const [code, pattern] of privatePresentationPatterns) {
+    if (pattern.test(content)) {
+      issue(file, code, "Private Site Presentation policy must stay outside the public workflow package.");
+    }
   }
 }
 

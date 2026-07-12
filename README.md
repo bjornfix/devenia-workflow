@@ -1,6 +1,6 @@
 # Devenia AI Workflow
 
-Version 0.1.572 keeps `source_only` publication ownership with the selected native source editor and moves Source Inventory persistence behind a deep Inventory Generation Store built on bounded WordPress option shards.
+Version 0.1.573 adopts the `devenia-workflow` text domain and removes private Site Presentation assumptions from the public workflow core. Site-owned design policy now integrates through generic adapter Interfaces.
 
 AI-assisted workflow for improving and publishing WordPress content, with optional multilingual support.
 
@@ -9,7 +9,7 @@ AI-assisted workflow for improving and publishing WordPress content, with option
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-purple.svg)](https://php.net)
 
 **Tested up to:** 7.0
-**Stable tag:** 0.1.572
+**Stable tag:** 0.1.573
 **License:** GPLv2 or later
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
 **Tags:** translations, ai, workflow, wordpress, multilingual
@@ -217,10 +217,11 @@ Before changing the plugin:
 
 ## Changelog
 
-### 0.1.572
+### 0.1.573
 
-- Replace raw SQL Source Inventory persistence with a deep Inventory Generation Store using bounded, generation-keyed, non-autoloaded WordPress option shards.
-- Route Work Item Planner and Exhaustion Proof through the same Store Interface without direct database access or Plugin Check suppression in the inventory seam.
+- Adopt `devenia-workflow` as the public WordPress text domain.
+- Replace direct private presentation abilities and site-specific design assumptions with generic source-editor, source-design validation, and dynamic-presentation adapter Interfaces.
+- Preserve existing option, metadata, hook, class, and plugin-file identifiers for upgrade compatibility.
 
 ### 0.1.571
 

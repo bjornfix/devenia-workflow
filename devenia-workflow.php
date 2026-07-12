@@ -2,11 +2,11 @@
 /**
  * Plugin Name: Devenia AI Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.572
+ * Version: 0.1.573
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
- * Text Domain: devenia-ai-translations
+ * Text Domain: devenia-workflow
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -66,7 +66,7 @@ final class Devenia_AI_Translations {
 	use Devenia_AI_Translations_Translation_Job_V2;
 	use Devenia_AI_Translations_Source_Inventory;
 
-	const VERSION = '0.1.572';
+	const VERSION = '0.1.573';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -835,7 +835,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Let the Devenia presentation adapter render localized author archive copy.
+	 * Let a presentation adapter render localized author archive copy.
 	 *
 	 * @param mixed   $context Existing presentation context.
 	 * @param WP_User $author  Author being rendered.
@@ -872,7 +872,7 @@ final class Devenia_AI_Translations {
 	}
 
 	/**
-	 * Localize single post hero metadata rendered by Devenia Site Presentation.
+	 * Localize single-post hero metadata rendered by a presentation adapter.
 	 *
 	 * @param mixed   $context Existing presentation context.
 	 * @param WP_Post $post    Post being rendered.
@@ -6184,7 +6184,7 @@ final class Devenia_AI_Translations {
 
 		$issues = array();
 		$base   = plugin_dir_path( __FILE__ );
-		$php    = $base . 'devenia-ai-translations.php';
+		$php    = $base . 'devenia-workflow.php';
 		$source = is_readable( $php ) ? (string) file_get_contents( $php ) : '';
 		$language_codes = array_keys( self::default_languages() );
 		$language_pattern = implode( '|', array_map( 'preg_quote', $language_codes ) );
@@ -6203,7 +6203,7 @@ final class Devenia_AI_Translations {
 			foreach ( $matches[1] as $match ) {
 				$issues[] = array(
 					'code'   => 'language_specific_qa_rule_in_php',
-					'file'   => 'devenia-ai-translations.php',
+					'file'   => 'devenia-workflow.php',
 					'line'   => self::line_number_for_offset( $source, (int) $match[1] ),
 					'sample' => self::copy_brief_excerpt( trim( preg_replace( '/\s+/', ' ', (string) $match[0] ) ), 220 ),
 				);
@@ -6523,7 +6523,7 @@ final class Devenia_AI_Translations {
 
 		printf(
 			'<div class="notice notice-warning"><p>%s</p></div>',
-			esc_html__( 'Devenia AI Workflow is active, but the WordPress Abilities API is not available. Workflow abilities will be registered after WordPress or an installed abilities provider makes wp_register_ability() available.', 'devenia-ai-translations' )
+			esc_html__( 'Devenia AI Workflow is active, but the WordPress Abilities API is not available. Workflow abilities will be registered after WordPress or an installed abilities provider makes wp_register_ability() available.', 'devenia-workflow' )
 		);
 	}
 
@@ -6532,8 +6532,8 @@ final class Devenia_AI_Translations {
 	 */
 	public static function register_presentation_admin_page(): void {
 		add_management_page(
-			__( 'Devenia AI Workflow Presentation', 'devenia-ai-translations' ),
-			__( 'Workflow Presentation', 'devenia-ai-translations' ),
+			__( 'Devenia AI Workflow Presentation', 'devenia-workflow' ),
+			__( 'Workflow Presentation', 'devenia-workflow' ),
 			'manage_options',
 			'devenia-ai-translations-presentation',
 			array( __CLASS__, 'render_presentation_admin_page' )
@@ -6545,7 +6545,7 @@ final class Devenia_AI_Translations {
 	 */
 	public static function render_presentation_admin_page(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-ai-translations' ) );
+			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-workflow' ) );
 		}
 
 		$tab      = self::admin_current_tab();
@@ -6555,12 +6555,12 @@ final class Devenia_AI_Translations {
 		$author_language = self::admin_current_author_language();
 		?>
 		<div class="wrap">
-			<h1><?php echo esc_html__( 'Devenia AI Workflow Presentation', 'devenia-ai-translations' ); ?></h1>
-			<p><?php echo esc_html__( 'Edit runtime values that feed localized public presentation output. Page, post, term, media, comment, and user fields remain editable in their normal WordPress screens.', 'devenia-ai-translations' ); ?></p>
+			<h1><?php echo esc_html__( 'Devenia AI Workflow Presentation', 'devenia-workflow' ); ?></h1>
+			<p><?php echo esc_html__( 'Edit runtime values that feed localized public presentation output. Page, post, term, media, comment, and user fields remain editable in their normal WordPress screens.', 'devenia-workflow' ); ?></p>
 
 			<h2 class="nav-tab-wrapper">
-				<a class="nav-tab <?php echo 'runtime_text' === $tab ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url( self::presentation_admin_url( array( 'tab' => 'runtime_text' ) ) ); ?>"><?php echo esc_html__( 'Runtime Text', 'devenia-ai-translations' ); ?></a>
-				<a class="nav-tab <?php echo 'author_archives' === $tab ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url( self::presentation_admin_url( array( 'tab' => 'author_archives' ) ) ); ?>"><?php echo esc_html__( 'Author Archives', 'devenia-ai-translations' ); ?></a>
+				<a class="nav-tab <?php echo 'runtime_text' === $tab ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url( self::presentation_admin_url( array( 'tab' => 'runtime_text' ) ) ); ?>"><?php echo esc_html__( 'Runtime Text', 'devenia-workflow' ); ?></a>
+				<a class="nav-tab <?php echo 'author_archives' === $tab ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url( self::presentation_admin_url( array( 'tab' => 'author_archives' ) ) ); ?>"><?php echo esc_html__( 'Author Archives', 'devenia-workflow' ); ?></a>
 			</h2>
 
 			<?php self::render_presentation_admin_notice(); ?>
@@ -6579,7 +6579,7 @@ final class Devenia_AI_Translations {
 	 */
 	public static function handle_admin_runtime_text_save(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-ai-translations' ) );
+			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-workflow' ) );
 		}
 		check_admin_referer( 'devenia_ai_translations_runtime_text' );
 
@@ -6626,7 +6626,7 @@ final class Devenia_AI_Translations {
 	 */
 	public static function handle_admin_author_archive_save(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-ai-translations' ) );
+			wp_die( esc_html__( 'You do not have permission to edit translation presentation data.', 'devenia-workflow' ) );
 		}
 		check_admin_referer( 'devenia_ai_translations_author_archive' );
 
@@ -6683,7 +6683,7 @@ final class Devenia_AI_Translations {
 		<form method="get" action="<?php echo esc_url( admin_url( 'tools.php' ) ); ?>">
 			<input type="hidden" name="page" value="devenia-ai-translations-presentation" />
 			<input type="hidden" name="tab" value="runtime_text" />
-			<label for="devenia-runtime-language"><?php echo esc_html__( 'Language', 'devenia-ai-translations' ); ?></label>
+			<label for="devenia-runtime-language"><?php echo esc_html__( 'Language', 'devenia-workflow' ); ?></label>
 			<select id="devenia-runtime-language" name="language">
 				<?php foreach ( $languages as $code => $language_config ) : ?>
 					<option value="<?php echo esc_attr( (string) $code ); ?>" <?php selected( $language, (string) $code ); ?>>
@@ -6691,13 +6691,13 @@ final class Devenia_AI_Translations {
 					</option>
 				<?php endforeach; ?>
 			</select>
-			<label for="devenia-runtime-section"><?php echo esc_html__( 'Section', 'devenia-ai-translations' ); ?></label>
+			<label for="devenia-runtime-section"><?php echo esc_html__( 'Section', 'devenia-workflow' ); ?></label>
 			<select id="devenia-runtime-section" name="section">
 				<?php foreach ( self::runtime_text_sections() as $section_name ) : ?>
 					<option value="<?php echo esc_attr( $section_name ); ?>" <?php selected( $section, $section_name ); ?>><?php echo esc_html( $section_name ); ?></option>
 				<?php endforeach; ?>
 			</select>
-			<?php submit_button( __( 'Load', 'devenia-ai-translations' ), 'secondary', '', false ); ?>
+			<?php submit_button( __( 'Load', 'devenia-workflow' ), 'secondary', '', false ); ?>
 		</form>
 
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -6705,9 +6705,9 @@ final class Devenia_AI_Translations {
 			<input type="hidden" name="action" value="devenia_ai_translations_save_runtime_text" />
 			<input type="hidden" name="language" value="<?php echo esc_attr( $language ); ?>" />
 			<input type="hidden" name="section" value="<?php echo esc_attr( $section ); ?>" />
-			<p><label for="devenia-runtime-text-json"><?php echo esc_html__( 'Runtime text JSON', 'devenia-ai-translations' ); ?></label></p>
+			<p><label for="devenia-runtime-text-json"><?php echo esc_html__( 'Runtime text JSON', 'devenia-workflow' ); ?></label></p>
 			<textarea id="devenia-runtime-text-json" name="runtime_text_json" rows="22" class="large-text code"><?php echo esc_textarea( is_string( $json ) ? $json : '{}' ); ?></textarea>
-			<?php submit_button( __( 'Save Runtime Text', 'devenia-ai-translations' ) ); ?>
+			<?php submit_button( __( 'Save Runtime Text', 'devenia-workflow' ) ); ?>
 		</form>
 		<?php
 	}
@@ -6750,7 +6750,7 @@ final class Devenia_AI_Translations {
 		<form method="get" action="<?php echo esc_url( admin_url( 'tools.php' ) ); ?>">
 			<input type="hidden" name="page" value="devenia-ai-translations-presentation" />
 			<input type="hidden" name="tab" value="author_archives" />
-			<label for="devenia-author-id"><?php echo esc_html__( 'Author', 'devenia-ai-translations' ); ?></label>
+			<label for="devenia-author-id"><?php echo esc_html__( 'Author', 'devenia-workflow' ); ?></label>
 			<select id="devenia-author-id" name="author_id">
 				<?php foreach ( $authors as $author ) : ?>
 					<?php if ( $author instanceof WP_User ) : ?>
@@ -6758,7 +6758,7 @@ final class Devenia_AI_Translations {
 					<?php endif; ?>
 				<?php endforeach; ?>
 			</select>
-			<label for="devenia-author-language"><?php echo esc_html__( 'Language', 'devenia-ai-translations' ); ?></label>
+			<label for="devenia-author-language"><?php echo esc_html__( 'Language', 'devenia-workflow' ); ?></label>
 			<select id="devenia-author-language" name="language">
 				<?php foreach ( self::target_languages() as $code => $language_config ) : ?>
 					<option value="<?php echo esc_attr( (string) $code ); ?>" <?php selected( $language, (string) $code ); ?>>
@@ -6766,7 +6766,7 @@ final class Devenia_AI_Translations {
 					</option>
 				<?php endforeach; ?>
 			</select>
-			<?php submit_button( __( 'Load', 'devenia-ai-translations' ), 'secondary', '', false ); ?>
+			<?php submit_button( __( 'Load', 'devenia-workflow' ), 'secondary', '', false ); ?>
 		</form>
 
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -6774,10 +6774,10 @@ final class Devenia_AI_Translations {
 			<input type="hidden" name="action" value="devenia_ai_translations_save_author_archive" />
 			<input type="hidden" name="author_id" value="<?php echo esc_attr( (string) $author_id ); ?>" />
 			<input type="hidden" name="language" value="<?php echo esc_attr( $language ); ?>" />
-			<p><label for="devenia-author-archive-json"><?php echo esc_html__( 'Author archive JSON', 'devenia-ai-translations' ); ?></label></p>
+			<p><label for="devenia-author-archive-json"><?php echo esc_html__( 'Author archive JSON', 'devenia-workflow' ); ?></label></p>
 			<textarea id="devenia-author-archive-json" name="author_archive_json" rows="22" class="large-text code"><?php echo esc_textarea( is_string( $json ) ? $json : '{}' ); ?></textarea>
-			<p><label><input type="checkbox" name="delete_record" value="1" /> <?php echo esc_html__( 'Delete this localized author archive record', 'devenia-ai-translations' ); ?></label></p>
-			<?php submit_button( __( 'Save Author Archive', 'devenia-ai-translations' ) ); ?>
+			<p><label><input type="checkbox" name="delete_record" value="1" /> <?php echo esc_html__( 'Delete this localized author archive record', 'devenia-workflow' ); ?></label></p>
+			<?php submit_button( __( 'Save Author Archive', 'devenia-workflow' ) ); ?>
 		</form>
 		<?php
 	}
@@ -6856,10 +6856,10 @@ final class Devenia_AI_Translations {
 		}
 
 		$messages = array(
-			'saved'        => __( 'Presentation data saved.', 'devenia-ai-translations' ),
-			'deleted'      => __( 'Presentation data deleted.', 'devenia-ai-translations' ),
-			'invalid'      => __( 'Could not save: invalid language, section, author, or status.', 'devenia-ai-translations' ),
-			'invalid_json' => __( 'Could not save: JSON is invalid.', 'devenia-ai-translations' ),
+			'saved'        => __( 'Presentation data saved.', 'devenia-workflow' ),
+			'deleted'      => __( 'Presentation data deleted.', 'devenia-workflow' ),
+			'invalid'      => __( 'Could not save: invalid language, section, author, or status.', 'devenia-workflow' ),
+			'invalid_json' => __( 'Could not save: JSON is invalid.', 'devenia-workflow' ),
 		);
 		$message = $messages[ $status ] ?? '';
 		if ( '' === $message ) {
@@ -8727,7 +8727,7 @@ final class Devenia_AI_Translations {
 				'title'             => array( 'type' => 'string' ),
 				'content'           => array(
 					'type'        => 'string',
-					'description' => 'Legacy escape hatch for already-projected Gutenberg content. Source posts must first be designed from the Site Presentation article contract; prefer inherit_source_design with localized_fragments so translators translate text instead of rebuilding design.',
+					'description' => 'Legacy escape hatch for already-projected Gutenberg content. Apply any source-design policy registered by the site first; prefer inherit_source_design with localized_fragments so translators translate text instead of rebuilding design.',
 				),
 				'inherit_source_design' => array(
 					'type'        => 'boolean',
@@ -9211,7 +9211,7 @@ final class Devenia_AI_Translations {
 				),
 				'contract_notes' => array(
 					'type'        => 'string',
-					'description' => 'Concrete notes comparing the current source page with the selected Site Presentation contract.',
+					'description' => 'Concrete notes comparing the current source page with the configured source-design policy and rendered result.',
 				),
 				'desktop_render_notes' => array(
 					'type'        => 'string',
@@ -15438,7 +15438,7 @@ final class Devenia_AI_Translations {
 				'authority_vendor' => sanitize_text_field( (string) ( $input['authority_vendor'] ?? '' ) ),
 				'authority_client' => sanitize_text_field( (string) ( $input['authority_client'] ?? '' ) ),
 				'actor'       => self::current_operator_label(),
-				'plugin'      => 'devenia-ai-translations',
+				'plugin'      => 'devenia-workflow',
 				'version'     => self::VERSION,
 				'required_steps' => self::translation_step_token_steps(),
 			)
@@ -20145,19 +20145,19 @@ final class Devenia_AI_Translations {
 			? array_values( array_filter( array_map( 'sanitize_key', $validation['issue_codes'] ) ) )
 			: array();
 		$reason      = ! empty( $validation['available'] )
-			? __( 'Source post publish blocked: the article does not pass the Devenia editorial design gate.', 'devenia-ai-translations' )
-			: __( 'Source post publish blocked: Devenia editorial design validation is unavailable.', 'devenia-ai-translations' );
+			? __( 'Source post publish blocked: the article does not pass the configured source-design policy.', 'devenia-workflow' )
+			: __( 'Source post publish blocked: the configured source-design validation is unavailable.', 'devenia-workflow' );
 		if ( $issue_codes ) {
 			$reason .= ' ' . sprintf(
 				/* translators: %s is a comma-separated list of validation issue codes. */
-				__( 'Issue codes: %s', 'devenia-ai-translations' ),
+				__( 'Issue codes: %s', 'devenia-workflow' ),
 				implode( ', ', $issue_codes )
 			);
 		}
 
 		wp_die(
 			esc_html( $reason ),
-			esc_html__( 'Source design gate failed', 'devenia-ai-translations' ),
+			esc_html__( 'Source design gate failed', 'devenia-workflow' ),
 			array( 'response' => 400 )
 		);
 	}
@@ -20182,8 +20182,8 @@ final class Devenia_AI_Translations {
 		);
 
 		wp_die(
-			esc_html__( 'Content save blocked: storage integrity guardrails failed. Fix the reported route, link, or block markup issues before saving.', 'devenia-ai-translations' ),
-			esc_html__( 'Invalid content storage', 'devenia-ai-translations' ),
+			esc_html__( 'Content save blocked: storage integrity guardrails failed. Fix the reported route, link, or block markup issues before saving.', 'devenia-workflow' ),
+			esc_html__( 'Invalid content storage', 'devenia-workflow' ),
 			array( 'response' => 400 )
 		);
 	}
@@ -21040,7 +21040,7 @@ final class Devenia_AI_Translations {
 				array( 'blog_archive_text', 'page_label' ),
 				array( 'widget_text', 'Page' ),
 			),
-			__( 'Page', 'devenia-ai-translations' )
+			__( 'Page', 'devenia-workflow' )
 		);
 	}
 
@@ -21400,8 +21400,8 @@ final class Devenia_AI_Translations {
 					<?php the_excerpt(); ?>
 				</div>
 
-				<footer class="entry-meta" aria-label="<?php echo esc_attr__( 'Entry meta', 'devenia-ai-translations' ); ?>">
-					<span class="cat-links"><span class="screen-reader-text"><?php echo esc_html__( 'Categories', 'devenia-ai-translations' ); ?> </span><?php echo wp_kses_post( get_the_category_list( ', ' ) ); ?></span>
+				<footer class="entry-meta" aria-label="<?php echo esc_attr__( 'Entry meta', 'devenia-workflow' ); ?>">
+					<span class="cat-links"><span class="screen-reader-text"><?php echo esc_html__( 'Categories', 'devenia-workflow' ); ?> </span><?php echo wp_kses_post( get_the_category_list( ', ' ) ); ?></span>
 				</footer>
 			</div>
 		</article>
@@ -21628,8 +21628,8 @@ final class Devenia_AI_Translations {
 		}
 
 		$language       = self::translated_posts_page_loop_language();
-		$previous_label = self::presentation_pagination_label( $language, 'previous', __( 'Previous', 'devenia-ai-translations' ) );
-		$next_label     = self::presentation_pagination_label( $language, 'next', __( 'Next', 'devenia-ai-translations' ) );
+		$previous_label = self::presentation_pagination_label( $language, 'previous', __( 'Previous', 'devenia-workflow' ) );
+		$next_label     = self::presentation_pagination_label( $language, 'next', __( 'Next', 'devenia-workflow' ) );
 		$older_label    = self::presentation_label_from_sources(
 			$language,
 			array(
@@ -21637,7 +21637,7 @@ final class Devenia_AI_Translations {
 				array( 'blog_archive_text', 'older_posts' ),
 				array( 'widget_text', 'Older posts' ),
 			),
-			__( 'Older posts', 'devenia-ai-translations' )
+			__( 'Older posts', 'devenia-workflow' )
 		);
 		$page_label     = self::presentation_label_from_sources(
 			$language,
@@ -21645,7 +21645,7 @@ final class Devenia_AI_Translations {
 				array( 'blog_archive_text', 'page_label' ),
 				array( 'widget_text', 'Page' ),
 			),
-			__( 'Page', 'devenia-ai-translations' )
+			__( 'Page', 'devenia-workflow' )
 		);
 		$archive_label  = self::presentation_label_from_sources(
 			$language,
@@ -21653,7 +21653,7 @@ final class Devenia_AI_Translations {
 				array( 'blog_archive_text', 'archive_page_label' ),
 				array( 'widget_text', 'Archive Page' ),
 			),
-			__( 'Archive Page', 'devenia-ai-translations' )
+			__( 'Archive Page', 'devenia-workflow' )
 		);
 		$older_url     = self::translated_posts_page_url( $base_url, min( $query->max_num_pages, $current + 1 ) );
 		$page_one_url  = self::translated_posts_page_url( $base_url, 1 );
@@ -22219,7 +22219,7 @@ final class Devenia_AI_Translations {
 	 *
 	 * Translation fitness is where broad scans, review gates, and queue hygiene
 	 * meet. A translation cannot be considered source-faithful when the source
-	 * itself is not a valid Devenia editorial design source.
+	 * itself does not pass the configured source-design policy.
 	 *
 	 * @return array{passed:bool,issues:array<int,array<string,mixed>>,warnings:array<int,array<string,mixed>>,issue_count:int,warning_count:int,summary:array<string,mixed>}
 	 */
@@ -22246,7 +22246,7 @@ final class Devenia_AI_Translations {
 		if ( empty( $source_design_gate['passed'] ) ) {
 			$issues[] = self::qa_item(
 				'source_editorial_design_gate_failed',
-				'The source post does not pass the Devenia editorial design gate, so translations cannot be considered source-design faithful until the source design is repaired or marked reviewed for the current source hash.',
+				'The source post does not pass the configured source-design policy, so translations cannot be considered source-design faithful until the source design is repaired or marked reviewed for the current source hash.',
 				array(
 					'source_id'    => $source_id,
 					'available'    => ! empty( $source_design_gate['available'] ),
@@ -22362,7 +22362,7 @@ final class Devenia_AI_Translations {
 	/**
 	 * Keep source-design scan findings compact enough for queue/report output.
 	 *
-	 * @param array<string,mixed> $metrics Full Site Presentation metrics.
+	 * @param array<string,mixed> $metrics Source-design validation metrics.
 	 * @return array<string,mixed>
 	 */
 	private static function compact_editorial_design_metrics( array $metrics ): array {
@@ -23761,17 +23761,12 @@ final class Devenia_AI_Translations {
 		}
 
 		$manual_markers = array(
-			'dv-blog-simple-posts',
-			'devenia-manual-post-list',
 		'devenia-translated-post-card',
 		'wp:latest-posts',
 		);
 
 		foreach ( $manual_markers as $marker ) {
 			if ( false === strpos( $content, $marker ) ) {
-				continue;
-			}
-			if ( 'dv-blog-simple-posts' === $marker && $is_query_driven_archive ) {
 				continue;
 			}
 			++$summary['disallowed_marker_count'];
@@ -26760,7 +26755,7 @@ final class Devenia_AI_Translations {
 		$language         = (string) $language_context['code'];
 		$config           = self::languages()[ $language ] ?? array();
 		$text             = isset( $config['not_found_text'] ) && is_array( $config['not_found_text'] ) ? $config['not_found_text'] : array();
-		$title            = trim( (string) ( $text['title'] ?? $text['Page not found'] ?? __( 'Page not found', 'devenia-ai-translations' ) ) );
+		$title            = trim( (string) ( $text['title'] ?? $text['Page not found'] ?? __( 'Page not found', 'devenia-workflow' ) ) );
 		$description      = trim( (string) ( $text['description'] ?? $text['The page you requested could not be found.'] ?? '' ) );
 
 		$surface = self::presentation_base( 'not_found', $language_context );
@@ -26819,8 +26814,8 @@ final class Devenia_AI_Translations {
 			'navigation'   => array(
 				'language_links' => array(),
 				'pagination'     => array(
-					'previous_label' => self::presentation_pagination_label( $language, 'previous', __( 'Previous', 'devenia-ai-translations' ) ),
-					'next_label'     => self::presentation_pagination_label( $language, 'next', __( 'Next', 'devenia-ai-translations' ) ),
+					'previous_label' => self::presentation_pagination_label( $language, 'previous', __( 'Previous', 'devenia-workflow' ) ),
+					'next_label'     => self::presentation_pagination_label( $language, 'next', __( 'Next', 'devenia-workflow' ) ),
 				),
 			),
 			'localized_text' => self::localized_public_text_payload( $language ),
@@ -26845,13 +26840,13 @@ final class Devenia_AI_Translations {
 					array( 'blog_archive_text', 'author' ),
 					array( 'widget_text', 'By' ),
 				),
-				__( 'By', 'devenia-ai-translations' )
+				__( 'By', 'devenia-workflow' )
 			),
-			'published'      => self::presentation_label( $language, 'published_label', __( 'Published', 'devenia-ai-translations' ) ),
-			'updated'        => self::presentation_label( $language, 'updated_label', __( 'Updated', 'devenia-ai-translations' ) ),
-			'read_more'      => self::presentation_label( $language, 'read_more_label', __( 'Read more', 'devenia-ai-translations' ) ),
-			'category'       => isset( $taxonomy_labels['Categories'] ) ? (string) $taxonomy_labels['Categories'] : __( 'Categories', 'devenia-ai-translations' ),
-			'tag'            => isset( $taxonomy_labels['Tags'] ) ? (string) $taxonomy_labels['Tags'] : __( 'Tags', 'devenia-ai-translations' ),
+			'published'      => self::presentation_label( $language, 'published_label', __( 'Published', 'devenia-workflow' ) ),
+			'updated'        => self::presentation_label( $language, 'updated_label', __( 'Updated', 'devenia-workflow' ) ),
+			'read_more'      => self::presentation_label( $language, 'read_more_label', __( 'Read more', 'devenia-workflow' ) ),
+			'category'       => isset( $taxonomy_labels['Categories'] ) ? (string) $taxonomy_labels['Categories'] : __( 'Categories', 'devenia-workflow' ),
+			'tag'            => isset( $taxonomy_labels['Tags'] ) ? (string) $taxonomy_labels['Tags'] : __( 'Tags', 'devenia-workflow' ),
 			'comments'       => self::presentation_label_from_sources(
 				$language,
 				array(
@@ -26861,9 +26856,9 @@ final class Devenia_AI_Translations {
 					array( 'widget_text', 'Comments' ),
 					array( 'blog_archive_text', 'comments_label' ),
 				),
-				__( 'Comments', 'devenia-ai-translations' )
+				__( 'Comments', 'devenia-workflow' )
 			),
-			'comment_submit' => (string) ( $comments['label_submit'] ?? __( 'Post Comment', 'devenia-ai-translations' ) ),
+			'comment_submit' => (string) ( $comments['label_submit'] ?? __( 'Post Comment', 'devenia-workflow' ) ),
 		);
 	}
 
@@ -26877,11 +26872,11 @@ final class Devenia_AI_Translations {
 
 		return array(
 			'read_more' => array(
-				'label' => self::presentation_label( $language, 'read_more_label', __( 'Read more', 'devenia-ai-translations' ) ),
+				'label' => self::presentation_label( $language, 'read_more_label', __( 'Read more', 'devenia-workflow' ) ),
 				'url'   => '',
 			),
 			'comment_submit' => array(
-				'label' => (string) ( $comments['label_submit'] ?? __( 'Post Comment', 'devenia-ai-translations' ) ),
+				'label' => (string) ( $comments['label_submit'] ?? __( 'Post Comment', 'devenia-workflow' ) ),
 			),
 		);
 	}

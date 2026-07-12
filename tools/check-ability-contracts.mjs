@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const source = fs.readFileSync(path.join(root, "includes/trait-ability-catalogue.php"), "utf8");
-const runtime = fs.readFileSync(path.join(root, "devenia-ai-translations.php"), "utf8");
+const runtime = fs.readFileSync(path.join(root, "devenia-workflow.php"), "utf8");
 const indexReadModel = fs.readFileSync(path.join(root, "includes/trait-translation-index-read-model.php"), "utf8");
 const sourceDesignReview = fs.readFileSync(path.join(root, "includes/trait-source-design-review-policy.php"), "utf8");
 const required = [

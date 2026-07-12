@@ -85,7 +85,7 @@ trait Devenia_AI_Translations_Publication_Experience {
 			$post,
 			$language,
 			array(
-				'caller'         => 'devenia-ai-translations',
+				'caller'         => 'devenia-workflow',
 				'stage'          => sanitize_key( $stage ),
 				'is_translation' => $is_translation,
 				'source_id'      => $source_id,
@@ -133,8 +133,8 @@ trait Devenia_AI_Translations_Publication_Experience {
 				empty( $editorial_validation['available'] ) ? 'publication_experience_editorial_adapter_unavailable' : 'publication_experience_editorial_design_failed',
 				'block_publish',
 				empty( $editorial_validation['available'] )
-					? 'Devenia editorial design validation is unavailable, so publication experience cannot be trusted.'
-					: 'The content does not pass the Devenia editorial design gate.',
+					? 'The configured source-design validation is unavailable, so publication experience cannot be trusted.'
+					: 'The content does not pass the configured source-design policy.',
 				array(
 					'post_id'    => $post_id,
 					'issue_codes'=> $editorial_validation['issue_codes'] ?? array(),

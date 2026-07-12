@@ -286,8 +286,8 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 
 	private static function heartbeat_action_map(): array {
 		$design_ownership = array(
-			'design_contract_required' => true,
-			'design_contract_ability'  => 'devenia-site-presentation/get-article-contract',
+			'design_contract_required' => false,
+			'design_contract_ability'  => '',
 			'worker_ownership_rule'    => 'The worker owns the design judgment for the assigned item. Persona name, green technical gates, and later reviewers are not substitutes for doing the design work now.',
 			'required_design_brief'    => array(
 				'reader',
@@ -316,13 +316,13 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 				'source_design_repair',
 				array(
 					'design_ownership' => $design_ownership,
-					'instructions'      => 'The source post itself does not pass the selected Devenia presentation contract. Before designing or rebuilding anything, fetch the live design sources through MCP: the Gutenberg style guide, registered block patterns, and any relevant block pattern library abilities exposed for the article type and section role. Use the article_type/template fields on the work item when fetching devenia-site-presentation/get-article-contract; do not assume editorial_post. Inspect the source, at least one comparable live Devenia page, and the public render. If the current page is genuinely good and a rewrite would be unnecessary, call ai-translations/mark-source-design-reviewed with concrete desktop/mobile/contract evidence and the active claim token instead of rewriting the source. Otherwise rebuild through devenia-site-presentation/apply-article-contract-pattern with explicit fragments for that contract, validate with stamp-article-contract dry-run, then browser-check against the comparable page. Stop before reviewing or publishing any downstream translation work. After the source is repaired or marked reviewed, downstream translations can continue through normal source-design/review work.',
+					'instructions'      => 'Inspect the source, its native editor contract, at least one comparable live page when available, and the public render. If the current page is genuinely good and a rewrite would be unnecessary, call ai-translations/mark-source-design-reviewed with concrete desktop/mobile evidence and the active claim token instead of rewriting the source. Otherwise repair it through the native source editor ability returned by ai-translations/source-editor-status, then browser-check the result. Stop before reviewing or publishing downstream translation work.',
 				)
 			),
 			'source_taxonomy_review' => self::heartbeat_source_work_action(
 				'source_taxonomy_review',
 				array(
-					'instructions' => 'Review the English source post categories and tags before they are mirrored into translations. Use the article_type/template fields carried on this work item when fetching any Site Presentation contract; do not let tools default to editorial_post. Read what the post is actually about, inspect assigned categories/tags, and use the source_taxonomy payload for singleton/sprawl signals and existing reuse candidates. Prefer reusing or consolidating existing terms when they cover the same reader intent; keep a narrow one-post term only when it is genuinely useful as a reader archive. If terms need changing, use content/update-post with category_ids/tag_ids first. Then mark this review complete with ai-translations/mark-source-taxonomy-reviewed, including concrete topical-fit notes and a term_decisions row for each assigned singleton term: keep, replace, or remove with rationale. Stop before reviewing or publishing downstream translations.',
+					'instructions' => 'Review the source post categories and tags before they are mirrored into translations. Read what the post is actually about, inspect assigned categories/tags, and use the source_taxonomy payload for singleton/sprawl signals and existing reuse candidates. Prefer reusing or consolidating existing terms when they cover the same reader intent; keep a narrow one-post term only when it is genuinely useful as a reader archive. If terms need changing, use content/update-post with category_ids/tag_ids first. Then mark this review complete with ai-translations/mark-source-taxonomy-reviewed, including concrete topical-fit notes and a term_decisions row for each assigned singleton term.',
 				)
 			),
 			'linguistic_review' => array(
@@ -330,21 +330,21 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 				'workflow_step' => 'linguistic_review',
 				'required_ability' => 'ai-translations/mark-linguistic-reviewed',
 				'design_ownership' => $design_ownership,
-				'instructions' => 'Run QA, fetch the Site Presentation article contract for the work item article_type/source validation, and perform a real language/design/content review. Also inspect shared header/footer chrome for the language: menu labels, widget text, logo/home links, accessibility labels, CTA labels, and mailto subject/body text must be useful localized reader text. If copy is stiff, wrong, visually broken, too padded for its post type, or the source design is not good enough to inherit, record/fix the problem instead of approving. Do not approve merely because checkboxes can be filled.',
+				'instructions' => 'Run QA and perform a real language, design, and content review against the source and any source-design policy exposed by the site. Also inspect shared header/footer chrome for the language. If copy is stiff, wrong, visually broken, or the source design is not good enough to inherit, record or fix the problem instead of approving.',
 			),
 				'quality_review' => array(
 					'action' => 'review_translation_quality',
 					'workflow_step' => 'quality_review',
 					'required_ability' => 'ai-translations/mark-quality-reviewed',
 					'design_ownership' => $design_ownership,
-					'instructions' => 'Fetch the Site Presentation article contract for the work item article_type/source validation and review the assigned visible surface like a publication designer and editor who owns the design decision. If the translation is published, use the public URL and inspect shared header/footer chrome in the same pass: menu labels, widget text, logo/home links, accessibility labels, CTA labels, and mailto subject/body text must be useful localized reader text. If it is draft/pre-publish, use ai-translations/get-presentation-surface and mark-quality-reviewed with review_surface=presentation_surface plus presentation_surface_post_id. A draft public URL returning 404 is expected and is not by itself a blocker. Use the selected contract review questions: long editorial posts need design depth, while release/status notes must stay concise and not become padded articles. Do not approve class-name/template checklists, green technical gates, or flat text poured into bands.',
+					'instructions' => 'Review the assigned visible surface like a publication designer and editor who owns the design decision. Apply any source-design policy exposed by the site. If the translation is published, use the public URL and inspect shared header/footer chrome in the same pass. If it is draft or pre-publish, use ai-translations/get-presentation-surface and mark-quality-reviewed with the presentation-surface evidence.',
 				),
 			'final_review' => array(
 				'action' => 'review_translation_final',
 				'workflow_step' => 'final_review',
 				'required_ability' => 'ai-translations/mark-final-reviewed',
 				'design_ownership' => $design_ownership,
-				'instructions' => 'Fetch the Site Presentation article contract for the work item article_type/source validation and confirm prior reviews, SEO/URL readiness, publication experience, source-design ownership, shared header/footer chrome language quality, visible-page design quality for that post type, and final publish decision.',
+				'instructions' => 'Confirm prior reviews, SEO and URL readiness, publication experience, source-design ownership, shared header/footer language quality, visible-page design quality, and the final publish decision.',
 			),
 			'publish' => array(
 				'action' => 'publish_translation',
@@ -357,21 +357,21 @@ trait Devenia_AI_Translations_Heartbeat_Workflow {
 					'workflow_step' => 'draft_write',
 					'required_ability' => 'ai-translations/reproject-source-design',
 					'design_ownership' => $design_ownership,
-					'instructions' => 'The source design has moved ahead of this translation. Fetch the Site Presentation article contract for the source article_type, inspect the source and existing translation, migrate/source-design fragments if needed, run ai-translations/reproject-source-design through approved workflow abilities, then stop before reviewing or publishing your own reprojection.',
+					'instructions' => 'The source design has moved ahead of this translation. Inspect the source, its native editor contract, and the existing translation; migrate source-design fragments if needed, run ai-translations/reproject-source-design, then stop before reviewing or publishing your own reprojection.',
 				),
 				'route_repair' => array(
 					'action' => 'repair_translation_route',
 					'workflow_step' => 'draft_write',
 					'required_ability' => 'ai-translations/upsert-page',
 					'design_ownership' => $design_ownership,
-					'instructions' => 'The existing translation route violates the localized URL contract. Fetch the source, the current translation, workflow status, QA route_integrity details, and the Site Presentation article contract for the source article_type. Preserve the existing translated content/design unless it also needs normal content fixes, then use ai-translations/upsert-page to set a correct localized_slug/localized_path. If source-design reprojection is required, run the approved dry-run/apply flow and then refetch the translation before building the route upsert; do not reuse a pre-reprojection content payload. If upsert reports source_design_signature_mismatch, refetch and rebuild from the current projected translation. If it reports source_language_fragment_carryover, source_language_short_sentence_carryover, or locale_terminology_mismatch, localize every reported visible fragment/term and retry the complete route repair. These are normal contributor-side corrections, even when they require a complete target-language fragment rewrite; they are not coordinator blockers. Escalate only when the same error is reproducible with freshly fetched current design and fully localized text, indicating a broken ability contract. For languages with transliterated URLs, use target-language transliteration in ASCII, not English/source-language route words. Do not mark review or publish your own route repair.',
+					'instructions' => 'The existing translation route violates the localized URL contract. Fetch the source, current translation, workflow status, and QA route_integrity details. Preserve the existing translated content and design unless they also need normal fixes, then use ai-translations/upsert-page to set the correct localized route. Refetch after any source-design reprojection and do not mark review or publish your own route repair.',
 				),
 				'draft_write' => array(
 				'action' => 'write_missing_translation',
 				'workflow_step' => 'draft_write',
 				'required_ability' => 'ai-translations/upsert-page',
 				'design_ownership' => $design_ownership,
-				'instructions' => 'This language is missing for the source. Fetch the source, the workflow status, and the Site Presentation article contract for the source article_type. Create a real localized draft with inherited source design, localized slug/path, title, excerpt, SEO metadata, taxonomy where needed, and complete localized_fragments. If the source post has categories or tags, call ai-translations/list-taxonomy-terms with source_id and language before upsert so you can reuse existing localized terms, see required source_term_id values, and follow the expected localized slug contract instead of guessing. Before mirroring categories, check whether the source categories actually fit the article and include taxonomies.category_assignment_review with source_categories_fit=true and a concrete note; if they do not fit, stop and report the source category problem instead of copying it into another language. For category/tag terms, provide useful localized archive descriptions when the archive helps readers understand what they will find; if a term should intentionally have no archive description, include a concrete description_not_useful_reason instead of silently skipping it. For languages with transliterated URLs, use target-language transliteration in ASCII; do not use English/source-language route words. Use ai-translations/upsert-page with the claim token. If upsert returns source_language_fragment_carryover, source_language_short_sentence_carryover, or locale_terminology_mismatch, localize every reported visible fragment/term and retry the complete draft; these are normal contributor-side corrections, not coordinator blockers. Escalate only a reproducible false positive against fully localized text or a broken ability contract. Do not mark review or publish the draft you create.',
+				'instructions' => 'This language is missing for the source. Fetch the source, workflow status, and native source editor contract. Create a complete localized draft with inherited source design, localized route, title, excerpt, SEO metadata, taxonomy where needed, and complete localized_fragments. Reuse verified localized taxonomy terms and satisfy all reported validation issues before resubmitting. Do not mark review or publish the draft you create.',
 			),
 		);
 

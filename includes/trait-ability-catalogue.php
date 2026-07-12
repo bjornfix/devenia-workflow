@@ -516,7 +516,7 @@ trait Devenia_AI_Translations_Ability_Catalogue {
 			),
 			'ai-translations/reproject-source-design' => array(
 				'label'            => 'Reproject Source Design',
-				'description'      => 'Rebuilds existing translations from the current source Gutenberg block tree and their stored localized fragments. Use this only after the source design has passed the Site Presentation article contract; translations do not get redesigned per language.',
+				'description'      => 'Rebuilds existing translations from the current source Gutenberg block tree and their stored localized fragments. Apply any source-design policy registered by the site first; translations do not get redesigned per language.',
 				'input_schema'     => self::reproject_source_design_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {

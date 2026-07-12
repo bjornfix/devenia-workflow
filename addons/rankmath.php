@@ -231,7 +231,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 
 		$post_title = trim( wp_strip_all_tags( get_the_title( get_queried_object_id() ) ) );
 		if ( '' === $post_title ) {
-			$post_title = __( 'Blog', 'devenia-ai-translations' );
+			$post_title = __( 'Blog', 'devenia-workflow' );
 		}
 
 		if ( method_exists( 'Devenia_AI_Translations', 'translated_posts_page_current_page' ) && method_exists( 'Devenia_AI_Translations', 'translated_posts_page_page_label' ) ) {
@@ -241,7 +241,7 @@ final class AI_Translation_Workflow_RankMath_Addon {
 				$post_title = sprintf(
 					'%1$s - %2$s %3$d',
 					$post_title,
-					'' !== $page_label ? $page_label : __( 'Page', 'devenia-ai-translations' ),
+					'' !== $page_label ? $page_label : __( 'Page', 'devenia-workflow' ),
 					$page
 				);
 			}

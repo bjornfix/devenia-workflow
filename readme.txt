@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.572
+Stable tag: 0.1.573
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -37,7 +37,7 @@ It is designed for controlled translation workflows where an AI assistant, autom
 
 == Installation ==
 
-1. Upload the plugin files to the `/wp-content/plugins/devenia-ai-translations/` directory, or install the plugin through the WordPress plugins screen.
+1. Upload the plugin files to the `/wp-content/plugins/devenia-workflow/` directory, or install the plugin through the WordPress plugins screen.
 2. Activate "Devenia AI Workflow" through the Plugins screen in WordPress.
 3. Configure the supported language registry and review workflow for your site.
 4. Use the plugin's workflow abilities from your AI or automation client to read sources, create drafts, run QA, record review evidence, and publish approved translations.
@@ -94,9 +94,10 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 == Changelog ==
 
-= 0.1.572 =
-* Architecture: replace raw SQL Source Inventory persistence with a deep Inventory Generation Store using bounded, generation-keyed, non-autoloaded WordPress option shards.
-* Quality: Work Item Planner and Exhaustion Proof now consume the same Store Interface with no direct database access or Plugin Check suppression in the inventory seam.
+= 0.1.573 =
+* Public identity: adopts `devenia-workflow` as the WordPress text domain.
+* Architecture: replaces direct private presentation abilities and Devenia-site design assumptions with generic source-editor, source-design validation, and dynamic-presentation adapter Interfaces.
+* Compatibility: existing Devenia option, metadata, hook, class, and plugin-file identifiers remain stable for installed sites.
 
 = 0.1.571 =
 * Fixed: `source_only` delegates publication safety to the selected native source editor instead of applying multilingual editorial design gates to native Elementor saves.
@@ -441,7 +442,7 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 * Carries presentation contract worker decision briefs into source-design and work-item payloads so workers get better guidance before choosing release-note or editorial actions.
 
 = 0.1.474 =
-* Adds a content-hash-bound source publish gate handoff so validated Site Presentation pattern repairs can save without weakening the public source design gate.
+* Adds a content-hash-bound source publish gate handoff so validated source-design repairs can save without weakening the public source-design gate.
 
 = 0.1.473 =
 * Adds a required Devenia design-source gate for source-design repair: workers must inspect the live Gutenberg style guide, available patterns, GenerateBlocks pattern libraries, and a comparable live Devenia page before rebuilding article designs.

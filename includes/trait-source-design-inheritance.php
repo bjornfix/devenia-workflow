@@ -52,7 +52,7 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	}
 
 	/**
-	 * Validate that a source post is good enough to be a canonical Devenia design tree.
+	 * Validate that a source post is suitable as a canonical design tree.
 	 *
 	 * The Gutenberg/block-editor plugin owns the implementation behind this seam.
 	 * AI Translations only consumes the result so source inheritance cannot quietly
@@ -82,38 +82,28 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 		}
 
 		$context = array(
-			'caller'    => 'devenia-ai-translations',
+			'caller'    => 'devenia-workflow',
 			'operation' => 'source_design_inheritance',
 		);
-		$shared_source_validation_hook = 'mcp_abilities_gutenberg_' . 'devenia_editorial_source_post_validation';
-		$result  = call_user_func(
-			'apply_filters',
-			$shared_source_validation_hook,
-			null,
+		$result = apply_filters(
+			'devenia_workflow_source_design_validation',
+			array(
+				'available'      => true,
+				'passed'         => true,
+				'not_applicable' => true,
+				'reason'         => 'no_source_design_policy_registered',
+			),
 			$source,
 			$content,
 			$context
 		);
-		if ( ! is_array( $result ) || empty( $result['available'] ) ) {
-			$result = apply_filters(
-				'devenia_editorial_source_post_validation',
-				null,
-				$source,
-				$content,
-				$context
-			);
-		}
 
-		if ( ! is_array( $result ) || empty( $result['available'] ) ) {
-			return self::request_analysis_cache_set(
-				'source_editorial_design_validation',
-				$cache_parts,
-				array(
+		if ( ! is_array( $result ) ) {
+			$result = array(
 				'available' => false,
 				'passed'    => false,
-				'code'      => 'source_editorial_validation_unavailable',
-				'message'   => 'Devenia editorial source-post validation is unavailable. Activate the block-editor validation adapter before source design can be inherited.',
-				)
+				'code'      => 'source_design_validation_invalid_response',
+				'message'   => 'The registered source-design validation adapter returned an invalid response.',
 			);
 		}
 
@@ -137,8 +127,8 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 			'success'    => false,
 			'code'       => empty( $validation['available'] ) ? 'source_editorial_validation_unavailable' : 'source_editorial_design_gate_failed',
 			'message'    => empty( $validation['available'] )
-				? 'Source design inheritance is blocked because Devenia editorial source-post validation is unavailable.'
-				: 'Source design inheritance is blocked because the source post does not pass the selected Devenia presentation contract.',
+				? 'Source design inheritance is blocked because the configured source-design validation is unavailable.'
+				: 'Source design inheritance is blocked because the source post does not pass the configured source-design policy.',
 			'source_id'  => (int) $source->ID,
 			'validation' => $validation,
 			'source_design_review' => $source_design_review,
@@ -1720,7 +1710,13 @@ trait Devenia_AI_Translations_Source_Design_Inheritance {
 	 * Dynamic presentation shortcodes are source-owned structure, not translatable fragments.
 	 */
 	private static function is_dynamic_presentation_surface_html( string $html ): bool {
-		return false !== strpos( $html, '[devenia_presentation ' ) || false !== strpos( $html, '[devenia_presentation]' );
+		/**
+		 * Let presentation adapters identify source-owned dynamic markup.
+		 *
+		 * @param bool   $is_dynamic Whether the markup is adapter-owned.
+		 * @param string $html       Candidate block HTML.
+		 */
+		return (bool) apply_filters( 'devenia_workflow_dynamic_presentation_surface_html', false, $html );
 	}
 
 	/**

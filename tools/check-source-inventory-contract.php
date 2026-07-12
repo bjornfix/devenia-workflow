@@ -6,7 +6,7 @@ $module = file_get_contents( $root . '/includes/trait-source-inventory.php' );
 $catalogue = file_get_contents( $root . '/includes/trait-ability-catalogue.php' );
 $platform = file_get_contents( $root . '/includes/trait-ability-platform.php' );
 $work_items = file_get_contents( $root . '/includes/trait-work-item-catalog.php' );
-$main = file_get_contents( $root . '/devenia-ai-translations.php' );
+$main = file_get_contents( $root . '/devenia-workflow.php' );
 $failures = array();
 
 foreach ( array(

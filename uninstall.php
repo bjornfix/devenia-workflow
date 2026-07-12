@@ -66,7 +66,7 @@ function ai_translation_workflow_uninstall_site(): void {
 if ( is_multisite() ) {
 	require_once ABSPATH . 'wp-admin/includes/plugin.php';
 
-	if ( is_plugin_active_for_network( 'devenia-ai-translations/devenia-ai-translations.php' ) ) {
+	if ( is_plugin_active_for_network( 'devenia-workflow/devenia-workflow.php' ) ) {
 		$ai_translation_workflow_site_ids = get_sites(
 			array(
 				'fields' => 'ids',

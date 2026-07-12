@@ -30,11 +30,9 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 		add_action( 'generate_menu_bar_items', array( 'Devenia_AI_Translations', 'render_mobile_language_menu_bar_item' ), 18 );
 		add_filter( 'generate_logo_href', array( 'Devenia_AI_Translations', 'filter_logo_home_href' ), 20 );
 		add_filter( 'generate_site_title_href', array( 'Devenia_AI_Translations', 'filter_logo_home_href' ), 20 );
-			add_filter( 'generate_excerpt_more_output', array( 'Devenia_AI_Translations', 'localize_read_more_output' ), 20 );
-			add_filter( 'ai_translation_workflow_sync_source_presentation_meta', array( __CLASS__, 'sync_source_presentation_meta' ), 10, 3 );
-			add_filter( 'ai_translation_workflow_publication_experience_subject_state', array( __CLASS__, 'publication_experience_subject_state' ), 10, 5 );
-			add_action( 'wp_enqueue_scripts', array( 'Devenia_AI_Translations', 'enqueue_rtl_layout_styles' ), 22 );
-			add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_styles' ), 24 );
+		add_filter( 'generate_excerpt_more_output', array( 'Devenia_AI_Translations', 'localize_read_more_output' ), 20 );
+		add_filter( 'ai_translation_workflow_sync_source_presentation_meta', array( __CLASS__, 'sync_source_presentation_meta' ), 10, 3 );
+		add_action( 'wp_enqueue_scripts', array( 'Devenia_AI_Translations', 'enqueue_rtl_layout_styles' ), 22 );
 
 		add_action( 'ai_translation_workflow_before_translated_posts_page_main_content', array( __CLASS__, 'before_main_content' ) );
 		add_action( 'ai_translation_workflow_before_translated_posts_page_loop', array( __CLASS__, 'before_loop' ) );
@@ -98,23 +96,6 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 	}
 
 	/**
-	 * Load GeneratePress/GenerateBlocks compatibility styles.
-	 */
-	public static function enqueue_styles(): void {
-		if ( ! Devenia_AI_Translations::is_translated_posts_page_request() ) {
-			return;
-		}
-
-		$path = dirname( __DIR__ ) . '/assets/generatepress-compat.css';
-		wp_enqueue_style(
-			'ai-translation-workflow-generatepress-compat',
-			plugins_url( '../assets/generatepress-compat.css', __FILE__ ),
-			array(),
-			is_readable( $path ) ? (string) filemtime( $path ) : Devenia_AI_Translations::VERSION
-		);
-	}
-
-	/**
 	 * Mirror GeneratePress presentation meta from source content to translations.
 	 *
 	 * @param array<string,mixed> $result Presentation sync result.
@@ -157,69 +138,6 @@ final class AI_Translation_Workflow_GeneratePress_Addon {
 		}
 
 		return $result;
-	}
-
-	/**
-	 * Add GeneratePress/GenerateBlocks article-layout signals to publication readiness.
-	 *
-	 * @param array<string,mixed> $state Publication subject state.
-	 * @param WP_Post             $post Post under review.
-	 * @param string              $language Language code.
-	 * @param string              $stage Calling stage.
-	 * @param string              $content Normalized post content.
-	 * @return array<string,mixed>
-	 */
-	public static function publication_experience_subject_state( array $state, WP_Post $post, string $language, string $stage, string $content ): array {
-		unset( $language, $stage );
-
-		if ( 'post' !== (string) $post->post_type ) {
-			return $state;
-		}
-
-		$post_id = (int) $post->ID;
-		$content = self::normalize_block_comment_markers( $content );
-		$signals = isset( $state['signals'] ) && is_array( $state['signals'] ) ? $state['signals'] : array();
-		$signals['generatepress_full_width_content'] = 'true' === (string) get_post_meta( $post_id, '_generate-full-width-content', true );
-		$signals['generatepress_headline_disabled'] = 'true' === (string) get_post_meta( $post_id, '_generate-disable-headline', true );
-		$signals['generateblocks_container_present'] = false !== strpos( $content, 'wp:generateblocks/container' );
-		$signals['devenia_article_hero_present'] = false !== strpos( $content, 'dv-section--hero' )
-			&& false !== strpos( $content, 'wp:generateblocks/container' );
-
-		$blockers = isset( $state['blockers'] ) && is_array( $state['blockers'] ) ? $state['blockers'] : array();
-		if ( empty( $signals['generatepress_full_width_content'] ) ) {
-			$blockers[] = self::publication_experience_blocker( 'publication_experience_missing_full_width_content', 'Designed article posts must use the full-width content layout.', $post_id );
-		}
-		if ( empty( $signals['generatepress_headline_disabled'] ) ) {
-			$blockers[] = self::publication_experience_blocker( 'publication_experience_default_headline_active', 'Designed article posts must disable the default theme headline so the in-content hero owns the H1 experience.', $post_id );
-		}
-		if ( empty( $signals['generateblocks_container_present'] ) ) {
-			$blockers[] = self::publication_experience_blocker( 'publication_experience_section_system_missing', 'Designed article posts must use the canonical section block system.', $post_id );
-		}
-		if ( empty( $signals['devenia_article_hero_present'] ) ) {
-			$blockers[] = self::publication_experience_blocker( 'publication_experience_hero_missing', 'Designed article posts must include the canonical article hero, not only the theme title and featured image.', $post_id );
-		}
-
-		$state['signals'] = $signals;
-		$state['blockers'] = $blockers;
-		$state['passed'] = empty( $blockers ) && ! empty( $state['passed'] );
-		$state['state'] = $state['passed'] ? 'ready' : 'blocked';
-
-		return $state;
-	}
-
-	/**
-	 * @return array<string,mixed>
-	 */
-	private static function publication_experience_blocker( string $code, string $message, int $post_id ): array {
-		return array(
-			'code'     => sanitize_key( $code ),
-			'severity' => 'block_publish',
-			'message'  => sanitize_text_field( $message ),
-			'details'  => array(
-				'post_id' => $post_id,
-				'adapter' => 'generatepress',
-			),
-		);
 	}
 
 	/**

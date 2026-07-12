@@ -23,7 +23,7 @@ trait Devenia_AI_Translations_Source_Editor_Adapter {
 			'available'              => true,
 			'read_ability'           => $is_page ? 'content/get-page' : 'content/get-post',
 			'content_write_ability'  => $is_page ? 'content/update-page' : 'content/update-post',
-			'design_write_ability'   => 'devenia-site-presentation/apply-article-contract-pattern',
+			'design_write_ability'   => '',
 			'completion_abilities'   => array(
 				$is_page ? 'content/update-page' : 'content/update-post',
 				'ai-translations/mark-source-content-integrity-reviewed',
