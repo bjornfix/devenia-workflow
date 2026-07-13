@@ -19034,13 +19034,14 @@ final class Devenia_Workflow {
 
 		$subject_prefix = trim( self::runtime_text_value( $language, 'share_text', 'scriptless_email_subject_prefix', '' ) );
 		$body_template  = trim( self::runtime_text_value( $language, 'share_text', 'scriptless_email_body', '' ) );
+		$canonical_url  = self::extract_canonical_url_from_html( $html );
 		if ( '' === $subject_prefix && '' === $body_template ) {
 			return $html;
 		}
 
 		return (string) preg_replace_callback(
 			'/(<a\b[^>]*class=(["\'])[^"\']*\bbutton\b[^"\']*\bemail\b[^"\']*\2[^>]*\bhref=)(["\'])(mailto:\?[^"\']*)\3/isu',
-			static function ( array $match ) use ( $subject_prefix, $body_template ): string {
+			static function ( array $match ) use ( $subject_prefix, $body_template, $canonical_url ): string {
 				$href  = html_entity_decode( (string) $match[4], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 				$parts = wp_parse_url( $href );
 				$query = isset( $parts['query'] ) && is_string( $parts['query'] ) ? $parts['query'] : '';
@@ -19053,6 +19054,9 @@ final class Devenia_Workflow {
 				$existing_subject = isset( $params['subject'] ) && is_scalar( $params['subject'] ) ? (string) $params['subject'] : '';
 				$existing_body    = isset( $params['body'] ) && is_scalar( $params['body'] ) ? (string) $params['body'] : '';
 				$url              = self::extract_url_from_share_body( $existing_body );
+				if ( '' !== $canonical_url && self::urls_match_case_insensitively( $url, $canonical_url ) ) {
+					$url = $canonical_url;
+				}
 				$title            = self::extract_title_from_share_subject( $existing_subject );
 
 				if ( '' !== $subject_prefix ) {
@@ -19074,6 +19078,27 @@ final class Devenia_Workflow {
 			},
 			$html
 		);
+	}
+
+	/**
+	 * Read the canonical URL already emitted for the rendered document.
+	 */
+	private static function extract_canonical_url_from_html( string $html ): string {
+		if ( ! preg_match( '/<link\b[^>]*\brel=(["\'])canonical\1[^>]*\bhref=(["\'])([^"\']+)\2/isu', $html, $match ) ) {
+			return '';
+		}
+
+		return esc_url_raw( html_entity_decode( (string) $match[3], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+	}
+
+	/**
+	 * Compare two equivalent page URLs without letting path casing create a duplicate share URL.
+	 */
+	private static function urls_match_case_insensitively( string $first, string $second ): bool {
+		$first  = untrailingslashit( trim( $first ) );
+		$second = untrailingslashit( trim( $second ) );
+
+		return '' !== $first && '' !== $second && 0 === strcasecmp( $first, $second );
 	}
 
 	/**

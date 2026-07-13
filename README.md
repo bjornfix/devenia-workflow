@@ -148,6 +148,7 @@ Back up WordPress before uninstalling if workflow history or audit evidence must
 
 - Keeps translated bylines on the working source author archive until a localized author archive is published.
 - Restores the author archive localization queue and stops internal-link validation from accepting unpublished localized author paths.
+- Normalizes Scriptless email-share URLs to the rendered canonical URL when only path casing differs.
 
 ### 0.1.580
 

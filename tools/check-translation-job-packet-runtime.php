@@ -107,6 +107,24 @@ HTML;
 		$failures[] = 'details_summary_projection_failed';
 	}
 
+	$canonical_method = new ReflectionMethod( Devenia_Workflow::class, 'extract_canonical_url_from_html' );
+	$canonical_method->setAccessible( true );
+	$canonical_url = (string) $canonical_method->invoke(
+		null,
+		'<link rel="canonical" href="https://example.com/fr/plugins/" />'
+	);
+	$url_match_method = new ReflectionMethod( Devenia_Workflow::class, 'urls_match_case_insensitively' );
+	$url_match_method->setAccessible( true );
+	if ( 'https://example.com/fr/plugins/' !== $canonical_url ) {
+		$failures[] = 'canonical_url_extraction_failed';
+	}
+	if ( ! $url_match_method->invoke( null, 'https://example.com/fr/Plugins/', $canonical_url ) ) {
+		$failures[] = 'canonical_url_case_match_failed';
+	}
+	if ( $url_match_method->invoke( null, 'https://example.com/fr/other/', $canonical_url ) ) {
+		$failures[] = 'canonical_url_distinct_path_match_failed';
+	}
+
 	if ( $failures ) {
 		throw new RuntimeException( wp_json_encode( $failures ) );
 	}
@@ -118,6 +136,7 @@ HTML;
 			'paragraph_markup_kept' => true,
 			'list_markup_kept'      => true,
 			'details_summary_kept'  => true,
+			'canonical_share_url'    => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {
