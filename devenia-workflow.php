@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.589
+ * Version: 0.1.588
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -18619,7 +18619,7 @@ final class Devenia_Workflow {
 		$html = self::localize_runtime_text_attributes_html( $html, $runtime );
 		$html = self::localize_mailto_query_runtime_text_html( $html, $runtime );
 
-		$html = self::rewrite_visible_text_segments(
+		return self::rewrite_visible_text_segments(
 			$html,
 			static function ( string $text ) use ( $language, $runtime ): string {
 				$protected_tokens = array();
@@ -18695,8 +18695,6 @@ final class Devenia_Workflow {
 			},
 			$html
 		);
-
-		return self::canonicalize_internal_urls_in_mailto_html( $html );
 	}
 
 	/**
@@ -19194,52 +19192,6 @@ final class Devenia_Workflow {
 		}
 
 		return str_replace( $path, strtolower( $path ), $url );
-	}
-
-	/**
-	 * Canonicalize internal URLs embedded in completed mailto bodies.
-	 */
-	private static function canonicalize_internal_urls_in_mailto_html( string $html ): string {
-		if ( false === stripos( $html, 'mailto:' ) ) {
-			return $html;
-		}
-
-		return (string) preg_replace_callback(
-			'/(<a\b[^>]*\bhref=)(["\'])(mailto:[^"\']*)\2/isu',
-			static function ( array $match ): string {
-				$href  = html_entity_decode( (string) $match[3], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-				$parts = wp_parse_url( $href );
-				$query = isset( $parts['query'] ) && is_string( $parts['query'] ) ? $parts['query'] : '';
-				if ( '' === $query ) {
-					return (string) $match[0];
-				}
-
-				$params = array();
-				wp_parse_str( $query, $params );
-				if ( ! isset( $params['body'] ) || ! is_scalar( $params['body'] ) ) {
-					return (string) $match[0];
-				}
-
-				$body = (string) $params['body'];
-				$updated_body = (string) preg_replace_callback(
-					'#https?://[^\s<>"\']+#i',
-					static function ( array $url_match ): string {
-						return self::canonicalize_internal_wordpress_url_path_case( (string) $url_match[0] );
-					},
-					$body
-				);
-				if ( $updated_body === $body ) {
-					return (string) $match[0];
-				}
-
-				$params['body'] = $updated_body;
-				$updated_href = 'mailto:' . ( isset( $parts['path'] ) && is_string( $parts['path'] ) ? $parts['path'] : '' );
-				$updated_href .= '?' . http_build_query( $params, '', '&', PHP_QUERY_RFC3986 );
-
-				return (string) $match[1] . (string) $match[2] . esc_url( $updated_href, array( 'mailto' ) ) . (string) $match[2];
-			},
-			$html
-		);
 	}
 
 	/**

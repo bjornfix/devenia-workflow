@@ -129,13 +129,6 @@ HTML;
 	if ( home_url( '/fr/plugins/' ) !== $canonicalize_url_method->invoke( null, home_url( '/fr/Plugins/' ) ) ) {
 		$failures[] = 'canonical_internal_url_path_case_failed';
 	}
-	$canonicalize_mailto_method = new ReflectionMethod( Devenia_Workflow::class, 'canonicalize_internal_urls_in_mailto_html' );
-	$canonicalize_mailto_method->setAccessible( true );
-	$mailto_fixture = '<a class="button email" href="mailto:?body=Voir%20https%3A%2F%2Fdev.devenia.com%2Ffr%2FPlugins%2F&amp;subject=Partager">Partager</a>';
-	$mailto_result = (string) $canonicalize_mailto_method->invoke( null, $mailto_fixture );
-	if ( false === strpos( html_entity_decode( $mailto_result, ENT_QUOTES | ENT_HTML5, 'UTF-8' ), 'https%3A%2F%2Fdev.devenia.com%2Ffr%2Fplugins%2F' ) ) {
-		$failures[] = 'canonical_mailto_body_url_failed';
-	}
 	$canonical_post_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_url_for_post_id' );
 	$canonical_post_method->setAccessible( true );
 	if ( get_permalink( $post_id ) !== $canonical_post_method->invoke( null, $post_id ) ) {
