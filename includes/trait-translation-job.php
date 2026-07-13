@@ -928,7 +928,7 @@ trait Devenia_Workflow_Translation_Job {
 			);
 		}
 		$packet = array(
-			'contract_version' => 2,
+			'contract_version' => 3,
 			'job' => self::translation_job_public_job( $job ),
 			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet' ),
 			'source' => array(
@@ -944,7 +944,7 @@ trait Devenia_Workflow_Translation_Job {
 			'links' => self::translation_job_link_policy( $source, $language ),
 			'language_profile' => self::translation_job_language_profile( (int) $source->ID, $language ),
 			'source_approval' => self::translation_job_source_approval( $source ),
-			'validation_contract' => array( 'exact_fragment_coverage' => true, 'localized_route' => true, 'deterministic_qa' => true, 'quality_checks' => self::translation_job_quality_checks() ),
+			'validation_contract' => array( 'exact_fragment_coverage' => true, 'localized_route' => true, 'deterministic_qa' => true, 'staged_public_mutation' => false, 'quality_authority' => 'server_receipts_plus_principal_bound_attestations' ),
 			'submission_contract' => self::translation_job_submission_contract( 'translator' ),
 		);
 		$correction_context = self::translation_job_correction_context( $job );
@@ -984,6 +984,7 @@ trait Devenia_Workflow_Translation_Job {
 			'required_checks' => self::translation_job_quality_checks(),
 			'evidence_contract' => array(
 				'server_receipt_note' => 'Use only the immutable receipt IDs issued in this packet.',
+				'server_receipt_error' => empty( $server_receipts['success'] ) ? $server_receipts : null,
 				'server_receipt_ids' => array_values( (array) ( $server_receipts['receipt_ids'] ?? array() ) ),
 				'server_receipts' => array_values( (array) ( $server_receipts['receipts'] ?? array() ) ),
 				'reviewer_attestations' => array( 'natural_language', 'factual_accuracy' ),

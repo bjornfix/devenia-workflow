@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.604
+**Stable tag:** 0.1.605
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.605
+
+- Exposes fail-closed server receipt issuance errors in Quality packets and aligns translator packets with the staged Quality Authority v3 contract.
 
 ### 0.1.604
 
