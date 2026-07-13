@@ -39,6 +39,16 @@ for (const hook of ["generate_after_entry_title", "generate_menu_bar_items", "ge
     failures.push(`GeneratePress presentation hook remains in public Workflow: ${hook}`);
   }
 }
+const qualityReviewStart = runtime.indexOf("private static function mark_quality_reviewed");
+const qualityReviewEnd = runtime.indexOf("private static function mark_final_reviewed", qualityReviewStart);
+const qualityReviewSource = runtime.slice(qualityReviewStart, qualityReviewEnd);
+const qualityAuthorityCalls = qualityReviewSource.match(/translation_step_token_gate\( 'quality_review'/g) || [];
+if (qualityAuthorityCalls.length !== 1 || !qualityReviewSource.includes("if ( self::is_translation_post( $page_id ) )")) {
+  failures.push("whole-page quality authority must protect translations without blocking source-page review");
+}
+if (!qualityReviewSource.includes("$input['execution_id']") || !qualityReviewSource.includes("$input['reviewer']")) {
+  failures.push("source-page quality review must preserve explicit execution and reviewer provenance");
+}
 for (const method of [
   "translation_index_available",
   "sync_translation_index_row",

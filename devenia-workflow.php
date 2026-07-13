@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.576
+ * Version: 0.1.577
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -55,7 +55,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.576';
+	const VERSION = '0.1.577';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -14038,11 +14038,15 @@ final class Devenia_Workflow {
 				return $reviewer_gate;
 			}
 		} else {
-			$step_token_gate = self::translation_step_token_gate( 'quality_review', $input );
-			if ( empty( $step_token_gate['success'] ) ) {
-				return $step_token_gate;
-			}
-			$reviewer_gate = array();
+			$reviewer_name = sanitize_text_field( (string) ( $input['reviewer'] ?? '' ) );
+			$reviewer_gate = array(
+				'reviewer' => array(
+					'process_id'  => sanitize_text_field( (string) ( $input['execution_id'] ?? '' ) ),
+					'actor'       => '' !== $reviewer_name ? $reviewer_name : 'Devenia Workflow',
+					'recorded_at' => gmdate( 'c' ),
+					'writer'      => array(),
+				),
+			);
 		}
 		$required_checks = self::required_quality_review_checks( $language );
 		$review_checks   = self::review_checks_from_input( $input, $required_checks );
