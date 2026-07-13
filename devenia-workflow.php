@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.586
+ * Version: 0.1.587
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -19034,7 +19034,10 @@ final class Devenia_Workflow {
 
 		$subject_prefix = trim( self::runtime_text_value( $language, 'share_text', 'scriptless_email_subject_prefix', '' ) );
 		$body_template  = trim( self::runtime_text_value( $language, 'share_text', 'scriptless_email_body', '' ) );
-		$canonical_url  = self::canonical_translation_url_for_post_id( get_queried_object_id(), $language );
+		$canonical_url  = self::canonical_translation_url_for_post_id( get_the_ID(), $language );
+		if ( '' === $canonical_url ) {
+			$canonical_url = self::canonical_translation_url_for_post_id( get_queried_object_id(), $language );
+		}
 		if ( '' === $canonical_url ) {
 			$canonical_url = self::canonical_url_for_current_request( $html );
 		}
