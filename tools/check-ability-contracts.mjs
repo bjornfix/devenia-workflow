@@ -26,6 +26,14 @@ if (!runtime.includes("private static function run_ability_operation")) {
 if (runtime.includes("enqueue_frontend_heading_fit_assets") || runtime.includes("devenia-workflow-heading-fit")) {
   failures.push("frontend heading fit must not override GeneratePress typography");
 }
+if (!runtime.includes("array( 'Skip to content' )")) {
+  failures.push("live verification must reject an untranslated public skip-to-content link");
+}
+for (const siteCopy of ["One brand operated", "Email Devenia about the website", "Get a homepage that makes people contact you"]) {
+  if (runtime.includes(siteCopy)) {
+    failures.push(`site-specific public-surface copy remains in public Workflow: ${siteCopy}`);
+  }
+}
 const frontendPresentationSource = [runtime, generateBlocksAdapter, generatePressAdapter].join("\n");
 if (/wp_(?:enqueue|add_inline)_style\s*\(/.test(frontendPresentationSource)) {
   failures.push("public Workflow must not enqueue or inject frontend presentation CSS");

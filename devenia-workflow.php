@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.577
+ * Version: 0.1.578
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -55,7 +55,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.577';
+	const VERSION = '0.1.578';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -13201,24 +13201,9 @@ final class Devenia_Workflow {
 	 * @return array<int,string>
 	 */
 	private static function frontend_source_remnant_terms(): array {
-		$terms = array_merge(
-			self::default_forbidden_terms(),
-			array(
-				'and tell us what is not working',
-				'One brand operated',
-				'One brand operated by',
-				'Practical internet work for websites that need to be trusted, found, maintained, and improved.',
-				'Registered company details',
-				'Scroll back to top',
-				'Start with the URL',
-				'Use the email button and include the page, symptoms, and what should improve',
-				'Website question',
-				'Symptoms:',
-				'What should improve:',
-				'We reply in writing with the practical first move',
-				'Email Devenia about the website',
-			)
-		);
+		$terms = array( 'Skip to content' );
+		$terms = apply_filters( 'devenia_workflow_frontend_source_remnant_terms', $terms );
+		$terms = is_array( $terms ) ? $terms : array( 'Skip to content' );
 
 		return array_values( array_unique( array_filter( array_map( 'trim', $terms ) ) ) );
 	}
@@ -27941,16 +27926,9 @@ final class Devenia_Workflow {
 	 * Default English fragments that usually indicate incomplete homepage translation.
 	 */
 	private static function default_forbidden_terms(): array {
-		return array(
-			'Get a homepage that makes people contact you',
-			'Email us your homepage URL',
-			'What you get',
-			'Who is this for',
-			'What stops people from contacting you',
-			'When the homepage is not producing enough enquiries',
-			'Useful for someone else',
-			'Homepage%20review',
-		);
+		$terms = apply_filters( 'devenia_workflow_default_forbidden_terms', array() );
+
+		return is_array( $terms ) ? array_values( array_unique( array_filter( array_map( 'trim', $terms ) ) ) ) : array();
 	}
 
 	/**

@@ -143,6 +143,11 @@ Back up WordPress before uninstalling if workflow history or audit evidence must
 
 ## Release Notes
 
+### 0.1.578
+
+- Makes live translation verification reject an untranslated public skip-to-content link even when a runtime mapping has already been registered.
+- Moves Devenia-site copy checks behind public extension filters so the Workflow core remains site-neutral.
+
 ### 0.1.577
 
 - Records source-page whole-page quality evidence without requiring translation authority; translated content remains protected by bounded reviewer authority.
