@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.582
+**Stable tag:** 0.1.583
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.583
+
+- Uses the translation Canonical Route Contract as the authoritative email-share URL before WordPress permalink fallbacks.
 
 ### 0.1.582
 

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.582
+ * Version: 0.1.583
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -19109,6 +19109,15 @@ final class Devenia_Workflow {
 	private static function canonical_url_for_post_id( int $post_id ): string {
 		if ( $post_id <= 0 ) {
 			return '';
+		}
+
+		$canonical_route = get_post_meta( $post_id, self::META_CANONICAL_ROUTE, true );
+		$canonical_path  = is_array( $canonical_route ) ? trim( (string) ( $canonical_route['path'] ?? '' ), '/' ) : '';
+		if ( '' === $canonical_path ) {
+			$canonical_path = trim( (string) get_post_meta( $post_id, self::META_LOCALIZED_PATH, true ), '/' );
+		}
+		if ( '' !== $canonical_path ) {
+			return esc_url_raw( home_url( user_trailingslashit( '/' . $canonical_path ) ) );
 		}
 
 		$canonical_url = wp_get_canonical_url( $post_id );

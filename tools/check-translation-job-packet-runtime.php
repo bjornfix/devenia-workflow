@@ -129,6 +129,10 @@ HTML;
 	if ( get_permalink( $post_id ) !== $canonical_post_method->invoke( null, $post_id ) ) {
 		$failures[] = 'canonical_post_url_resolution_failed';
 	}
+	update_post_meta( $post_id, Devenia_Workflow::META_CANONICAL_ROUTE, array( 'path' => 'fr/plugins' ) );
+	if ( home_url( '/fr/plugins/' ) !== $canonical_post_method->invoke( null, $post_id ) ) {
+		$failures[] = 'canonical_route_contract_url_resolution_failed';
+	}
 
 	if ( $failures ) {
 		throw new RuntimeException( wp_json_encode( $failures ) );
