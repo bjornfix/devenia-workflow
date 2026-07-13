@@ -696,6 +696,8 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 	 * @return array<string,mixed>
 	 */
 	private static function migrate_one_translation_source_design_fragments( WP_Post $source, array $contract, int $translation_id, string $language, array $input, bool $dry_run, array $verified_identity ): array {
+		$preview_offset = absint( $input['fragment_preview_offset'] ?? 0 );
+		$preview_limit  = min( 500, max( 1, absint( $input['fragment_preview_limit'] ?? 12 ) ) );
 		$translation = get_post( $translation_id );
 		if ( ! $translation || ! self::is_translation_post( $translation_id ) ) {
 			return array(
@@ -740,7 +742,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				'missing_count' => count( $missing ),
 				'missing_keys' => $missing,
 				'mapping' => $migration['mapping'],
-				'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, 0, 12 ) : array(),
+				'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, $preview_offset, $preview_limit ) : array(),
 			);
 		}
 		if ( $semantic_mismatches ) {
@@ -756,7 +758,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				'semantic_mismatch_count' => count( $semantic_mismatches ),
 				'semantic_mismatches' => array_slice( $semantic_mismatches, 0, 20 ),
 				'mapping' => $migration['mapping'],
-				'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, 0, 12 ) : array(),
+				'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, $preview_offset, $preview_limit ) : array(),
 			);
 		}
 		if ( ! $dry_run && ! empty( $migration['mapping']['order_fallback_used'] ) && empty( $input['allow_order_fallback_apply'] ) ) {
@@ -770,7 +772,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				'migrated_count' => count( $records ),
 				'missing_count' => 0,
 				'mapping' => $migration['mapping'],
-				'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, 0, 12 ) : array(),
+				'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, $preview_offset, $preview_limit ) : array(),
 			);
 		}
 
@@ -809,7 +811,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 			'missing_count' => 0,
 			'applied' => ! $dry_run,
 			'mapping' => $migration['mapping'],
-			'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, 0, 12 ) : array(),
+			'fragment_preview' => ! empty( $input['include_fragment_preview'] ) ? array_slice( $records, $preview_offset, $preview_limit ) : array(),
 			'design_inheritance_state' => $state_post instanceof WP_Post ? self::translation_source_design_state( $state_post, $source ) : array(),
 		);
 	}

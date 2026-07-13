@@ -19,6 +19,8 @@ foreach ( array(
 	'stable source cursor' => "absint( \$row['source_id'] ?? 0 ) > \$cursor",
 	'stable obligation cursor' => "absint( \$row['obligation_id'] ?? 0 ) > \$cursor",
 	'Translation Job delegation' => 'translation_job_discover',
+	'internal-link dependency ordering' => 'translation_job_dependency_ordered_selection',
+	'dependency cycle protection' => 'cycles_skipped',
 	'exhaustion arithmetic' => '$expected === $total',
 	'published verification gate' => 'live_verification_passed',
 ) as $contract => $needle ) {
@@ -39,4 +41,4 @@ if ( $failures ) {
 	exit( 1 );
 }
 
-echo json_encode( array( 'success' => true, 'contracts' => 17, 'regression_fixture' => '501 newer complete sources cannot hide an older unresolved source because obligation existence is projected before prioritization' ), JSON_PRETTY_PRINT ) . PHP_EOL;
+echo json_encode( array( 'success' => true, 'contracts' => 19, 'regression_fixture' => 'Complete obligations remain authoritative while unresolved internal-link targets are selected before their referring source, with stable queue fallback for cycles.' ), JSON_PRETTY_PRINT ) . PHP_EOL;

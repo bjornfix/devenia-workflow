@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.574
+**Stable tag:** 0.1.575
 
 **License:** GPLv2 or later
 
@@ -142,6 +142,13 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.575
+
+- Prioritizes unresolved internal-link targets before the pages that depend on them.
+- Prevents dependency cycles from stalling the stable complete-inventory queue.
+- Adds bounded pagination for legacy localized-fragment previews so reviewed translations can be reused safely after source structure changes.
+- Restores the shared widget-title localization hook for runtime labels such as the popular-posts heading.
 
 ### 0.1.574
 

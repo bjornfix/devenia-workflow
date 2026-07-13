@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.574
+ * Version: 0.1.575
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -55,7 +55,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.574';
+	const VERSION = '0.1.575';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -204,6 +204,7 @@ final class Devenia_Workflow {
 		add_filter( 'document_title_parts', array( __CLASS__, 'filter_author_archive_document_title_parts' ), 20 );
 		add_filter( 'pre_get_document_title', array( __CLASS__, 'filter_author_archive_document_title' ), 20 );
 		add_filter( 'the_content_more_link', array( __CLASS__, 'localize_read_more_output' ), 20 );
+		add_filter( 'widget_title', array( __CLASS__, 'localize_widget_title' ), 20, 3 );
 		add_filter( 'wp_get_attachment_image_attributes', array( __CLASS__, 'filter_featured_image_alt_attributes' ), 20, 3 );
 		add_filter( 'post_link', array( __CLASS__, 'filter_translated_post_link' ), 20, 2 );
 		add_filter( 'term_link', array( __CLASS__, 'filter_translated_term_link' ), 20, 3 );
@@ -8886,6 +8887,19 @@ final class Devenia_Workflow {
 					'type'        => 'boolean',
 					'default'     => false,
 					'description' => 'Include sample migrated localized fragment values in each item. Defaults false to avoid huge dry-run responses.',
+				),
+				'fragment_preview_offset' => array(
+					'type'        => 'integer',
+					'minimum'     => 0,
+					'default'     => 0,
+					'description' => 'Zero-based offset into migrated fragment preview records.',
+				),
+				'fragment_preview_limit' => array(
+					'type'        => 'integer',
+					'minimum'     => 1,
+					'maximum'     => 500,
+					'default'     => 12,
+					'description' => 'Maximum migrated fragment preview records to return.',
 				),
 				'allow_update_published' => array(
 					'type'        => 'boolean',

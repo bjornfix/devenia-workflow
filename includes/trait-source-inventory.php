@@ -119,7 +119,7 @@ trait Devenia_Workflow_Source_Inventory {
 			),
 			'devenia-workflow/translation-job-next' => array(
 				'label' => 'Discover Next Complete-Inventory Translation Job',
-				'description' => 'Selects the first unresolved whole-site obligation and delegates job creation to the current Translation Job discover lifecycle.',
+				'description' => 'Selects the next unresolved whole-site obligation, prioritizing unresolved internal-link dependencies before their referring source, and delegates job creation to the current Translation Job discover lifecycle.',
 				'input_schema' => array( 'type' => 'object', 'properties' => array( 'observability_label' => array( 'type' => 'string' ) ), 'additionalProperties' => false ),
 				'output_schema' => self::generic_output_schema(),
 				'execute_callback' => function ( $input = array() ) { return self::run_ability_operation( 'translation_job_next', $input ); },
@@ -270,11 +270,70 @@ trait Devenia_Workflow_Source_Inventory {
 	}
 
 	private static function translation_job_next( array $input ): array {
-		$queue = self::translation_obligation_queue( array( 'cursor' => 0, 'limit' => 1 ) );
-		if ( empty( $queue['success'] ) || empty( $queue['items'] ) ) { return array( 'success' => ! empty( $queue['success'] ), 'exhausted' => ! empty( $queue['success'] ), 'queue' => $queue ); }
-		$item = $queue['items'][0];
+		$manifest = self::refresh_active_obligations();
+		if ( ! $manifest ) { return array( 'success' => false, 'exhausted' => false, 'queue' => array( 'success' => false, 'code' => 'inventory_not_built' ) ); }
+		$items = array_values( array_filter( self::inventory_store_read_rows( (string) $manifest['generation'], 'obligation' ), static function ( $row ) { return is_array( $row ) && 'published_verified' !== (string) ( $row['state'] ?? '' ); } ) );
+		if ( empty( $items ) ) { return array( 'success' => true, 'exhausted' => true, 'queue' => array( 'success' => true, 'generation' => $manifest['generation'], 'items' => array(), 'item_count' => 0 ) ); }
+		$selection = self::translation_job_dependency_ordered_selection( $items );
+		$item = $selection['item'];
 		$result = self::translation_job_discover( array( 'source_id' => absint( $item['source_id'] ), 'language' => sanitize_key( $item['target_language'] ), 'observability_label' => sanitize_text_field( (string) ( $input['observability_label'] ?? '' ) ) ) );
-		return array( 'success' => ! empty( $result['success'] ), 'obligation' => $item, 'discover' => $result );
+		return array( 'success' => ! empty( $result['success'] ), 'obligation' => $item, 'dependency_ordering' => $selection['dependency_ordering'], 'discover' => $result );
+	}
+
+	/**
+	 * Select the deepest unresolved internal-link dependency of the first queued obligation.
+	 *
+	 * Stable queue order remains the fallback. Visiting-state cycle detection prevents
+	 * mutually linked sources from recursing forever.
+	 *
+	 * @param array<int,array<string,mixed>> $items Unresolved obligations in stable store order.
+	 * @return array{item:array<string,mixed>,dependency_ordering:array<string,mixed>}
+	 */
+	private static function translation_job_dependency_ordered_selection( array $items ): array {
+		$by_key = array();
+		foreach ( $items as $item ) {
+			$key = absint( $item['source_id'] ?? 0 ) . ':' . sanitize_key( (string) ( $item['target_language'] ?? '' ) );
+			if ( '0:' !== $key && ! isset( $by_key[ $key ] ) ) { $by_key[ $key ] = $item; }
+		}
+		$root = $items[0];
+		$states = array();
+		$chain = array();
+		$cycles = array();
+		$resolve = function ( array $item, array $path ) use ( &$resolve, &$states, &$chain, &$cycles, $by_key ): array {
+			$source_id = absint( $item['source_id'] ?? 0 );
+			$language = sanitize_key( (string) ( $item['target_language'] ?? '' ) );
+			$key = $source_id . ':' . $language;
+			if ( 'visiting' === ( $states[ $key ] ?? '' ) ) { $cycles[] = array_values( array_merge( $path, array( $source_id ) ) ); return $item; }
+			if ( 'done' === ( $states[ $key ] ?? '' ) ) { return $item; }
+			$states[ $key ] = 'visiting';
+			$source = get_post( $source_id );
+			if ( $source instanceof WP_Post ) {
+				foreach ( self::translation_job_link_policy( $source, $language ) as $link ) {
+					$dependency_id = absint( $link['source_post_id'] ?? 0 );
+					$dependency_key = $dependency_id . ':' . $language;
+					if ( $dependency_id <= 0 || $dependency_id === $source_id || ! empty( $link['published_target_available'] ) || ! isset( $by_key[ $dependency_key ] ) ) { continue; }
+					$selected = $resolve( $by_key[ $dependency_key ], array_merge( $path, array( $source_id ) ) );
+					if ( absint( $selected['source_id'] ?? 0 ) !== $source_id ) {
+						$chain[] = array( 'referrer_source_id' => $source_id, 'dependency_source_id' => absint( $selected['source_id'] ?? 0 ), 'target_language' => $language );
+						$states[ $key ] = 'done';
+						return $selected;
+					}
+				}
+			}
+			$states[ $key ] = 'done';
+			return $item;
+		};
+		$selected = $resolve( $root, array() );
+		return array(
+			'item' => $selected,
+			'dependency_ordering' => array(
+				'applied' => absint( $selected['source_id'] ?? 0 ) !== absint( $root['source_id'] ?? 0 ),
+				'root_source_id' => absint( $root['source_id'] ?? 0 ),
+				'selected_source_id' => absint( $selected['source_id'] ?? 0 ),
+				'chain' => array_reverse( $chain ),
+				'cycles_skipped' => $cycles,
+			),
+		);
 	}
 
 	private static function translation_exhaustion_proof( array $input = array() ): array {
