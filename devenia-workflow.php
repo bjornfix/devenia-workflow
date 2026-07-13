@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.575
+ * Version: 0.1.576
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -55,7 +55,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.575';
+	const VERSION = '0.1.576';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -213,7 +213,6 @@ final class Devenia_Workflow {
 		add_filter( 'template_include', array( __CLASS__, 'use_translated_posts_page_template' ), 20 );
 		add_filter( 'body_class', array( __CLASS__, 'add_translated_posts_page_body_class' ), 999 );
 		add_filter( 'body_class', array( __CLASS__, 'add_translated_front_page_body_class' ), 999 );
-		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_frontend_heading_fit_assets' ), 25 );
 		add_action( 'init', array( __CLASS__, 'maybe_run_upgrade' ), 20 );
 		add_action( 'parse_request', array( __CLASS__, 'map_translated_post_request' ), 1 );
 		add_action( 'wp_head', array( __CLASS__, 'print_language_links' ), 6 );
@@ -20799,26 +20798,6 @@ final class Devenia_Workflow {
 		$classes[] = 'home';
 
 		return array_values( array_unique( $classes ) );
-	}
-
-	/**
-	 * Load frontend heading fit assets for localized page/post surfaces.
-	 */
-	public static function enqueue_frontend_heading_fit_assets(): void {
-		if ( ! self::is_frontend_language_surface() ) {
-			return;
-		}
-
-		self::enqueue_plugin_style( 'devenia-workflow-heading-fit', 'assets/frontend-heading-fit.css' );
-		self::enqueue_plugin_script( 'devenia-workflow-heading-fit', 'assets/frontend-heading-fit.js' );
-		wp_localize_script(
-			'devenia-workflow-heading-fit',
-			'AITranslationWorkflowHeadingFit',
-			array(
-				'minScale' => 0.88,
-				'step'     => 0.02,
-			)
-		);
 	}
 
 	/**

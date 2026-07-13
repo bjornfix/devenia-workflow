@@ -74,6 +74,7 @@ trait Devenia_Workflow_Ability_Platform {
 			'author_archive_queue'            => 'author_archive_queue',
 			'update_author_archive_translation' => 'update_author_archive_translation',
 			'quality_verdict'                 => 'quality_verdict',
+			'mark_quality_reviewed'           => 'mark_quality_reviewed',
 			'internal_link_opportunities'     => 'internal_link_opportunities',
 			'sync_menu'                       => 'sync_language_menu',
 			'repair_url_hierarchy'            => 'repair_url_hierarchy',

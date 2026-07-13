@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.575
+Stable tag: 0.1.576
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,11 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.576 =
+
+* Removes frontend heading-size overrides so GeneratePress remains the typography owner.
+* Restores the canonical whole-page quality-review ability needed to record current source review evidence.
 
 = 0.1.575 =
 * Prioritizes unresolved internal-link dependencies before pages that refer to them, with cycle-safe stable queue fallback.

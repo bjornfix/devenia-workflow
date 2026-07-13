@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.575
+**Stable tag:** 0.1.576
 
 **License:** GPLv2 or later
 
@@ -142,6 +142,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.576
+
+- Removes frontend heading-size overrides so GeneratePress remains the typography owner.
+- Restores the canonical whole-page quality-review ability needed to record current source review evidence.
 
 ### 0.1.575
 

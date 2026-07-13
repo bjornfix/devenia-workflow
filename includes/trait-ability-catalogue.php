@@ -543,6 +543,16 @@ trait Devenia_Workflow_Ability_Catalogue {
 				},
 				'meta'             => self::ability_meta( true, false, true ),
 			),
+			'devenia-workflow/mark-quality-reviewed' => array(
+				'label'            => 'Mark Whole-Page Quality Reviewed',
+				'description'      => 'Stores a complete, evidence-backed whole-page quality review for a source or translated WordPress content item.',
+				'input_schema'     => self::quality_review_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'mark_quality_reviewed', $input );
+				},
+				'meta'             => self::ability_meta( false, false, true ),
+			),
 			'devenia-workflow/internal-link-opportunities' => array(
 				'label'            => 'Find Internal Link Opportunities',
 				'description'      => 'Finds a small, moderated set of relevant internal pages/posts that the current source or translation could link to, preferring localized target URLs when available.',

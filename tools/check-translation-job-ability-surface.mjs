@@ -19,7 +19,7 @@ const removedSystemAbilities = [
 	"reserve-work", "release-reservation", "list-reservations", "upsert-page", "qa-translation",
 	"publish-translation", "workflow-status", "workflow-obligations", "production-flow", "queue",
 	"review-queue", "quality-review-queue", "mark-reviewed", "mark-linguistic-reviewed",
-	"mark-quality-reviewed", "mark-final-reviewed", "next-heartbeat-action", "accept-assignment",
+	"mark-final-reviewed", "next-heartbeat-action", "accept-assignment",
 	"current-assignment", "renew-assignment", "complete-assignment", "resolve-assignment-block",
 	"heartbeat-assignment-coverage", "heartbeat-status", "lifecycle-regression-status",
 ];
@@ -28,6 +28,7 @@ assert.equal(new Set(registered).size, registered.length, "Ability catalogue con
 for (const removed of removedSystemAbilities) {
 	assert.ok(!registeredWorkflow.includes(removed), `Removed workflow system ability is still registered: ${removed}`);
 }
+assert.ok(registeredWorkflow.includes("mark-quality-reviewed"), "Whole-page source quality evidence must have a canonical write ability.");
 assert.deepEqual([...registeredTranslationJob].sort(), [...expectedTranslationJob].sort(), "The Translation Job Interface must expose exactly seven operations.");
 assert.match(translationJobModule, /const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 3;/, "A Job must allow one final bounded correction after a valid second Quality Decision.");
 assert.match(translationJobModule, />= self::TRANSLATION_JOB_MAX_RUNS_PER_ROLE/, "Run claims must enforce the finite per-role ceiling.");

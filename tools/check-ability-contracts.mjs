@@ -11,6 +11,7 @@ const sourceDesignReview = fs.readFileSync(path.join(root, "includes/trait-sourc
 const required = [
   "devenia-workflow/frontend-integrity-status",
   "devenia-workflow/reproject-source-design",
+  "devenia-workflow/mark-quality-reviewed",
 ];
 
 const failures = required.filter((name) => !source.includes(`'${name}' => array(`));
@@ -19,6 +20,9 @@ if (!source.includes("trait Devenia_Workflow_Ability_Catalogue") || !source.incl
 }
 if (!runtime.includes("private static function run_ability_operation")) {
   failures.push("ability operation seam");
+}
+if (runtime.includes("enqueue_frontend_heading_fit_assets") || runtime.includes("devenia-workflow-heading-fit")) {
+  failures.push("frontend heading fit must not override GeneratePress typography");
 }
 for (const method of [
   "translation_index_available",
