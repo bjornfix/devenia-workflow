@@ -302,6 +302,34 @@ trait Devenia_Workflow_Translation_Job {
 			$job = $resumed['job'];
 			$existing_lock = null;
 		}
+		if ( 'translator' === $role && 'quality_pending' === (string) $job['status'] && ! is_array( $existing_lock ) ) {
+			$artifact = self::translation_job_unpack_artifact_record(
+				get_option( self::translation_job_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) )
+			);
+			$coverage = self::translation_job_fragment_coverage(
+				$job,
+				(array) ( $artifact['artifact']['localized_fragments'] ?? array() )
+			);
+			if ( empty( $coverage['success'] ) ) {
+				$refreshed = self::translation_job_transition(
+					$job,
+					array(
+						'status' => 'changes_requested',
+						'quality_revision' => '',
+						'active_run_id' => '',
+						'contract_refresh' => array(
+							'refreshed_at' => gmdate( 'c' ),
+							'reason' => 'artifact_fragment_contract_changed',
+							'coverage' => $coverage,
+						),
+					)
+				);
+				if ( empty( $refreshed['success'] ) ) {
+					return $refreshed;
+				}
+				$job = $refreshed['job'];
+			}
+		}
 		$expected_statuses = 'translator' === $role ? array( 'queued', 'changes_requested', 'published' ) : array( 'quality_pending' );
 		if ( ! in_array( (string) $job['status'], $expected_statuses, true ) ) {
 			return array( 'success' => false, 'code' => 'job_not_claimable', 'message' => 'Translation Job is not claimable for this Run role.', 'job' => self::translation_job_public_job( $job ) );

@@ -220,6 +220,57 @@ try {
 	) {
 		throw new RuntimeException( 'Run abandon did not restore the previous Job state: ' . wp_json_encode( array( 'abandoned' => $abandoned, 'run' => $abandoned_run, 'claim' => $abandoned_claim ) ) );
 	}
+	$contract_gap_revision = 'a_runtime_contract_gap_' . wp_generate_password( 8, false, false );
+	$contract_gap_artifact_key = 'devenia_workflow_translation_artifact_' . $contract_gap_revision;
+	$option_keys[] = $contract_gap_artifact_key;
+	add_option(
+		$contract_gap_artifact_key,
+		array(
+			'artifact_revision' => $contract_gap_revision,
+			'artifact' => array( 'localized_fragments' => array() ),
+		),
+		'',
+		false
+	);
+	$contract_gap_job_key = 'devenia_workflow_translation_job_' . $expiry_job_id;
+	$contract_gap_job = get_option( $contract_gap_job_key );
+	$contract_gap_job['status'] = 'quality_pending';
+	$contract_gap_job['artifact_revision'] = $contract_gap_revision;
+	$contract_gap_job['quality_revision'] = '';
+	$contract_gap_job['active_run_id'] = '';
+	update_option( $contract_gap_job_key, $contract_gap_job, false );
+	$contract_refresh_claim = $call(
+		'translation_job_claim',
+		array(
+			'job_id' => $expiry_job_id,
+			'run_id' => 'runtime-contract-refresh-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'translator',
+			'ttl_seconds' => 600,
+		)
+	);
+	$contract_refresh_run_id = (string) ( $contract_refresh_claim['run']['run_id'] ?? '' );
+	$option_keys[] = 'devenia_workflow_translation_run_' . $contract_refresh_run_id;
+	if (
+		empty( $contract_refresh_claim['success'] )
+		|| 'claimed' !== (string) ( $contract_refresh_claim['job']['status'] ?? '' )
+		|| 'artifact_fragment_contract_changed' !== (string) ( $contract_refresh_claim['job']['contract_refresh']['reason'] ?? '' )
+		|| empty( $contract_refresh_claim['job']['contract_refresh']['coverage']['missing_keys'] )
+	) {
+		throw new RuntimeException( 'Invalid quality-pending artifact did not reopen for translator correction: ' . wp_json_encode( $contract_refresh_claim ) );
+	}
+	$contract_refresh_abandoned = $call(
+		'translation_job_abandon',
+		array(
+			'job_id' => $expiry_job_id,
+			'run_id' => $contract_refresh_run_id,
+			'claim_token' => (string) ( $contract_refresh_claim['claim_token'] ?? '' ),
+			'reason' => 'Runtime contract completed the automatic contract-refresh claim fixture.',
+		)
+	);
+	if ( empty( $contract_refresh_abandoned['success'] ) || 'changes_requested' !== (string) ( $contract_refresh_abandoned['job']['status'] ?? '' ) ) {
+		throw new RuntimeException( 'Contract-refresh fixture did not restore changes_requested after abandon: ' . wp_json_encode( $contract_refresh_abandoned ) );
+	}
 
 	$discover = $call( 'translation_job_discover', array( 'source_id' => $source_id, 'language' => $language, 'observability_label' => 'runtime-contract' ) );
 	if ( empty( $discover['success'] ) || empty( $discover['job']['job_id'] ) ) {
@@ -705,6 +756,7 @@ try {
 			'published_job_route_preserved_during_correction' => true,
 			'orphaned_quality_decision_recovered' => true,
 			'expired_run_finalized_before_reclaim' => true,
+			'quality_pending_contract_gap_reopened_for_translator' => true,
 			'orphaned_run_finalized_during_publish' => true,
 		)
 	) . PHP_EOL;
