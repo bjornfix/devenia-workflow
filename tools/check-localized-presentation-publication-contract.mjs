@@ -29,6 +29,9 @@ assert.match(plugin, /use_language_primary_menu[\s\S]*localized_menu_id\( \$lang
 assert.match(plugin, /is_language_menu_already_selected[\s\S]*localized_menu_id\( \$language \)/);
 
 assert.match(publication, /array\( 'origin', 'canonical' \)/);
+assert.match(publication, /Callers cannot opt out[\s\S]*\$live = self::verify_live_translation/);
+assert.doesNotMatch(publication, /if \( ! empty\( \$input\['verify_live'\] \) \)/, "localized publication must not permit verification opt-out");
+assert.match(jobs, /'verify_live'\s*=> true/);
 assert.match(publication, /'cf_cache_status'/);
 assert.match(publication, /'age'/);
 assert.match(publication, /frontend_primary_menu_projection_mismatch/);

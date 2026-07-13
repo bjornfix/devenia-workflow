@@ -17413,6 +17413,7 @@ final class Devenia_Workflow {
 		$target_menu = wp_get_nav_menu_object( $target_menu_id );
 
 		if ( ! $target_menu ) {
+			wp_delete_nav_menu( (int) $target_menu_id );
 			return self::error( 'Could not create target menu.' );
 		}
 

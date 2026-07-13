@@ -713,7 +713,7 @@ try {
 	add_post_meta( $translation_id, '_thumbnail_id', $source_thumbnail_id );
 	$published = $call(
 		'translation_job_publish',
-		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => false )
+		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true )
 	);
 	$runtime_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
 	$runtime_active_menu_id = absint( $runtime_identities[ $language ]['menu_id'] ?? 0 );
@@ -774,7 +774,7 @@ try {
 	add_post_meta( $translation_id, '_thumbnail_id', $source_thumbnail_id );
 	$republished = $call(
 		'translation_job_publish',
-		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => false )
+		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => true )
 	);
 	if (
 		'job_not_ready_to_publish' === (string) ( $republished['code'] ?? '' )

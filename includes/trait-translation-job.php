@@ -209,7 +209,7 @@ trait Devenia_Workflow_Translation_Job {
 				'job_id' => array( 'type' => 'string' ),
 				'coordinator_id' => array( 'type' => 'string' ),
 				'sync_menu' => array( 'type' => 'boolean', 'default' => true ),
-				'verify_live' => array( 'type' => 'boolean', 'default' => true ),
+				'verify_live' => array( 'type' => 'boolean', 'default' => true, 'description' => 'Deprecated compatibility input. Publication always verifies origin and canonical cache surfaces.' ),
 				'live_verification_timeout' => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
 			),
 			'additionalProperties' => false,
@@ -756,7 +756,7 @@ trait Devenia_Workflow_Translation_Job {
 				'job_id'                    => (string) $job['job_id'],
 				'sync_menu'                 => ! array_key_exists( 'sync_menu', $input ) || ! empty( $input['sync_menu'] ),
 				'include_custom_links'      => true,
-				'verify_live'               => ! array_key_exists( 'verify_live', $input ) || ! empty( $input['verify_live'] ),
+				'verify_live'               => true,
 				'live_verification_timeout' => absint( $input['live_verification_timeout'] ?? 15 ),
 			)
 		);

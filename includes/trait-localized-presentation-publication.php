@@ -25,6 +25,17 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$translation = self::translation_payload( $post );
 		$language    = sanitize_key( (string) ( $translation['language'] ?? '' ) );
 		$url         = esc_url_raw( (string) ( $translation['url'] ?? '' ) );
+		if ( ! self::is_translation_language( $language ) ) {
+			return array(
+				'success'       => true,
+				'passed'        => false,
+				'issues'        => array( self::qa_item( 'missing_or_unknown_language', 'Translation language is missing or not configured.' ) ),
+				'warnings'      => array(),
+				'issue_count'   => 1,
+				'warning_count' => 0,
+				'translation'   => $translation,
+			);
+		}
 		if ( 'publish' !== $post->post_status ) {
 			return array( 'success' => true, 'passed' => false, 'issues' => array( self::qa_item( 'translation_not_published', 'Live verification requires a published translation.', array( 'status' => $post->post_status ) ) ), 'translation' => $translation );
 		}
@@ -107,27 +118,26 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			);
 		}
 
-		$live = null;
-		if ( ! empty( $input['verify_live'] ) ) {
-			$live = self::verify_live_translation(
-				array(
-					'translation_id' => $translation_id,
-					'timeout'        => absint( $input['live_verification_timeout'] ?? 15 ),
-				)
+		// Publication is a fail-closed Module invariant. Callers cannot opt out of
+		// verifying both the origin-bypassing and exact canonical cache surfaces.
+		$live = self::verify_live_translation(
+			array(
+				'translation_id' => $translation_id,
+				'timeout'        => absint( $input['live_verification_timeout'] ?? 15 ),
+			)
+		);
+		if ( empty( $live['success'] ) || empty( $live['passed'] ) ) {
+			return array(
+				'success'            => false,
+				'code'               => 'localized_presentation_verification_failed',
+				'message'            => 'Content was published and caches were invalidated, but the public presentation failed verification.',
+				'published'          => true,
+				'transition'         => $transition,
+				'menu'               => $menu,
+				'purge_urls'         => $purge_urls,
+				'cache_invalidation' => $invalidation,
+				'live_verification'  => $live,
 			);
-			if ( empty( $live['success'] ) || empty( $live['passed'] ) ) {
-				return array(
-					'success'            => false,
-					'code'               => 'localized_presentation_verification_failed',
-					'message'            => 'Content was published and caches were invalidated, but the public presentation failed verification.',
-					'published'          => true,
-					'transition'         => $transition,
-					'menu'               => $menu,
-					'purge_urls'         => $purge_urls,
-					'cache_invalidation' => $invalidation,
-					'live_verification'  => $live,
-				);
-			}
 		}
 
 		return array(
@@ -380,6 +390,14 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				}
 				$issues = array_merge( $issues, self::frontend_public_surface_html_issues( $body, $language, $final_url, $surface . '_' . $cache_surface ) );
 				$issues = array_merge( $issues, self::localized_primary_navigation_html_issues( $body, $language, $url, $cache_surface ) );
+				$expected_hreflang = self::hreflang_for_language( $language );
+				if ( $expected_hreflang && ! preg_match( '/<link\b[^>]*rel=["\']alternate["\'][^>]*hreflang=["\']' . preg_quote( $expected_hreflang, '/' ) . '["\']/i', $body ) ) {
+					$warnings[] = self::qa_item(
+						'frontend_hreflang_missing',
+						'Live page does not expose the expected hreflang alternate for this language.',
+						array( 'language' => $language, 'hreflang' => $expected_hreflang, 'cache_surface' => $cache_surface )
+					);
+				}
 			}
 		}
 
