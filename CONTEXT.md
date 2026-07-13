@@ -53,17 +53,90 @@ long-lived model conversation or persona.
 
 One short-lived model execution for exactly one Translation Job phase, such as
 translation or quality critique. A Translation Run has an immutable `run_id`,
-execution metadata, model usage, duration, and output. It starts with a
+server-issued Translation Run Principal, execution metadata, measured or
+explicitly unavailable model usage, duration, and output. It starts with a
 purpose-built input packet and exits after submission; conversation history is
 never workflow state.
+
+## Translation Run Principal
+
+The server-issued execution identity for one Translation Run. It binds the Job,
+`run_id`, role, claim token, and claim lifetime. A coordinator or observability
+label cannot choose or impersonate it. The Quality Run Principal for an artifact
+must be fresh and different from its writer principal; this proves execution
+separation without claiming different human identities or agent motives.
+
+## Staged Translation Artifact
+
+One immutable, complete target-language publication candidate stored outside
+the current public reader surface. It may reserve a non-public WordPress object
+for a new translation, but submitting it never mutates an existing published
+post. Only Localized Presentation Publication applies an approved staged
+artifact.
+
+## Artifact Surface Revision
+
+The content-addressed identity of the complete Staged Translation Artifact
+surface: source and Job revisions, title, excerpt, fragments, SEO, taxonomy,
+Canonical Route Contract inputs, and visible media. Quality and publication
+evidence bind to this revision; changing any member invalidates earlier
+receipts and decisions.
+
+## Quality Authority Module
+
+The deep Module that issues Translation Run Principals, validates Quality
+Evidence Receipts and Browser Render Receipts, binds a Quality Decision to one
+Artifact Surface Revision, and makes publication fail closed. Its Interface
+accepts receipt identities and principal-bound Reviewer Attestations, not
+caller-selected authority or booleans as sufficient proof.
+
+## Quality Evidence Receipt
+
+An immutable server-owned record that one deterministic Workflow check or
+validated Adapter evaluated one exact Artifact Surface Revision under one
+policy revision. It records check kind, result, issuing Adapter, evidence
+digest, and issuance time. Required receipts cover structure and source
+coverage, links and route, SEO and taxonomy, offer and contact preservation,
+and server-observed HTTP/live DOM. Semantic reviewer judgment is a Reviewer
+Attestation, not a server-owned Quality Evidence Receipt.
+
+## Reviewer Attestation
+
+A natural-language, factual, or visual judgment made by one fresh,
+server-authenticated Quality Run Principal and bound to one Artifact Surface
+Revision. Workflow can prove who attested to which immutable surface, but does
+not claim PHP proved linguistic taste or screenshot meaning. Reviewer
+Attestations cannot produce a Quality pass without all mandatory server-owned
+Quality Evidence Receipts.
+
+## Browser Render Receipt
+
+A structured Reviewer Attestation, or stronger receipt issued through an
+external browser Adapter Seam, that binds the artifact and Artifact Surface
+Revision to URL/response identity, approved viewport and color schemes,
+language/direction, render measurements, Adapter revision, and screenshot or
+trace digest. Reviewer-produced receipts are explicitly stored with
+`trust=reviewer_attested`; Workflow validates their bindings but does not claim
+it independently inspected the pixels. A built-in server HTTP/live-DOM Quality
+Evidence Receipt remains mandatory for every pass.
+
+## Measured Run Usage
+
+Token and cost usage bound to one Translation Run Principal by a server-owned
+or validated provider Adapter receipt. Caller numbers are estimates. An all-zero
+caller payload is never measured usage; unavailable provider measurements are
+stored explicitly as unavailable.
 
 ## Quality Decision
 
 The pass, revise, or reject result produced by a quality Translation Run. A
-Quality Decision records the checked artifact revision, concrete evidence, and
-any edits. It is a quality signal, not an independent authorization act; the
-same coordinator may launch the translation and quality Runs and publish after
-the required checks pass.
+Quality Decision records the checked Artifact Surface Revision, distinct
+Quality Run Principal, required Quality Evidence Receipt identities, reviewer
+Attestations, and any corrections. A passing decision is publication authority
+only when the Quality Authority Module verifies every current server receipt
+and required attestation. The same coordinator may orchestrate both fresh Runs,
+but coordinator identity grants no authority and the writer and Quality
+principals must differ.
 
 ## Token Budget
 

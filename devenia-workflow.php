@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.602
+ * Version: 0.1.603
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -33,6 +33,7 @@ require_once __DIR__ . '/includes/trait-translation-index-read-model.php';
 require_once __DIR__ . '/includes/trait-internal-content-link-resolver.php';
 require_once __DIR__ . '/includes/trait-frontend-read-model.php';
 require_once __DIR__ . '/includes/trait-localized-presentation-publication.php';
+require_once __DIR__ . '/includes/trait-translation-job-quality-authority.php';
 require_once __DIR__ . '/includes/trait-translation-job.php';
 require_once __DIR__ . '/includes/trait-source-inventory.php';
 
@@ -51,13 +52,14 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Quality_Engine;
 	use Devenia_Workflow_Translation_Frontend_Read_Model;
 	use Devenia_Workflow_Localized_Presentation_Publication;
+	use Devenia_Workflow_Translation_Job_Quality_Authority;
 	use Devenia_Workflow_Source_Editor_Adapter;
 	use Devenia_Workflow_Mode;
 	use Devenia_Workflow_Internal_Content_Link_Resolver;
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.602';
+	const VERSION = '0.1.603';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.

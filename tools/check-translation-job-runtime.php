@@ -37,6 +37,34 @@ $call = static function ( string $method, array $input = array() ) {
 	$reflection->setAccessible( true );
 	return $reflection->invoke( null, $input );
 };
+$quality_payload = static function ( array $claim, string $artifact_revision, string $decision, string $observations, array $corrections = array() ) use ( $call, &$option_keys ): array {
+	$job_id = (string) ( $claim['run']['job_id'] ?? '' );
+	$run_id = (string) ( $claim['run']['run_id'] ?? '' );
+	$token = (string) ( $claim['claim_token'] ?? '' );
+	$packet_result = $call( 'translation_job_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $run_id, 'claim_token' => $token ) );
+	if ( empty( $packet_result['success'] ) ) { throw new RuntimeException( 'Quality packet fixture failed: ' . wp_json_encode( $packet_result ) ); }
+	$packet = (array) $packet_result['packet'];
+	foreach ( (array) ( $packet['evidence_contract']['server_receipt_ids'] ?? array() ) as $receipt_id ) { $option_keys[] = 'devenia_tj_quality_receipt_' . sanitize_key( (string) $receipt_id ); }
+	$surface_revision = (string) ( $packet['surface_revision'] ?? '' );
+	$digest = str_repeat( 'a', 64 );
+	$browser = array();
+	foreach ( array( 'desktop' => array( 'width' => 1440, 'height' => 1100, 'device_scale_factor' => 1 ), 'mobile' => array( 'width' => 390, 'height' => 844, 'device_scale_factor' => 1 ) ) as $viewport_scheme => $viewport ) {
+		foreach ( array( 'light', 'dark' ) as $color_scheme ) {
+			$browser[] = array( 'artifact_revision' => $artifact_revision, 'surface_revision' => $surface_revision, 'viewport_scheme' => $viewport_scheme, 'viewport' => $viewport, 'color_scheme' => $color_scheme, 'url' => home_url( '/runtime-quality-preview/' ), 'response_digest' => $digest, 'document_language' => 'nb-NO', 'document_direction' => 'ltr', 'layout_digest' => hash( 'sha256', $viewport_scheme . $color_scheme . 'layout' ), 'screenshot_digest' => hash( 'sha256', $viewport_scheme . $color_scheme . 'screenshot' ), 'checked_at' => gmdate( 'c' ), 'adapter' => 'runtime-fixture' );
+		}
+	}
+	return array(
+		'job_id' => $job_id, 'run_id' => $run_id, 'claim_token' => $token,
+		'artifact_revision' => $artifact_revision, 'surface_revision' => $surface_revision, 'decision' => $decision,
+		'evidence_receipt_ids' => array_values( (array) ( $packet['evidence_contract']['server_receipt_ids'] ?? array() ) ),
+		'reviewer_attestations' => array(
+			array( 'kind' => 'natural_language', 'passed' => true, 'observation' => 'Runtime reviewer inspected the complete localized wording and found concrete natural-language evidence.' ),
+			array( 'kind' => 'factual_accuracy', 'passed' => true, 'observation' => 'Runtime reviewer compared every fixture claim with the approved source and found factual alignment.' ),
+		),
+		'reviewer_observations' => $observations, 'browser_receipts' => $browser, 'corrections' => $corrections,
+		'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
+	);
+};
 
 try {
 	$replace_fragment = new ReflectionMethod( Devenia_Workflow::class, 'replace_source_design_text_html' );
@@ -165,6 +193,7 @@ try {
 	if ( empty( $source_review['success'] ) ) {
 		throw new RuntimeException( 'Source approval failed: ' . wp_json_encode( $source_review ) );
 	}
+	wp_update_post( array( 'ID' => $source_id, 'post_status' => 'publish' ) );
 
 	$expiry_languages = array_values( array_filter( $language_keys, static function ( $candidate ) use ( $language ) { return (string) $candidate !== $language; } ) );
 	if ( empty( $expiry_languages ) ) {
@@ -401,13 +430,9 @@ try {
 	if ( empty( $submit['success'] ) || 'quality_pending' !== (string) ( $submit['job']['status'] ?? '' ) ) {
 		throw new RuntimeException( 'Artifact submission failed: ' . wp_json_encode( $submit ) );
 	}
-	$translation_id = absint( $submit['translation']['id'] ?? 0 );
-	if (
-		$source_thumbnail_id !== absint( $submit['translation']['featured_image_id'] ?? 0 )
-		|| $source_thumbnail_id !== absint( get_post_meta( $translation_id, '_thumbnail_id', true ) )
-		|| empty( $submit['featured_image_sync']['write_verified'] )
-	) {
-		throw new RuntimeException( 'Artifact submission did not synchronize the approved source featured image: ' . wp_json_encode( $submit ) );
+	$translation_id = 0;
+	if ( get_post( $submit['translation_id'] ?? 0 ) || empty( $submit['staged'] ) ) {
+		throw new RuntimeException( 'Artifact submission changed WordPress instead of remaining staged: ' . wp_json_encode( $submit ) );
 	}
 	$artifact_revision = (string) $submit['artifact_revision'];
 	$option_keys[] = 'devenia_workflow_translation_artifact_' . $artifact_revision;
@@ -484,14 +509,23 @@ try {
 	$hreflang_method = new ReflectionMethod( Devenia_Workflow::class, 'hreflang_for_language' );
 	$hreflang_method->setAccessible( true );
 	$runtime_hreflang = (string) $hreflang_method->invoke( null, $language );
-	$runtime_http_surface = static function ( $preempt, array $args, string $url ) use ( &$translation_id, $language, $runtime_translation_url, $runtime_html_lang, $runtime_hreflang ) {
-		if ( untrailingslashit( strtok( $url, '?' ) ?: '' ) !== untrailingslashit( $runtime_translation_url ) ) {
+	$runtime_source_url = (string) get_permalink( $source_id );
+	$runtime_http_surface = static function ( $preempt, array $args, string $url ) use ( &$translation_id, $source_id, $language, $runtime_source_url, &$runtime_translation_url, $runtime_html_lang, $runtime_hreflang ) {
+		$request_url = untrailingslashit( strtok( $url, '?' ) ?: '' );
+		if ( $translation_id > 0 ) { $runtime_translation_url = (string) get_permalink( $translation_id ); }
+		$is_translation = $translation_id > 0 && $request_url === untrailingslashit( $runtime_translation_url );
+		$is_source = $request_url === untrailingslashit( $runtime_source_url );
+		if ( ! $is_translation && ! $is_source ) {
 			return $preempt;
 		}
+		$surface_url = $is_translation ? $runtime_translation_url : $runtime_source_url;
+		$surface_language = $is_translation ? $runtime_html_lang : 'en-US';
+		$surface_hreflang = $is_translation ? $runtime_hreflang : 'en';
+		$surface_id = $is_translation ? $translation_id : $source_id;
 		$identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
 		$menu_id = absint( $identities[ $language ]['menu_id'] ?? 0 );
 		$navigation = (string) wp_nav_menu( array( 'menu' => $menu_id, 'container' => false, 'echo' => false, 'fallback_cb' => false, 'items_wrap' => '%3$s' ) );
-		$body = '<!doctype html><html lang="' . esc_attr( $runtime_html_lang ) . '"><head><link rel="alternate" hreflang="' . esc_attr( $runtime_hreflang ) . '" href="' . esc_url( $runtime_translation_url ) . '"></head><body><nav id="site-navigation">' . $navigation . '</nav><main><h1>' . esc_html( (string) get_the_title( $translation_id ) ) . '</h1></main></body></html>';
+		$body = '<!doctype html><html lang="' . esc_attr( $surface_language ) . '"><head><link rel="alternate" hreflang="' . esc_attr( $surface_hreflang ) . '" href="' . esc_url( $surface_url ) . '"></head><body><nav id="site-navigation">' . $navigation . '</nav><main><h1>' . esc_html( (string) get_the_title( $surface_id ) ) . '</h1></main></body></html>';
 		return array(
 			'headers'  => array( 'cf-cache-status' => false === strpos( $url, 'devenia_frontend_integrity=' ) ? 'HIT' : 'DYNAMIC', 'age' => '0' ),
 			'body'     => $body,
@@ -583,48 +617,11 @@ try {
 	) {
 		throw new RuntimeException( 'Quality packet did not preserve the authoritative link policy: ' . wp_json_encode( $quality_packet ) );
 	}
-	$checks = array_fill_keys( array( 'source_quality', 'natural_language', 'factual_accuracy', 'source_coverage', 'localized_search_intent', 'offer_and_contact', 'links_and_route', 'rendered_experience' ), true );
 	$quality_evidence = 'Runtime contract reviewed every required dimension and requests a deliberate revision.';
 	$quality_corrections = array( 'Runtime fixture intentionally stops before publication.' );
-	$revision_method = new ReflectionMethod( Devenia_Workflow::class, 'translation_job_revision' );
-	$revision_method->setAccessible( true );
-	$orphaned_quality_revision = (string) $revision_method->invoke( null, array( $artifact_revision, 'revise', $checks, $quality_evidence, $quality_corrections ) );
-	$orphaned_quality_key = 'devenia_workflow_translation_quality_' . $orphaned_quality_revision;
-	$option_keys[] = $orphaned_quality_key;
-	add_option(
-		$orphaned_quality_key,
-		array(
-			'quality_revision' => $orphaned_quality_revision,
-			'job_id' => $job_id,
-			'artifact_revision' => $artifact_revision,
-			'content_revision' => (string) ( $submit['job']['content_revision'] ?? '' ),
-			'translation_id' => $translation_id,
-			'decision' => 'revise',
-			'checks' => array_map( static fn( $value ) => $value ? 1 : 0, $checks ),
-			'evidence' => $quality_evidence . ' ',
-			'corrections' => $quality_corrections,
-			'coordinator_id' => 'runtime-coordinator',
-			'run_id' => $quality_run_id,
-			'qa' => array( 'passed' => true, 'issue_count' => 0, 'warning_count' => 0 ),
-			'publication_experience' => array( 'passed' => true, 'state' => 'publication_experience_ready' ),
-			'decided_at' => gmdate( 'c' ),
-		),
-		'',
-		false
-	);
 	$quality = $call(
 		'translation_job_submit_quality_decision',
-		array(
-			'job_id' => $job_id,
-			'run_id' => $quality_run_id,
-			'claim_token' => $quality_token,
-			'artifact_revision' => $artifact_revision,
-			'decision' => 'revise',
-			'checks' => $checks,
-			'evidence' => $quality_evidence,
-			'corrections' => $quality_corrections,
-			'usage' => array( 'input_tokens' => 800, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 800, 'estimated_cost_microusd' => 50 ),
-		)
+		$quality_payload( $quality_claim, $artifact_revision, 'revise', $quality_evidence, $quality_corrections )
 	);
 	if ( empty( $quality['success'] ) || 'changes_requested' !== (string) ( $quality['job']['status'] ?? '' ) ) {
 		throw new RuntimeException( 'Idempotent orphaned Quality Decision recovery failed: ' . wp_json_encode( $quality ) );
@@ -692,17 +689,7 @@ try {
 	$option_keys[] = 'devenia_workflow_translation_run_' . $second_quality_run_id;
 	$second_quality = $call(
 		'translation_job_submit_quality_decision',
-		array(
-			'job_id' => $job_id,
-			'run_id' => $second_quality_run_id,
-			'claim_token' => (string) $second_quality_claim['claim_token'],
-			'artifact_revision' => (string) $second_artifact['artifact_revision'],
-			'decision' => 'revise',
-			'checks' => $checks,
-			'evidence' => 'The second bounded quality Run found one final wording correction that must remain actionable.',
-			'corrections' => array( 'Apply the final bounded wording correction.' ),
-			'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
-		)
+		$quality_payload( $second_quality_claim, (string) $second_artifact['artifact_revision'], 'revise', 'The second bounded quality Run found one final wording correction that must remain actionable.', array( 'Apply the final bounded wording correction.' ) )
 	);
 	if ( empty( $second_quality['success'] ) || 'changes_requested' !== (string) ( $second_quality['job']['status'] ?? '' ) ) {
 		throw new RuntimeException( 'Second Quality Decision failed: ' . wp_json_encode( $second_quality ) );
@@ -752,17 +739,7 @@ try {
 	$option_keys[] = 'devenia_workflow_translation_run_' . (string) $third_quality_claim['run']['run_id'];
 	$third_quality = $call(
 		'translation_job_submit_quality_decision',
-		array(
-			'job_id' => $job_id,
-			'run_id' => (string) $third_quality_claim['run']['run_id'],
-			'claim_token' => (string) $third_quality_claim['claim_token'],
-			'artifact_revision' => (string) $third_artifact['artifact_revision'],
-			'decision' => 'pass',
-			'checks' => $checks,
-			'evidence' => 'Runtime contract confirms the final bounded artifact passes every required quality dimension before publication.',
-			'corrections' => array(),
-			'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
-		)
+		$quality_payload( $third_quality_claim, (string) $third_artifact['artifact_revision'], 'pass', 'Runtime contract confirms the final bounded artifact passes every required quality dimension before publication.', array() )
 	);
 	if ( empty( $third_quality['success'] ) || 'ready_to_publish' !== (string) ( $third_quality['job']['status'] ?? '' ) ) {
 		throw new RuntimeException( 'Final Quality Decision failed: ' . wp_json_encode( $third_quality ) );
@@ -944,17 +921,7 @@ try {
 	$option_keys[] = 'devenia_workflow_translation_run_' . $post_publish_quality_run_id;
 	$post_publish_quality = $call(
 		'translation_job_submit_quality_decision',
-		array(
-			'job_id' => $job_id,
-			'run_id' => $post_publish_quality_run_id,
-			'claim_token' => (string) $post_publish_quality_claim['claim_token'],
-			'artifact_revision' => (string) $post_publish_submit['artifact_revision'],
-			'decision' => 'revise',
-			'checks' => $checks,
-			'evidence' => 'Runtime contract confirms browser QA corrections on a published translation remain bounded and require a new exact quality decision before republishing.',
-			'corrections' => array( 'The fixture deliberately requests one more correction because its dev-only public URL has no language prefix.' ),
-			'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
-		)
+		$quality_payload( $post_publish_quality_claim, (string) $post_publish_submit['artifact_revision'], 'revise', 'Runtime contract confirms browser QA corrections on a published translation remain bounded and require a new exact quality decision before republishing.', array( 'The fixture deliberately requests one more correction because its dev-only public URL has no language prefix.' ) )
 	);
 	if ( empty( $post_publish_quality['success'] ) || 'changes_requested' !== (string) ( $post_publish_quality['job']['status'] ?? '' ) ) {
 		throw new RuntimeException( 'Published correction did not receive an exact Quality Decision: ' . wp_json_encode( $post_publish_quality ) );

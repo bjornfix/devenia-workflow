@@ -179,21 +179,58 @@ trait Devenia_Workflow_Translation_Job {
 	}
 
 	private static function translation_job_quality_schema(): array {
-		$check_properties = array();
-		foreach ( self::translation_job_quality_checks() as $check ) {
-			$check_properties[ $check ] = array( 'type' => 'boolean' );
-		}
 		return array(
 			'type' => 'object',
-			'required' => array( 'job_id', 'run_id', 'claim_token', 'artifact_revision', 'decision', 'checks', 'evidence', 'usage' ),
+			'required' => array( 'job_id', 'run_id', 'claim_token', 'artifact_revision', 'surface_revision', 'decision', 'evidence_receipt_ids', 'reviewer_attestations', 'reviewer_observations', 'browser_receipts', 'usage' ),
 			'properties' => array(
 				'job_id' => array( 'type' => 'string' ),
 				'run_id' => array( 'type' => 'string' ),
 				'claim_token' => array( 'type' => 'string' ),
 				'artifact_revision' => array( 'type' => 'string' ),
+				'surface_revision' => array( 'type' => 'string' ),
 				'decision' => array( 'type' => 'string', 'enum' => array( 'pass', 'revise', 'reject' ) ),
-				'checks' => array( 'type' => 'object', 'required' => self::translation_job_quality_checks(), 'properties' => $check_properties, 'additionalProperties' => false ),
-				'evidence' => array( 'type' => 'string' ),
+				'evidence_receipt_ids' => array( 'type' => 'array', 'minItems' => 6, 'items' => array( 'type' => 'string' ) ),
+				'reviewer_attestations' => array(
+					'type' => 'array',
+					'minItems' => 2,
+					'items' => array(
+						'type' => 'object',
+						'required' => array( 'kind', 'passed', 'observation' ),
+						'properties' => array(
+							'kind' => array( 'type' => 'string', 'enum' => array( 'natural_language', 'factual_accuracy' ) ),
+							'passed' => array( 'type' => 'boolean' ),
+							'observation' => array( 'type' => 'string', 'minLength' => 40 ),
+							'fragment_keys' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+						),
+						'additionalProperties' => false,
+					),
+				),
+				'reviewer_observations' => array( 'type' => 'string', 'minLength' => 40 ),
+				'browser_receipts' => array(
+					'type' => 'array',
+					'minItems' => 4,
+					'items' => array(
+						'type' => 'object',
+						'required' => array( 'artifact_revision', 'surface_revision', 'viewport_scheme', 'viewport', 'color_scheme', 'url', 'response_digest', 'document_language', 'document_direction', 'layout_digest', 'screenshot_digest', 'checked_at' ),
+						'properties' => array(
+							'artifact_revision' => array( 'type' => 'string' ),
+							'surface_revision' => array( 'type' => 'string' ),
+							'viewport_scheme' => array( 'type' => 'string', 'enum' => array( 'desktop', 'mobile' ) ),
+							'viewport' => array( 'type' => 'object' ),
+							'color_scheme' => array( 'type' => 'string', 'enum' => array( 'light', 'dark' ) ),
+							'url' => array( 'type' => 'string' ),
+							'response_digest' => array( 'type' => 'string' ),
+							'document_language' => array( 'type' => 'string' ),
+							'document_direction' => array( 'type' => 'string' ),
+							'layout_digest' => array( 'type' => 'string' ),
+							'screenshot_digest' => array( 'type' => 'string' ),
+							'checked_at' => array( 'type' => 'string' ),
+							'adapter' => array( 'type' => 'string' ),
+						),
+						'additionalProperties' => false,
+					),
+				),
+				'browser_adapter_receipt_ids' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 				'corrections' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 				'usage' => self::translation_job_usage_schema(),
 			),
@@ -367,6 +404,27 @@ trait Devenia_Workflow_Translation_Job {
 			'claimed_at' => gmdate( 'c', $now ),
 			'expires_at' => gmdate( 'c', $now + $ttl ),
 		);
+		$principal = self::translation_job_authenticated_principal(
+			$job,
+			array( 'run_id' => $run_id, 'role' => $role, 'coordinator_id' => $coordinator_id ),
+			$lock
+		);
+		if ( 'quality' === $role ) {
+			$artifact_record = self::translation_job_unpack_artifact_record(
+				get_option( self::translation_job_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) )
+			);
+			$writer_principal = isset( $artifact_record['writer_principal'] ) && is_array( $artifact_record['writer_principal'] ) ? $artifact_record['writer_principal'] : array();
+			if ( empty( $writer_principal['principal_id'] ) ) {
+				$migrated = self::translation_job_transition( $job, array( 'status' => 'changes_requested', 'active_run_id' => '' ) );
+				return array( 'success' => false, 'code' => 'artifact_resubmission_required', 'message' => 'This legacy artifact predates authenticated Run principals and was requeued for a fresh translator submission.', 'job' => ! empty( $migrated['job'] ) ? self::translation_job_public_job( $migrated['job'] ) : self::translation_job_public_job( $job ) );
+			}
+			if (
+				(string) $writer_principal['principal_id'] === (string) $principal['principal_id']
+				|| (string) ( $writer_principal['run_id'] ?? '' ) === $run_id
+			) {
+				return array( 'success' => false, 'code' => 'writer_reviewer_principal_conflict', 'message' => 'Quality must use a fresh bounded Run principal distinct from the translator Run.' );
+			}
+		}
 		if ( ! self::atomic_create_option( $lock_key, $lock ) ) {
 			return array( 'success' => false, 'code' => 'job_claim_race_lost', 'message' => 'Another Run claimed the Translation Job.' );
 		}
@@ -379,6 +437,7 @@ trait Devenia_Workflow_Translation_Job {
 			'context_mode' => 'bounded_packet',
 			'observability_label' => sanitize_text_field( (string) ( $input['observability_label'] ?? '' ) ),
 			'budget' => $budget,
+			'principal' => $principal,
 			'status' => 'running',
 			'started_at' => gmdate( 'c', $now ),
 		);
@@ -416,7 +475,12 @@ trait Devenia_Workflow_Translation_Job {
 		if ( $estimated_tokens > (int) $run['budget']['input_token_limit'] ) {
 			return array( 'success' => false, 'code' => 'packet_over_budget', 'message' => 'The bounded packet exceeds the Run input Token Budget.', 'estimated_input_tokens' => $estimated_tokens, 'input_token_limit' => (int) $run['budget']['input_token_limit'] );
 		}
+		$run['packet_estimated_input_tokens'] = $estimated_tokens;
+		$run['packet_revision'] = 'tp_' . substr( hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $packet ) ) ?: '' ), 0, 32 );
+		$run['packet_fetched_at'] = gmdate( 'c' );
+		update_option( self::translation_job_run_key( (string) $run['run_id'] ), $run, false );
 		$packet['estimated_input_tokens'] = $estimated_tokens;
+		$packet['packet_revision'] = $run['packet_revision'];
 		return array( 'success' => true, 'packet' => $packet );
 	}
 
@@ -478,11 +542,13 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$job = $access['job'];
 		$run = $access['run'];
-		$usage = self::translation_job_validate_usage( $input['usage'] ?? array(), $run['budget'] );
+		$usage = self::translation_job_validate_usage( $input['usage'] ?? array(), $run['budget'], $run, $input );
 		if ( empty( $usage['success'] ) ) {
-			self::translation_job_finish_run( $run, 'budget_exceeded', $usage['usage'] ?? array() );
-			self::translation_job_transition( $job, array( 'status' => 'budget_exceeded' ) );
-			self::translation_job_release_claim( (string) $job['job_id'] );
+			if ( 'run_budget_exceeded' === (string) ( $usage['code'] ?? '' ) ) {
+				self::translation_job_finish_run( $run, 'budget_exceeded', $usage['usage'] ?? array() );
+				self::translation_job_transition( $job, array( 'status' => 'budget_exceeded' ) );
+				self::translation_job_release_claim( (string) $job['job_id'] );
+			}
 			return $usage;
 		}
 		if ( self::translation_job_source_is_stale( $job ) ) {
@@ -506,54 +572,16 @@ trait Devenia_Workflow_Translation_Job {
 		if ( empty( $contact_policy['success'] ) ) {
 			return $contact_policy;
 		}
-		$translation_id = absint( $job['translation_id'] ?? 0 );
-		if (
-			! $translation_id
-			|| (int) $job['source_id'] !== absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) )
-			|| (string) $job['target_language'] !== (string) get_post_meta( $translation_id, self::META_LANGUAGE, true )
-		) {
-			$translation_id = self::find_translation_id( (int) $job['source_id'], (string) $job['target_language'], self::translation_workflow_post_statuses( false ) );
+		$staging = self::translation_job_stage_artifact( $job, $artifact );
+		if ( empty( $staging['success'] ) ) {
+			return $staging;
 		}
-		$upsert = array_merge(
-			$artifact,
-			array(
-				'source_id' => (int) $job['source_id'],
-				'language' => (string) $job['target_language'],
-				'translation_id' => $translation_id,
-				'inherit_source_design' => true,
-				'strict_source_design_fragments' => true,
-				'status' => $translation_id && 'publish' === get_post_status( $translation_id ) ? 'publish' : 'draft',
-				'translation_status' => 'needs_review',
-				'allow_update_published' => true,
-				'execution_id' => (string) $run['coordinator_id'],
-				'writer_process_id' => (string) $run['coordinator_id'],
-				'writer_actor' => (string) $run['coordinator_id'],
-			)
-		);
-		self::$translation_job_internal_identity = self::translation_job_identity( $job, $run, 'draft_write' );
-		try {
-			$result = self::upsert_translation( $upsert );
-		} finally {
-			self::$translation_job_internal_identity = array();
+		$surface_revision = self::translation_job_surface_revision( (array) $staging['manifest'] );
+		if ( ! hash_equals( (string) $staging['surface_revision'], $surface_revision ) ) {
+			return array( 'success' => false, 'code' => 'staged_surface_revision_mismatch', 'message' => 'The staged surface manifest could not be reproduced.' );
 		}
-		if ( empty( $result['success'] ) ) {
-			return $result;
-		}
-		$translation_id = absint( $result['translation']['id'] ?? 0 );
-		$featured_image_sync = self::sync_source_featured_image( $translation_id, $source );
-		if ( empty( $featured_image_sync['write_verified'] ) ) {
-			return array(
-				'success' => false,
-				'code' => 'featured_image_sync_failed',
-				'message' => 'The translation artifact was saved, but its featured image could not be synchronized with the approved source.',
-				'featured_image_sync' => $featured_image_sync,
-			);
-		}
-		if ( ! empty( $featured_image_sync['changed'] ) ) {
-			$translation_job_identity = self::translation_job_identity( $job, $run, 'draft_write' );
-			self::record_translation_visible_media_provenance( $translation_id, $translation_job_identity, 'translation_job_artifact_submit' );
-			self::sync_translation_index_row( $translation_id );
-		}
+		$translation_id = absint( $staging['translation_id'] ?? 0 );
+		$writer_principal = self::translation_job_authenticated_principal( $job, $run, $access['claim'] );
 		// Scope the content-addressed revision to its immutable Job contract.
 		// Identical localized payloads can legitimately occur after a source
 		// revision changes; they must not collide with another Job's record.
@@ -565,13 +593,24 @@ trait Devenia_Workflow_Translation_Job {
 				'artifact'        => $artifact,
 			)
 		);
-		$content_revision = self::translation_job_translation_revision( $translation_id );
+		$content_revision = (string) $staging['content_revision'];
 		$artifact_record = array(
+			'state' => 'staged',
 			'artifact_revision' => $artifact_revision,
 			'job_id' => (string) $job['job_id'],
 			'source_revision' => (string) $job['source_revision'],
 			'translation_id' => $translation_id,
 			'content_revision' => $content_revision,
+			'surface_revision' => $surface_revision,
+			'surface_manifest' => $staging['manifest'],
+			'baseline_surface_revision' => $translation_id ? self::translation_job_current_surface_revision( $translation_id ) : '',
+			'writer_principal' => $writer_principal,
+			'staged' => true,
+			'staged_validation' => array(
+				'passed' => true,
+				'guardrail_issue_count' => count( $staging['guardrails']['issues'] ?? array() ),
+				'taxonomy_checked' => $staging['taxonomy']['checked'] ?? array(),
+			),
 			'artifact' => self::translation_job_sanitize_artifact_record( $artifact ),
 			'submitted_at' => gmdate( 'c' ),
 		);
@@ -606,12 +645,12 @@ trait Devenia_Workflow_Translation_Job {
 			}
 		}
 		self::translation_job_finish_run( $run, 'submitted', $usage['usage'] );
-		$next = self::translation_job_transition( $job, array( 'status' => 'quality_pending', 'artifact_revision' => $artifact_revision, 'translation_id' => $translation_id, 'content_revision' => $content_revision, 'quality_revision' => '', 'active_run_id' => '' ) );
+		$next = self::translation_job_transition( $job, array( 'status' => 'quality_pending', 'artifact_revision' => $artifact_revision, 'translation_id' => $translation_id, 'content_revision' => $content_revision, 'surface_revision' => (string) $staging['surface_revision'], 'quality_revision' => '', 'active_run_id' => '' ) );
 		self::translation_job_release_claim( (string) $job['job_id'] );
 		if ( empty( $next['success'] ) ) {
 			return $next;
 		}
-		return array( 'success' => true, 'message' => 'Complete translation artifact submitted.', 'job' => self::translation_job_public_job( $next['job'] ), 'artifact_revision' => $artifact_revision, 'translation' => self::translation_payload( get_post( $translation_id ) ), 'featured_image_sync' => $featured_image_sync, 'qa_next' => 'devenia-workflow/translation-job-claim with role=quality' );
+		return array( 'success' => true, 'message' => 'Complete translation artifact staged without changing the public translation.', 'job' => self::translation_job_public_job( $next['job'] ), 'artifact_revision' => $artifact_revision, 'surface_revision' => (string) $staging['surface_revision'], 'translation_id' => $translation_id, 'staged' => true, 'qa_next' => 'devenia-workflow/translation-job-claim with role=quality' );
 	}
 
 	private static function translation_job_submit_quality_decision( array $input ): array {
@@ -629,49 +668,73 @@ trait Devenia_Workflow_Translation_Job {
 		if ( ! hash_equals( (string) ( $job['artifact_revision'] ?? '' ), sanitize_text_field( (string) ( $input['artifact_revision'] ?? '' ) ) ) ) {
 			return array( 'success' => false, 'code' => 'artifact_revision_mismatch', 'message' => 'Quality Decision does not match the current artifact revision.' );
 		}
-		$usage = self::translation_job_validate_usage( $input['usage'] ?? array(), $run['budget'] );
+		$artifact_record = self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( (string) $job['artifact_revision'] ) ) );
+		if ( empty( $artifact_record['staged'] ) || empty( $artifact_record['surface_revision'] ) ) {
+			return array( 'success' => false, 'code' => 'staged_artifact_required', 'message' => 'Quality requires a current staged artifact that has not changed the public translation.' );
+		}
+		if ( ! hash_equals( (string) $artifact_record['surface_revision'], sanitize_text_field( (string) ( $input['surface_revision'] ?? '' ) ) ) ) {
+			return array( 'success' => false, 'code' => 'surface_revision_mismatch', 'message' => 'Quality Decision does not match the complete staged surface revision.' );
+		}
+		$reviewer_principal = isset( $run['principal'] ) && is_array( $run['principal'] )
+			? $run['principal']
+			: self::translation_job_authenticated_principal( $job, $run, $access['claim'] );
+		$writer_principal = isset( $artifact_record['writer_principal'] ) && is_array( $artifact_record['writer_principal'] ) ? $artifact_record['writer_principal'] : array();
+		if (
+			empty( $writer_principal['principal_id'] )
+			|| (string) $writer_principal['principal_id'] === (string) ( $reviewer_principal['principal_id'] ?? '' )
+			|| (string) ( $writer_principal['run_id'] ?? '' ) === (string) ( $reviewer_principal['run_id'] ?? '' )
+		) {
+			return array( 'success' => false, 'code' => 'writer_reviewer_principal_conflict', 'message' => 'The translator Run cannot submit Quality for its own staged artifact.' );
+		}
+		$usage = self::translation_job_validate_usage( $input['usage'] ?? array(), $run['budget'], $run, $input );
 		if ( empty( $usage['success'] ) ) {
-			self::translation_job_finish_run( $run, 'budget_exceeded', $usage['usage'] ?? array() );
-			self::translation_job_transition( $job, array( 'status' => 'budget_exceeded' ) );
-			self::translation_job_release_claim( (string) $job['job_id'] );
+			if ( 'run_budget_exceeded' === (string) ( $usage['code'] ?? '' ) ) {
+				self::translation_job_finish_run( $run, 'budget_exceeded', $usage['usage'] ?? array() );
+				self::translation_job_transition( $job, array( 'status' => 'budget_exceeded' ) );
+				self::translation_job_release_claim( (string) $job['job_id'] );
+			}
 			return $usage;
 		}
 		$decision = sanitize_key( (string) ( $input['decision'] ?? '' ) );
 		if ( ! in_array( $decision, array( 'pass', 'revise', 'reject' ), true ) ) {
 			return self::error( 'Quality Decision must be pass, revise, or reject.' );
 		}
-		$evidence = trim( sanitize_textarea_field( (string) ( $input['evidence'] ?? '' ) ) );
+		$evidence = trim( sanitize_textarea_field( (string) ( $input['reviewer_observations'] ?? '' ) ) );
 		if ( strlen( $evidence ) < 40 ) {
 			return array( 'success' => false, 'code' => 'quality_evidence_required', 'message' => 'Quality Decision requires concrete evidence.' );
 		}
-		$checks = isset( $input['checks'] ) && is_array( $input['checks'] ) ? $input['checks'] : array();
-		$failed_checks = array();
-		foreach ( self::translation_job_quality_checks() as $check ) {
-			if ( empty( $checks[ $check ] ) ) {
-				$failed_checks[] = $check;
-			}
-		}
 		$translation_id = absint( $job['translation_id'] ?? 0 );
-		if ( self::translation_job_translation_revision( $translation_id ) !== (string) ( $job['content_revision'] ?? '' ) ) {
-			return array( 'success' => false, 'code' => 'artifact_content_changed', 'message' => 'Stored translation changed after artifact submission.' );
+		if ( $translation_id && ! hash_equals( (string) ( $artifact_record['baseline_surface_revision'] ?? '' ), self::translation_job_current_surface_revision( $translation_id ) ) ) {
+			return array( 'success' => false, 'code' => 'staged_surface_drifted', 'message' => 'The public translation surface changed after artifact submission.' );
 		}
-		$qa = self::qa_translation( array( 'translation_id' => $translation_id ) );
-		$translation = get_post( $translation_id );
-		$publication_experience = $translation instanceof WP_Post
-			? self::publication_experience_readiness_for_post( $translation, (string) $job['target_language'], 'pre_publish' )
-			: array( 'passed' => false );
-		if ( 'pass' === $decision && ( $failed_checks || empty( $qa['success'] ) || empty( $qa['passed'] ) || empty( $publication_experience['passed'] ) ) ) {
-			return array( 'success' => false, 'code' => 'quality_pass_rejected', 'message' => 'A passing Quality Decision requires all checks, deterministic QA, and publication experience to pass.', 'failed_checks' => $failed_checks, 'qa' => $qa, 'publication_experience' => $publication_experience );
+		$evidence_receipts = self::translation_job_quality_evidence_receipts( $job, $artifact_record, $input, $reviewer_principal );
+		$qa = array(
+			'success' => ! empty( $artifact_record['staged_validation']['passed'] ),
+			'passed' => ! empty( $artifact_record['staged_validation']['passed'] ),
+			'issue_count' => absint( $artifact_record['staged_validation']['guardrail_issue_count'] ?? 0 ),
+			'warning_count' => 0,
+			'adapter' => 'staged_artifact_validation',
+		);
+		$publication_experience = self::publication_experience_readiness_for_post( $source, self::source_language_code(), 'source_for_staged_translation' );
+		if ( 'pass' === $decision && ( empty( $evidence_receipts['success'] ) || empty( $qa['passed'] ) || empty( $publication_experience['passed'] ) ) ) {
+			return array( 'success' => false, 'code' => 'quality_pass_rejected', 'message' => 'A passing Quality Decision requires server-bound evidence receipts, staged deterministic QA, and source publication experience to pass.', 'evidence_receipts' => $evidence_receipts, 'qa' => $qa, 'publication_experience' => $publication_experience );
 		}
+		$evidence_record = ! empty( $evidence_receipts['record'] ) && is_array( $evidence_receipts['record'] ) ? $evidence_receipts['record'] : array();
 		$quality = array(
-			'quality_revision' => self::translation_job_revision( array( $job['artifact_revision'], $decision, $checks, $input['evidence'] ?? '', $input['corrections'] ?? array() ) ),
+			'quality_revision' => self::translation_job_revision( array( $job['artifact_revision'], $artifact_record['surface_revision'], $decision, $evidence_record['evidence_revision'] ?? '', $evidence, $input['corrections'] ?? array() ) ),
 			'job_id' => (string) $job['job_id'],
 			'artifact_revision' => (string) $job['artifact_revision'],
 			'content_revision' => (string) $job['content_revision'],
+			'surface_revision' => (string) $artifact_record['surface_revision'],
 			'translation_id' => $translation_id,
 			'decision' => $decision,
-			'checks' => array_map( 'boolval', $checks ),
-			'evidence' => $evidence,
+			'reviewer_observations' => $evidence,
+			'evidence_receipt_ids' => array_values( array_map( 'sanitize_text_field', (array) ( $input['evidence_receipt_ids'] ?? array() ) ) ),
+			'reviewer_attestations' => $evidence_record['reviewer_attestations'] ?? array(),
+			'browser_receipts' => $evidence_record['browser_attestations'] ?? array(),
+			'evidence_revision' => (string) ( $evidence_record['evidence_revision'] ?? '' ),
+			'usage' => $usage['usage'],
+			'reviewer_principal' => $reviewer_principal,
 			'corrections' => array_values( array_map( 'sanitize_text_field', is_array( $input['corrections'] ?? null ) ? $input['corrections'] : array() ) ),
 			'coordinator_id' => (string) $run['coordinator_id'],
 			'run_id' => (string) $run['run_id'],
@@ -682,7 +745,7 @@ trait Devenia_Workflow_Translation_Job {
 		$quality_key = self::translation_job_quality_key( $quality['quality_revision'] );
 		if ( ! self::atomic_create_option( $quality_key, $quality ) ) {
 			$existing_quality = get_option( $quality_key );
-			$identity_fields = array( 'quality_revision', 'job_id', 'artifact_revision', 'content_revision', 'translation_id' );
+			$identity_fields = array( 'quality_revision', 'job_id', 'artifact_revision', 'content_revision', 'surface_revision', 'translation_id', 'evidence_revision' );
 			$existing_identity = array_intersect_key( is_array( $existing_quality ) ? $existing_quality : array(), array_flip( $identity_fields ) );
 			$submitted_identity = array_intersect_key( $quality, array_flip( $identity_fields ) );
 			if ( count( $existing_identity ) !== count( $identity_fields ) || self::translation_job_canonicalize( $existing_identity ) !== self::translation_job_canonicalize( $submitted_identity ) ) {
@@ -708,7 +771,8 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$quality = get_option( self::translation_job_quality_key( (string) ( $job['quality_revision'] ?? '' ) ) );
 		$coordinator_id = self::translation_job_clean_id( (string) ( $input['coordinator_id'] ?? '' ) );
-		if ( ! is_array( $quality ) || 'pass' !== (string) ( $quality['decision'] ?? '' ) || $coordinator_id !== (string) ( $quality['coordinator_id'] ?? '' ) ) {
+		$is_quality_authority_v3 = is_array( $quality ) && ! empty( $quality['evidence_revision'] ) && ! empty( $quality['reviewer_principal']['principal_id'] );
+		if ( ! is_array( $quality ) || 'pass' !== (string) ( $quality['decision'] ?? '' ) || ( ! $is_quality_authority_v3 && $coordinator_id !== (string) ( $quality['coordinator_id'] ?? '' ) ) ) {
 			return array( 'success' => false, 'code' => 'quality_decision_authority_mismatch', 'message' => 'The current coordinator and passing Quality Decision do not match.' );
 		}
 		if ( self::translation_job_source_is_stale( $job ) || (string) ( $quality['artifact_revision'] ?? '' ) !== (string) ( $job['artifact_revision'] ?? '' ) ) {
@@ -719,13 +783,35 @@ trait Devenia_Workflow_Translation_Job {
 		if ( empty( $source_approval['passed'] ) ) {
 			return array( 'success' => false, 'code' => 'source_quality_approval_required', 'message' => 'Current source revision is not approved for publication.', 'source_approval' => $source_approval );
 		}
+		$artifact_record = self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) ) );
+		if ( ! is_array( $artifact_record ) || empty( $artifact_record['artifact_revision'] ) ) {
+			return array( 'success' => false, 'code' => 'artifact_record_missing', 'message' => 'The approved artifact record is unavailable.' );
+		}
 		$translation_id = absint( $job['translation_id'] ?? 0 );
-		if ( self::translation_job_translation_revision( $translation_id ) !== (string) ( $quality['content_revision'] ?? '' ) ) {
+		$staged_apply = null;
+		$surface_snapshot = null;
+		if ( ! empty( $artifact_record['staged'] ) ) {
+			if (
+				! $is_quality_authority_v3
+				|| ! hash_equals( (string) ( $artifact_record['surface_revision'] ?? '' ), (string) ( $quality['surface_revision'] ?? '' ) )
+				|| empty( self::translation_job_validate_quality_evidence_record( $quality, $artifact_record )['success'] )
+			) {
+				return array( 'success' => false, 'code' => 'quality_authority_evidence_missing', 'message' => 'Staged publication requires the exact server-bound Quality evidence record.' );
+			}
+			$surface_snapshot = self::translation_job_capture_surface_snapshot( $translation_id );
+			$staged_apply = self::translation_job_apply_staged_artifact( $job, $artifact_record );
+			if ( empty( $staged_apply['success'] ) ) {
+				return self::translation_job_publish_failure_with_rollback( $staged_apply, $surface_snapshot, absint( $staged_apply['translation_id'] ?? $translation_id ) );
+			}
+			$translation_id = absint( $staged_apply['translation_id'] ?? 0 );
+		} elseif ( self::translation_job_translation_revision( $translation_id ) !== (string) ( $quality['content_revision'] ?? '' ) ) {
 			return array( 'success' => false, 'code' => 'artifact_content_changed', 'message' => 'Stored translation changed after the Quality Decision.' );
 		}
-		$featured_image_sync = self::sync_source_featured_image( $translation_id, $source );
+		$featured_image_sync = is_array( $staged_apply ) && isset( $staged_apply['featured_image_sync'] )
+			? $staged_apply['featured_image_sync']
+			: self::sync_source_featured_image( $translation_id, $source );
 		if ( empty( $featured_image_sync['write_verified'] ) ) {
-			return array( 'success' => false, 'code' => 'featured_image_sync_failed', 'message' => 'The approved source featured image could not be synchronized before publication.', 'featured_image_sync' => $featured_image_sync );
+			return self::translation_job_publish_failure_with_rollback( array( 'success' => false, 'code' => 'featured_image_sync_failed', 'message' => 'The approved source featured image could not be synchronized before publication.', 'featured_image_sync' => $featured_image_sync ), $surface_snapshot, $translation_id );
 		}
 		if ( ! empty( $featured_image_sync['changed'] ) ) {
 			$translation_job_identity = self::translation_job_identity(
@@ -738,7 +824,7 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$qa = self::qa_translation( array( 'translation_id' => $translation_id ) );
 		if ( empty( $qa['success'] ) || empty( $qa['passed'] ) ) {
-			return array( 'success' => false, 'code' => 'publish_qa_failed', 'message' => 'Deterministic QA failed before publication.', 'qa' => $qa );
+			return self::translation_job_publish_failure_with_rollback( array( 'success' => false, 'code' => 'publish_qa_failed', 'message' => 'Deterministic QA failed before publication.', 'qa' => $qa ), $surface_snapshot, $translation_id );
 		}
 		$language = sanitize_key( (string) $job['target_language'] );
 		$translation_post = get_post( $translation_id );
@@ -746,7 +832,7 @@ trait Devenia_Workflow_Translation_Job {
 			? self::publication_experience_readiness_for_post( $translation_post, $language, 'pre_publish' )
 			: array( 'passed' => false );
 		if ( empty( $publication_experience['passed'] ) ) {
-			return array( 'success' => false, 'code' => 'publication_experience_failed', 'message' => 'Publication experience failed before publication.', 'publication_experience' => $publication_experience );
+			return self::translation_job_publish_failure_with_rollback( array( 'success' => false, 'code' => 'publication_experience_failed', 'message' => 'Publication experience failed before publication.', 'publication_experience' => $publication_experience ), $surface_snapshot, $translation_id );
 		}
 		$publication = self::publish_localized_presentation(
 			array(
@@ -761,7 +847,7 @@ trait Devenia_Workflow_Translation_Job {
 			)
 		);
 		if ( empty( $publication['success'] ) ) {
-			return array_merge(
+			return self::translation_job_publish_failure_with_rollback( array_merge(
 				$publication,
 				array(
 					'job'                    => self::translation_job_public_job( $job ),
@@ -770,12 +856,12 @@ trait Devenia_Workflow_Translation_Job {
 					'publication_experience' => $publication_experience,
 					'featured_image_sync'    => $featured_image_sync,
 				)
-			);
+			), $surface_snapshot, $translation_id );
 		}
 		$menu = $publication['menu'] ?? null;
 		$live = $publication['live_verification'] ?? null;
 		$orphaned_runs_finalized = self::translation_job_finalize_orphaned_runs( $job );
-		$next = self::translation_job_transition( $job, array( 'status' => 'published', 'published_at' => gmdate( 'c' ), 'live_verification_passed' => null === $live ? null : ! empty( $live['passed'] ) ) );
+		$next = self::translation_job_transition( $job, array( 'status' => 'published', 'translation_id' => $translation_id, 'content_revision' => self::translation_job_translation_revision( $translation_id ), 'applied_surface_revision' => self::translation_job_current_surface_revision( $translation_id ), 'published_at' => gmdate( 'c' ), 'live_verification_passed' => null === $live ? null : ! empty( $live['passed'] ) ) );
 		$passed = null === $live || ( ! empty( $live['success'] ) && ! empty( $live['passed'] ) );
 		return array(
 			'success' => $passed && ! empty( $next['success'] ),
@@ -871,10 +957,13 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_quality_packet( array $job, array $run, WP_Post $source ): array {
 		$artifact = self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) ) );
 		$source_contract = self::source_design_contract( $source );
+		$server_receipts = is_array( $artifact )
+			? self::translation_job_server_quality_receipts( $job, $artifact, (array) ( $run['principal'] ?? array() ) )
+			: array( 'success' => false, 'code' => 'artifact_record_missing' );
 		return array(
-			'contract_version' => 2,
+			'contract_version' => 3,
 			'job' => self::translation_job_public_job( $job ),
-			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet' ),
+			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'principal' => $run['principal'] ?? array() ),
 			'source' => array(
 				'title' => get_the_title( $source ),
 				'excerpt' => (string) $source->post_excerpt,
@@ -883,6 +972,8 @@ trait Devenia_Workflow_Translation_Job {
 				'approval' => self::translation_job_source_approval( $source ),
 			),
 			'artifact' => is_array( $artifact ) ? $artifact : array(),
+			'surface_revision' => (string) ( $artifact['surface_revision'] ?? '' ),
+			'writer_principal' => is_array( $artifact['writer_principal'] ?? null ) ? $artifact['writer_principal'] : array(),
 			'links' => self::translation_job_link_policy( $source, (string) $job['target_language'] ),
 			'contact_actions' => array(
 				'source' => self::translation_job_mailto_actions( self::translation_job_source_fragments( $source_contract ) ),
@@ -891,6 +982,14 @@ trait Devenia_Workflow_Translation_Job {
 			),
 			'language_profile' => self::translation_job_language_profile( (int) $source->ID, (string) $job['target_language'] ),
 			'required_checks' => self::translation_job_quality_checks(),
+			'evidence_contract' => array(
+				'server_receipt_note' => 'Use only the immutable receipt IDs issued in this packet.',
+				'server_receipt_ids' => array_values( (array) ( $server_receipts['receipt_ids'] ?? array() ) ),
+				'server_receipts' => array_values( (array) ( $server_receipts['receipts'] ?? array() ) ),
+				'reviewer_attestations' => array( 'natural_language', 'factual_accuracy' ),
+				'browser_receipts' => array( 'desktop:light', 'desktop:dark', 'mobile:light', 'mobile:dark' ),
+				'trust_model' => 'Workflow computes deterministic receipts. Natural-language and visual judgment remain explicit attestations from this fresh authenticated Quality Run.',
+			),
 			'submission_contract' => self::translation_job_submission_contract( 'quality' ),
 		);
 	}
@@ -1001,9 +1100,12 @@ trait Devenia_Workflow_Translation_Job {
 					'run_id' => '<packet.run.run_id>',
 					'claim_token' => '<same claim token used to fetch this packet>',
 					'artifact_revision' => '<packet.artifact.artifact_revision>',
+					'surface_revision' => '<packet.surface_revision>',
 					'decision' => 'pass|revise|reject',
-					'checks' => array_fill_keys( self::translation_job_quality_checks(), true ),
-					'evidence' => '<concrete review evidence>',
+					'evidence_receipt_ids' => array( '<packet.evidence_contract.server_receipt_ids>' ),
+					'reviewer_attestations' => array( array( 'kind' => 'natural_language', 'passed' => true, 'observation' => '<concrete language evidence>' ), array( 'kind' => 'factual_accuracy', 'passed' => true, 'observation' => '<concrete fact evidence>' ) ),
+					'reviewer_observations' => '<concrete review summary>',
+					'browser_receipts' => array( '<four policy-bound browser receipt objects>' ),
 					'corrections' => array( '<required correction; omit array when empty>' ),
 					'usage' => array( 'input_tokens' => 0, 'cached_input_tokens' => 0, 'output_tokens' => 0, 'attempts' => 1, 'duration_ms' => 0, 'estimated_cost_microusd' => 0 ),
 				),
@@ -1234,23 +1336,44 @@ trait Devenia_Workflow_Translation_Job {
 		return array( 'success' => true, 'job' => $job, 'run' => $run, 'claim' => $lock );
 	}
 
-	private static function translation_job_validate_usage( $raw, array $budget ): array {
+	private static function translation_job_validate_usage( $raw, array $budget, array $run = array(), array $submission = array() ): array {
 		$raw = is_array( $raw ) ? $raw : array();
+		$packet_tokens = absint( $run['packet_estimated_input_tokens'] ?? 0 );
+		if ( $packet_tokens < 1 || empty( $run['packet_revision'] ) ) {
+			return array( 'success' => false, 'code' => 'run_packet_not_fetched', 'message' => 'Fetch the bounded packet before submitting a Translation Job outcome so usage and contract revisions are server-measured.' );
+		}
+		$measured_submission = $submission;
+		unset( $measured_submission['claim_token'], $measured_submission['usage'] );
+		$output_tokens = max( 1, (int) ceil( strlen( wp_json_encode( $measured_submission ) ?: '' ) / 4 ) );
+		$started_at = strtotime( (string) ( $run['started_at'] ?? '' ) );
+		$duration_ms = false !== $started_at ? max( 1, ( time() - $started_at ) * 1000 ) : 1;
 		$usage = array(
-			'input_tokens' => absint( $raw['input_tokens'] ?? 0 ),
-			'cached_input_tokens' => absint( $raw['cached_input_tokens'] ?? 0 ),
-			'output_tokens' => absint( $raw['output_tokens'] ?? 0 ),
-			'attempts' => absint( $raw['attempts'] ?? 0 ),
-			'duration_ms' => absint( $raw['duration_ms'] ?? 0 ),
-			'estimated_cost_microusd' => absint( $raw['estimated_cost_microusd'] ?? 0 ),
+			'input_tokens' => $packet_tokens,
+			'cached_input_tokens' => 0,
+			'output_tokens' => $output_tokens,
+			'attempts' => 1,
+			'duration_ms' => $duration_ms,
+			'estimated_cost_microusd' => 0,
+			'measurement_source' => 'server_payload_estimate',
+			'measurement_state' => 'estimated_not_provider_measured',
+			'packet_revision' => (string) $run['packet_revision'],
+			'caller_reported_usage' => array(
+				'input_tokens' => absint( $raw['input_tokens'] ?? 0 ),
+				'cached_input_tokens' => absint( $raw['cached_input_tokens'] ?? 0 ),
+				'output_tokens' => absint( $raw['output_tokens'] ?? 0 ),
+				'attempts' => absint( $raw['attempts'] ?? 0 ),
+				'duration_ms' => absint( $raw['duration_ms'] ?? 0 ),
+				'estimated_cost_microusd' => absint( $raw['estimated_cost_microusd'] ?? 0 ),
+			),
 		);
+		// zero_token_usage_not_measured: caller zeros are retained only as a report,
+		// never as authoritative usage. This receipt binds the server payload estimate.
+		$usage['usage_receipt_id'] = 'ur_' . substr( hash( 'sha256', wp_json_encode( array( $run['principal']['principal_id'] ?? '', $usage['packet_revision'], $usage['input_tokens'], $usage['output_tokens'], $usage['duration_ms'] ) ) ?: '' ), 0, 40 );
 		$usage['total_tokens'] = $usage['input_tokens'] + $usage['output_tokens'];
 		$violations = array();
-		if ( $usage['cached_input_tokens'] > $usage['input_tokens'] ) { $violations[] = 'cached_input_tokens'; }
 		if ( $usage['input_tokens'] > (int) $budget['input_token_limit'] ) { $violations[] = 'input_token_limit'; }
 		if ( $usage['output_tokens'] > (int) $budget['output_token_limit'] ) { $violations[] = 'output_token_limit'; }
 		if ( $usage['total_tokens'] > (int) $budget['total_token_limit'] ) { $violations[] = 'total_token_limit'; }
-		if ( $usage['attempts'] < 1 || $usage['attempts'] > (int) $budget['max_attempts'] ) { $violations[] = 'max_attempts'; }
 		return empty( $violations )
 			? array( 'success' => true, 'usage' => $usage )
 			: array( 'success' => false, 'code' => 'run_budget_exceeded', 'message' => 'Run usage exceeds its Token Budget.', 'violations' => $violations, 'usage' => $usage, 'budget' => $budget );

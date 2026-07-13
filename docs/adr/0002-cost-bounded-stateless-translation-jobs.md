@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted
+Superseded in part by
+[ADR 0006](0006-verifiable-translation-quality-authority.md).
+
+The bounded, stateless Translation Job and Run model remains accepted. ADR
+0006 replaces the decisions that coordinator labels may act as authority, that
+writer and Quality Runs may share an execution principal, and that caller
+assertions alone are sufficient Quality evidence.
 
 This is the only supported translation orchestration model. The superseded
 persona, Heartbeat, Assignment, Reservation, and Work Item implementation has
@@ -89,11 +95,12 @@ Large sources may be processed in deterministic fragment batches, but partial
 batches are never saved as a public translation. The Run assembles one complete
 artifact, performs one consolidation pass, and submits it atomically.
 
-### Coordinated Quality Passes
+### Coordinated Quality Passes (superseded authority rules)
 
-Independent sessions are not required. One coordinator owns the reader and
-business outcome and may use bounded subagents for translation, language
-critique, factual checks, SEO localization, or rendered-page inspection.
+This subsection records the original decision. Its authority and evidence
+rules are superseded by ADR 0006. A coordinator may still orchestrate bounded
+subagents, but its caller-provided label grants no authority and cannot collapse
+translator and Quality provenance into one principal.
 
 - A quality Run receives the source, submitted localized artifact, target
   language contract, and relevant checks, not the translator's accumulated
@@ -101,17 +108,18 @@ critique, factual checks, SEO localization, or rendered-page inspection.
 - The quality packet includes every approved source fragment so factual
   accuracy and coverage can be judged against the actual source, not a summary.
 - The Quality Decision binds to the exact submitted artifact revision.
-- The coordinator may accept quality edits and publish after the required
-  checks pass.
-- Multiple passes exist only when they improve the page, not to manufacture
-  organizational independence.
+- Publication requires a passing Quality Decision from a fresh Quality Run
+  whose server-issued execution principal differs from the writer principal.
+- Multiple passes exist only when they improve the page. The separation is an
+  execution-provenance invariant, not a claim about agent motivation or an
+  organizational approval hierarchy.
 - Observability labels such as Ola and Kari may be displayed, but do not grant
   authority or establish quality.
 
-Translation and quality Runs use the coordinator's normal WordPress capability
-and the current Job claim. They do not claim Actor leases, policy personas, or
-step-specific tokens. `needs_review` may remain as a useful content state, but
-it does not imply that another session or account must perform the next action.
+Translation and Quality Runs use the current Job claim and a server-issued Run
+principal. They do not revive Actor leases, policy personas, or long-lived
+reviewer identities. `needs_review` may remain as a useful content state, but
+it is not publication authority.
 
 ### Cost Contract
 
@@ -140,7 +148,8 @@ The target Translation Job Interface is deliberately small:
 2. atomically claim a Job;
 3. fetch its bounded input packet;
 4. submit a complete localized artifact;
-5. submit a Quality Decision and any correction diff;
+5. submit a Quality Decision bound to server-owned evidence receipts and any
+   correction diff;
 6. publish an approved artifact;
 7. inspect Job and Run status, including cost.
 
@@ -160,7 +169,8 @@ The translation core retains:
 - complete artifact submission;
 - deterministic structural, terminology, script, and link validation;
 - immutable Run, quality, and cost evidence;
-- guarded publication.
+- guarded publication of the staged artifact only after principal separation,
+  evidence receipts, and the complete Artifact Surface Revision pass.
 
 These responsibilities must not be part of the Translation Job Interface:
 
@@ -233,8 +243,10 @@ Rejected as authority design. Labels remain useful for dashboards, but fresh
 Runs and immutable provenance already provide the required visibility without
 durable Actor state.
 
-### Keep Independent Reviewer Sessions
+### Keep Long-Lived Reviewer Identities
 
-Rejected as a product requirement. A separate critical pass can improve
-quality, but it may be a subagent under the same coordinator. Names, accounts,
-leases, and control-chain separation do not make copy better by themselves.
+Rejected as a product requirement. ADR 0006 requires a fresh, distinct Quality
+Run principal for each artifact, but it does not reintroduce personas, accounts,
+leases, or human organizational roles. Fresh subagents have no assumed motive
+to game the workflow; the invariant exists so Workflow can prove what happened
+without inferring motive.
