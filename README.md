@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.599
+**Stable tag:** 0.1.600
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.600
+
+- Compares hierarchical localized menus in WordPress walker render order so cache integrity remains exact without rejecting correct nested navigation.
 
 ### 0.1.599
 

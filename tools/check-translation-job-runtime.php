@@ -418,6 +418,16 @@ try {
 	if ( is_wp_error( $runtime_source_menu_id ) ) {
 		throw new RuntimeException( 'Could not create the runtime source menu: ' . $runtime_source_menu_id->get_error_message() );
 	}
+	$runtime_source_menu_parent_id = wp_update_nav_menu_item(
+		(int) $runtime_source_menu_id,
+		0,
+		array(
+			'menu-item-title'     => 'Runtime group',
+			'menu-item-url'       => home_url( '/' ),
+			'menu-item-type'      => 'custom',
+			'menu-item-status'    => 'publish',
+		)
+	);
 	$runtime_source_menu_item_id = wp_update_nav_menu_item(
 		(int) $runtime_source_menu_id,
 		0,
@@ -427,10 +437,12 @@ try {
 			'menu-item-object-id' => $source_id,
 			'menu-item-type'      => 'post_type',
 			'menu-item-status'    => 'publish',
+			'menu-item-parent-id' => is_wp_error( $runtime_source_menu_parent_id ) ? 0 : (int) $runtime_source_menu_parent_id,
 		)
 	);
-	if ( is_wp_error( $runtime_source_menu_item_id ) ) {
-		throw new RuntimeException( 'Could not populate the runtime source menu: ' . $runtime_source_menu_item_id->get_error_message() );
+	if ( is_wp_error( $runtime_source_menu_parent_id ) || is_wp_error( $runtime_source_menu_item_id ) ) {
+		$runtime_menu_error = is_wp_error( $runtime_source_menu_parent_id ) ? $runtime_source_menu_parent_id : $runtime_source_menu_item_id;
+		throw new RuntimeException( 'Could not populate the runtime source menu: ' . $runtime_menu_error->get_error_message() );
 	}
 	$runtime_languages = get_option( 'devenia_workflow_language_registry', array() );
 	$runtime_languages = is_array( $runtime_languages ) ? $runtime_languages : array();
@@ -474,10 +486,7 @@ try {
 		}
 		$identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
 		$menu_id = absint( $identities[ $language ]['menu_id'] ?? 0 );
-		$navigation = '';
-		foreach ( wp_get_nav_menu_items( $menu_id, array( 'orderby' => 'menu_order' ) ) ?: array() as $item ) {
-			$navigation .= '<a href="' . esc_url( (string) $item->url ) . '">' . esc_html( (string) $item->title ) . '</a>';
-		}
+		$navigation = (string) wp_nav_menu( array( 'menu' => $menu_id, 'container' => false, 'echo' => false, 'fallback_cb' => false, 'items_wrap' => '%3$s' ) );
 		$body = '<!doctype html><html lang="' . esc_attr( $runtime_html_lang ) . '"><head><link rel="alternate" hreflang="' . esc_attr( $runtime_hreflang ) . '" href="' . esc_url( $runtime_translation_url ) . '"></head><body><nav id="site-navigation">' . $navigation . '</nav><main><h1>' . esc_html( (string) get_the_title( $translation_id ) ) . '</h1></main></body></html>';
 		return array(
 			'headers'  => array( 'cf-cache-status' => false === strpos( $url, 'devenia_frontend_integrity=' ) ? 'HIT' : 'DYNAMIC', 'age' => '0' ),

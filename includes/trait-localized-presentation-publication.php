@@ -325,7 +325,8 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			return array();
 		}
 		$expected = array();
-		foreach ( wp_get_nav_menu_items( $menu_id, array( 'orderby' => 'menu_order' ) ) ?: array() as $item ) {
+		$items = wp_get_nav_menu_items( $menu_id, array( 'orderby' => 'menu_order' ) ) ?: array();
+		foreach ( self::localized_menu_items_in_render_order( $items ) as $item ) {
 			$expected[] = array(
 				'title' => trim( html_entity_decode( wp_strip_all_tags( (string) $item->title ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ) ),
 				'url'   => self::normalize_primary_navigation_url( (string) $item->url ),
@@ -333,6 +334,68 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		}
 
 		return $expected;
+	}
+
+	/**
+	 * Flatten menu items in the same depth-first order used by WordPress walkers.
+	 *
+	 * The menu-item `menu_order` column orders siblings; it is not the rendered
+	 * flat order when a later row is a child of an earlier root item.
+	 *
+	 * @param array<int,object> $items WordPress navigation menu items.
+	 * @return array<int,object>
+	 */
+	private static function localized_menu_items_in_render_order( array $items ): array {
+		$by_parent = array();
+		$known_ids = array();
+		foreach ( $items as $item ) {
+			if ( ! is_object( $item ) || empty( $item->ID ) ) {
+				continue;
+			}
+			$known_ids[ (int) $item->ID ] = true;
+		}
+		foreach ( $items as $item ) {
+			if ( ! is_object( $item ) || empty( $item->ID ) ) {
+				continue;
+			}
+			$parent_id = absint( $item->menu_item_parent ?? 0 );
+			if ( $parent_id > 0 && ! isset( $known_ids[ $parent_id ] ) ) {
+				$parent_id = 0;
+			}
+			$by_parent[ $parent_id ][] = $item;
+		}
+		foreach ( $by_parent as &$siblings ) {
+			usort(
+				$siblings,
+				static function ( object $left, object $right ): int {
+					$order = absint( $left->menu_order ?? 0 ) <=> absint( $right->menu_order ?? 0 );
+					return 0 !== $order ? $order : (int) $left->ID <=> (int) $right->ID;
+				}
+			);
+		}
+		unset( $siblings );
+
+		$ordered = array();
+		$visited = array();
+		$append = static function ( int $parent_id ) use ( &$append, &$by_parent, &$ordered, &$visited ): void {
+			foreach ( $by_parent[ $parent_id ] ?? array() as $item ) {
+				$item_id = (int) $item->ID;
+				if ( isset( $visited[ $item_id ] ) ) {
+					continue;
+				}
+				$visited[ $item_id ] = true;
+				$ordered[] = $item;
+				$append( $item_id );
+			}
+		};
+		$append( 0 );
+		foreach ( $items as $item ) {
+			if ( is_object( $item ) && ! empty( $item->ID ) && ! isset( $visited[ (int) $item->ID ] ) ) {
+				$ordered[] = $item;
+			}
+		}
+
+		return $ordered;
 	}
 
 	/**

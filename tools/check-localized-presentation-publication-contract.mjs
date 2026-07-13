@@ -35,6 +35,8 @@ assert.match(jobs, /'verify_live'\s*=> true/);
 assert.match(publication, /'cf_cache_status'/);
 assert.match(publication, /'age'/);
 assert.match(publication, /frontend_primary_menu_projection_mismatch/);
+assert.match(publication, /expected_localized_primary_navigation[\s\S]*localized_menu_items_in_render_order/);
+assert.match(publication, /localized_menu_items_in_render_order[\s\S]*\$append\( \$item_id \)/, "nested menus must be compared in WordPress walker depth-first order");
 
 for (const evidence of [
 	"real_sync_menu_publication_exercised",
