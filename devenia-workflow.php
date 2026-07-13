@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.596
+ * Version: 0.1.597
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -55,7 +55,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.596';
+	const VERSION = '0.1.597';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -4828,7 +4828,7 @@ final class Devenia_Workflow {
 	private static function merge_quality_profile_patch( array $current, array $patch ): array {
 		$next = $current;
 		foreach ( $patch as $field => $value ) {
-			if ( in_array( $field, array( 'preserve_terms', 'never_translate_terms', 'language_identity_terms', 'wrong_language_markers', 'review_patterns' ), true ) ) {
+			if ( in_array( $field, array( 'preserve_terms', 'never_translate_terms', 'source_carryover_homographs', 'language_identity_terms', 'wrong_language_markers', 'review_patterns' ), true ) ) {
 				$existing       = isset( $next[ $field ] ) && is_array( $next[ $field ] ) ? $next[ $field ] : array();
 				$next[ $field ] = self::unique_source_qa_terms( array_merge( $existing, is_array( $value ) ? $value : array() ) );
 				continue;
@@ -22480,7 +22480,7 @@ final class Devenia_Workflow {
 		$copy_quality = self::copy_quality_guardrails( $content, $source_content, $language, $profile_patch );
 		$script_signals = self::language_script_signal_guardrails( $content, $language, $profile_patch );
 		$language_integrity = self::language_integrity_guardrails( $content, $language, $profile_patch, $runtime_profile_overrides );
-		$source_carryover = self::source_language_carryover_guardrails( $content, $source_content, $language, $source_id );
+		$source_carryover = self::source_language_carryover_guardrails( $content, $source_content, $language, $source_id, $profile_patch );
 		$source_editorial_design = self::source_editorial_design_guardrails( $source_id, $source_content );
 		$source_design_fragments = self::source_design_fragment_role_guardrails( $content, $source_content, $source_id, $language );
 		$address_form = self::address_form_guardrails( $content, $language, $source_id, $title, $excerpt );
@@ -24549,7 +24549,7 @@ final class Devenia_Workflow {
 	/**
 	 * Detect untranslated English source labels carried into target-language visible copy.
 	 */
-	private static function source_language_carryover_guardrails( string $content, string $source_content = '', string $language = '', int $source_id = 0 ): array {
+	private static function source_language_carryover_guardrails( string $content, string $source_content = '', string $language = '', int $source_id = 0, array $profile_patch = array() ): array {
 		$issues   = array();
 		$warnings = array();
 
@@ -24567,7 +24567,7 @@ final class Devenia_Workflow {
 			);
 		}
 
-		$candidates = self::source_language_carryover_candidates( $source_content, $language, $source_id );
+		$candidates = self::source_language_carryover_candidates( $source_content, $language, $source_id, $profile_patch );
 		$fragments  = self::text_fragments_for_copy_quality( $content );
 		$fragment_issues = array_merge(
 			self::source_language_carryover_fragment_issues( $content, $source_content, $language ),
@@ -25288,8 +25288,11 @@ final class Devenia_Workflow {
 	 *
 	 * @return array<int,string>
 	 */
-	private static function source_language_carryover_candidates( string $source_content, string $language, int $source_id = 0 ): array {
+	private static function source_language_carryover_candidates( string $source_content, string $language, int $source_id = 0, array $profile_patch = array() ): array {
 		$profile = self::language_review_profile( $language );
+		if ( ! empty( $profile_patch ) ) {
+			$profile = self::merge_quality_profile_patch( $profile, self::sanitize_quality_profile_patch( $profile_patch ) );
+		}
 		$allowed = array();
 		foreach ( array( 'preserve_terms', 'never_translate_terms', 'source_carryover_homographs' ) as $key ) {
 			if ( empty( $profile[ $key ] ) || ! is_array( $profile[ $key ] ) ) {

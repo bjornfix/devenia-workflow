@@ -122,6 +122,38 @@
       "minimum_issue_count": 1
     },
     {
+      "id": "nl-source-carryover-video-homograph-should-pass",
+      "language": "nl",
+      "description": "A locale-aware source-carryover homograph rule should allow ordinary Dutch video terminology without weakening untranslated-prose checks.",
+      "source_content": "<!-- wp:heading {\"level\":3} --><h3 class=\"wp-block-heading\">Video optimization</h3><!-- /wp:heading --><!-- wp:paragraph --><p>Make video start faster across devices and connections.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:heading {\"level\":3} --><h3 class=\"wp-block-heading\">Video-optimalisatie</h3><!-- /wp:heading --><!-- wp:paragraph --><p>Laat video sneller starten op verschillende apparaten en internetverbindingen.</p><!-- /wp:paragraph -->",
+      "profile_patch": {
+        "source_carryover_homographs": [
+          "Video"
+        ]
+      },
+      "expected_passed": true,
+      "expected_issue_codes": [],
+      "minimum_issue_count": 0
+    },
+    {
+      "id": "nl-video-homograph-must-not-hide-english-prose",
+      "language": "nl",
+      "description": "Allowing the shared Dutch word video must not allow a copied English source paragraph to pass.",
+      "source_content": "<!-- wp:heading {\"level\":3} --><h3 class=\"wp-block-heading\">Video optimization</h3><!-- /wp:heading --><!-- wp:paragraph --><p>Video optimization makes playback start faster and behave better across devices, internet connections, and page layouts without sacrificing the visual quality viewers expect.</p><!-- /wp:paragraph -->",
+      "content": "<!-- wp:heading {\"level\":3} --><h3 class=\"wp-block-heading\">Video-optimalisatie</h3><!-- /wp:heading --><!-- wp:paragraph --><p>Video optimization makes playback start faster and behave better across devices, internet connections, and page layouts without sacrificing the visual quality viewers expect.</p><!-- /wp:paragraph -->",
+      "profile_patch": {
+        "source_carryover_homographs": [
+          "Video"
+        ]
+      },
+      "expected_passed": false,
+      "expected_issue_codes": [
+        "source_language_fragment_carryover"
+      ],
+      "minimum_issue_count": 1
+    },
+    {
       "id": "vi-partial-source-sentence-carryover-should-fail",
       "language": "vi",
       "description": "Vietnamese QA must fail when an English source sentence middle is left inside otherwise Vietnamese body copy.",
