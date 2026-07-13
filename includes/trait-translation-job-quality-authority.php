@@ -140,7 +140,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'featured_image_alt'=> sanitize_text_field( (string) ( $artifact['featured_image_alt'] ?? '' ) ),
 			),
 			'presentation'    => array(
-				'source_design_hash' => self::source_design_hash( $source ),
+				'source_design_hash' => (string) ( self::source_design_contract( $source )['design_hash'] ?? '' ),
 				'localized_fragments' => self::translation_job_canonicalize( (array) ( $artifact['localized_fragments'] ?? array() ) ),
 			),
 		);
