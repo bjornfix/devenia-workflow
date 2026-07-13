@@ -124,6 +124,11 @@ HTML;
 	if ( $url_match_method->invoke( null, 'https://example.com/fr/other/', $canonical_url ) ) {
 		$failures[] = 'canonical_url_distinct_path_match_failed';
 	}
+	$canonical_post_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_url_for_post_id' );
+	$canonical_post_method->setAccessible( true );
+	if ( get_permalink( $post_id ) !== $canonical_post_method->invoke( null, $post_id ) ) {
+		$failures[] = 'canonical_post_url_resolution_failed';
+	}
 
 	if ( $failures ) {
 		throw new RuntimeException( wp_json_encode( $failures ) );

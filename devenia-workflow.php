@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.581
+ * Version: 0.1.582
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -19034,7 +19034,7 @@ final class Devenia_Workflow {
 
 		$subject_prefix = trim( self::runtime_text_value( $language, 'share_text', 'scriptless_email_subject_prefix', '' ) );
 		$body_template  = trim( self::runtime_text_value( $language, 'share_text', 'scriptless_email_body', '' ) );
-		$canonical_url  = self::extract_canonical_url_from_html( $html );
+		$canonical_url  = self::canonical_url_for_current_request( $html );
 		if ( '' === $subject_prefix && '' === $body_template ) {
 			return $html;
 		}
@@ -19089,6 +19089,34 @@ final class Devenia_Workflow {
 		}
 
 		return esc_url_raw( html_entity_decode( (string) $match[3], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+	}
+
+	/**
+	 * Resolve the current canonical URL even when the filter receives only post content.
+	 */
+	private static function canonical_url_for_current_request( string $html ): string {
+		$canonical_url = self::extract_canonical_url_from_html( $html );
+		if ( '' !== $canonical_url ) {
+			return $canonical_url;
+		}
+
+		return self::canonical_url_for_post_id( get_queried_object_id() );
+	}
+
+	/**
+	 * Resolve the canonical permalink for one WordPress object.
+	 */
+	private static function canonical_url_for_post_id( int $post_id ): string {
+		if ( $post_id <= 0 ) {
+			return '';
+		}
+
+		$canonical_url = wp_get_canonical_url( $post_id );
+		if ( ! is_string( $canonical_url ) || '' === trim( $canonical_url ) ) {
+			$canonical_url = get_permalink( $post_id );
+		}
+
+		return is_string( $canonical_url ) ? esc_url_raw( $canonical_url ) : '';
 	}
 
 	/**
