@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.590
+ * Version: 0.1.591
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -204,6 +204,7 @@ final class Devenia_Workflow {
 		add_filter( 'document_title_parts', array( __CLASS__, 'filter_author_archive_document_title_parts' ), 20 );
 		add_filter( 'pre_get_document_title', array( __CLASS__, 'filter_author_archive_document_title' ), 20 );
 		add_filter( 'the_content_more_link', array( __CLASS__, 'localize_read_more_output' ), 20 );
+		add_filter( 'scriptlesssocialsharing_get_permalink', array( __CLASS__, 'canonicalize_scriptless_sharing_permalink' ), 20, 3 );
 		add_filter( 'widget_title', array( __CLASS__, 'localize_widget_title' ), 20, 3 );
 		add_filter( 'wp_get_attachment_image_attributes', array( __CLASS__, 'filter_featured_image_alt_attributes' ), 20, 3 );
 		add_filter( 'post_link', array( __CLASS__, 'filter_translated_post_link' ), 20, 2 );
@@ -19159,6 +19160,35 @@ final class Devenia_Workflow {
 			: self::find_translation_id( $queried_post_id, $language, array( 'publish' ) );
 
 		return $translation_id > 0 ? self::canonical_url_for_post_id( $translation_id ) : '';
+	}
+
+	/**
+	 * Give Scriptless Social Sharing the authoritative localized permalink before it builds links.
+	 *
+	 * @param mixed $permalink Existing permalink.
+	 * @param mixed $button_name Sharing network name.
+	 * @param mixed $attributes Scriptless button attributes.
+	 */
+	public static function canonicalize_scriptless_sharing_permalink( $permalink, $button_name = '', $attributes = array() ): string {
+		$post_id  = is_array( $attributes ) ? absint( $attributes['post_id'] ?? 0 ) : 0;
+		$language = self::frontend_language();
+
+		return self::canonical_scriptless_permalink_for_context( (string) $permalink, $post_id, $language );
+	}
+
+	/**
+	 * Resolve one Scriptless permalink from stable translation context.
+	 */
+	private static function canonical_scriptless_permalink_for_context( string $permalink, int $post_id, string $language ): string {
+		$canonical_url = self::canonical_translation_url_for_post_id( $post_id, $language );
+		if ( '' === $canonical_url ) {
+			$canonical_url = self::canonical_url_for_post_id( $post_id );
+		}
+		if ( '' === $canonical_url ) {
+			$canonical_url = $permalink;
+		}
+
+		return self::canonicalize_internal_wordpress_url_path_case( $canonical_url );
 	}
 
 	/**

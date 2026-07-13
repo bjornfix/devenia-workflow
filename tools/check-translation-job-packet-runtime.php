@@ -144,6 +144,11 @@ HTML;
 	if ( home_url( '/fr/plugins/' ) !== $canonical_translation_method->invoke( null, $post_id, 'fr' ) ) {
 		$failures[] = 'canonical_translation_route_url_resolution_failed';
 	}
+	$scriptless_permalink_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_scriptless_permalink_for_context' );
+	$scriptless_permalink_method->setAccessible( true );
+	if ( home_url( '/fr/plugins/' ) !== $scriptless_permalink_method->invoke( null, home_url( '/fr/Plugins/' ), $post_id, 'fr' ) ) {
+		$failures[] = 'canonical_scriptless_permalink_filter_failed';
+	}
 	$canonical_request_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_url_for_current_request' );
 	$canonical_request_method->setAccessible( true );
 	global $wp;
