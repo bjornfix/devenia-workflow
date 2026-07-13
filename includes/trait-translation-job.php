@@ -26,6 +26,7 @@ trait Devenia_Workflow_Translation_Job {
 		$definitions = array(
 			'translation-job-discover' => array( 'Discover Translation Job', 'Creates or returns the current finite Translation Job for one source revision and target language.', 'translation_job_discover_schema', 'translation_job_discover', true, true ),
 			'translation-job-claim' => array( 'Claim Translation Job', 'Atomically claims one Translation Job for a bounded translator or quality Run.', 'translation_job_claim_schema', 'translation_job_claim', false, false ),
+			'translation-job-abandon' => array( 'Abandon Translation Job Run', 'Releases the caller-owned bounded claim without submitting a fabricated artifact or Quality Decision.', 'translation_job_abandon_schema', 'translation_job_abandon', false, false ),
 			'translation-job-fetch-packet' => array( 'Fetch Translation Job Packet', 'Returns the bounded source or quality packet for the current Run.', 'translation_job_claim_access_schema', 'translation_job_fetch_packet', true, true ),
 			'translation-job-submit-artifact' => array( 'Submit Translation Artifact', 'Validates and atomically stores one complete localized artifact within the translator Token Budget.', 'translation_job_artifact_schema', 'translation_job_submit_artifact', false, false ),
 			'translation-job-submit-quality-decision' => array( 'Submit Translation Quality Decision', 'Stores a bounded Quality Decision against the exact submitted artifact revision.', 'translation_job_quality_schema', 'translation_job_submit_quality_decision', false, false ),
@@ -52,6 +53,7 @@ trait Devenia_Workflow_Translation_Job {
 		return array(
 			'translation_job_discover'                => 'translation_job_discover',
 			'translation_job_claim'                   => 'translation_job_claim',
+			'translation_job_abandon'                 => 'translation_job_abandon',
 			'translation_job_fetch_packet'            => 'translation_job_fetch_packet',
 			'translation_job_submit_artifact'         => 'translation_job_submit_artifact',
 			'translation_job_submit_quality_decision' => 'translation_job_submit_quality_decision',
@@ -97,6 +99,20 @@ trait Devenia_Workflow_Translation_Job {
 				'job_id' => array( 'type' => 'string' ),
 				'run_id' => array( 'type' => 'string' ),
 				'claim_token' => array( 'type' => 'string' ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function translation_job_abandon_schema(): array {
+		return array(
+			'type' => 'object',
+			'required' => array( 'job_id', 'run_id', 'claim_token', 'reason' ),
+			'properties' => array(
+				'job_id' => array( 'type' => 'string' ),
+				'run_id' => array( 'type' => 'string' ),
+				'claim_token' => array( 'type' => 'string' ),
+				'reason' => array( 'type' => 'string', 'minLength' => 12, 'maxLength' => 500 ),
 			),
 			'additionalProperties' => false,
 		);
@@ -374,6 +390,57 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$packet['estimated_input_tokens'] = $estimated_tokens;
 		return array( 'success' => true, 'packet' => $packet );
+	}
+
+	private static function translation_job_abandon( array $input ): array {
+		$access = self::translation_job_claim_access( $input );
+		if ( empty( $access['success'] ) ) {
+			return $access;
+		}
+
+		$job = $access['job'];
+		$run = $access['run'];
+		$claim = $access['claim'];
+		$reason = sanitize_textarea_field( (string) ( $input['reason'] ?? '' ) );
+		if ( strlen( trim( $reason ) ) < 12 ) {
+			return array( 'success' => false, 'code' => 'job_abandon_reason_required', 'message' => 'A concrete reason is required to abandon a Translation Job Run.' );
+		}
+
+		$role = sanitize_key( (string) ( $run['role'] ?? '' ) );
+		$resume_status = sanitize_key( (string) ( $claim['previous_status'] ?? '' ) );
+		$allowed_statuses = 'quality' === $role
+			? array( 'quality_pending' )
+			: array( 'queued', 'changes_requested', 'published' );
+		if ( ! in_array( $resume_status, $allowed_statuses, true ) ) {
+			$resume_status = 'quality' === $role
+				? 'quality_pending'
+				: ( empty( $job['artifact_revision'] ) ? 'queued' : 'changes_requested' );
+		}
+
+		$transition = self::translation_job_transition(
+			$job,
+			array(
+				'status' => $resume_status,
+				'active_run_id' => '',
+			)
+		);
+		if ( empty( $transition['success'] ) ) {
+			return $transition;
+		}
+
+		$run['status'] = 'completed';
+		$run['outcome'] = 'abandoned';
+		$run['abandon_reason'] = $reason;
+		$run['finished_at'] = gmdate( 'c' );
+		update_option( self::translation_job_run_key( (string) $run['run_id'] ), $run, false );
+		self::translation_job_release_claim( (string) $job['job_id'] );
+
+		return array(
+			'success' => true,
+			'message' => 'Translation Job Run abandoned and claim released.',
+			'run' => $run,
+			'job' => self::translation_job_public_job( $transition['job'] ),
+		);
 	}
 
 	private static function translation_job_submit_artifact( array $input ): array {

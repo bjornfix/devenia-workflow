@@ -363,6 +363,21 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				}
 			}
 
+			if ( 'core/details' === $name ) {
+				$summary_html = self::core_details_summary_html( $html );
+				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $summary_html ) ) );
+				if ( '' !== $text ) {
+					$records[] = array(
+						'key'     => self::source_design_fragment_key( $name, $attrs, $current_path, 'summary' ),
+						'html'    => wp_kses_post( $summary_html ),
+						'path'    => $current_path,
+						'block'   => 'core/details:summary',
+						'heading' => false,
+						'text'    => $text,
+					);
+				}
+			}
+
 			foreach ( self::structured_text_attr_fragments( $name, $attrs ) as $attr_fragment ) {
 				$key = self::structured_text_attr_fragment_key( $current_path, $name, $attr_fragment );
 				$value = (string) ( $attr_fragment['text'] ?? '' );
@@ -1460,6 +1475,24 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				}
 			}
 
+			if ( 'core/details' === $name ) {
+				$summary_html = self::core_details_summary_html( $html );
+				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $summary_html ) ) );
+				if ( '' !== $text ) {
+					$fragments[] = array(
+						'key'         => self::source_design_fragment_key( $name, $attrs, $current_path, 'summary' ),
+						'path'        => $current_path,
+						'block'       => 'core/details:summary',
+						'unique_id'   => '',
+						'role'        => 'summary',
+						'format'      => 'inline_html',
+						'heading'     => false,
+						'text'        => $text,
+						'source_html' => $summary_html,
+					);
+				}
+			}
+
 			foreach ( self::structured_text_attr_fragments( $name, $attrs ) as $attr_fragment ) {
 				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( (string) ( $attr_fragment['text'] ?? '' ) ) ) );
 				if ( '' === $text ) {
@@ -1541,6 +1574,27 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 					if ( array_key_exists( $key, $fragments ) ) {
 						$block['innerHTML']   = self::replace_source_design_text_html( (string) $block['innerHTML'], $fragments[ $key ] );
 						$block['innerContent'] = array( $block['innerHTML'] );
+						$stats['projected_count']++;
+					}
+				}
+			}
+
+			if ( 'core/details' === $name && isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
+				$key = self::source_design_fragment_key( $name, $attrs, $current_path, 'summary' );
+				if ( array_key_exists( $key, $fragments ) ) {
+					$updated = self::replace_core_details_summary_html( (string) $block['innerHTML'], $fragments[ $key ] );
+					if ( $updated !== $block['innerHTML'] ) {
+						$block['innerHTML'] = $updated;
+						if ( isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
+							foreach ( $block['innerContent'] as &$part ) {
+								if ( is_string( $part ) && false !== stripos( $part, '<summary' ) ) {
+									$part = self::replace_core_details_summary_html( $part, $fragments[ $key ] );
+								}
+							}
+							unset( $part );
+						} elseif ( empty( $block['innerBlocks'] ) ) {
+							$block['innerContent'] = array( $updated );
+						}
 						$stats['projected_count']++;
 					}
 				}
@@ -1692,6 +1746,42 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 		}
 
 		return 'path:' . preg_replace( '/[^0-9.]/', '', $path ) . ':' . sanitize_key( str_replace( '/', '_', $block_name ) ) . ':' . sanitize_key( $part );
+	}
+
+	/**
+	 * Return the visible summary markup from a core/details block.
+	 */
+	private static function core_details_summary_html( string $html ): string {
+		if ( preg_match( '/<summary\\b[^>]*>.*?<\\/summary>/isu', $html, $match ) ) {
+			return trim( (string) $match[0] );
+		}
+
+		return '';
+	}
+
+	/**
+	 * Replace only the visible summary text while preserving core/details markup.
+	 */
+	private static function replace_core_details_summary_html( string $html, string $localized_html ): string {
+		$localized_html = trim( $localized_html );
+		if ( '' === $localized_html ) {
+			return $html;
+		}
+
+		if ( preg_match( '/^\\s*<summary\\b[^>]*>(.*)<\\/summary>\\s*$/isu', $localized_html, $localized_match ) ) {
+			$localized_html = (string) $localized_match[1];
+		}
+
+		return (string) preg_replace_callback(
+			'/(<summary\\b[^>]*>)(.*?)(<\\/summary>)/isu',
+			static function ( array $match ) use ( $localized_html ): string {
+				return (string) $match[1]
+					. self::preserve_source_design_fragment_links( (string) $match[2], $localized_html )
+					. (string) $match[3];
+			},
+			$html,
+			1
+		);
 	}
 
 	/**

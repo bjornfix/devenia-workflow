@@ -20,6 +20,12 @@ try {
 <li><strong>Evidence</strong> should remain visible.</li>
 <!-- /wp:list-item --></ul>
 <!-- /wp:list -->
+
+<!-- wp:details -->
+<details class="wp-block-details"><summary>Open technical specifications</summary><!-- wp:paragraph -->
+<p>Technical details remain inside the disclosure.</p>
+<!-- /wp:paragraph --></details>
+<!-- /wp:details -->
 HTML;
 
 	$post_id = wp_insert_post(
@@ -42,14 +48,18 @@ HTML;
 	$fragments = isset( $contract['fragments'] ) && is_array( $contract['fragments'] ) ? $contract['fragments'] : array();
 	$paragraph = null;
 	$list_item = null;
+	$details_summary = null;
 
 	foreach ( $fragments as $fragment ) {
 		$block = (string) ( $fragment['block'] ?? '' );
-		if ( 'core/paragraph' === $block ) {
+		if ( 'core/paragraph' === $block && null === $paragraph ) {
 			$paragraph = $fragment;
 		}
 		if ( 'core/list-item' === $block || 'core/list:item' === $block ) {
 			$list_item = $fragment;
+		}
+		if ( 'core/details:summary' === $block ) {
+			$details_summary = $fragment;
 		}
 	}
 
@@ -57,7 +67,7 @@ HTML;
 	$list_html      = (string) ( $list_item['source_html'] ?? '' );
 	$failures       = array();
 
-	if ( 2 !== count( $fragments ) ) {
+	if ( 4 !== count( $fragments ) ) {
 		$failures[] = 'unexpected_fragment_count';
 	}
 	foreach ( array( '<strong>', '<br>', '<a ' ) as $needle ) {
@@ -67,6 +77,34 @@ HTML;
 	}
 	if ( false === stripos( $list_html, '<strong>' ) ) {
 		$failures[] = 'list_item_missing_strong';
+	}
+	if ( 'Open technical specifications' !== (string) ( $details_summary['text'] ?? '' ) ) {
+		$failures[] = 'details_summary_missing';
+	}
+
+	$localized_fragments = array();
+	foreach ( $fragments as $fragment ) {
+		$localized_fragments[] = array(
+			'key'  => (string) ( $fragment['key'] ?? '' ),
+			'html' => 'core/details:summary' === (string) ( $fragment['block'] ?? '' )
+				? '<summary>Åpne tekniske spesifikasjoner</summary>'
+				: (string) ( $fragment['source_html'] ?? '' ),
+		);
+	}
+	$projection_method = new ReflectionMethod( Devenia_Workflow::class, 'inherited_source_design_content' );
+	$projection_method->setAccessible( true );
+	$projection = $projection_method->invoke(
+		null,
+		get_post( $post_id ),
+		array(
+			'localized_fragments' => $localized_fragments,
+			'strict_source_design_fragments' => true,
+		),
+		'nb'
+	);
+	$projected_content = (string) ( $projection['content'] ?? '' );
+	if ( empty( $projection['success'] ) || false === strpos( $projected_content, '<summary>Åpne tekniske spesifikasjoner</summary>' ) ) {
+		$failures[] = 'details_summary_projection_failed';
 	}
 
 	if ( $failures ) {
@@ -79,6 +117,7 @@ HTML;
 			'fragment_count'        => count( $fragments ),
 			'paragraph_markup_kept' => true,
 			'list_markup_kept'      => true,
+			'details_summary_kept'  => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {

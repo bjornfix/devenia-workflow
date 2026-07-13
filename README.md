@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.577
+**Stable tag:** 0.1.579
 
 **License:** GPLv2 or later
 
@@ -123,6 +123,7 @@ The plugin remains active if the Abilities API is unavailable, but workflow abil
 - `devenia-workflow/translation-job-next`
 - `devenia-workflow/translation-job-discover`
 - `devenia-workflow/translation-job-claim`
+- `devenia-workflow/translation-job-abandon`
 - `devenia-workflow/translation-job-fetch-packet`
 - `devenia-workflow/translation-job-submit-artifact`
 - `devenia-workflow/translation-job-submit-quality-decision`
@@ -142,6 +143,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.579
+
+- Includes visible core/details summary text in every source-design translation contract and projects its localized fragment without changing the block shell.
+- Adds a bounded Translation Job abandon operation so a worker can release its own claim without fabricating an artifact or Quality Decision.
 
 ### 0.1.578
 

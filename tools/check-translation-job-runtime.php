@@ -200,6 +200,26 @@ try {
 		throw new RuntimeException( 'Expired Run was not finalized before replacement claim: ' . wp_json_encode( array( 'replacement' => $replacement_claim, 'expired_run' => $expired_run ) ) );
 	}
 	$option_keys[] = 'devenia_workflow_translation_run_' . $replacement_run_id;
+	$abandoned = $call(
+		'translation_job_abandon',
+		array(
+			'job_id' => $expiry_job_id,
+			'run_id' => $replacement_run_id,
+			'claim_token' => (string) ( $replacement_claim['claim_token'] ?? '' ),
+			'reason' => 'Runtime contract intentionally abandons the replacement fixture Run.',
+		)
+	);
+	$abandoned_run = get_option( 'devenia_workflow_translation_run_' . $replacement_run_id );
+	$abandoned_claim = get_option( 'devenia_workflow_translation_job_claim_' . $expiry_job_id );
+	if (
+		empty( $abandoned['success'] )
+		|| 'completed' !== (string) ( $abandoned_run['status'] ?? '' )
+		|| 'abandoned' !== (string) ( $abandoned_run['outcome'] ?? '' )
+		|| false !== $abandoned_claim
+		|| 'queued' !== (string) ( $abandoned['job']['status'] ?? '' )
+	) {
+		throw new RuntimeException( 'Run abandon did not restore the previous Job state: ' . wp_json_encode( array( 'abandoned' => $abandoned, 'run' => $abandoned_run, 'claim' => $abandoned_claim ) ) );
+	}
 
 	$discover = $call( 'translation_job_discover', array( 'source_id' => $source_id, 'language' => $language, 'observability_label' => 'runtime-contract' ) );
 	if ( empty( $discover['success'] ) || empty( $discover['job']['job_id'] ) ) {
