@@ -17,6 +17,9 @@ $languages_option_before = get_option( 'devenia_workflow_language_registry' );
 $runtime_provenance_before = get_option( 'devenia_workflow_runtime_mutation_provenance' );
 $menu_identities_before = get_option( 'devenia_workflow_localized_menu_identities' );
 $runtime_menu_ids = array();
+$runtime_source_menu_id = 0;
+$runtime_page_link = null;
+$runtime_http_surface = null;
 $cache_invalidation_calls = array();
 $cache_adapter = static function ( $default_result, array $urls, array $context ) use ( &$cache_invalidation_calls ): array {
 	$cache_invalidation_calls[] = array( 'default' => $default_result, 'urls' => $urls, 'context' => $context );
@@ -407,6 +410,84 @@ try {
 	}
 	$artifact_revision = (string) $submit['artifact_revision'];
 	$option_keys[] = 'devenia_workflow_translation_artifact_' . $artifact_revision;
+
+	// Dev does not have production language routing or localized menus. Build a
+	// bounded presentation fixture so fail-closed publication exercises the real
+	// stable-menu identity plus origin/canonical verification paths.
+	$runtime_source_menu_id = wp_create_nav_menu( 'Workflow runtime source ' . wp_generate_password( 8, false, false ) );
+	if ( is_wp_error( $runtime_source_menu_id ) ) {
+		throw new RuntimeException( 'Could not create the runtime source menu: ' . $runtime_source_menu_id->get_error_message() );
+	}
+	$runtime_source_menu_item_id = wp_update_nav_menu_item(
+		(int) $runtime_source_menu_id,
+		0,
+		array(
+			'menu-item-title'     => 'Runtime source',
+			'menu-item-object'    => 'page',
+			'menu-item-object-id' => $source_id,
+			'menu-item-type'      => 'post_type',
+			'menu-item-status'    => 'publish',
+		)
+	);
+	if ( is_wp_error( $runtime_source_menu_item_id ) ) {
+		throw new RuntimeException( 'Could not populate the runtime source menu: ' . $runtime_source_menu_item_id->get_error_message() );
+	}
+	$runtime_languages = get_option( 'devenia_workflow_language_registry', array() );
+	$runtime_languages = is_array( $runtime_languages ) ? $runtime_languages : array();
+	$runtime_languages['en']['menu_name'] = (string) wp_get_nav_menu_object( $runtime_source_menu_id )->name;
+	$runtime_languages[ $language ]['menu_name'] = 'Workflow runtime target ' . wp_generate_password( 8, false, false );
+	update_option( 'devenia_workflow_language_registry', $runtime_languages, false );
+	Devenia_Workflow::languages( true );
+
+	$runtime_page_link = static function ( string $url, int $post_id ) use ( &$translation_id, $language ): string {
+		if ( $post_id !== $translation_id ) {
+			return $url;
+		}
+		$post = get_post( $post_id );
+		return home_url( '/' . trim( $language . '/' . ( $post instanceof WP_Post ? $post->post_name : '' ), '/' ) . '/' );
+	};
+	add_filter( 'page_link', $runtime_page_link, 10, 2 );
+	$runtime_translation_url = (string) get_permalink( $translation_id );
+	update_post_meta(
+		$translation_id,
+		'_devenia_translation_canonical_route_v1',
+		array(
+			'translation_id' => $translation_id,
+			'language'       => $language,
+			'post_name'      => (string) get_post_field( 'post_name', $translation_id ),
+			'post_parent'    => 0,
+			'localized_path' => trim( $language . '/' . (string) get_post_field( 'post_name', $translation_id ), '/' ),
+			'url'            => $runtime_translation_url,
+			'path'           => trim( (string) wp_parse_url( $runtime_translation_url, PHP_URL_PATH ), '/' ),
+			'established_at' => gmdate( 'c' ),
+		)
+	);
+	$html_lang_method = new ReflectionMethod( Devenia_Workflow::class, 'html_lang_for_language' );
+	$html_lang_method->setAccessible( true );
+	$runtime_html_lang = (string) $html_lang_method->invoke( null, $language );
+	$hreflang_method = new ReflectionMethod( Devenia_Workflow::class, 'hreflang_for_language' );
+	$hreflang_method->setAccessible( true );
+	$runtime_hreflang = (string) $hreflang_method->invoke( null, $language );
+	$runtime_http_surface = static function ( $preempt, array $args, string $url ) use ( &$translation_id, $language, $runtime_translation_url, $runtime_html_lang, $runtime_hreflang ) {
+		if ( untrailingslashit( strtok( $url, '?' ) ?: '' ) !== untrailingslashit( $runtime_translation_url ) ) {
+			return $preempt;
+		}
+		$identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
+		$menu_id = absint( $identities[ $language ]['menu_id'] ?? 0 );
+		$navigation = '';
+		foreach ( wp_get_nav_menu_items( $menu_id, array( 'orderby' => 'menu_order' ) ) ?: array() as $item ) {
+			$navigation .= '<a href="' . esc_url( (string) $item->url ) . '">' . esc_html( (string) $item->title ) . '</a>';
+		}
+		$body = '<!doctype html><html lang="' . esc_attr( $runtime_html_lang ) . '"><head><link rel="alternate" hreflang="' . esc_attr( $runtime_hreflang ) . '" href="' . esc_url( $runtime_translation_url ) . '"></head><body><nav id="site-navigation">' . $navigation . '</nav><main><h1>' . esc_html( (string) get_the_title( $translation_id ) ) . '</h1></main></body></html>';
+		return array(
+			'headers'  => array( 'cf-cache-status' => false === strpos( $url, 'devenia_frontend_integrity=' ) ? 'HIT' : 'DYNAMIC', 'age' => '0' ),
+			'body'     => $body,
+			'response' => array( 'code' => 200, 'message' => 'OK' ),
+			'cookies'  => array(),
+			'filename' => null,
+		);
+	};
+	add_filter( 'pre_http_request', $runtime_http_surface, 10, 3 );
 
 	$expired_quality_claim = $call(
 		'translation_job_claim',
@@ -918,6 +999,12 @@ try {
 	fwrite( STDERR, wp_json_encode( array( 'success' => false, 'error' => $error->getMessage() ) ) . PHP_EOL );
 	exit( 1 );
 } finally {
+	if ( $runtime_http_surface ) {
+		remove_filter( 'pre_http_request', $runtime_http_surface, 10 );
+	}
+	if ( $runtime_page_link ) {
+		remove_filter( 'page_link', $runtime_page_link, 10 );
+	}
 	remove_filter( 'devenia_workflow_frontend_cache_invalidation_result', $cache_adapter, 10 );
 	remove_filter( 'devenia_workflow_retire_previous_localized_menu_projection', $keep_previous_menu, 10 );
 	wp_set_current_user( $original_user_id );
@@ -932,6 +1019,9 @@ try {
 		if ( $runtime_menu_id > 0 && '1' === (string) get_term_meta( $runtime_menu_id, '_devenia_workflow_localized_menu_managed', true ) ) {
 			wp_delete_nav_menu( $runtime_menu_id );
 		}
+	}
+	if ( $runtime_source_menu_id > 0 ) {
+		wp_delete_nav_menu( $runtime_source_menu_id );
 	}
 	if ( $translation_id > 0 ) {
 		wp_delete_post( $translation_id, true );
