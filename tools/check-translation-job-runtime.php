@@ -823,6 +823,13 @@ try {
 	}
 
 	$migration_identities = $runtime_identities;
+	$migration_languages = Devenia_Workflow::languages( true );
+	$migration_menu_id = wp_create_nav_menu( (string) ( $migration_languages[ $language ]['menu_name'] ?? '' ) );
+	if ( is_wp_error( $migration_menu_id ) ) {
+		throw new RuntimeException( 'Could not create the configured-name migration fixture: ' . $migration_menu_id->get_error_message() );
+	}
+	add_term_meta( (int) $migration_menu_id, '_devenia_workflow_localized_menu_managed', '1', true );
+	$runtime_menu_ids[] = (int) $migration_menu_id;
 	unset( $migration_identities[ $language ] );
 	update_option( 'devenia_workflow_localized_menu_identities', $migration_identities, false );
 	$localized_menu_id = new ReflectionMethod( Devenia_Workflow::class, 'localized_menu_id' );
