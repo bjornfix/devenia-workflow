@@ -140,11 +140,14 @@ HTML;
 		$wp = new stdClass();
 	}
 	$before_request_path = is_object( $wp ) && isset( $wp->request ) ? (string) $wp->request : '';
-	$wp->request = 'fr/plugins';
+	$before_request_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+	$_SERVER['REQUEST_URI'] = '/fr/plugins/?runtime-test=1';
+	$wp->request = 'fr/Plugins';
 	if ( home_url( '/fr/plugins/' ) !== $canonical_request_method->invoke( null, '<article>Translated content only</article>' ) ) {
 		$failures[] = 'canonical_current_request_url_resolution_failed';
 	}
 	$wp->request = $before_request_path;
+	$_SERVER['REQUEST_URI'] = $before_request_uri;
 
 	if ( $failures ) {
 		throw new RuntimeException( wp_json_encode( $failures ) );
