@@ -12,7 +12,7 @@ const registeredTranslationJob = [...translationJobModule.matchAll(/^\s*'(transl
 const registered = [...registeredWorkflow, ...registeredTranslationJob];
 const expectedTranslationJob = [
 	"translation-job-discover", "translation-job-claim", "translation-job-fetch-packet", "translation-job-submit-artifact",
-	"translation-job-submit-quality-decision", "translation-job-publish", "translation-job-status",
+	"translation-job-submit-quality-decision", "translation-job-publish", "translation-job-status", "translation-job-abandon",
 ];
 
 const removedSystemAbilities = [
@@ -29,7 +29,7 @@ for (const removed of removedSystemAbilities) {
 	assert.ok(!registeredWorkflow.includes(removed), `Removed workflow system ability is still registered: ${removed}`);
 }
 assert.ok(registeredWorkflow.includes("mark-quality-reviewed"), "Whole-page source quality evidence must have a canonical write ability.");
-assert.deepEqual([...registeredTranslationJob].sort(), [...expectedTranslationJob].sort(), "The Translation Job Interface must expose exactly seven operations.");
+assert.deepEqual([...registeredTranslationJob].sort(), [...expectedTranslationJob].sort(), "The Translation Job Interface must expose exactly eight operations.");
 assert.match(translationJobModule, /const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 3;/, "A Job must allow one final bounded correction after a valid second Quality Decision.");
 assert.match(translationJobModule, />= self::TRANSLATION_JOB_MAX_RUNS_PER_ROLE/, "Run claims must enforce the finite per-role ceiling.");
 console.log(JSON.stringify({

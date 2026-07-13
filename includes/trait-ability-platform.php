@@ -65,6 +65,7 @@ trait Devenia_Workflow_Ability_Platform {
 			'update_authored_original_intake' => 'update_authored_original_intake',
 			'create_source_from_authored_original' => 'create_source_from_authored_original',
 			'mark_source_generation_reviewed' => 'mark_source_generation_reviewed',
+			'source_editor_status'            => 'source_editor_status',
 			'get_source'                      => 'run_get_source_operation',
 			'repair_translation_author'       => 'repair_translation_author',
 			'reproject_source_design'         => 'reproject_source_design',
