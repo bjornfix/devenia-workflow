@@ -11,10 +11,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class Devenia_Workflow_GenerateBlocks_Adapter {
 	/**
-	 * Register optional GenerateBlocks assets.
+	 * Register optional GenerateBlocks content and QA adapters.
 	 */
 	public static function register(): void {
-		add_action( 'wp', array( __CLASS__, 'maybe_register_hooks' ), 20 );
 		add_filter( 'devenia_workflow_copy_quality_text_block_names', array( __CLASS__, 'add_copy_quality_text_blocks' ) );
 		add_filter( 'devenia_workflow_semantic_text_unit_block_names', array( __CLASS__, 'add_semantic_text_unit_blocks' ) );
 		add_filter( 'devenia_workflow_semantic_button_block_names', array( __CLASS__, 'add_button_blocks' ) );
@@ -23,35 +22,6 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 		add_filter( 'devenia_workflow_normalize_gutenberg_content_for_storage', array( __CLASS__, 'normalize_gutenberg_content_for_storage' ) );
 		add_filter( 'devenia_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 		add_filter( 'devenia_workflow_gutenberg_guardrails', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
-	}
-
-	/**
-	 * Register only when a source GenerateBlocks stylesheet exists.
-	 */
-	public static function maybe_register_hooks(): void {
-		if ( ! self::has_source_stylesheet() ) {
-			return;
-		}
-
-		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_source_styles' ), 20 );
-	}
-
-	public static function enqueue_source_styles(): void {
-		if ( ! Devenia_Workflow::is_translated_posts_page_request() ) {
-			return;
-		}
-
-		$asset = self::source_stylesheet_asset();
-		if ( empty( $asset['path'] ) || empty( $asset['url'] ) || ! is_readable( (string) $asset['path'] ) ) {
-			return;
-		}
-
-		wp_enqueue_style(
-			'devenia-workflow-generateblocks-source',
-			(string) $asset['url'],
-			array(),
-			(string) filemtime( (string) $asset['path'] )
-		);
 	}
 
 	/**
@@ -229,43 +199,6 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 				self::collect_dynamic_container_saved_wrapper_issues( $block['innerBlocks'], $issues );
 			}
 		}
-	}
-
-	/**
-	 * Whether a generated source posts-page stylesheet is present.
-	 */
-	private static function has_source_stylesheet(): bool {
-		$posts_page_id = absint( get_option( 'page_for_posts' ) );
-		if ( ! $posts_page_id ) {
-			return false;
-		}
-
-		$upload_dir = wp_upload_dir();
-		if ( empty( $upload_dir['basedir'] ) ) {
-			return false;
-		}
-
-		$asset = self::source_stylesheet_asset();
-		return ! empty( $asset['path'] ) && is_readable( (string) $asset['path'] );
-	}
-
-	/**
-	 * @return array{path:string,url:string}
-	 */
-	private static function source_stylesheet_asset(): array {
-		$posts_page_id = absint( get_option( 'page_for_posts' ) );
-		if ( ! $posts_page_id ) {
-			return array( 'path' => '', 'url' => '' );
-		}
-		$upload_dir = wp_upload_dir();
-		if ( empty( $upload_dir['baseurl'] ) || empty( $upload_dir['basedir'] ) ) {
-			return array( 'path' => '', 'url' => '' );
-		}
-		$relative = 'generateblocks/style-' . $posts_page_id . '.css';
-		return array(
-			'path' => trailingslashit( (string) $upload_dir['basedir'] ) . $relative,
-			'url'  => trailingslashit( (string) $upload_dir['baseurl'] ) . $relative,
-		);
 	}
 
 	/**

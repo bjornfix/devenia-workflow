@@ -8,6 +8,8 @@ const source = fs.readFileSync(path.join(root, "includes/trait-ability-catalogue
 const runtime = fs.readFileSync(path.join(root, "devenia-workflow.php"), "utf8");
 const indexReadModel = fs.readFileSync(path.join(root, "includes/trait-translation-index-read-model.php"), "utf8");
 const sourceDesignReview = fs.readFileSync(path.join(root, "includes/trait-source-design-review-policy.php"), "utf8");
+const generateBlocksAdapter = fs.readFileSync(path.join(root, "addons/generateblocks.php"), "utf8");
+const generatePressAdapter = fs.readFileSync(path.join(root, "addons/generatepress.php"), "utf8");
 const required = [
   "devenia-workflow/frontend-integrity-status",
   "devenia-workflow/reproject-source-design",
@@ -23,6 +25,19 @@ if (!runtime.includes("private static function run_ability_operation")) {
 }
 if (runtime.includes("enqueue_frontend_heading_fit_assets") || runtime.includes("devenia-workflow-heading-fit")) {
   failures.push("frontend heading fit must not override GeneratePress typography");
+}
+const frontendPresentationSource = [runtime, generateBlocksAdapter, generatePressAdapter].join("\n");
+if (/wp_(?:enqueue|add_inline)_style\s*\(/.test(frontendPresentationSource)) {
+  failures.push("public Workflow must not enqueue or inject frontend presentation CSS");
+}
+const assetsDir = path.join(root, "assets");
+if (fs.existsSync(assetsDir) && fs.readdirSync(assetsDir).some((file) => /\.css$/i.test(file))) {
+  failures.push("public Workflow must not bundle frontend CSS assets");
+}
+for (const hook of ["generate_after_entry_title", "generate_menu_bar_items", "generate_logo_href", "generate_site_title_href", "generate_excerpt_more_output", "devenia_workflow_render_translated_posts_page_default_sidebar"]) {
+  if (generatePressAdapter.includes(hook)) {
+    failures.push(`GeneratePress presentation hook remains in public Workflow: ${hook}`);
+  }
 }
 for (const method of [
   "translation_index_available",

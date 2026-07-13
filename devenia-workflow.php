@@ -216,8 +216,6 @@ final class Devenia_Workflow {
 		add_action( 'init', array( __CLASS__, 'maybe_run_upgrade' ), 20 );
 		add_action( 'parse_request', array( __CLASS__, 'map_translated_post_request' ), 1 );
 		add_action( 'wp_head', array( __CLASS__, 'print_language_links' ), 6 );
-		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_translated_posts_page_styles' ), 23 );
-		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_language_menu_styles' ), 24 );
 		add_action( 'wp', array( __CLASS__, 'switch_frontend_locale' ), 1 );
 		add_action( 'wp', array( __CLASS__, 'suppress_broken_translated_discovery_links' ), 20 );
 		add_action( 'template_redirect', array( __CLASS__, 'redirect_translated_posts_page_first_page_query' ), 1 );
@@ -19391,72 +19389,6 @@ final class Devenia_Workflow {
 	}
 
 	/**
-	 * Load language selector styles as a versioned frontend asset.
-	 */
-	public static function enqueue_language_menu_styles(): void {
-		if ( ! self::is_frontend_language_surface() ) {
-			return;
-		}
-
-		$surface = self::frontend_surface_with_links( self::frontend_surface_post_id() );
-		$links   = $surface['links'];
-		if ( count( $links ) < 2 ) {
-			return;
-		}
-
-		self::enqueue_plugin_style( 'devenia-workflow-language-menu', 'assets/language-menu.css' );
-	}
-
-	/**
-	 * Enqueue a plugin stylesheet with filemtime-based cache busting.
-	 *
-	 * @param string        $handle Style handle.
-	 * @param string        $relative Relative plugin asset path.
-	 * @param array<string> $deps Style dependencies.
-	 */
-	private static function enqueue_plugin_style( string $handle, string $relative, array $deps = array() ): void {
-		wp_enqueue_style(
-			$handle,
-			self::plugin_asset_url( $relative ),
-			$deps,
-			self::plugin_asset_version( $relative )
-		);
-	}
-
-	/**
-	 * Enqueue a plugin script with filemtime-based cache busting.
-	 *
-	 * @param string        $handle Script handle.
-	 * @param string        $relative Relative plugin asset path.
-	 * @param array<string> $deps Script dependencies.
-	 * @param bool          $in_footer Whether to load in footer.
-	 */
-	private static function enqueue_plugin_script( string $handle, string $relative, array $deps = array(), bool $in_footer = true ): void {
-		wp_enqueue_script(
-			$handle,
-			self::plugin_asset_url( $relative ),
-			$deps,
-			self::plugin_asset_version( $relative ),
-			$in_footer
-		);
-	}
-
-	/**
-	 * Resolve a plugin asset URL.
-	 */
-	private static function plugin_asset_url( string $relative ): string {
-		return plugin_dir_url( __FILE__ ) . ltrim( $relative, '/' );
-	}
-
-	/**
-	 * Resolve a plugin asset version.
-	 */
-	private static function plugin_asset_version( string $relative ): string {
-		$path = plugin_dir_path( __FILE__ ) . ltrim( $relative, '/' );
-		return is_readable( $path ) ? (string) filemtime( $path ) : self::VERSION;
-	}
-
-	/**
 	 * Add translation workflow columns to the page list.
 	 */
 	public static function add_admin_columns( array $columns ): array {
@@ -21248,29 +21180,6 @@ final class Devenia_Workflow {
 			</div>
 		</article>
 		<?php
-	}
-
-	/**
-	 * Load generic RTL layout corrections for translated pages.
-	 */
-	public static function enqueue_rtl_layout_styles(): void {
-		$language = self::frontend_language();
-		if ( ! self::is_rtl_language( $language ) ) {
-			return;
-		}
-
-		self::enqueue_plugin_style( 'devenia-workflow-rtl-layout', 'assets/rtl-layout.css' );
-	}
-
-	/**
-	 * Load default translated blog archive layout rules.
-	 */
-	public static function enqueue_translated_posts_page_styles(): void {
-		if ( ! self::is_translated_posts_page_request() ) {
-			return;
-		}
-
-		self::enqueue_plugin_style( 'devenia-workflow-translated-posts-page', 'assets/translated-posts-page.css' );
 	}
 
 	/**

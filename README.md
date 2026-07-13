@@ -146,6 +146,7 @@ Back up WordPress before uninstalling if workflow history or audit evidence must
 ### 0.1.576
 
 - Removes frontend heading-size overrides so GeneratePress remains the typography owner.
+- Removes bundled frontend CSS and Devenia-specific presentation asset loading from the public Workflow plugin.
 - Restores the canonical whole-page quality-review ability needed to record current source review evidence.
 
 ### 0.1.575
