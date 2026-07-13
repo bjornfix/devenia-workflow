@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.593
+ * Version: 0.1.594
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -55,7 +55,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.593';
+	const VERSION = '0.1.594';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -25562,6 +25562,19 @@ final class Devenia_Workflow {
 			}
 		}
 
+		$source_external_links = self::external_http_link_counts( $source_content );
+		$target_external_links = self::external_http_link_counts( $content );
+		if ( $source_external_links !== $target_external_links ) {
+			$issues[] = self::qa_item(
+				'source_external_link_target_mismatch',
+				'Translated content must preserve the source page\'s external HTTP and HTTPS destinations exactly.',
+				array(
+					'source_external_links'      => $source_external_links,
+					'translation_external_links' => $target_external_links,
+				)
+			);
+		}
+
 		if ( $source['text_unit_count'] > 0 ) {
 			$text_unit_delta = abs( $source['text_unit_count'] - $target['text_unit_count'] ) / max( 1, $source['text_unit_count'] );
 			if ( $text_unit_delta > 0.25 ) {
@@ -25603,6 +25616,43 @@ final class Devenia_Workflow {
 				'translation'      => $target,
 			),
 		);
+	}
+
+	/**
+	 * Count exact external HTTP(S) destinations while allowing internal links to localize.
+	 *
+	 * @return array<string,int>
+	 */
+	private static function external_http_link_counts( string $content ): array {
+		if ( '' === $content || ! preg_match_all( '/\bhref=(["\'])([^"\']+)\1/i', $content, $matches ) ) {
+			return array();
+		}
+
+		$home_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+		$counts    = array();
+		foreach ( $matches[2] as $raw_url ) {
+			$url   = trim( html_entity_decode( (string) $raw_url, ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ) );
+			$parts = wp_parse_url( $url );
+			if ( ! is_array( $parts ) || empty( $parts['scheme'] ) || empty( $parts['host'] ) ) {
+				continue;
+			}
+
+			$scheme = strtolower( (string) $parts['scheme'] );
+			$host   = strtolower( (string) $parts['host'] );
+			if ( ! in_array( $scheme, array( 'http', 'https' ), true ) || $host === $home_host ) {
+				continue;
+			}
+
+			$normalized  = $scheme . '://' . $host;
+			$normalized .= isset( $parts['port'] ) ? ':' . absint( $parts['port'] ) : '';
+			$normalized .= isset( $parts['path'] ) ? (string) $parts['path'] : '';
+			$normalized .= isset( $parts['query'] ) ? '?' . (string) $parts['query'] : '';
+			$normalized .= isset( $parts['fragment'] ) ? '#' . (string) $parts['fragment'] : '';
+			$counts[ $normalized ] = isset( $counts[ $normalized ] ) ? $counts[ $normalized ] + 1 : 1;
+		}
+
+		ksort( $counts );
+		return $counts;
 	}
 
 	/**
