@@ -348,7 +348,7 @@ trait Devenia_Workflow_Translation_Job {
 			return self::error( 'run_id and coordinator_id are required.' );
 		}
 		$existing_runs = isset( $job['run_ids'] ) && is_array( $job['run_ids'] ) ? $job['run_ids'] : array();
-		if ( count( array_filter( $existing_runs, static function ( $row ) use ( $role ) { return is_array( $row ) && ( $row['role'] ?? '' ) === $role; } ) ) >= self::TRANSLATION_JOB_MAX_RUNS_PER_ROLE ) {
+		if ( self::translation_job_role_attempt_count( $existing_runs, $role ) >= self::TRANSLATION_JOB_MAX_RUNS_PER_ROLE ) {
 			return array( 'success' => false, 'code' => 'run_attempt_limit', 'message' => 'This Job used every allowed bounded Run for this role.' );
 		}
 		if ( is_array( $existing_lock ) ) {
@@ -1427,6 +1427,27 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_clean_id( string $value ): string {
 		$value = preg_replace( '/[^a-zA-Z0-9._:-]/', '', sanitize_text_field( $value ) );
 		return substr( (string) $value, 0, 100 );
+	}
+
+	private static function translation_job_role_attempt_count( array $run_rows, string $role ): int {
+		$role = sanitize_key( $role );
+		$count = 0;
+		foreach ( $run_rows as $run_row ) {
+			if ( ! is_array( $run_row ) || $role !== sanitize_key( (string) ( $run_row['role'] ?? '' ) ) ) {
+				continue;
+			}
+			$run_id = self::translation_job_clean_id( (string) ( $run_row['run_id'] ?? '' ) );
+			$run = '' !== $run_id ? get_option( self::translation_job_run_key( $run_id ) ) : null;
+			if (
+				is_array( $run )
+				&& 'completed' === (string) ( $run['status'] ?? '' )
+				&& in_array( (string) ( $run['outcome'] ?? '' ), array( 'expired', 'abandoned' ), true )
+			) {
+				continue;
+			}
+			++$count;
+		}
+		return $count;
 	}
 
 	private static function translation_job_get_job( string $job_id ): array {

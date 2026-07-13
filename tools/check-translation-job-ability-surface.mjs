@@ -31,7 +31,8 @@ for (const removed of removedSystemAbilities) {
 assert.ok(registeredWorkflow.includes("mark-quality-reviewed"), "Whole-page source quality evidence must have a canonical write ability.");
 assert.deepEqual([...registeredTranslationJob].sort(), [...expectedTranslationJob].sort(), "The Translation Job Interface must expose exactly eight operations.");
 assert.match(translationJobModule, /const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 3;/, "A Job must allow one final bounded correction after a valid second Quality Decision.");
-assert.match(translationJobModule, />= self::TRANSLATION_JOB_MAX_RUNS_PER_ROLE/, "Run claims must enforce the finite per-role ceiling.");
+assert.match(translationJobModule, /translation_job_role_attempt_count\( \$existing_runs, \$role \) >= self::TRANSLATION_JOB_MAX_RUNS_PER_ROLE/, "Run claims must enforce the finite per-role ceiling through outcome-aware attempt accounting.");
+assert.match(translationJobModule, /in_array\( \(string\) \( \$run\['outcome'\] \?\? '' \), array\( 'expired', 'abandoned' \), true \)/, "Expired and abandoned non-decision Runs must not consume substantive attempt slots.");
 console.log(JSON.stringify({
 	success: true,
 	registered_abilities: registered.length,

@@ -396,6 +396,58 @@ try {
 	$artifact_revision = (string) $submit['artifact_revision'];
 	$option_keys[] = 'devenia_workflow_translation_artifact_' . $artifact_revision;
 
+	$expired_quality_claim = $call(
+		'translation_job_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => 'runtime-quality-expiring-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'quality',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $expired_quality_claim['success'] ) ) {
+		throw new RuntimeException( 'Expiring Quality fixture claim failed: ' . wp_json_encode( $expired_quality_claim ) );
+	}
+	$expired_quality_run_id = (string) $expired_quality_claim['run']['run_id'];
+	$option_keys[] = 'devenia_workflow_translation_run_' . $expired_quality_run_id;
+	$expired_quality_lock_key = 'devenia_workflow_translation_job_claim_' . $job_id;
+	$expired_quality_lock = get_option( $expired_quality_lock_key );
+	$expired_quality_lock['expires_at'] = gmdate( 'c', time() - 1 );
+	update_option( $expired_quality_lock_key, $expired_quality_lock, false );
+	$replacement_quality_claim = $call(
+		'translation_job_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => 'runtime-quality-replacement-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'quality',
+			'ttl_seconds' => 600,
+		)
+	);
+	$replacement_quality_run_id = (string) ( $replacement_quality_claim['run']['run_id'] ?? '' );
+	$option_keys[] = 'devenia_workflow_translation_run_' . $replacement_quality_run_id;
+	$expired_quality_run = get_option( 'devenia_workflow_translation_run_' . $expired_quality_run_id );
+	if (
+		empty( $replacement_quality_claim['success'] )
+		|| 'completed' !== (string) ( $expired_quality_run['status'] ?? '' )
+		|| 'expired' !== (string) ( $expired_quality_run['outcome'] ?? '' )
+	) {
+		throw new RuntimeException( 'Expired Quality Run did not permit a replacement claim: ' . wp_json_encode( array( 'replacement' => $replacement_quality_claim, 'expired_run' => $expired_quality_run ) ) );
+	}
+	$replacement_quality_abandoned = $call(
+		'translation_job_abandon',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $replacement_quality_run_id,
+			'claim_token' => (string) ( $replacement_quality_claim['claim_token'] ?? '' ),
+			'reason' => 'Runtime contract abandons the replacement Quality fixture before the real decision.',
+		)
+	);
+	if ( empty( $replacement_quality_abandoned['success'] ) || 'quality_pending' !== (string) ( $replacement_quality_abandoned['job']['status'] ?? '' ) ) {
+		throw new RuntimeException( 'Abandoned replacement Quality Run did not restore quality_pending: ' . wp_json_encode( $replacement_quality_abandoned ) );
+	}
+
 	$quality_claim = $call(
 		'translation_job_claim',
 		array(
@@ -610,6 +662,40 @@ try {
 		throw new RuntimeException( 'Final Quality Decision failed: ' . wp_json_encode( $third_quality ) );
 	}
 	$option_keys[] = 'devenia_workflow_translation_quality_' . (string) $third_quality['quality_decision']['quality_revision'];
+	$attempt_limit_job_key = 'devenia_workflow_translation_job_' . $job_id;
+	$attempt_limit_job = get_option( $attempt_limit_job_key );
+	$attempt_limit_job['status'] = 'quality_pending';
+	update_option( $attempt_limit_job_key, $attempt_limit_job, false );
+	$fourth_quality_claim = $call(
+		'translation_job_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => 'runtime-quality-fourth-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'quality',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( ! empty( $fourth_quality_claim['success'] ) || 'run_attempt_limit' !== (string) ( $fourth_quality_claim['code'] ?? '' ) ) {
+		throw new RuntimeException( 'Three substantive Quality Decisions did not enforce the bounded attempt limit: ' . wp_json_encode( $fourth_quality_claim ) );
+	}
+	$attempt_limit_job['status'] = 'changes_requested';
+	update_option( $attempt_limit_job_key, $attempt_limit_job, false );
+	$fourth_translator_claim = $call(
+		'translation_job_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => 'runtime-translator-fourth-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'translator',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( ! empty( $fourth_translator_claim['success'] ) || 'run_attempt_limit' !== (string) ( $fourth_translator_claim['code'] ?? '' ) ) {
+		throw new RuntimeException( 'Three substantive translator submissions did not enforce the bounded attempt limit: ' . wp_json_encode( $fourth_translator_claim ) );
+	}
+	$attempt_limit_job['status'] = 'ready_to_publish';
+	update_option( $attempt_limit_job_key, $attempt_limit_job, false );
 	delete_post_meta( $translation_id, '_thumbnail_id' );
 	add_post_meta( $translation_id, '_thumbnail_id', $linked_source_id );
 	add_post_meta( $translation_id, '_thumbnail_id', $source_thumbnail_id );
@@ -756,6 +842,9 @@ try {
 			'published_job_route_preserved_during_correction' => true,
 			'orphaned_quality_decision_recovered' => true,
 			'expired_run_finalized_before_reclaim' => true,
+			'expired_quality_run_does_not_consume_attempt' => true,
+			'abandoned_run_does_not_consume_attempt' => true,
+			'substantive_run_attempt_limit_enforced' => true,
 			'quality_pending_contract_gap_reopened_for_translator' => true,
 			'orphaned_run_finalized_during_publish' => true,
 		)
