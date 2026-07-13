@@ -124,6 +124,11 @@ HTML;
 	if ( $url_match_method->invoke( null, 'https://example.com/fr/other/', $canonical_url ) ) {
 		$failures[] = 'canonical_url_distinct_path_match_failed';
 	}
+	$canonicalize_url_method = new ReflectionMethod( Devenia_Workflow::class, 'canonicalize_internal_wordpress_url_path_case' );
+	$canonicalize_url_method->setAccessible( true );
+	if ( home_url( '/fr/plugins/' ) !== $canonicalize_url_method->invoke( null, home_url( '/fr/Plugins/' ) ) ) {
+		$failures[] = 'canonical_internal_url_path_case_failed';
+	}
 	$canonical_post_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_url_for_post_id' );
 	$canonical_post_method->setAccessible( true );
 	if ( get_permalink( $post_id ) !== $canonical_post_method->invoke( null, $post_id ) ) {

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.587
+ * Version: 0.1.588
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -19060,9 +19060,8 @@ final class Devenia_Workflow {
 				$existing_subject = isset( $params['subject'] ) && is_scalar( $params['subject'] ) ? (string) $params['subject'] : '';
 				$existing_body    = isset( $params['body'] ) && is_scalar( $params['body'] ) ? (string) $params['body'] : '';
 				$url              = self::extract_url_from_share_body( $existing_body );
-				if ( '' !== $canonical_url && self::urls_match_case_insensitively( $url, $canonical_url ) ) {
-					$url = $canonical_url;
-				}
+				$canonical_url = self::canonicalize_internal_wordpress_url_path_case( $canonical_url );
+				$url = '' !== $canonical_url ? $canonical_url : self::canonicalize_internal_wordpress_url_path_case( $url );
 				$title            = self::extract_title_from_share_subject( $existing_subject );
 
 				if ( '' !== $subject_prefix ) {
@@ -19170,6 +19169,29 @@ final class Devenia_Workflow {
 		$second = untrailingslashit( trim( $second ) );
 
 		return '' !== $first && '' !== $second && 0 === strcasecmp( $first, $second );
+	}
+
+	/**
+	 * Normalize internal WordPress permalink paths to the lowercase slug form.
+	 */
+	private static function canonicalize_internal_wordpress_url_path_case( string $url ): string {
+		$url = trim( $url );
+		if ( '' === $url ) {
+			return '';
+		}
+
+		$parts = wp_parse_url( $url );
+		$home  = wp_parse_url( home_url( '/' ) );
+		if ( ! is_array( $parts ) || ! is_array( $home ) || empty( $parts['host'] ) || empty( $home['host'] ) || 0 !== strcasecmp( (string) $parts['host'], (string) $home['host'] ) ) {
+			return $url;
+		}
+
+		$path = isset( $parts['path'] ) && is_string( $parts['path'] ) ? $parts['path'] : '';
+		if ( '' === $path ) {
+			return $url;
+		}
+
+		return str_replace( $path, strtolower( $path ), $url );
 	}
 
 	/**
