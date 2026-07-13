@@ -540,7 +540,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		if ( (int) ( $media['featured_image_id'] ?? 0 ) !== (int) get_post_thumbnail_id( $translation_id ) ) { $failed[] = 'media_image'; }
 		if ( '' !== (string) ( $media['featured_image_alt'] ?? '' ) && (string) ( $media['featured_image_alt'] ?? '' ) !== (string) get_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT, true ) ) { $failed[] = 'media_alt'; }
 		$presentation = (array) ( $manifest['presentation'] ?? array() );
-		if ( (string) ( $presentation['source_design_hash'] ?? '' ) !== (string) get_post_meta( $translation_id, self::META_SOURCE_DESIGN_HASH, true ) || self::translation_job_canonicalize( (array) ( $presentation['localized_fragments'] ?? array() ) ) !== self::translation_job_canonicalize( (array) self::json_post_meta_value( $translation_id, self::META_LOCALIZED_FRAGMENTS ) ) ) { $failed[] = 'presentation'; }
+		$stored_presentation = self::stored_localized_source_design_fragments( $translation_id );
+		if ( (string) ( $presentation['source_design_hash'] ?? '' ) !== (string) get_post_meta( $translation_id, self::META_SOURCE_DESIGN_HASH, true ) || self::translation_job_canonicalize( (array) ( $presentation['localized_fragments'] ?? array() ) ) !== self::translation_job_canonicalize( (array) ( $stored_presentation['fragments'] ?? array() ) ) ) { $failed[] = 'presentation'; }
 		if ( 'post' === $source->post_type ) {
 			$actual = self::post_taxonomy_payload( $post );
 			foreach ( array( 'category', 'post_tag' ) as $taxonomy ) {
