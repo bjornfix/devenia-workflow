@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.580
+**Stable tag:** 0.1.581
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.581
+
+- Keeps translated bylines on the working source author archive until a localized author archive is published.
+- Restores the author archive localization queue and stops internal-link validation from accepting unpublished localized author paths.
 
 ### 0.1.580
 

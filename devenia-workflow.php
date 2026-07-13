@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.580
+ * Version: 0.1.581
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -55,7 +55,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.580';
+	const VERSION = '0.1.581';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -8123,6 +8123,83 @@ final class Devenia_Workflow {
 	}
 
 	/**
+	 * List author archive localization work from authoritative runtime data.
+	 */
+	private static function author_archive_queue( array $input ): array {
+		$author_id        = absint( $input['author_id'] ?? 0 );
+		$limit            = max( 1, min( 200, absint( $input['limit'] ?? 50 ) ) );
+		$include_complete = ! empty( $input['include_complete'] );
+		$allowed_statuses = array( 'missing', 'stale', 'draft', 'needs_review', 'complete' );
+		$requested        = array_values(
+			array_intersect(
+				$allowed_statuses,
+				array_map( 'sanitize_key', is_array( $input['statuses'] ?? null ) ? $input['statuses'] : array() )
+			)
+		);
+
+		$users = $author_id
+			? array_filter( array( get_user_by( 'id', $author_id ) ) )
+			: get_users(
+				array(
+					'orderby' => 'ID',
+					'order'   => 'ASC',
+					'who'     => 'authors',
+				)
+			);
+		$registry = self::author_archive_registry();
+		$items    = array();
+
+		foreach ( $users as $user ) {
+			if ( ! $user instanceof WP_User ) {
+				continue;
+			}
+			$source_hash = self::author_archive_source_hash( $user );
+			foreach ( self::target_languages() as $language => $config ) {
+				$record             = $registry[ (int) $user->ID ][ $language ] ?? array();
+				$translation_status = sanitize_key( (string) ( $record['status'] ?? '' ) );
+				if ( empty( $record ) ) {
+					$queue_status = 'missing';
+				} elseif ( 'published' === $translation_status ) {
+					$queue_status = hash_equals( $source_hash, (string) ( $record['source_hash'] ?? '' ) ) ? 'complete' : 'stale';
+				} elseif ( in_array( $translation_status, array( 'needs_review', 'reviewed' ), true ) ) {
+					$queue_status = 'needs_review';
+				} else {
+					$queue_status = 'draft';
+				}
+
+				if ( $requested && ! in_array( $queue_status, $requested, true ) ) {
+					continue;
+				}
+				if ( ! $requested && ! $include_complete && 'complete' === $queue_status ) {
+					continue;
+				}
+
+				$items[] = array(
+					'author'            => self::author_archive_source_payload( $user ),
+					'language'          => (string) $language,
+					'queue_status'      => $queue_status,
+					'translation_status' => $translation_status,
+					'default_path'       => self::default_author_archive_path( (int) $user->ID, (string) $language ),
+					'url'                => self::author_archive_url( (int) $user->ID, (string) $language ),
+					'source_hash'        => $source_hash,
+					'translation'        => $record,
+				);
+
+				if ( count( $items ) >= $limit ) {
+					break 2;
+				}
+			}
+		}
+
+		return array(
+			'success' => true,
+			'count'   => count( $items ),
+			'items'   => $items,
+			'message' => empty( $items ) ? 'No author archive localization work matched.' : 'Author archive localization queue loaded.',
+		);
+	}
+
+	/**
 	 * Input schema for page quality review queue.
 	 */
 	private static function quality_review_queue_input_schema(): array {
@@ -14683,10 +14760,14 @@ final class Devenia_Workflow {
 		}
 
 		$registry = self::author_archive_registry();
-		$path     = $registry[ $author_id ][ $language ]['path'] ?? self::default_author_archive_path( $author_id, $language );
-		$path     = trim( (string) $path, '/' );
+		$record   = $registry[ $author_id ][ sanitize_key( $language ) ] ?? array();
+		if ( 'published' !== (string) ( $record['status'] ?? '' ) ) {
+			return get_author_posts_url( $author_id );
+		}
 
-		return '' === $path ? '' : home_url( '/' . $path . '/' );
+		$path = trim( (string) ( $record['path'] ?? '' ), '/' );
+
+		return '' === $path ? get_author_posts_url( $author_id ) : home_url( '/' . $path . '/' );
 	}
 
 	/**
@@ -22920,18 +23001,6 @@ final class Devenia_Workflow {
 
 		if ( preg_match( '#^author/([^/]+)/?$#', $clean_path, $match ) ) {
 			return get_user_by( 'slug', sanitize_title( (string) $match[1] ) ) instanceof WP_User;
-		}
-
-		foreach ( self::target_languages() as $language => $config ) {
-			$prefix = self::language_prefix( (string) $language );
-			if ( '' === $prefix || 0 !== strpos( $clean_path, $prefix . '/author/' ) ) {
-				continue;
-			}
-
-			$slug = trim( substr( $clean_path, strlen( $prefix . '/author/' ) ), '/' );
-			if ( '' !== $slug && false === strpos( $slug, '/' ) && get_user_by( 'slug', sanitize_title( $slug ) ) instanceof WP_User ) {
-				return true;
-			}
 		}
 
 		return false;
