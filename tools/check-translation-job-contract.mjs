@@ -46,7 +46,7 @@ pass(() => assert.match(runtimeSource, /\$configured_budget = self::translation_
 
 pass(() => assert.deepEqual(
 	{ total: writerBudget.total_token_limit, attempts: writerBudget.max_attempts },
-	{ total: 60000, attempts: 2 },
+	{ total: 70000, attempts: 2 },
 ));
 pass(() => assert.deepEqual(
 	{ input: qualityBudget.input_token_limit, output: qualityBudget.output_token_limit, total: qualityBudget.total_token_limit },
@@ -140,7 +140,7 @@ const packetInput = {
 
 const packet = buildTranslationPacket(packetInput);
 pass(() => assert.equal(packet.fragments.length, 105));
-rejects("packet_over_budget", () => buildTranslationPacket({ ...packetInput, estimated_input_tokens: 30001 }));
+rejects("packet_over_budget", () => buildTranslationPacket({ ...packetInput, estimated_input_tokens: 40001 }));
 rejects("duplicate_fragment_key", () => buildTranslationPacket({ ...packetInput, fragments: [fragments[0], fragments[0]] }));
 rejects("too_many_examples", () => buildTranslationPacket({ ...packetInput, examples: [{}, {}, {}, {}] }));
 rejects("unexpected_field", () => buildTranslationPacket({ ...packetInput, conversation_history: ["old worker history"] }));
@@ -202,7 +202,7 @@ rejects("unexpected_localized_fragment", () => submitTranslation({
 }));
 rejects("run_over_budget", () => submitTranslation({
 	job: claimedJob, run: writerRun, packet, localized_fragments: localizedFragments, metadata,
-	usage: { ...writerUsage, input_tokens: 40000, output_tokens: 30000 }, attempts: 1,
+	usage: { ...writerUsage, input_tokens: 40001, output_tokens: 30000 }, attempts: 1,
 	finished_at: "2026-07-10T12:06:00.000Z",
 }));
 rejects("run_over_budget", () => submitTranslation({
@@ -224,7 +224,7 @@ const budgetFailure = recordRunFailure({
 	outcome: "budget_exceeded",
 	code: "total_token_limit",
 	message: "The Run reached its configured token ceiling.",
-	usage: { input_tokens: 35000, cached_input_tokens: 0, output_tokens: 30000, estimated_cost_microusd: 60000 },
+	usage: { input_tokens: 40001, cached_input_tokens: 0, output_tokens: 30000, estimated_cost_microusd: 60000 },
 	attempts: 2,
 	finished_at: "2026-07-10T12:06:00.000Z",
 });

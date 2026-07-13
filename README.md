@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.595
+**Stable tag:** 0.1.596
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.596
+
+- Raises the bounded translator input budget and safely upgrades active translator Runs so complete correction packets remain fetchable without bypassing the Translation Job lifecycle.
 
 ### 0.1.595
 

@@ -1205,15 +1205,14 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$configured_budget = self::translation_job_budget( (string) ( $run['role'] ?? '' ) );
 		$stored_budget = isset( $run['budget'] ) && is_array( $run['budget'] ) ? $run['budget'] : array();
-		if ( 'quality' === (string) ( $run['role'] ?? '' )
-			&& (int) ( $stored_budget['input_token_limit'] ?? 0 ) < (int) $configured_budget['input_token_limit'] ) {
+		if ( (int) ( $stored_budget['input_token_limit'] ?? 0 ) < (int) $configured_budget['input_token_limit'] ) {
 			$run['budget'] = $configured_budget;
 			$run['budget_migrated_at'] = gmdate( 'c' );
 			$run_key = self::translation_job_run_key( $run_id );
 			update_option( $run_key, $run, false );
 			$stored_run = get_option( $run_key );
 			if ( ! is_array( $stored_run ) || (int) ( $stored_run['budget']['input_token_limit'] ?? 0 ) < (int) $configured_budget['input_token_limit'] ) {
-				return array( 'success' => false, 'code' => 'run_budget_migration_failed', 'message' => 'The active quality Run budget could not be upgraded safely.' );
+				return array( 'success' => false, 'code' => 'run_budget_migration_failed', 'message' => 'The active Run budget could not be upgraded safely.' );
 			}
 			$run = $stored_run;
 		}
@@ -1367,7 +1366,7 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_budget( string $role ): array {
 		return 'quality' === $role
 			? array( 'input_token_limit' => 40000, 'output_token_limit' => 10000, 'total_token_limit' => 50000, 'max_attempts' => 2 )
-			: array( 'input_token_limit' => 30000, 'output_token_limit' => 30000, 'total_token_limit' => 60000, 'max_attempts' => 2 );
+			: array( 'input_token_limit' => 40000, 'output_token_limit' => 30000, 'total_token_limit' => 70000, 'max_attempts' => 2 );
 	}
 
 	private static function translation_job_source_is_stale( array $job ): bool {
