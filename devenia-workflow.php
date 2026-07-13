@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.601
+ * Version: 0.1.602
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -57,7 +57,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.601';
+	const VERSION = '0.1.602';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -17388,7 +17388,7 @@ final class Devenia_Workflow {
 		}
 
 		$languages        = self::languages();
-		$source_menu_ref  = $input['source_menu'] ?? ( $languages['en']['menu_name'] ?? '' );
+		$source_menu_ref  = $input['source_menu'] ?? self::localized_menu_id( self::source_language_code() );
 		$target_menu_name = ! empty( $input['target_menu_name'] ) ? sanitize_text_field( (string) $input['target_menu_name'] ) : sanitize_text_field( (string) ( $languages[ $language ]['menu_name'] ?? '' ) );
 		$preserve_labels  = array_key_exists( 'preserve_existing_labels', $input ) ? (bool) $input['preserve_existing_labels'] : true;
 		$include_missing  = ! empty( $input['include_untranslated'] );

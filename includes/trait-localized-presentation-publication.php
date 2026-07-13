@@ -175,15 +175,30 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$identities = get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, array() );
 		$identities = is_array( $identities ) ? $identities : array();
 		$stored_id  = absint( $identities[ $language ]['menu_id'] ?? 0 );
-		if ( $stored_id > 0 && wp_get_nav_menu_object( $stored_id ) ) {
+		$languages  = self::languages();
+		$config     = isset( $languages[ $language ] ) && is_array( $languages[ $language ] ) ? $languages[ $language ] : array();
+		$is_source  = ! empty( $config['source'] );
+		$locations  = get_nav_menu_locations();
+		$primary_id = absint( $locations['primary'] ?? 0 );
+		if ( $stored_id > 0 && wp_get_nav_menu_object( $stored_id ) && ( ! $is_source || $primary_id < 1 || $stored_id === $primary_id ) ) {
 			return $stored_id;
 		}
 		if ( ! $migrate ) {
 			return 0;
 		}
 
-		$languages = self::languages();
-		$name      = sanitize_text_field( (string) ( $languages[ $language ]['menu_name'] ?? '' ) );
+		$name = sanitize_text_field( (string) ( $config['menu_name'] ?? '' ) );
+		if ( $is_source && $primary_id > 0 && wp_get_nav_menu_object( $primary_id ) ) {
+			$identities[ $language ] = array(
+				'menu_id'         => $primary_id,
+				'configured_name' => $name,
+				'resolved_from'   => 'primary_theme_location',
+				'migrated_at'     => gmdate( 'c' ),
+			);
+			update_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $identities, false );
+
+			return $primary_id;
+		}
 		if ( '' === $name ) {
 			return 0;
 		}
@@ -206,8 +221,6 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		}
 
 		$selected_id = (int) $matches[0]->term_id;
-		$locations   = get_nav_menu_locations();
-		$primary_id  = absint( $locations['primary'] ?? 0 );
 		foreach ( $matches as $match ) {
 			if ( $primary_id > 0 && $primary_id === (int) $match->term_id ) {
 				$selected_id = $primary_id;

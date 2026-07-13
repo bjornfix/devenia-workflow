@@ -16,6 +16,7 @@ $original_user_id = get_current_user_id();
 $languages_option_before = get_option( 'devenia_workflow_language_registry' );
 $runtime_provenance_before = get_option( 'devenia_workflow_runtime_mutation_provenance' );
 $menu_identities_before = get_option( 'devenia_workflow_localized_menu_identities' );
+$nav_menu_locations_before = get_theme_mod( 'nav_menu_locations', array() );
 $runtime_menu_ids = array();
 $runtime_source_menu_id = 0;
 $runtime_page_link = null;
@@ -444,6 +445,9 @@ try {
 		$runtime_menu_error = is_wp_error( $runtime_source_menu_parent_id ) ? $runtime_source_menu_parent_id : $runtime_source_menu_item_id;
 		throw new RuntimeException( 'Could not populate the runtime source menu: ' . $runtime_menu_error->get_error_message() );
 	}
+	$runtime_locations = is_array( $nav_menu_locations_before ) ? $nav_menu_locations_before : array();
+	$runtime_locations['primary'] = (int) $runtime_source_menu_id;
+	set_theme_mod( 'nav_menu_locations', $runtime_locations );
 	$runtime_languages = get_option( 'devenia_workflow_language_registry', array() );
 	$runtime_languages = is_array( $runtime_languages ) ? $runtime_languages : array();
 	$runtime_languages['en']['menu_name'] = (string) wp_get_nav_menu_object( $runtime_source_menu_id )->name;
@@ -1026,6 +1030,7 @@ try {
 	wp_set_current_user( $original_user_id );
 	update_option( 'devenia_workflow_language_registry', $languages_option_before, false );
 	update_option( 'devenia_workflow_runtime_mutation_provenance', $runtime_provenance_before, false );
+	set_theme_mod( 'nav_menu_locations', is_array( $nav_menu_locations_before ) ? $nav_menu_locations_before : array() );
 	if ( false === $menu_identities_before ) {
 		delete_option( 'devenia_workflow_localized_menu_identities' );
 	} else {

@@ -24,6 +24,8 @@ assert.doesNotMatch(sync, /wp_delete_post\(/, "atomic projection must never dele
 assert.match(sync, /wp_delete_nav_menu\( \(int\) \$target_menu->term_id \)/, "failed staging projections must be cleaned up");
 
 assert.match(publication, /OPTION_LOCALIZED_MENU_IDENTITIES/);
+assert.match(publication, /resolved_from'\s*=> 'primary_theme_location'/);
+assert.match(sync, /source_language_code\(\)[\s\S]*localized_menu_id|localized_menu_id\( self::source_language_code\(\) \)/);
 assert.match(publication, /duplicate_ids/);
 assert.match(plugin, /use_language_primary_menu[\s\S]*localized_menu_id\( \$language \)/);
 assert.match(plugin, /is_language_menu_already_selected[\s\S]*localized_menu_id\( \$language \)/);

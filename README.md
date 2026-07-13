@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.601
+**Stable tag:** 0.1.602
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.602
+
+- Resolves the configured source language menu through the stable primary theme-location ID, eliminating brittle source-menu name lookup during atomic projection.
 
 ### 0.1.601
 
