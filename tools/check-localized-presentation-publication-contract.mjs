@@ -36,6 +36,8 @@ assert.match(publication, /'cf_cache_status'/);
 assert.match(publication, /'age'/);
 assert.match(publication, /frontend_primary_menu_projection_mismatch/);
 assert.match(publication, /expected_localized_primary_navigation[\s\S]*localized_menu_items_in_render_order/);
+assert.match(publication, /expected_localized_primary_navigation[\s\S]*effective_localized_menu_item_title/);
+assert.match(publication, /effective_localized_menu_item_title[\s\S]*localized_menu_item_title/);
 assert.match(publication, /localized_menu_items_in_render_order[\s\S]*\$append\( \$item_id \)/, "nested menus must be compared in WordPress walker depth-first order");
 
 for (const evidence of [

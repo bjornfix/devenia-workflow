@@ -328,12 +328,26 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$items = wp_get_nav_menu_items( $menu_id, array( 'orderby' => 'menu_order' ) ) ?: array();
 		foreach ( self::localized_menu_items_in_render_order( $items ) as $item ) {
 			$expected[] = array(
-				'title' => trim( html_entity_decode( wp_strip_all_tags( (string) $item->title ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ) ),
+				'title' => self::effective_localized_menu_item_title( $item, $language ),
 				'url'   => self::normalize_primary_navigation_url( (string) $item->url ),
 			);
 		}
 
 		return $expected;
+	}
+
+	/**
+	 * Resolve the same runtime-editable label used by the frontend menu Adapter.
+	 */
+	private static function effective_localized_menu_item_title( object $item, string $language ): string {
+		$effective_item = $item;
+		if ( isset( $item->type, $item->object ) && 'post_type' === (string) $item->type && 'page' === (string) $item->object && ! empty( $item->object_id ) ) {
+			$effective_item = clone $item;
+			$effective_item->object_id = (string) self::source_id_for_context( (int) $item->object_id );
+		}
+		$title = self::localized_menu_item_title( $effective_item, $language, isset( $item->title ) ? (string) $item->title : '' );
+
+		return trim( html_entity_decode( wp_strip_all_tags( $title ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ) );
 	}
 
 	/**
