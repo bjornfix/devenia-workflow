@@ -309,8 +309,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$surface_language = $translation_id ? $language : self::source_language_code();
 		$surface_scope = $translation_id ? 'existing_translation_presentation_shell' : 'source_presentation_shell';
 		$frontend = $surface_post instanceof WP_Post && 'publish' === (string) $surface_post->post_status
-			? self::frontend_public_surface_integrity_for_url( (string) get_permalink( $surface_post ), $surface_language, 15, 'quality_presentation_shell' )
-			: array( 'success' => false, 'passed' => false, 'issue_count' => 1, 'warning_count' => 0, 'scope' => 'no_http_surface' );
+			? self::translation_job_http_live_dom_evidence( (string) get_permalink( $surface_post ), $surface_language )
+			: array( 'success' => false, 'passed' => false, 'status_code' => 0, 'scope' => 'no_http_surface' );
 		$projected_content = (string) ( $artifact_record['surface_manifest']['content']['gutenberg'] ?? '' );
 		$staged_dom = do_blocks( $projected_content );
 		$staged_dom_passed = '' !== trim( wp_strip_all_tags( $staged_dom ) ) && false === stripos( $staged_dom, '<!-- wp:' );
@@ -354,6 +354,31 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$receipts[] = $body;
 		}
 		return array( 'success' => true, 'receipt_ids' => $receipt_ids, 'receipts' => $receipts, 'http_live_dom_scope' => $surface_scope );
+	}
+
+	/**
+	 * Observe the reachable WordPress/theme shell without importing unrelated
+	 * localized-menu or copy-policy checks into the staged DOM receipt.
+	 */
+	private static function translation_job_http_live_dom_evidence( string $url, string $language ): array {
+		$request_url = add_query_arg( 'devenia_quality_receipt', wp_generate_uuid4(), $url );
+		$response = wp_safe_remote_get( $request_url, array( 'timeout' => 15, 'redirection' => 3, 'headers' => array( 'Cache-Control' => 'no-cache' ) ) );
+		if ( is_wp_error( $response ) ) {
+			return array( 'success' => false, 'passed' => false, 'status_code' => 0, 'url' => $url, 'language' => $language, 'error' => $response->get_error_message() );
+		}
+		$status_code = (int) wp_remote_retrieve_response_code( $response );
+		$body = (string) wp_remote_retrieve_body( $response );
+		$has_dom = false !== stripos( $body, '<html' ) && false !== stripos( $body, '<body' ) && '' !== trim( wp_strip_all_tags( $body ) );
+		return array(
+			'success' => 200 === $status_code && $has_dom,
+			'passed' => 200 === $status_code && $has_dom,
+			'status_code' => $status_code,
+			'url' => $url,
+			'language' => sanitize_key( $language ),
+			'response_digest' => hash( 'sha256', $body ),
+			'dom_bytes' => strlen( $body ),
+			'scope' => 'http_wordpress_theme_shell',
+		);
 	}
 
 	/**
