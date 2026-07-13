@@ -15,6 +15,18 @@ $option_keys = array();
 $original_user_id = get_current_user_id();
 $languages_option_before = get_option( 'devenia_workflow_language_registry' );
 $runtime_provenance_before = get_option( 'devenia_workflow_runtime_mutation_provenance' );
+$menu_identities_before = get_option( 'devenia_workflow_localized_menu_identities' );
+$runtime_menu_ids = array();
+$cache_invalidation_calls = array();
+$cache_adapter = static function ( $default_result, array $urls, array $context ) use ( &$cache_invalidation_calls ): array {
+	$cache_invalidation_calls[] = array( 'default' => $default_result, 'urls' => $urls, 'context' => $context );
+	return array( 'success' => true, 'purged_urls' => $urls, 'adapter' => 'translation-job-runtime' );
+};
+$keep_previous_menu = static function (): bool {
+	return false;
+};
+add_filter( 'devenia_workflow_frontend_cache_invalidation_result', $cache_adapter, 10, 3 );
+add_filter( 'devenia_workflow_retire_previous_localized_menu_projection', $keep_previous_menu, 10, 4 );
 
 $call = static function ( string $method, array $input = array() ) {
 	$reflection = new ReflectionMethod( Devenia_Workflow::class, $method );
@@ -701,8 +713,56 @@ try {
 	add_post_meta( $translation_id, '_thumbnail_id', $source_thumbnail_id );
 	$published = $call(
 		'translation_job_publish',
-		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => false )
+		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => false )
 	);
+	$runtime_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
+	$runtime_active_menu_id = absint( $runtime_identities[ $language ]['menu_id'] ?? 0 );
+	if (
+		empty( $published['success'] )
+		|| empty( $published['menu']['validation']['passed'] )
+		|| $runtime_active_menu_id < 1
+		|| empty( $cache_invalidation_calls )
+		|| 'localized_presentation_publication' !== (string) ( $cache_invalidation_calls[0]['context']['event'] ?? '' )
+		|| $job_id !== (string) ( $cache_invalidation_calls[0]['context']['job_id'] ?? '' )
+	) {
+		throw new RuntimeException( 'Real sync_menu publication did not atomically activate and purge the localized presentation: ' . wp_json_encode( array( 'published' => $published, 'invalidation_calls' => $cache_invalidation_calls ) ) );
+	}
+	$runtime_menu_ids[] = $runtime_active_menu_id;
+	$primary_nav_issues_method = new ReflectionMethod( Devenia_Workflow::class, 'localized_primary_navigation_html_issues' );
+	$primary_nav_issues_method->setAccessible( true );
+	$english_cache_issues = (array) $primary_nav_issues_method->invoke(
+		null,
+		'<html><body><nav id="site-navigation"><a href="' . esc_url( home_url( '/' ) ) . '">Home</a><a href="' . esc_url( home_url( '/services/' ) ) . '">Services</a></nav></body></html>',
+		$language,
+		(string) get_permalink( $translation_id ),
+		'canonical'
+	);
+	if ( empty( $english_cache_issues ) || 'frontend_primary_menu_projection_mismatch' !== (string) ( $english_cache_issues[0]['code'] ?? '' ) ) {
+		throw new RuntimeException( 'Canonical English-menu cache fixture did not fail localized primary-navigation integrity.' );
+	}
+
+	$migration_identities = $runtime_identities;
+	unset( $migration_identities[ $language ] );
+	update_option( 'devenia_workflow_localized_menu_identities', $migration_identities, false );
+	$localized_menu_id = new ReflectionMethod( Devenia_Workflow::class, 'localized_menu_id' );
+	$localized_menu_id->setAccessible( true );
+	$migrated_menu_id = (int) $localized_menu_id->invoke( null, $language, true );
+	$migrated_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
+	if ( $migrated_menu_id < 1 || $migrated_menu_id !== absint( $migrated_identities[ $language ]['menu_id'] ?? 0 ) ) {
+		throw new RuntimeException( 'Stable menu identity did not migrate deterministically from the configured name.' );
+	}
+	update_option( 'devenia_workflow_localized_menu_identities', $runtime_identities, false );
+
+	$fail_projection_write = static function () {
+		return new WP_Error( 'runtime_projection_failure', 'Runtime projection failure fixture.' );
+	};
+	add_filter( 'devenia_workflow_localized_menu_projection_write_result', $fail_projection_write, 10, 5 );
+	$failed_projection = $call( 'sync_language_menu', array( 'language' => $language, 'include_untranslated' => false, 'include_custom_links' => true ) );
+	remove_filter( 'devenia_workflow_localized_menu_projection_write_result', $fail_projection_write, 10 );
+	$identity_after_failure = get_option( 'devenia_workflow_localized_menu_identities', array() );
+	if ( ! empty( $failed_projection['success'] ) || 'menu_projection_write_failed' !== (string) ( $failed_projection['code'] ?? '' ) || $runtime_active_menu_id !== absint( $identity_after_failure[ $language ]['menu_id'] ?? 0 ) ) {
+		throw new RuntimeException( 'Failed atomic menu projection did not preserve the active menu identity: ' . wp_json_encode( $failed_projection ) );
+	}
 	if ( $source_thumbnail_id !== absint( get_post_meta( $translation_id, '_thumbnail_id', true ) ) ) {
 		throw new RuntimeException( 'Ready-to-publish Translation Job call did not reconcile stale featured media: ' . wp_json_encode( $published ) );
 	}
@@ -847,15 +907,32 @@ try {
 			'substantive_run_attempt_limit_enforced' => true,
 			'quality_pending_contract_gap_reopened_for_translator' => true,
 			'orphaned_run_finalized_during_publish' => true,
+			'real_sync_menu_publication_exercised' => true,
+			'atomic_menu_failure_preserved_active_identity' => true,
+			'stable_menu_identity_migrated' => true,
+			'frontend_cache_invalidation_adapter_consumed' => true,
+			'canonical_english_menu_cache_rejected' => true,
 		)
 	) . PHP_EOL;
 } catch ( Throwable $error ) {
 	fwrite( STDERR, wp_json_encode( array( 'success' => false, 'error' => $error->getMessage() ) ) . PHP_EOL );
 	exit( 1 );
 } finally {
+	remove_filter( 'devenia_workflow_frontend_cache_invalidation_result', $cache_adapter, 10 );
+	remove_filter( 'devenia_workflow_retire_previous_localized_menu_projection', $keep_previous_menu, 10 );
 	wp_set_current_user( $original_user_id );
 	update_option( 'devenia_workflow_language_registry', $languages_option_before, false );
 	update_option( 'devenia_workflow_runtime_mutation_provenance', $runtime_provenance_before, false );
+	if ( false === $menu_identities_before ) {
+		delete_option( 'devenia_workflow_localized_menu_identities' );
+	} else {
+		update_option( 'devenia_workflow_localized_menu_identities', $menu_identities_before, false );
+	}
+	foreach ( array_unique( $runtime_menu_ids ) as $runtime_menu_id ) {
+		if ( $runtime_menu_id > 0 && '1' === (string) get_term_meta( $runtime_menu_id, '_devenia_workflow_localized_menu_managed', true ) ) {
+			wp_delete_nav_menu( $runtime_menu_id );
+		}
+	}
 	if ( $translation_id > 0 ) {
 		wp_delete_post( $translation_id, true );
 	}

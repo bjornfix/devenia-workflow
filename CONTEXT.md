@@ -17,6 +17,31 @@ rules, translation provenance, and translation read models. Translation
 specific Interfaces retain `Translation` in their functional names while using
 the shared `Devenia_Workflow` product namespace.
 
+## Localized Presentation Publication
+
+The deep Module that turns one approved Translation Job into a stable public
+reader surface. Its Interface owns the content publish transition, Atomic
+Localized Menu Projection, canonical frontend-cache invalidation, and origin
+plus canonical-cache verification as one outcome. A stored post status alone
+is not successful Localized Presentation Publication.
+
+## Localized Menu Projection
+
+The complete ordered navigation projection for one configured target language.
+It binds a stable WordPress menu term identity to the expected translated page
+targets, localized labels, custom links, and parent graph. A replacement
+projection is built and validated away from the active term, then activated in
+one identity update; readers never observe a deleted or partially rebuilt menu.
+
+## Frontend Cache Adapter
+
+An Adapter at the cache-invalidation Seam that makes stable WordPress
+presentation state authoritative over public HTML caches. The WordPress
+Adapter clears local object/content caches and the Cloudflare Adapter purges
+canonical public URL prefixes after publication or plugin rollout. Cache-aware
+verification reads both an origin-bypassing view and the canonical cacheable
+view.
+
 ## Translation Job
 
 A bounded obligation to produce or review one target-language artifact for one

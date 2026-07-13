@@ -23,6 +23,7 @@ function devenia_workflow_uninstall_site(): void {
 		'devenia_workflow_translation_index_schema',
 		'devenia_workflow_frontend_slow_log',
 		'devenia_workflow_reviewer_style_profiles',
+		'devenia_workflow_localized_menu_identities',
 		'devenia_workflow_translation_rule_events_schema',
 	);
 

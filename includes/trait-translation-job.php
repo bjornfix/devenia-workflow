@@ -748,19 +748,32 @@ trait Devenia_Workflow_Translation_Job {
 		if ( empty( $publication_experience['passed'] ) ) {
 			return array( 'success' => false, 'code' => 'publication_experience_failed', 'message' => 'Publication experience failed before publication.', 'publication_experience' => $publication_experience );
 		}
-		$transition = self::apply_translation_publish_transition( $translation_id, $language, (int) $job['source_id'] );
-		if ( empty( $transition['success'] ) ) {
-			return $transition;
+		$publication = self::publish_localized_presentation(
+			array(
+				'translation_id'            => $translation_id,
+				'language'                  => $language,
+				'source_id'                 => (int) $job['source_id'],
+				'job_id'                    => (string) $job['job_id'],
+				'sync_menu'                 => ! array_key_exists( 'sync_menu', $input ) || ! empty( $input['sync_menu'] ),
+				'include_custom_links'      => true,
+				'verify_live'               => ! array_key_exists( 'verify_live', $input ) || ! empty( $input['verify_live'] ),
+				'live_verification_timeout' => absint( $input['live_verification_timeout'] ?? 15 ),
+			)
+		);
+		if ( empty( $publication['success'] ) ) {
+			return array_merge(
+				$publication,
+				array(
+					'job'                    => self::translation_job_public_job( $job ),
+					'translation'            => self::translation_payload( get_post( $translation_id ) ),
+					'qa'                     => $qa,
+					'publication_experience' => $publication_experience,
+					'featured_image_sync'    => $featured_image_sync,
+				)
+			);
 		}
-		$translation = get_post( $translation_id );
-		$menu = null;
-		if ( $translation instanceof WP_Post && 'page' === $translation->post_type && ( ! array_key_exists( 'sync_menu', $input ) || ! empty( $input['sync_menu'] ) ) ) {
-			$menu = self::sync_language_menu( array( 'language' => $language, 'clear_existing' => true, 'include_untranslated' => false, 'include_custom_links' => true ) );
-		}
-		$live = null;
-		if ( ! array_key_exists( 'verify_live', $input ) || ! empty( $input['verify_live'] ) ) {
-			$live = self::verify_live_translation( array( 'translation_id' => $translation_id, 'timeout' => absint( $input['live_verification_timeout'] ?? 15 ) ) );
-		}
+		$menu = $publication['menu'] ?? null;
+		$live = $publication['live_verification'] ?? null;
 		$orphaned_runs_finalized = self::translation_job_finalize_orphaned_runs( $job );
 		$next = self::translation_job_transition( $job, array( 'status' => 'published', 'published_at' => gmdate( 'c' ), 'live_verification_passed' => null === $live ? null : ! empty( $live['passed'] ) ) );
 		$passed = null === $live || ( ! empty( $live['success'] ) && ! empty( $live['passed'] ) );
@@ -774,6 +787,8 @@ trait Devenia_Workflow_Translation_Job {
 			'publication_experience' => $publication_experience,
 			'featured_image_sync' => $featured_image_sync,
 			'menu' => $menu,
+			'purge_urls' => $publication['purge_urls'] ?? array(),
+			'cache_invalidation' => $publication['cache_invalidation'] ?? null,
 			'live_verification' => $live,
 			'orphaned_runs_finalized' => $orphaned_runs_finalized,
 		);

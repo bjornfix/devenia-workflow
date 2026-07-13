@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.598
+ * Version: 0.1.599
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -32,6 +32,7 @@ require_once __DIR__ . '/includes/trait-translation-provenance.php';
 require_once __DIR__ . '/includes/trait-translation-index-read-model.php';
 require_once __DIR__ . '/includes/trait-internal-content-link-resolver.php';
 require_once __DIR__ . '/includes/trait-frontend-read-model.php';
+require_once __DIR__ . '/includes/trait-localized-presentation-publication.php';
 require_once __DIR__ . '/includes/trait-translation-job.php';
 require_once __DIR__ . '/includes/trait-source-inventory.php';
 
@@ -49,13 +50,14 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Provenance;
 	use Devenia_Workflow_Quality_Engine;
 	use Devenia_Workflow_Translation_Frontend_Read_Model;
+	use Devenia_Workflow_Localized_Presentation_Publication;
 	use Devenia_Workflow_Source_Editor_Adapter;
 	use Devenia_Workflow_Mode;
 	use Devenia_Workflow_Internal_Content_Link_Resolver;
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.598';
+	const VERSION = '0.1.599';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -73,6 +75,7 @@ final class Devenia_Workflow {
 	const OPTION_REVIEWER_STYLE_PROFILES = 'devenia_workflow_reviewer_style_profiles';
 	const OPTION_AUTHOR_ARCHIVES = 'devenia_workflow_translation_author_archives';
 	const OPTION_RUNTIME_MUTATION_PROVENANCE = 'devenia_workflow_runtime_mutation_provenance';
+	const OPTION_LOCALIZED_MENU_IDENTITIES = 'devenia_workflow_localized_menu_identities';
 	const TRANSLATION_INDEX_SCHEMA_VERSION = '2';
 	const OPTION_SOURCE_INVENTORY_SCHEMA = 'devenia_workflow_source_inventory_schema';
 	const OPTION_SOURCE_INVENTORY_ACTIVE = 'devenia_workflow_source_inventory_active';
@@ -160,6 +163,8 @@ final class Devenia_Workflow {
 	const MENU_ITEM_META_SOURCE_OBJECT_ID = '_devenia_translation_source_menu_object_id';
 	const MENU_ITEM_META_LANGUAGE = '_devenia_translation_menu_language';
 	const MENU_ITEM_META_MANAGED = '_devenia_translation_menu_managed';
+	const TERM_META_MENU_MANAGED = '_devenia_workflow_localized_menu_managed';
+	const TERM_META_MENU_LANGUAGE = '_devenia_workflow_localized_menu_language';
 
 	/**
 	 * Language for the translated posts-page loop while archive template hooks run.
@@ -9392,7 +9397,11 @@ final class Devenia_Workflow {
 					'description' => 'Source menu name, slug, or ID. Defaults to Main Menu.',
 				),
 				'target_menu_name'     => array( 'type' => 'string' ),
-				'clear_existing'       => array( 'type' => 'boolean', 'default' => true ),
+				'clear_existing'       => array(
+					'type'        => 'boolean',
+					'default'     => true,
+					'description' => 'Deprecated compatibility input. Menu projection is always staged and activated atomically.',
+				),
 				'preserve_existing_labels' => array(
 					'type'        => 'boolean',
 					'default'     => true,
@@ -12710,51 +12719,31 @@ final class Devenia_Workflow {
 			);
 		}
 
-		$transition = self::apply_translation_publish_transition( $translation_id, $language, $source_id );
-		if ( empty( $transition['success'] ) ) {
-			return $transition;
-		}
-
-		$menu = null;
-		if ( 'page' === $post->post_type && ( array_key_exists( 'sync_menu', $input ) ? (bool) $input['sync_menu'] : true ) ) {
-			$menu = self::sync_language_menu(
+		$publication = self::publish_localized_presentation(
+			array(
+				'translation_id'           => $translation_id,
+				'language'                 => $language,
+				'source_id'                => $source_id,
+				'sync_menu'                => array_key_exists( 'sync_menu', $input ) ? (bool) $input['sync_menu'] : true,
+				'include_custom_links'     => array_key_exists( 'include_custom_links', $input ) ? (bool) $input['include_custom_links'] : true,
+				'verify_live'              => array_key_exists( 'verify_live', $input ) ? (bool) $input['verify_live'] : true,
+				'live_verification_timeout'=> absint( $input['live_verification_timeout'] ?? 15 ),
+			)
+		);
+		$translation = self::translation_payload( get_post( $translation_id ) );
+		if ( empty( $publication['success'] ) ) {
+			return array_merge(
+				$publication,
 				array(
-					'language'             => $language,
-					'clear_existing'       => true,
-					'include_untranslated' => false,
-					'include_custom_links' => array_key_exists( 'include_custom_links', $input ) ? (bool) $input['include_custom_links'] : true,
-				)
-			);
-		}
-
-		$translation       = self::translation_payload( get_post( $translation_id ) );
-		$purge_urls        = $transition['purge_urls'];
-		$live_verification = null;
-		if ( array_key_exists( 'verify_live', $input ) ? (bool) $input['verify_live'] : true ) {
-			$live_verification = self::verify_live_translation(
-				array(
-					'translation_id' => $translation_id,
-					'timeout'        => absint( $input['live_verification_timeout'] ?? 15 ),
-				)
-			);
-			if ( empty( $live_verification['success'] ) || empty( $live_verification['passed'] ) ) {
-				return array(
-					'success'           => false,
-					'published'         => true,
-					'message'           => 'Translation was published, but live verification failed.',
-					'translation'       => $translation,
-					'qa'                => $qa,
-					'review_state'      => $review_state,
-					'quality_review_state' => $quality_review_state,
+					'translation'            => $translation,
+					'qa'                     => $qa,
+					'review_state'           => $review_state,
+					'quality_review_state'   => $quality_review_state,
 					'publication_experience' => $publication_experience,
-					'final_review_state' => $final_review_state,
-					'quality_verdict'   => $quality_verdict,
-					'menu'              => $menu,
-					'purge_urls'        => $purge_urls,
-					'link_repair'       => $transition['link_repair'] ?? null,
-					'live_verification' => $live_verification,
-				);
-			}
+					'final_review_state'     => $final_review_state,
+					'quality_verdict'        => $quality_verdict,
+				)
+			);
 		}
 
 		return array(
@@ -12767,17 +12756,18 @@ final class Devenia_Workflow {
 			'publication_experience' => $publication_experience,
 			'final_review_state' => $final_review_state,
 			'quality_verdict'   => $quality_verdict,
-			'menu'              => $menu,
-			'purge_urls'        => $purge_urls,
-			'link_repair'       => $transition['link_repair'] ?? null,
-			'live_verification' => $live_verification,
+			'menu'              => $publication['menu'] ?? null,
+			'purge_urls'        => $publication['purge_urls'] ?? array(),
+			'cache_invalidation'=> $publication['cache_invalidation'] ?? null,
+			'link_repair'       => $publication['transition']['link_repair'] ?? null,
+			'live_verification' => $publication['live_verification'] ?? null,
 		);
 	}
 
 	/**
 	 * Verify translated content through the frontend after publication.
 	 */
-	private static function verify_live_translation( array $input ): array {
+	private static function legacy_verify_live_translation( array $input ): array {
 		$translation_id = absint( $input['translation_id'] ?? 0 );
 		$post           = get_post( $translation_id );
 		if ( ! $post || ! self::is_translatable_post_type( (string) $post->post_type ) ) {
@@ -13013,7 +13003,7 @@ final class Devenia_Workflow {
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function frontend_public_surface_integrity_for_url( string $url, string $language, int $timeout = 15, string $surface = 'public' ): array {
+	private static function legacy_frontend_public_surface_integrity_for_url( string $url, string $language, int $timeout = 15, string $surface = 'public' ): array {
 		$url      = esc_url_raw( $url );
 		$language = sanitize_key( $language );
 		$issues   = array();
@@ -17398,48 +17388,50 @@ final class Devenia_Workflow {
 		}
 
 		$languages        = self::languages();
-		$source_menu_ref  = $input['source_menu'] ?? ( $languages['en']['menu_name'] ?? 'Main Menu' );
-		$target_menu_name = ! empty( $input['target_menu_name'] ) ? sanitize_text_field( (string) $input['target_menu_name'] ) : ( $languages[ $language ]['menu_name'] ?? ( 'Main Menu ' . strtoupper( $language ) ) );
-		$clear_existing   = array_key_exists( 'clear_existing', $input ) ? (bool) $input['clear_existing'] : true;
+		$source_menu_ref  = $input['source_menu'] ?? ( $languages['en']['menu_name'] ?? '' );
+		$target_menu_name = ! empty( $input['target_menu_name'] ) ? sanitize_text_field( (string) $input['target_menu_name'] ) : sanitize_text_field( (string) ( $languages[ $language ]['menu_name'] ?? '' ) );
 		$preserve_labels  = array_key_exists( 'preserve_existing_labels', $input ) ? (bool) $input['preserve_existing_labels'] : true;
 		$include_missing  = ! empty( $input['include_untranslated'] );
 		$include_custom   = array_key_exists( 'include_custom_links', $input ) ? (bool) $input['include_custom_links'] : true;
+
+		if ( '' === (string) $source_menu_ref || '' === $target_menu_name ) {
+			return array( 'success' => false, 'code' => 'menu_projection_configuration_missing', 'message' => 'Source and target menu identities must be configured.' );
+		}
 
 		$source_menu = wp_get_nav_menu_object( $source_menu_ref );
 		if ( ! $source_menu ) {
 			return self::error( 'Source menu not found.' );
 		}
 
-		$target_menu = wp_get_nav_menu_object( $target_menu_name );
-		if ( ! $target_menu ) {
-			$target_menu_id = wp_create_nav_menu( $target_menu_name );
-			if ( is_wp_error( $target_menu_id ) ) {
-				return self::error( $target_menu_id->get_error_message() );
-			}
-			$target_menu = wp_get_nav_menu_object( $target_menu_id );
+		$previous_menu_id = self::localized_menu_id( $language );
+		$previous_menu    = $previous_menu_id > 0 ? wp_get_nav_menu_object( $previous_menu_id ) : null;
+		$staging_name     = sprintf( '%s [Workflow %s %s]', $target_menu_name, $language, wp_generate_password( 8, false, false ) );
+		$target_menu_id   = wp_create_nav_menu( $staging_name );
+		if ( is_wp_error( $target_menu_id ) ) {
+			return array( 'success' => false, 'code' => 'menu_projection_staging_create_failed', 'message' => $target_menu_id->get_error_message() );
 		}
+		$target_menu = wp_get_nav_menu_object( $target_menu_id );
 
 		if ( ! $target_menu ) {
 			return self::error( 'Could not create target menu.' );
 		}
 
-		$existing_labels = $preserve_labels ? self::existing_menu_label_map( (int) $target_menu->term_id ) : array(
+		add_term_meta( (int) $target_menu->term_id, self::TERM_META_MENU_MANAGED, '1', true );
+		add_term_meta( (int) $target_menu->term_id, self::TERM_META_MENU_LANGUAGE, $language, true );
+		$existing_labels = $preserve_labels && $previous_menu ? self::existing_menu_label_map( (int) $previous_menu->term_id ) : array(
 			'by_source_item' => array(),
 			'by_signature'   => array(),
 		);
 
-		if ( $clear_existing ) {
-			foreach ( wp_get_nav_menu_items( $target_menu->term_id ) ?: array() as $item ) {
-				wp_delete_post( (int) $item->ID, true );
-			}
-		}
-
 		$source_items = wp_get_nav_menu_items( $source_menu->term_id, array( 'orderby' => 'menu_order' ) );
 		if ( ! $source_items ) {
-			return self::error( 'Source menu has no items.' );
+			wp_delete_nav_menu( (int) $target_menu->term_id );
+			return array( 'success' => false, 'code' => 'menu_projection_source_empty', 'message' => 'Source menu has no items.' );
 		}
 
 		$id_map  = array();
+		$expected = array();
+		$write_args = array();
 		$added   = array();
 		$skipped = array();
 
@@ -17497,15 +17489,18 @@ final class Devenia_Workflow {
 				);
 				continue;
 			}
+			$args['menu-item-position'] = absint( $item->menu_order ?? 0 );
 
 			$new_id = wp_update_nav_menu_item( $target_menu->term_id, 0, $args );
+			$new_id = apply_filters( 'devenia_workflow_localized_menu_projection_write_result', $new_id, $target_menu, $item, $args, $language );
 			if ( is_wp_error( $new_id ) ) {
-				$skipped[] = array(
-					'source_item_id' => (int) $item->ID,
-					'title'          => $item->title,
-					'reason'         => $new_id->get_error_message(),
+				wp_delete_nav_menu( (int) $target_menu->term_id );
+				return array(
+					'success'          => false,
+					'code'             => 'menu_projection_write_failed',
+					'message'          => $new_id->get_error_message(),
+					'previous_menu_id' => $previous_menu_id,
 				);
-				continue;
 			}
 
 			$id_map[ (int) $item->ID ] = (int) $new_id;
@@ -17513,12 +17508,61 @@ final class Devenia_Workflow {
 			update_post_meta( (int) $new_id, self::MENU_ITEM_META_SOURCE_OBJECT_ID, isset( $item->object_id ) ? (int) $item->object_id : 0 );
 			update_post_meta( (int) $new_id, self::MENU_ITEM_META_LANGUAGE, $language );
 			update_post_meta( (int) $new_id, self::MENU_ITEM_META_MANAGED, '1' );
+			$expected[ (int) $item->ID ] = array(
+				'title'                 => (string) ( $args['menu-item-title'] ?? $item->title ),
+				'url'                   => 'custom' === (string) ( $args['menu-item-type'] ?? '' ) ? (string) ( $args['menu-item-url'] ?? '' ) : (string) get_permalink( absint( $args['menu-item-object-id'] ?? 0 ) ),
+				'parent_source_item_id' => absint( $item->menu_item_parent ?? 0 ),
+			);
+			$write_args[ (int) $item->ID ] = $args;
 			$added[] = array(
 				'source_item_id' => (int) $item->ID,
 				'menu_item_id'   => (int) $new_id,
 				'title'          => $args['menu-item-title'] ?? $item->title,
 			);
 		}
+
+		foreach ( $expected as $source_item_id => $row ) {
+			$parent_source_item_id = absint( $row['parent_source_item_id'] ?? 0 );
+			if ( $parent_source_item_id < 1 ) {
+				continue;
+			}
+			$parent_item_id = absint( $id_map[ $parent_source_item_id ] ?? 0 );
+			if ( $parent_item_id < 1 ) {
+				wp_delete_nav_menu( (int) $target_menu->term_id );
+				return array( 'success' => false, 'code' => 'menu_projection_parent_missing', 'message' => 'A projected menu parent was not written.', 'source_item_id' => $source_item_id, 'parent_source_item_id' => $parent_source_item_id, 'previous_menu_id' => $previous_menu_id );
+			}
+			$args = $write_args[ $source_item_id ];
+			$args['menu-item-parent-id'] = $parent_item_id;
+			$parent_result = wp_update_nav_menu_item( (int) $target_menu->term_id, (int) $id_map[ $source_item_id ], $args );
+			if ( is_wp_error( $parent_result ) ) {
+				wp_delete_nav_menu( (int) $target_menu->term_id );
+				return array( 'success' => false, 'code' => 'menu_projection_parent_write_failed', 'message' => $parent_result->get_error_message(), 'previous_menu_id' => $previous_menu_id );
+			}
+		}
+
+		$validation = self::validate_localized_menu_projection( (int) $target_menu->term_id, $expected, $id_map );
+		if ( empty( $validation['passed'] ) ) {
+			wp_delete_nav_menu( (int) $target_menu->term_id );
+			return array(
+				'success'          => false,
+				'code'             => 'menu_projection_validation_failed',
+				'message'          => 'The staged localized menu did not match its expected projection.',
+				'validation'       => $validation,
+				'previous_menu_id' => $previous_menu_id,
+			);
+		}
+		if ( ! self::activate_localized_menu_id( $language, (int) $target_menu->term_id, $target_menu_name, $previous_menu_id ) ) {
+			wp_delete_nav_menu( (int) $target_menu->term_id );
+			return array(
+				'success'          => false,
+				'code'             => 'menu_projection_activation_failed',
+				'message'          => 'The validated localized menu identity could not be activated.',
+				'previous_menu_id' => $previous_menu_id,
+			);
+		}
+
+		$should_retire_previous = (bool) apply_filters( 'devenia_workflow_retire_previous_localized_menu_projection', true, $previous_menu_id, (int) $target_menu->term_id, $language );
+		$retired_previous = $should_retire_previous ? self::retire_managed_localized_menu( $previous_menu_id, (int) $target_menu->term_id ) : false;
 
 		return array(
 			'success'         => true,
@@ -17529,6 +17573,9 @@ final class Devenia_Workflow {
 			'skipped'         => $skipped,
 			'added_count'     => count( $added ),
 			'skipped_count'   => count( $skipped ),
+			'validation'      => $validation,
+			'previous_menu_id'=> $previous_menu_id,
+			'retired_previous'=> $retired_previous,
 		);
 	}
 
@@ -18141,13 +18188,8 @@ final class Devenia_Workflow {
 			return $args;
 		}
 
-		$languages = self::languages();
-		$menu_name = isset( $languages[ $language ]['menu_name'] ) ? (string) $languages[ $language ]['menu_name'] : '';
-		if ( '' === $menu_name ) {
-			return $args;
-		}
-
-		$menu = wp_get_nav_menu_object( $menu_name );
+		$menu_id = self::localized_menu_id( $language );
+		$menu    = $menu_id > 0 ? wp_get_nav_menu_object( $menu_id ) : null;
 		if ( ! $menu ) {
 			return $args;
 		}
@@ -18224,13 +18266,12 @@ final class Devenia_Workflow {
 			return false;
 		}
 
-		$languages = self::languages();
-		$menu_name = isset( $languages[ $language ]['menu_name'] ) ? (string) $languages[ $language ]['menu_name'] : '';
-		if ( '' === $menu_name || empty( $args->menu ) ) {
+		$menu_id = self::localized_menu_id( $language );
+		if ( $menu_id < 1 || empty( $args->menu ) ) {
 			return false;
 		}
 
-		$configured_menu = wp_get_nav_menu_object( $menu_name );
+		$configured_menu = wp_get_nav_menu_object( $menu_id );
 		$current_menu    = wp_get_nav_menu_object( $args->menu );
 		if ( ! $configured_menu || ! $current_menu ) {
 			return false;
