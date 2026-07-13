@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.585
+ * Version: 0.1.586
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -19034,7 +19034,10 @@ final class Devenia_Workflow {
 
 		$subject_prefix = trim( self::runtime_text_value( $language, 'share_text', 'scriptless_email_subject_prefix', '' ) );
 		$body_template  = trim( self::runtime_text_value( $language, 'share_text', 'scriptless_email_body', '' ) );
-		$canonical_url  = self::canonical_url_for_current_request( $html );
+		$canonical_url  = self::canonical_translation_url_for_post_id( get_queried_object_id(), $language );
+		if ( '' === $canonical_url ) {
+			$canonical_url = self::canonical_url_for_current_request( $html );
+		}
 		if ( '' === $subject_prefix && '' === $body_template ) {
 			return $html;
 		}
@@ -19139,6 +19142,21 @@ final class Devenia_Workflow {
 		}
 
 		return is_string( $canonical_url ) ? esc_url_raw( $canonical_url ) : '';
+	}
+
+	/**
+	 * Resolve the published translation behind a source-backed frontend query.
+	 */
+	private static function canonical_translation_url_for_post_id( int $queried_post_id, string $language ): string {
+		if ( $queried_post_id <= 0 || '' === sanitize_key( $language ) || 'en' === sanitize_key( $language ) ) {
+			return '';
+		}
+
+		$translation_id = absint( get_post_meta( $queried_post_id, self::META_SOURCE_ID, true ) ) > 0
+			? $queried_post_id
+			: self::find_translation_id( $queried_post_id, $language, array( 'publish' ) );
+
+		return $translation_id > 0 ? self::canonical_url_for_post_id( $translation_id ) : '';
 	}
 
 	/**

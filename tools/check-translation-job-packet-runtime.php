@@ -133,6 +133,12 @@ HTML;
 	if ( home_url( '/fr/plugins/' ) !== $canonical_post_method->invoke( null, $post_id ) ) {
 		$failures[] = 'canonical_route_contract_url_resolution_failed';
 	}
+	update_post_meta( $post_id, Devenia_Workflow::META_SOURCE_ID, 123 );
+	$canonical_translation_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_translation_url_for_post_id' );
+	$canonical_translation_method->setAccessible( true );
+	if ( home_url( '/fr/plugins/' ) !== $canonical_translation_method->invoke( null, $post_id, 'fr' ) ) {
+		$failures[] = 'canonical_translation_route_url_resolution_failed';
+	}
 	$canonical_request_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_url_for_current_request' );
 	$canonical_request_method->setAccessible( true );
 	global $wp;
