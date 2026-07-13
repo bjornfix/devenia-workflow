@@ -133,6 +133,18 @@ HTML;
 	if ( home_url( '/fr/plugins/' ) !== $canonical_post_method->invoke( null, $post_id ) ) {
 		$failures[] = 'canonical_route_contract_url_resolution_failed';
 	}
+	$canonical_request_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_url_for_current_request' );
+	$canonical_request_method->setAccessible( true );
+	global $wp;
+	if ( ! is_object( $wp ) ) {
+		$wp = new stdClass();
+	}
+	$before_request_path = is_object( $wp ) && isset( $wp->request ) ? (string) $wp->request : '';
+	$wp->request = 'fr/plugins';
+	if ( home_url( '/fr/plugins/' ) !== $canonical_request_method->invoke( null, '<article>Translated content only</article>' ) ) {
+		$failures[] = 'canonical_current_request_url_resolution_failed';
+	}
+	$wp->request = $before_request_path;
 
 	if ( $failures ) {
 		throw new RuntimeException( wp_json_encode( $failures ) );
