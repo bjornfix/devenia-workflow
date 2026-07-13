@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.591
+ * Version: 0.1.592
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -55,7 +55,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.581';
+	const VERSION = '0.1.592';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -19106,7 +19106,7 @@ final class Devenia_Workflow {
 			return $canonical_url;
 		}
 
-		$request_uri  = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( (string) $_SERVER['REQUEST_URI'] ) : '';
+		$request_uri  = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( (string) $_SERVER['REQUEST_URI'] ) ) : '';
 		$request_path = wp_parse_url( $request_uri, PHP_URL_PATH );
 		$request_path = is_string( $request_path ) ? trim( $request_path, '/' ) : '';
 		if ( '' !== $request_path ) {
@@ -19237,6 +19237,10 @@ final class Devenia_Workflow {
 		return (string) preg_replace_callback(
 			'/(<a\b[^>]*\bhref=)(["\'])(mailto:[^"\']*)\2/isu',
 			static function ( array $match ) use ( $runtime ): string {
+				if ( preg_match( '/\bclass=(["\'])[^"\']*\bbutton\b[^"\']*\bemail\b[^"\']*\1/isu', (string) $match[1] ) ) {
+					return (string) $match[0];
+				}
+
 				$href  = html_entity_decode( (string) $match[3], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 				$full_href = self::runtime_mailto_href_replacement( $href, $runtime );
 				if ( $full_href !== $href ) {
