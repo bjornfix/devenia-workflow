@@ -711,13 +711,19 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$translation_id = self::find_translation_id( (int) $source->ID, $language, self::translation_workflow_post_statuses( false ) );
 		}
 		$existing = $translation_id ? get_post( $translation_id ) : null;
+		$canonical_route_resolution = $existing instanceof WP_Post
+			? self::effective_translation_canonical_route( $existing, $language )
+			: array( 'success' => true, 'route' => array() );
+		if ( empty( $canonical_route_resolution['success'] ) ) {
+			return $canonical_route_resolution;
+		}
 		$route = $existing instanceof WP_Post
 			? array(
 				'translation_id' => (int) $existing->ID,
 				'post_name'      => (string) $existing->post_name,
 				'post_parent'    => (int) $existing->post_parent,
 				'localized_path' => trim( (string) get_post_meta( (int) $existing->ID, self::META_LOCALIZED_PATH, true ), '/' ),
-				'canonical_route'=> self::json_post_meta_value( (int) $existing->ID, self::META_CANONICAL_ROUTE ),
+				'canonical_route'=> (array) $canonical_route_resolution['route'],
 			)
 			: array(
 				'translation_id'       => 0,
@@ -1220,6 +1226,19 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'mutation_started' => false,
 			);
 		}
+		if ( $translation_id ) {
+			$locked_post = get_post( $translation_id );
+			$locked_route_resolution = $locked_post instanceof WP_Post
+				? self::effective_translation_canonical_route( $locked_post, (string) $job['target_language'] )
+				: array( 'success' => false, 'code' => 'translation_missing', 'message' => 'The locked translation is unavailable.', 'mutation_started' => false );
+			$staged_route = (array) ( $artifact_record['surface_manifest']['route']['canonical_route'] ?? array() );
+			if ( empty( $locked_route_resolution['success'] ) ) {
+				return $locked_route_resolution;
+			}
+			if ( self::translation_job_canonicalize( (array) $locked_route_resolution['route'] ) !== self::translation_job_canonicalize( $staged_route ) ) {
+				return array( 'success' => false, 'code' => 'staged_canonical_route_drifted', 'message' => 'The observed Canonical Route Contract changed after staging.', 'mutation_started' => false );
+			}
+		}
 		$status = $translation_id && 'publish' === get_post_status( $translation_id ) ? 'publish' : 'draft';
 		$writer = isset( $artifact_record['writer_principal'] ) && is_array( $artifact_record['writer_principal'] ) ? $artifact_record['writer_principal'] : array();
 		$upsert = array_merge(
@@ -1308,7 +1327,19 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		if ( isset( $route['localized_parent_id'] ) && (int) $route['localized_parent_id'] !== (int) $post->post_parent ) { $failed[] = 'route_parent'; }
 		$expected_path = trim( (string) ( $route['localized_path'] ?? '' ), '/' );
 		if ( array_key_exists( 'localized_path', $route ) && $expected_path !== trim( (string) get_post_meta( $translation_id, self::META_LOCALIZED_PATH, true ), '/' ) ) { $failed[] = 'route_path'; }
-		if ( array_key_exists( 'canonical_route', $route ) && self::translation_job_canonicalize( (array) $route['canonical_route'] ) !== self::translation_job_canonicalize( self::json_post_meta_value( $translation_id, self::META_CANONICAL_ROUTE ) ) ) { $failed[] = 'route_canonical'; }
+		if ( array_key_exists( 'canonical_route', $route ) ) {
+			$expected_canonical_route = self::translation_job_canonicalize( (array) $route['canonical_route'] );
+			$stored_canonical_route = self::json_post_meta_value( $translation_id, self::META_CANONICAL_ROUTE );
+			$effective_canonical_route = self::effective_translation_canonical_route( $post, (string) ( $manifest['language'] ?? '' ) );
+			if (
+				! metadata_exists( 'post', $translation_id, self::META_CANONICAL_ROUTE )
+				|| self::translation_job_canonicalize( $stored_canonical_route ) !== $expected_canonical_route
+				|| empty( $effective_canonical_route['success'] )
+				|| self::translation_job_canonicalize( (array) ( $effective_canonical_route['route'] ?? array() ) ) !== $expected_canonical_route
+			) {
+				$failed[] = 'route_canonical';
+			}
+		}
 		$media = (array) ( $manifest['media'] ?? array() );
 		$expected_featured_image = (array) ( $media['featured_image'] ?? array() );
 		$actual_featured_image = self::publication_featured_image_revision_identity( $translation_id );

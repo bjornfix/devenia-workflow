@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.612
+ * Version: 0.1.613
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -65,7 +65,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.612';
+	const VERSION = '0.1.613';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -9451,15 +9451,44 @@ final class Devenia_Workflow {
 					'minItems' => 1,
 					'items'    => array(
 						'type'                 => 'object',
-						'required'             => array( 'source_item_id', 'type', 'title', 'parent_source_item_id', 'position' ),
+						'required'             => array( 'source_item_id', 'type', 'title', 'labels', 'parent_source_item_id', 'position' ),
 						'properties'           => array(
 							'source_item_id'        => array( 'type' => 'integer', 'minimum' => 1 ),
 							'type'                  => array( 'type' => 'string', 'enum' => array( 'page', 'custom' ) ),
 							'title'                 => array( 'type' => 'string', 'minLength' => 1 ),
+							'labels'                => array(
+								'type'                 => 'object',
+								'description'          => 'Exact editorial menu labels keyed by every configured source and target language code.',
+								'additionalProperties' => array( 'type' => 'string', 'minLength' => 1 ),
+							),
 							'object_id'             => array( 'type' => 'integer', 'minimum' => 1 ),
 							'url'                   => array( 'type' => 'string' ),
 							'parent_source_item_id' => array( 'type' => 'integer', 'minimum' => 0 ),
 							'position'              => array( 'type' => 'integer', 'minimum' => 0 ),
+						),
+						'additionalProperties' => false,
+					),
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/** Input schema for one-time schema-1 editorial-label authority migration. */
+	private static function public_header_label_authority_migration_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'stage' => array( 'type' => 'boolean', 'default' => false ),
+				'authority_menus' => array(
+					'type'        => 'array',
+					'description' => 'Optional known pre-managed or explicitly verified menu identities keyed by configured language. Labels are read from these menus, never supplied by the caller.',
+					'items'       => array(
+						'type'                 => 'object',
+						'required'             => array( 'language', 'menu_id' ),
+						'properties'           => array(
+							'language' => array( 'type' => 'string', 'minLength' => 1 ),
+							'menu_id'  => array( 'type' => 'integer', 'minimum' => 1 ),
 						),
 						'additionalProperties' => false,
 					),
@@ -10722,24 +10751,92 @@ final class Devenia_Workflow {
 	}
 
 	/**
+	 * Resolve the exact Canonical Route Contract used by staging and storage.
+	 *
+	 * Established route evidence is immutable and returned byte-for-byte. A
+	 * legacy public translation without usable route evidence receives one
+	 * deterministic contract derived from its already-stored Public Route. The
+	 * derivation deliberately contains no observation timestamp: staging and a
+	 * later publication write must address the same route identity.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function effective_translation_canonical_route( WP_Post $post, string $language, bool $replace = false ): array {
+		$existing = get_post_meta( (int) $post->ID, self::META_CANONICAL_ROUTE, true );
+		$existing_path = is_array( $existing )
+			? self::normalize_stored_localized_route_path( $existing['path'] ?? '' )
+			: '';
+		$localized_path = self::normalize_stored_localized_route_path(
+			get_post_meta( (int) $post->ID, self::META_LOCALIZED_PATH, true )
+		);
+		if ( '' === $localized_path ) {
+			$localized_path = self::normalize_stored_localized_route_path(
+				self::localized_path_for_post( (int) $post->ID, $language )
+			);
+		}
+		$observed_url = esc_url_raw( (string) get_permalink( $post ) );
+		$observed_path = self::normalize_stored_localized_route_path(
+			self::normalized_url_path( $observed_url )
+		);
+		$route = ! $replace && is_array( $existing ) && '' !== $existing_path
+			? $existing
+			: array(
+				'translation_id' => (int) $post->ID,
+				'language'       => sanitize_key( $language ),
+				'post_name'      => (string) $post->post_name,
+				'post_parent'    => (int) $post->post_parent,
+				'localized_path' => $localized_path,
+				'url'            => $observed_url,
+				'path'           => $observed_path,
+			);
+		$route_path = self::normalize_stored_localized_route_path( $route['path'] ?? '' );
+		if ( '' === $observed_path || '' === $route_path ) {
+			return array(
+				'success' => false,
+				'code' => 'canonical_route_observation_unavailable',
+				'message' => 'The current WordPress permalink could not be bound to a Canonical Route Contract.',
+				'mutation_started' => false,
+				'route' => $route,
+				'stored_localized_path' => $localized_path,
+				'observed_url' => $observed_url,
+				'observed_path' => $observed_path,
+			);
+		}
+		if (
+			$route_path !== $observed_path
+			|| ( '' !== $localized_path && $localized_path !== $observed_path )
+		) {
+			return array(
+				'success' => false,
+				'code' => 'canonical_route_observed_path_mismatch',
+				'message' => 'Stored route evidence differs from the current WordPress permalink. Resolve the route drift before staging translation work.',
+				'mutation_started' => false,
+				'route' => $route,
+				'stored_localized_path' => $localized_path,
+				'effective_path' => $route_path,
+				'observed_url' => $observed_url,
+				'observed_path' => $observed_path,
+			);
+		}
+
+		return array(
+			'success' => true,
+			'route' => $route,
+			'stored_localized_path' => $localized_path,
+			'observed_url' => $observed_url,
+			'observed_path' => $observed_path,
+		);
+	}
+
+	/**
 	 * Establish immutable-by-default route evidence for a published translation.
 	 */
 	private static function store_translation_canonical_route( WP_Post $post, string $language, bool $replace = false ): array {
-		$existing = get_post_meta( (int) $post->ID, self::META_CANONICAL_ROUTE, true );
-		if ( is_array( $existing ) && $existing && ! $replace ) {
-			return $existing;
+		$resolution = self::effective_translation_canonical_route( $post, $language, $replace );
+		if ( empty( $resolution['success'] ) ) {
+			return $resolution;
 		}
-		$url = (string) get_permalink( $post );
-		$route = array(
-			'translation_id' => (int) $post->ID,
-			'language'       => sanitize_key( $language ),
-			'post_name'      => (string) $post->post_name,
-			'post_parent'    => (int) $post->post_parent,
-			'localized_path' => trim( (string) get_post_meta( (int) $post->ID, self::META_LOCALIZED_PATH, true ), '/' ),
-			'url'            => $url,
-			'path'           => $url ? self::normalized_url_path( $url ) : '',
-			'established_at' => gmdate( 'c' ),
-		);
+		$route = (array) $resolution['route'];
 		update_post_meta( (int) $post->ID, self::META_CANONICAL_ROUTE, $route );
 		return $route;
 	}
@@ -18242,6 +18339,12 @@ final class Devenia_Workflow {
 			return $items;
 		}
 		$language_menu_already_selected = self::is_language_menu_already_selected( $args, $language );
+		if ( $language_menu_already_selected ) {
+			// A selected managed projection is already the signed reader authority.
+			// Reapplying mutable runtime text here can replace editorial menu labels
+			// with page titles after projection validation and receipt creation.
+			return $items;
+		}
 
 		foreach ( $items as $item ) {
 			if ( ! is_object( $item ) ) {
@@ -18252,11 +18355,6 @@ final class Devenia_Workflow {
 				$source_id      = self::source_id_for_context( (int) $item->object_id );
 				$source_item            = clone $item;
 				$source_item->object_id = (string) $source_id;
-
-				if ( $language_menu_already_selected ) {
-					$item->title = self::localized_menu_item_title( $source_item, $language, isset( $item->title ) ? (string) $item->title : '' );
-					continue;
-				}
 
 				$translation_id = self::find_translation_id( $source_id, $language, array( 'publish' ) );
 				if ( ! $translation_id ) {

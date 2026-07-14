@@ -10,6 +10,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 $source_id = 0;
 $linked_source_id = 0;
 $translation_id = 0;
+$nested_route_translation_id = 0;
+$nested_route_parent_ids = array();
 $source_thumbnail_id = 0;
 $source_thumbnail_file = '';
 $replacement_thumbnail_id = 0;
@@ -124,7 +126,7 @@ try {
 	$linked_source_id = wp_insert_post(
 		array(
 			'post_type' => 'page',
-			'post_status' => 'publish',
+			'post_status' => 'draft',
 			'post_title' => 'Translation Job linked source fixture',
 			'post_content' => '<!-- wp:paragraph --><p>A valid internal link target.</p><!-- /wp:paragraph -->',
 		),
@@ -177,6 +179,53 @@ try {
 	if ( '' === $language ) {
 		throw new RuntimeException( 'No target language is configured.' );
 	}
+	// Hierarchical translations can legitimately have nested localized routes.
+	// Prove the parity resolver accepts an observed/stored WordPress hierarchy
+	// without knowing a language code, route base, site, or post identity.
+	$nested_route_slug = 'runtime-nested-route-' . strtolower( wp_generate_password( 6, false, false ) );
+	$nested_root_id = wp_insert_post( array( 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Runtime nested root', 'post_name' => 'runtime-root-' . strtolower( wp_generate_password( 6, false, false ) ) ), true );
+	$nested_parent_id = ! is_wp_error( $nested_root_id ) ? wp_insert_post( array( 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Runtime nested archive', 'post_name' => 'runtime-archive', 'post_parent' => (int) $nested_root_id ), true ) : $nested_root_id;
+	if ( is_wp_error( $nested_root_id ) || is_wp_error( $nested_parent_id ) || $nested_root_id < 1 || $nested_parent_id < 1 ) {
+		throw new RuntimeException( 'Could not create the nested route parent hierarchy.' );
+	}
+	$nested_route_parent_ids = array( (int) $nested_parent_id, (int) $nested_root_id );
+	$nested_route_translation_id = wp_insert_post(
+		array(
+			'post_type' => 'page',
+			'post_status' => 'publish',
+			'post_title' => 'Runtime nested translation route',
+			'post_content' => '<!-- wp:paragraph --><p>Nested route fixture.</p><!-- /wp:paragraph -->',
+			'post_name' => $nested_route_slug,
+			'post_parent' => (int) $nested_parent_id,
+		),
+		true
+	);
+	if ( is_wp_error( $nested_route_translation_id ) || $nested_route_translation_id < 1 ) {
+		throw new RuntimeException( 'Could not create the nested route translation fixture.' );
+	}
+	update_post_meta( $nested_route_translation_id, '_devenia_translation_language', $language );
+	$nested_route_path = trim( (string) get_page_uri( $nested_route_translation_id ), '/' );
+	$nested_route_url = (string) get_permalink( $nested_route_translation_id );
+	update_post_meta( $nested_route_translation_id, '_devenia_translation_localized_path', $nested_route_path );
+	delete_post_meta( $nested_route_translation_id, '_devenia_translation_canonical_route_v1' );
+	$nested_route_resolution = $call( 'effective_translation_canonical_route', get_post( $nested_route_translation_id ), $language );
+	if (
+		empty( $nested_route_resolution['success'] )
+		|| $nested_route_path !== (string) ( $nested_route_resolution['route']['path'] ?? '' )
+		|| $nested_route_url !== (string) ( $nested_route_resolution['route']['url'] ?? '' )
+		|| metadata_exists( 'post', $nested_route_translation_id, '_devenia_translation_canonical_route_v1' )
+	) {
+		throw new RuntimeException( 'A legitimate observed nested WordPress route did not pass canonical parity: ' . wp_json_encode( $nested_route_resolution ) );
+	}
+	wp_delete_post( $nested_route_translation_id, true );
+	$nested_route_translation_id = 0;
+	foreach ( $nested_route_parent_ids as $nested_route_parent_id ) {
+		wp_delete_post( $nested_route_parent_id, true );
+	}
+	$nested_route_parent_ids = array();
+	$call( 'localized_internal_link_map', $language, true );
+	$call( 'localized_link_expected_target_map', $language, true );
+	$call( 'localized_link_module', $language, true );
 	// Acquisition and renewal commonly occur within one wall-clock second.
 	// Prove the renewal always advances the serialized expiry, retains the
 	// owner token, blocks a competing owner, and releases only the renewed value.
@@ -429,21 +478,21 @@ try {
 	$runtime_localized_path = trim( $language . '/' . $runtime_localized_slug, '/' );
 	update_post_meta( $translation_id, '_devenia_translation_localized_path', $runtime_localized_path );
 	$runtime_translation_url = home_url( '/' . $runtime_localized_path . '/' );
-	update_post_meta(
-		$translation_id,
-		'_devenia_translation_canonical_route_v1',
-		array(
-			'translation_id' => $translation_id,
-			'language'       => $language,
-			'post_name'      => $runtime_localized_slug,
-			'post_parent'    => 0,
-			'localized_path' => $runtime_localized_path,
-			'url'            => $runtime_translation_url,
-			'path'           => trim( (string) wp_parse_url( $runtime_translation_url, PHP_URL_PATH ), '/' ),
-			'established_at' => gmdate( 'c' ),
-		)
-	);
+	delete_post_meta( $translation_id, '_devenia_translation_canonical_route_v1' );
 	clean_post_cache( $translation_id );
+	$legacy_translation = get_post( $translation_id );
+	$legacy_mismatch_resolution = $legacy_translation instanceof WP_Post
+		? $call( 'effective_translation_canonical_route', $legacy_translation, $language )
+		: array();
+	if (
+		! $legacy_translation instanceof WP_Post
+		|| ! empty( $legacy_mismatch_resolution['success'] )
+		|| 'canonical_route_observed_path_mismatch' !== (string) ( $legacy_mismatch_resolution['code'] ?? '' )
+		|| $runtime_localized_path !== (string) ( $legacy_mismatch_resolution['stored_localized_path'] ?? '' )
+		|| metadata_exists( 'post', $translation_id, '_devenia_translation_canonical_route_v1' )
+	) {
+		throw new RuntimeException( 'Legacy canonical route mismatch did not fail closed before staging: ' . wp_json_encode( $legacy_mismatch_resolution ) );
+	}
 	if ( ! $call( 'sync_translation_index_row', $translation_id ) ) {
 		throw new RuntimeException( 'Could not index the pre-existing public translation fixture.' );
 	}
@@ -484,6 +533,7 @@ try {
 	$submission_contract = $packet['packet']['submission_contract'] ?? array();
 	$artifact_schema_properties = $submission_contract['input_schema']['properties']['artifact']['properties'] ?? array();
 	$fragment_schema_properties = $artifact_schema_properties['localized_fragments']['items']['properties'] ?? array();
+	$expected_packet_link_url = isset( $links[0]['target_url'] ) ? (string) $links[0]['target_url'] : '';
 	if (
 		empty( $packet['success'] )
 		|| $translation_id !== absint( $packet['packet']['route']['existing']['translation_id'] ?? 0 )
@@ -491,9 +541,8 @@ try {
 		|| 1 !== count( $fragments )
 		|| false === stripos( (string) $fragments[0]['source_html'], '<strong>' )
 		|| 1 !== count( $links )
-		|| ! empty( $links[0]['published_target_available'] )
-		|| 'retain_source_url_until_localized_target_is_published' !== (string) ( $links[0]['policy'] ?? '' )
-		|| $linked_source_url !== (string) ( $links[0]['target_url'] ?? '' )
+		|| '' === $expected_packet_link_url
+		|| ! in_array( (string) ( $links[0]['policy'] ?? '' ), array( 'retain_source_url_until_localized_target_is_published', 'use_published_localized_target' ), true )
 		|| ! in_array( 'Google Search Console', (array) ( $language_profile['source_qa_preserve_terms'] ?? array() ), true )
 		|| 'devenia-workflow/translation-job-submit-artifact' !== (string) ( $submission_contract['ability'] ?? '' )
 		|| ! in_array( 'usage', (array) ( $submission_contract['input_schema']['required'] ?? array() ), true )
@@ -507,7 +556,7 @@ try {
 
 	$localized = array();
 	foreach ( $fragments as $fragment ) {
-		$localized[] = array( 'key' => (string) $fragment['key'], 'html' => '<strong>Nyttig innhold</strong><br>Les <a href="' . esc_url( $linked_source_url ) . '">den lenkede kilden</a>, og <a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.' );
+		$localized[] = array( 'key' => (string) $fragment['key'], 'html' => '<strong>Nyttig innhold</strong><br>Les <a href="' . esc_url( $expected_packet_link_url ) . '">den lenkede kilden</a>, og <a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.' );
 	}
 	$artifact = array(
 		'title' => 'Oversatt testside',
@@ -537,7 +586,7 @@ try {
 	if ( ! empty( $invalid_contact_submit['success'] ) || 'artifact_contact_action_not_localized' !== (string) ( $invalid_contact_submit['code'] ?? '' ) ) {
 		throw new RuntimeException( 'Source-language mailto query text was not rejected: ' . wp_json_encode( $invalid_contact_submit ) );
 	}
-	$invalid_artifact['localized_fragments'][0]['html'] = str_replace( $linked_source_url, home_url( '/invented-localized-route/' ), $invalid_artifact['localized_fragments'][0]['html'] );
+	$invalid_artifact['localized_fragments'][0]['html'] = str_replace( $expected_packet_link_url, home_url( '/invented-localized-route/' ), $invalid_artifact['localized_fragments'][0]['html'] );
 	$invalid_submit = $call(
 		'translation_job_submit_artifact',
 		array(
@@ -551,6 +600,61 @@ try {
 	if ( ! empty( $invalid_submit['success'] ) || 'artifact_link_policy_invalid' !== (string) ( $invalid_submit['code'] ?? '' ) ) {
 		throw new RuntimeException( 'Invented localized link was not rejected: ' . wp_json_encode( $invalid_submit ) );
 	}
+	$route_mismatch_job_before = maybe_serialize( get_option( 'devenia_workflow_translation_job_' . $job_id ) );
+	$route_mismatch_run_before = maybe_serialize( get_option( 'devenia_workflow_translation_run_' . $translator_run_id ) );
+	$route_mismatch_claim_before = maybe_serialize( get_option( 'devenia_workflow_translation_job_claim_' . $job_id ) );
+	$route_mismatch_submit = $call(
+		'translation_job_submit_artifact',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $translator_run_id,
+			'claim_token' => $translator_token,
+			'artifact' => $artifact,
+			'usage' => array( 'input_tokens' => 1200, 'cached_input_tokens' => 0, 'output_tokens' => 500, 'attempts' => 1, 'duration_ms' => 1000, 'estimated_cost_microusd' => 100 ),
+		)
+	);
+	if (
+		! empty( $route_mismatch_submit['success'] )
+		|| 'canonical_route_observed_path_mismatch' !== (string) ( $route_mismatch_submit['code'] ?? '' )
+		|| ! empty( $route_mismatch_submit['mutation_started'] )
+		|| $route_mismatch_job_before !== maybe_serialize( get_option( 'devenia_workflow_translation_job_' . $job_id ) )
+		|| $route_mismatch_run_before !== maybe_serialize( get_option( 'devenia_workflow_translation_run_' . $translator_run_id ) )
+		|| $route_mismatch_claim_before !== maybe_serialize( get_option( 'devenia_workflow_translation_job_claim_' . $job_id ) )
+		|| $pre_submit_surface_revision !== $call( 'translation_job_current_surface_revision', $translation_id )
+		|| metadata_exists( 'post', $translation_id, '_devenia_translation_canonical_route_v1' )
+	) {
+		throw new RuntimeException( 'Observed/stored route mismatch changed Job, Run, claim, artifact authority, or public state: ' . wp_json_encode( $route_mismatch_submit ) );
+	}
+
+	$runtime_page_link = static function ( string $url, int $post_id ) use ( &$translation_id, $language ): string {
+		if ( $post_id !== $translation_id ) {
+			return $url;
+		}
+		$post = get_post( $post_id );
+		return home_url( '/' . trim( $language . '/' . ( $post instanceof WP_Post ? $post->post_name : '' ), '/' ) . '/' );
+	};
+	add_filter( 'page_link', $runtime_page_link, 10, 2 );
+	$runtime_translation_url = (string) get_permalink( $translation_id );
+	if ( ! $call( 'sync_translation_index_row', $translation_id ) ) {
+		throw new RuntimeException( 'Could not resync the legacy translation index through the runtime route adapter.' );
+	}
+	$call( 'localized_internal_link_map', $language, true );
+	$call( 'localized_link_expected_target_map', $language, true );
+	$call( 'localized_link_module', $language, true );
+	$legacy_effective_resolution = $call( 'effective_translation_canonical_route', get_post( $translation_id ), $language );
+	$legacy_effective_resolution_repeat = $call( 'effective_translation_canonical_route', get_post( $translation_id ), $language );
+	$legacy_effective_route = (array) ( $legacy_effective_resolution['route'] ?? array() );
+	if (
+		empty( $legacy_effective_resolution['success'] )
+		|| $legacy_effective_resolution !== $legacy_effective_resolution_repeat
+		|| $runtime_localized_path !== (string) ( $legacy_effective_route['path'] ?? '' )
+		|| $runtime_translation_url !== (string) ( $legacy_effective_route['url'] ?? '' )
+		|| array_key_exists( 'established_at', $legacy_effective_route )
+		|| metadata_exists( 'post', $translation_id, '_devenia_translation_canonical_route_v1' )
+	) {
+		throw new RuntimeException( 'Matching observed and stored routes did not resolve one deterministic legacy contract: ' . wp_json_encode( $legacy_effective_resolution ) );
+	}
+
 	$submit = $call(
 		'translation_job_submit_artifact',
 		array(
@@ -573,6 +677,22 @@ try {
 	}
 	$artifact_revision = (string) $submit['artifact_revision'];
 	$option_keys[] = 'devenia_workflow_translation_artifact_' . $artifact_revision;
+	$legacy_staged_record = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . $artifact_revision ) );
+	if (
+		$legacy_effective_route !== (array) ( $legacy_staged_record['surface_manifest']['route']['canonical_route'] ?? array() )
+		|| metadata_exists( 'post', $translation_id, '_devenia_translation_canonical_route_v1' )
+	) {
+		throw new RuntimeException( 'Staging did not sign the deterministic legacy Canonical Route Contract without a public write: ' . wp_json_encode( $legacy_staged_record['surface_manifest']['route'] ?? array() ) );
+	}
+	$legacy_missing_meta_verification = $call(
+		'translation_job_verify_applied_surface',
+		get_post( $source_id ),
+		$translation_id,
+		(array) ( $legacy_staged_record['surface_manifest'] ?? array() )
+	);
+	if ( ! in_array( 'route_canonical', (array) ( $legacy_missing_meta_verification['failed'] ?? array() ), true ) ) {
+		throw new RuntimeException( 'Applied verification accepted an effective route that was not actually persisted.' );
+	}
 
 	// Dev does not have production language routing or localized menus. Build a
 	// bounded presentation fixture so fail-closed publication exercises the real
@@ -617,12 +737,18 @@ try {
 	update_option( 'devenia_workflow_language_registry', $runtime_languages, false );
 	Devenia_Workflow::languages( true );
 	$source_language_code = $call( 'source_language_code' );
+	$runtime_group_labels = array();
+	$runtime_source_labels = array();
+	foreach ( array_keys( Devenia_Workflow::languages() ) as $runtime_header_language ) {
+		$runtime_group_labels[ $runtime_header_language ] = $source_language_code === $runtime_header_language ? 'Runtime group' : 'Runtime group ' . $runtime_header_language;
+		$runtime_source_labels[ $runtime_header_language ] = $source_language_code === $runtime_header_language ? 'Runtime source' : 'Runtime source ' . $runtime_header_language;
+	}
 	$runtime_manifest = $call(
 		'update_public_header_manifest',
 		array(
 			'items' => array(
-				array( 'source_item_id' => (int) $runtime_source_menu_parent_id, 'type' => 'custom', 'title' => 'Runtime group', 'url' => home_url( '/' ), 'parent_source_item_id' => 0, 'position' => 1 ),
-				array( 'source_item_id' => (int) $runtime_source_menu_item_id, 'type' => 'page', 'title' => 'Runtime source', 'object_id' => $source_id, 'parent_source_item_id' => (int) $runtime_source_menu_parent_id, 'position' => 2 ),
+				array( 'source_item_id' => (int) $runtime_source_menu_parent_id, 'type' => 'custom', 'title' => 'Runtime group', 'labels' => $runtime_group_labels, 'url' => home_url( '/' ), 'parent_source_item_id' => 0, 'position' => 1 ),
+				array( 'source_item_id' => (int) $runtime_source_menu_item_id, 'type' => 'page', 'title' => 'Runtime source', 'labels' => $runtime_source_labels, 'object_id' => $source_id, 'parent_source_item_id' => (int) $runtime_source_menu_parent_id, 'position' => 2 ),
 			),
 		)
 	);
@@ -632,15 +758,6 @@ try {
 	$runtime_pending_manifest = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
 	update_option( 'devenia_workflow_public_header_manifest', $runtime_pending_manifest, false );
 
-	$runtime_page_link = static function ( string $url, int $post_id ) use ( &$translation_id, $language ): string {
-		if ( $post_id !== $translation_id ) {
-			return $url;
-		}
-		$post = get_post( $post_id );
-		return home_url( '/' . trim( $language . '/' . ( $post instanceof WP_Post ? $post->post_name : '' ), '/' ) . '/' );
-	};
-	add_filter( 'page_link', $runtime_page_link, 10, 2 );
-	$runtime_translation_url = (string) get_permalink( $translation_id );
 	$html_lang_method = new ReflectionMethod( Devenia_Workflow::class, 'html_lang_for_language' );
 	$html_lang_method->setAccessible( true );
 	$runtime_html_lang = (string) $html_lang_method->invoke( null, $language );
@@ -699,6 +816,47 @@ try {
 		throw new RuntimeException( 'Could not seed the runtime localized primary-menu identity: ' . wp_json_encode( $runtime_seed_menu ) );
 	}
 	$runtime_menu_ids[] = $runtime_seed_menu_id;
+
+	// A failure after the owner has backfilled the route must restore the exact
+	// legacy state, including absence of the route meta. This proves the
+	// deterministic backfill participates in the normal publication rollback.
+	$legacy_job_before_quality = get_option( 'devenia_workflow_translation_job_' . $job_id );
+	$legacy_rollback_snapshot = $call(
+		'translation_job_capture_surface_snapshot',
+		$translation_id,
+		(array) ( $legacy_staged_record['surface_manifest'] ?? array() ),
+		$call( 'translation_job_publication_identity_scope', (array) $legacy_job_before_quality )
+	);
+	if ( empty( $legacy_rollback_snapshot['snapshot_valid'] ) ) {
+		throw new RuntimeException( 'Could not capture the legacy canonical rollback fixture: ' . wp_json_encode( $legacy_rollback_snapshot ) );
+	}
+	$legacy_rollback_snapshot['mutation_started'] = true;
+	$legacy_backfilled_route = $call( 'store_translation_canonical_route', get_post( $translation_id ), $language );
+	$legacy_established_resolution = $call( 'effective_translation_canonical_route', get_post( $translation_id ), $language );
+	$legacy_established_route = (array) ( $legacy_established_resolution['route'] ?? array() );
+	if ( empty( $legacy_established_resolution['success'] ) || $legacy_effective_route !== $legacy_backfilled_route || $legacy_backfilled_route !== $legacy_established_route ) {
+		throw new RuntimeException( 'A newly established legacy route was not preserved exactly by the shared resolver.' );
+	}
+	$legacy_rollback_snapshot['rollback_expected_surface_revision'] = $call(
+		'translation_job_rollback_cas_revision',
+		$translation_id,
+		(array) ( $legacy_rollback_snapshot['term_scope'] ?? array() ),
+		(array) ( $legacy_rollback_snapshot['identity_scope'] ?? array() )
+	);
+	$legacy_rollback_result = $call(
+		'translation_job_publish_failure_with_rollback',
+		array( 'success' => false, 'code' => 'runtime_legacy_canonical_backfill_rollback', 'purge_urls' => array( $runtime_translation_url ) ),
+		$legacy_rollback_snapshot,
+		$translation_id
+	);
+	if (
+		empty( $legacy_rollback_result['rollback']['success'] )
+		|| metadata_exists( 'post', $translation_id, '_devenia_translation_canonical_route_v1' )
+		|| $runtime_localized_slug !== (string) get_post_field( 'post_name', $translation_id )
+		|| $runtime_translation_url !== (string) get_permalink( $translation_id )
+	) {
+		throw new RuntimeException( 'Legacy canonical backfill rollback did not restore exact absent meta and route identity: ' . wp_json_encode( $legacy_rollback_result ) );
+	}
 
 	$expired_quality_claim = $call(
 		'translation_job_claim',
@@ -1166,6 +1324,17 @@ try {
 	$runtime_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
 	$runtime_active_menu_id = absint( $runtime_identities[ $language ]['menu_id'] ?? 0 );
 	$published_concurrency_job = get_option( $attempt_limit_job_key );
+	$published_artifact_record = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . (string) ( $published_concurrency_job['artifact_revision'] ?? '' ) ) );
+	$published_signed_route = (array) ( $published_artifact_record['surface_manifest']['route']['canonical_route'] ?? array() );
+	$published_stored_route = get_post_meta( $translation_id, '_devenia_translation_canonical_route_v1', true );
+	$publication_invalidation_calls = array_values(
+		array_filter(
+			$cache_invalidation_calls,
+			static function ( array $entry ): bool {
+				return 'localized_presentation_publication' === (string) ( $entry['context']['event'] ?? '' );
+			}
+		)
+	);
 	if (
 		empty( $published['success'] )
 		|| 'translation_job_lifecycle_lease_conflict' !== (string) ( $publish_claim_probe['code'] ?? '' )
@@ -1176,9 +1345,13 @@ try {
 		|| $pre_publish_concurrency_quality !== (string) ( $published_concurrency_job['quality_revision'] ?? '' )
 		|| $pre_publish_concurrency_history !== maybe_serialize( $published_concurrency_job['surface_refresh_history'] ?? array() )
 		|| $runtime_active_menu_id < 1
-		|| empty( $cache_invalidation_calls )
-		|| 'localized_presentation_publication' !== (string) ( $cache_invalidation_calls[0]['context']['event'] ?? '' )
-		|| $job_id !== (string) ( $cache_invalidation_calls[0]['context']['job_id'] ?? '' )
+		|| empty( $publication_invalidation_calls )
+		|| $job_id !== (string) ( $publication_invalidation_calls[0]['context']['job_id'] ?? '' )
+		|| $legacy_effective_route !== $published_signed_route
+		|| $published_signed_route !== $published_stored_route
+		|| array_key_exists( 'established_at', $published_stored_route )
+		|| $runtime_localized_slug !== (string) get_post_field( 'post_name', $translation_id )
+		|| $runtime_translation_url !== (string) get_permalink( $translation_id )
 	) {
 		throw new RuntimeException( 'Publish-held lifecycle lease did not reject a concurrent translator claim while preserving final Job CAS: ' . wp_json_encode( array( 'published' => $published, 'concurrent_claim' => $publish_claim_probe, 'stored_job' => $published_concurrency_job, 'invalidation_calls' => $cache_invalidation_calls ) ) );
 	}
@@ -1915,6 +2088,10 @@ try {
 			'published_job_correction_remained_staged_during_quality_review' => true,
 			'published_job_correction_used_separate_writer_and_quality_principals' => true,
 			'published_job_route_preserved_during_correction' => true,
+			'canonical_route_mismatch_rejected_before_artifact_job_or_public_mutation' => true,
+			'nested_observed_wordpress_route_accepted_without_route_hardcoding' => true,
+			'legacy_canonical_route_staged_backfilled_verified_without_url_migration' => true,
+			'legacy_canonical_route_backfill_rollback_restored_absent_meta' => true,
 			'orphaned_quality_decision_recovered' => true,
 			'expired_run_finalized_before_reclaim' => true,
 			'expired_quality_run_does_not_consume_attempt' => true,
@@ -1988,6 +2165,14 @@ try {
 	}
 	if ( $translation_id > 0 ) {
 		wp_delete_post( $translation_id, true );
+	}
+	if ( $nested_route_translation_id > 0 ) {
+		wp_delete_post( $nested_route_translation_id, true );
+	}
+	foreach ( $nested_route_parent_ids as $nested_route_parent_id ) {
+		if ( $nested_route_parent_id > 0 ) {
+			wp_delete_post( $nested_route_parent_id, true );
+		}
 	}
 	if ( $source_id > 0 ) {
 		wp_delete_post( $source_id, true );

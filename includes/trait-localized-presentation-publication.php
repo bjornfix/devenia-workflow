@@ -130,12 +130,12 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	}
 
 	/** @param string[] $languages @return array<string,mixed> */
-	private static function verify_public_header_projection_set( array $languages, int $timeout ): array {
+	private static function verify_public_header_projection_set( array $languages, int $timeout, array $expected_navigation = array() ): array {
 		$items = array();
 		$passed = true;
 		foreach ( $languages as $language ) {
 			foreach ( array( 'homepage' => self::localized_home_url_for_language( (string) $language ), 'blog_archive' => self::public_blog_archive_url_for_language( (string) $language ) ) as $surface => $url ) {
-				$item = self::frontend_public_surface_integrity_for_url( (string) $url, (string) $language, $timeout, $surface );
+				$item = self::frontend_public_surface_integrity_for_url( (string) $url, (string) $language, $timeout, $surface, array(), (array) ( $expected_navigation[ (string) $language ] ?? array() ) );
 				$items[ (string) $language ][ $surface ] = $item;
 				$passed = $passed && ! empty( $item['passed'] ) && isset( $item['cache_responses']['origin'], $item['cache_responses']['canonical'] );
 			}
@@ -251,7 +251,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		if ( ! empty( $rollback['success'] ) ) {
 			$rollback_invalidation = apply_filters( 'devenia_workflow_frontend_cache_invalidation_result', null, $purge_urls, array( 'event' => 'public_header_projection_rollback', 'failed_code' => $code ) );
 			if ( is_array( $rollback_invalidation ) && true === ( $rollback_invalidation['success'] ?? null ) ) {
-				$rollback_verification = self::verify_public_header_projection_set( self::configured_public_header_languages(), absint( $input['timeout'] ?? 15 ) );
+				$rollback_verification = self::verify_public_header_projection_set( self::configured_public_header_languages(), absint( $input['timeout'] ?? 15 ), (array) ( $rollback_receipts['expected_navigation'] ?? array() ) );
 			}
 		}
 		$rollback_complete = ! empty( $rollback['success'] ) && is_array( $rollback_invalidation ) && true === ( $rollback_invalidation['success'] ?? null ) && ! empty( $rollback_verification['passed'] );
@@ -271,6 +271,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		}
 
 		$projections = array();
+		$expected_navigation = array();
 		foreach ( self::configured_public_header_languages() as $language ) {
 			$projection = isset( $staged[ $language ] ) && is_array( $staged[ $language ] ) ? $staged[ $language ] : array();
 			$menu_id    = absint( $projection['previous_menu_id'] ?? 0 );
@@ -283,9 +284,33 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				'menu_surface_revision'=> $receipt,
 				'manifest_revision'    => (string) $before_manifest['revision'],
 			);
+			$navigation = self::public_header_navigation_snapshot_from_menu( $menu_id );
+			if ( empty( $navigation ) ) {
+				return array( 'success' => false, 'code' => 'public_header_rollback_navigation_snapshot_missing', 'language' => $language );
+			}
+			$expected_navigation[ $language ] = $navigation;
 		}
 
-		return array( 'success' => true, 'projections' => $projections );
+		return array( 'success' => true, 'projections' => $projections, 'manifest_schema_version' => absint( $before_manifest['schema_version'] ?? 0 ), 'expected_navigation' => $expected_navigation );
+	}
+
+	/**
+	 * Capture the exact stored navigation protected by a menu surface receipt.
+	 * This versioned rollback authority lets schema-1 state verify without
+	 * inventing schema-2 labels during recovery.
+	 *
+	 * @return array<int,array{title:string,url:string}>
+	 */
+	private static function public_header_navigation_snapshot_from_menu( int $menu_id ): array {
+		$items = wp_get_nav_menu_items( $menu_id, array( 'orderby' => 'menu_order' ) ) ?: array();
+		$expected = array();
+		foreach ( self::localized_menu_items_in_render_order( $items ) as $item ) {
+			$title = trim( html_entity_decode( wp_strip_all_tags( (string) ( $item->title ?? '' ) ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ) );
+			$url = self::normalize_primary_navigation_url( (string) ( $item->url ?? '' ) );
+			if ( '' === $title || '' === $url ) { return array(); }
+			$expected[] = array( 'title' => $title, 'url' => $url );
+		}
+		return $expected;
 	}
 
 	/** Attach a verified all-language header rollback to a later content failure. */
@@ -720,6 +745,187 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	}
 
 	/**
+	 * Snapshot established pre-managed menu labels into a complete schema-2
+	 * manifest draft. Raw WordPress menus are accepted only as one-time
+	 * migration input; the returned/staged manifest becomes the authority.
+	 *
+	 * @param array<string,mixed> $input Migration arguments.
+	 * @return array<string,mixed>
+	 */
+	private static function migrate_public_header_label_authority( array $input ): array {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return self::error( 'Public header label-authority migration requires manage_options.' );
+		}
+		$active = self::public_header_manifest();
+		if ( empty( $active ) || 1 !== absint( $active['schema_version'] ?? 0 ) ) {
+			return array( 'success' => false, 'code' => 'public_header_legacy_manifest_missing', 'message' => 'Label-authority migration requires one valid active schema-1 manifest.' );
+		}
+
+		$languages = self::languages();
+		$configured_languages = self::configured_public_header_languages();
+		$known = array();
+		foreach ( (array) ( $input['authority_menus'] ?? array() ) as $row ) {
+			if ( ! is_array( $row ) ) { continue; }
+			$language = sanitize_key( (string) ( $row['language'] ?? '' ) );
+			$menu_id = absint( $row['menu_id'] ?? 0 );
+			if ( '' === $language || ! in_array( $language, $configured_languages, true ) || $menu_id < 1 ) {
+				return array( 'success' => false, 'code' => 'public_header_label_authority_menu_invalid', 'message' => 'Known authority-menu identities must be configured language/menu pairs.' );
+			}
+			$known[ $language ][] = $menu_id;
+		}
+
+		$identities = get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, array() );
+		$identities = is_array( $identities ) ? $identities : array();
+		$labels_by_item = array();
+		$authority = array();
+		$missing = array();
+		$generated_drift = array();
+		foreach ( $configured_languages as $language ) {
+			$config = isset( $languages[ $language ] ) && is_array( $languages[ $language ] ) ? $languages[ $language ] : array();
+			$candidate_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) ( $known[ $language ] ?? array() ) ) ) ) );
+			$name = sanitize_text_field( (string) ( $config['menu_name'] ?? '' ) );
+			$configured_menu = '' !== $name ? wp_get_nav_menu_object( $name ) : false;
+			$configured_menu_id = $configured_menu ? absint( $configured_menu->term_id ?? 0 ) : 0;
+			if ( $configured_menu_id > 0 ) { $candidate_ids[] = $configured_menu_id; }
+			foreach ( wp_get_nav_menus() as $retained_menu ) {
+				if ( is_object( $retained_menu ) && ! empty( $retained_menu->term_id ) ) { $candidate_ids[] = absint( $retained_menu->term_id ); }
+			}
+			$candidate_ids = array_values( array_unique( array_filter( $candidate_ids ) ) );
+			$current_managed_id = absint( $identities[ $language ]['menu_id'] ?? 0 );
+			$candidate_snapshots = array();
+			foreach ( $candidate_ids as $menu_id ) {
+				$menu = wp_get_nav_menu_object( $menu_id );
+				$is_explicit = in_array( $menu_id, (array) ( $known[ $language ] ?? array() ), true );
+				$managed_language = sanitize_key( (string) get_term_meta( $menu_id, self::TERM_META_MENU_LANGUAGE, true ) );
+				if ( ! $menu || ( '' !== $managed_language && $managed_language !== $language ) || ( ! $is_explicit && $menu_id === $current_managed_id && '1' === (string) get_term_meta( $menu_id, self::TERM_META_MENU_MANAGED, true ) ) ) { continue; }
+				$snapshot = self::public_header_editorial_label_snapshot( $language, $menu_id, (array) $active['items'] );
+				if ( ! empty( $snapshot['success'] ) ) {
+					$resolved_from = $is_explicit ? 'known_identity' : ( $menu_id === $configured_menu_id ? 'configured_name' : 'retained_relation_match' );
+					$candidate_snapshots[] = array( 'menu_id' => $menu_id, 'menu_name' => (string) $menu->name, 'resolved_from' => $resolved_from, 'surface_revision' => self::localized_menu_projection_revision( $menu_id ), 'labels' => (array) $snapshot['labels'] );
+				}
+			}
+			if ( count( $candidate_snapshots ) < 2 ) {
+				$missing[] = array( 'language' => $language, 'reason' => empty( $candidate_snapshots ) ? 'authority_menu_missing_or_incomplete' : 'insufficient_independent_authority_candidates', 'candidate_menu_ids' => array_values( array_map( static function ( array $candidate ): int { return (int) $candidate['menu_id']; }, $candidate_snapshots ) ) );
+				continue;
+			}
+			$canonical_labels = self::translation_job_canonicalize( (array) $candidate_snapshots[0]['labels'] );
+			$conflicting = array_values( array_filter( $candidate_snapshots, static function ( array $candidate ) use ( $canonical_labels ): bool { return self::translation_job_canonicalize( (array) $candidate['labels'] ) !== $canonical_labels; } ) );
+			if ( ! empty( $conflicting ) ) {
+				$missing[] = array( 'language' => $language, 'reason' => 'authority_candidate_conflict', 'candidate_menu_ids' => array_values( array_map( static function ( array $candidate ): int { return (int) $candidate['menu_id']; }, $candidate_snapshots ) ) );
+				continue;
+			}
+			$snapshot = $candidate_snapshots[0];
+			$authority[ $language ] = array( 'confidence' => 'identical_retained_candidates', 'candidates' => $candidate_snapshots );
+			foreach ( (array) $snapshot['labels'] as $source_item_id => $label ) {
+				$labels_by_item[ (int) $source_item_id ][ $language ] = (string) $label;
+			}
+			$active_menu_id = absint( $identities[ $language ]['menu_id'] ?? 0 );
+			$active_labels = $active_menu_id > 0 ? self::existing_menu_label_map( $active_menu_id ) : array();
+			foreach ( (array) $snapshot['labels'] as $source_item_id => $label ) {
+				$current_label = sanitize_text_field( (string) ( $active_labels['by_source_item'][ (int) $source_item_id ] ?? '' ) );
+				if ( '' !== $current_label && $current_label !== (string) $label ) {
+					$generated_drift[] = array( 'language' => $language, 'source_item_id' => (int) $source_item_id, 'current_managed_label' => $current_label, 'authority_label' => (string) $label );
+				}
+			}
+		}
+		if ( ! empty( $missing ) ) {
+			return array( 'success' => false, 'code' => 'public_header_label_authority_incomplete', 'message' => 'Established editorial labels could not be proven for every stable source-item identity and configured language.', 'missing' => $missing, 'authority' => $authority, 'generated_label_drift' => $generated_drift );
+		}
+
+		$items = array();
+		$source_language = self::source_language_code();
+		foreach ( (array) $active['items'] as $item ) {
+			$source_item_id = absint( $item['source_item_id'] ?? 0 );
+			$item['labels'] = (array) ( $labels_by_item[ $source_item_id ] ?? array() );
+			$item['title'] = sanitize_text_field( (string) ( $item['labels'][ $source_language ] ?? '' ) );
+			$items[] = $item;
+		}
+		$normalized = self::normalize_public_header_manifest_items( $items, true );
+		if ( empty( $normalized['success'] ) ) {
+			return array_merge( $normalized, array( 'authority' => $authority, 'generated_label_drift' => $generated_drift ) );
+		}
+		$draft = array( 'schema_version' => 2, 'source_language' => $source_language, 'revision' => self::public_header_manifest_revision_for_items( (array) $normalized['items'] ), 'items' => (array) $normalized['items'] );
+		$result = array( 'success' => true, 'staged' => false, 'draft' => $draft, 'authority' => $authority, 'generated_label_drift' => $generated_drift );
+		if ( ! empty( $input['stage'] ) ) {
+			$staged = self::update_public_header_manifest( array( 'items' => $draft['items'] ) );
+			$result['staged'] = ! empty( $staged['success'] ) && ! empty( $staged['pending'] );
+			$result['stage_result'] = $staged;
+			$result['success'] = ! empty( $staged['success'] );
+		}
+		return $result;
+	}
+
+	/**
+	 * Map one established WordPress menu to stable manifest item identities.
+	 * No content title participates in this Adapter.
+	 *
+	 * @param array<int,array<string,mixed>> $manifest_items Legacy manifest rows.
+	 * @return array<string,mixed>
+	 */
+	private static function public_header_editorial_label_snapshot( string $language, int $menu_id, array $manifest_items ): array {
+		$items = wp_get_nav_menu_items( $menu_id, array( 'orderby' => 'menu_order' ) ) ?: array();
+		$matched = array();
+		$used = array();
+		$missing = array();
+		$is_source = self::source_language_code() === sanitize_key( $language );
+		foreach ( $manifest_items as $manifest_item ) {
+			$source_item_id = absint( $manifest_item['source_item_id'] ?? 0 );
+			$type = sanitize_key( (string) ( $manifest_item['type'] ?? '' ) );
+			$candidates = array();
+			$expected_object_id = 0;
+			$expected_url = '';
+			if ( 'page' === $type ) {
+				$source_object_id = absint( $manifest_item['object_id'] ?? 0 );
+				$expected_object_id = $is_source ? $source_object_id : self::find_translation_id( $source_object_id, $language, array( 'publish' ) );
+			} else {
+				$expected_url = (string) ( $manifest_item['url'] ?? '' );
+				if ( ! $is_source ) {
+					$localized = self::localized_internal_link_target( $expected_url, self::localized_internal_link_map( $language ) );
+					$expected_url = $localized ?: $expected_url;
+				}
+				$expected_url = self::normalize_primary_navigation_url( $expected_url );
+			}
+			foreach ( $items as $item ) {
+				if ( ! is_object( $item ) || isset( $used[ (int) $item->ID ] ) ) { continue; }
+				$stable_id = absint( get_post_meta( (int) $item->ID, self::MENU_ITEM_META_SOURCE_ITEM_ID, true ) );
+				$matches_stable = $stable_id > 0 && $stable_id === $source_item_id;
+				$matches_page = 'page' === $type && $expected_object_id > 0 && 'post_type' === (string) ( $item->type ?? '' ) && 'page' === (string) ( $item->object ?? '' ) && $expected_object_id === absint( $item->object_id ?? 0 );
+				$matches_custom = 'custom' === $type && 'custom' === (string) ( $item->type ?? '' ) && '' !== $expected_url && $expected_url === self::normalize_primary_navigation_url( (string) ( $item->url ?? '' ) );
+				if ( $matches_stable || $matches_page || $matches_custom ) { $candidates[] = $item; }
+			}
+			if ( 1 !== count( $candidates ) ) {
+				$missing[] = array( 'source_item_id' => $source_item_id, 'reason' => empty( $candidates ) ? 'stable_item_not_found' : 'stable_item_ambiguous', 'candidate_count' => count( $candidates ) );
+				continue;
+			}
+			$item = $candidates[0];
+			$label = sanitize_text_field( (string) ( $item->title ?? '' ) );
+			if ( '' === $label ) {
+				$missing[] = array( 'source_item_id' => $source_item_id, 'reason' => 'editorial_label_empty' );
+				continue;
+			}
+			$used[ (int) $item->ID ] = true;
+			$matched[ $source_item_id ] = array( 'item' => $item, 'label' => $label );
+		}
+		foreach ( $manifest_items as $manifest_item ) {
+			$source_item_id = absint( $manifest_item['source_item_id'] ?? 0 );
+			$expected_parent = absint( $manifest_item['parent_source_item_id'] ?? 0 );
+			if ( ! isset( $matched[ $source_item_id ] ) ) { continue; }
+			$actual_parent_item_id = absint( $matched[ $source_item_id ]['item']->menu_item_parent ?? 0 );
+			$actual_parent_source_id = 0;
+			foreach ( $matched as $candidate_source_id => $candidate ) {
+				if ( absint( $candidate['item']->ID ?? 0 ) === $actual_parent_item_id ) { $actual_parent_source_id = (int) $candidate_source_id; break; }
+			}
+			if ( $actual_parent_source_id !== $expected_parent ) {
+				$missing[] = array( 'source_item_id' => $source_item_id, 'reason' => 'parent_identity_mismatch', 'expected_parent_source_item_id' => $expected_parent, 'actual_parent_source_item_id' => $actual_parent_source_id );
+			}
+		}
+		if ( ! empty( $missing ) ) { return array( 'success' => false, 'code' => 'public_header_label_authority_items_incomplete', 'missing' => $missing ); }
+		$labels = array();
+		foreach ( $matched as $source_item_id => $row ) { $labels[ (int) $source_item_id ] = (string) $row['label']; }
+		return array( 'success' => true, 'labels' => $labels );
+	}
+
+	/**
 	 * Register the complete source navigation manifest used by every Public
 	 * Header Projection. The active WordPress menu is deliberately not read:
 	 * it is a rendered Adapter, never the expectation oracle.
@@ -732,7 +938,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			return self::error( 'Public header manifest updates require manage_options.' );
 		}
 
-		$normalized = self::normalize_public_header_manifest_items( $input['items'] ?? array() );
+		$normalized = self::normalize_public_header_manifest_items( $input['items'] ?? array(), true );
 		if ( empty( $normalized['success'] ) ) {
 			return $normalized;
 		}
@@ -750,7 +956,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			return array( 'success' => true, 'source_language' => self::source_language_code(), 'revision' => $revision, 'item_count' => count( $items ), 'unchanged' => true, 'pending' => false, 'cancelled_pending' => $missing !== $pending_before, 'message' => 'The active Public Header Projection manifest is current and any different pending revision was cancelled.' );
 		}
 		$manifest = array(
-			'schema_version'  => 1,
+			'schema_version'  => 2,
 			'source_language' => self::source_language_code(),
 			'revision'        => $revision,
 			'items'           => $items,
@@ -802,10 +1008,14 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 
 	/** Normalize one stored manifest without consulting rendered menu state. */
 	private static function normalize_public_header_manifest( $manifest ): array {
-		if ( ! is_array( $manifest ) || 1 !== absint( $manifest['schema_version'] ?? 0 ) || self::source_language_code() !== sanitize_key( (string) ( $manifest['source_language'] ?? '' ) ) ) {
+		if ( ! is_array( $manifest ) ) {
 			return array();
 		}
-		$normalized = self::normalize_public_header_manifest_items( $manifest['items'] ?? array() );
+		$schema_version = absint( $manifest['schema_version'] ?? 0 );
+		if ( ! in_array( $schema_version, array( 1, 2 ), true ) || self::source_language_code() !== sanitize_key( (string) ( $manifest['source_language'] ?? '' ) ) ) {
+			return array();
+		}
+		$normalized = self::normalize_public_header_manifest_items( $manifest['items'] ?? array(), 2 === $schema_version );
 		if ( empty( $normalized['success'] ) ) {
 			return array();
 		}
@@ -824,12 +1034,14 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	 * @param mixed $raw_items Manifest items.
 	 * @return array<string,mixed>
 	 */
-	private static function normalize_public_header_manifest_items( $raw_items ): array {
+	private static function normalize_public_header_manifest_items( $raw_items, bool $require_label_authority = false ): array {
 		if ( ! is_array( $raw_items ) || empty( $raw_items ) ) {
 			return array( 'success' => false, 'code' => 'public_header_manifest_empty', 'message' => 'The Public Header Projection manifest must contain at least one item.' );
 		}
 
 		$items = array();
+		$configured_languages = array_keys( self::languages() );
+		$source_language = self::source_language_code();
 		foreach ( $raw_items as $raw ) {
 			if ( ! is_array( $raw ) ) {
 				return array( 'success' => false, 'code' => 'public_header_manifest_item_invalid', 'message' => 'Every Public Header Projection manifest item must be an object.' );
@@ -849,6 +1061,28 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				'parent_source_item_id' => $parent,
 				'position'              => $position,
 			);
+			$labels = array();
+			if ( isset( $raw['labels'] ) && is_array( $raw['labels'] ) ) {
+				foreach ( $raw['labels'] as $label_language => $label ) {
+					$label_language = sanitize_key( (string) $label_language );
+					$label = is_scalar( $label ) ? sanitize_text_field( (string) $label ) : '';
+					if ( '' === $label_language || ! in_array( $label_language, $configured_languages, true ) || '' === $label ) {
+						return array( 'success' => false, 'code' => 'public_header_label_authority_invalid', 'message' => 'Every editorial menu label must bind one configured language to one non-empty label.', 'source_item_id' => $id );
+					}
+					$labels[ $label_language ] = $label;
+				}
+			}
+			if ( $require_label_authority ) {
+				$missing_languages = array_values( array_diff( $configured_languages, array_keys( $labels ) ) );
+				if ( ! empty( $missing_languages ) || ! isset( $labels[ $source_language ] ) || $title !== (string) $labels[ $source_language ] ) {
+					return array( 'success' => false, 'code' => 'public_header_label_authority_missing', 'message' => 'Every manifest item requires an exact editorial label for the source and every configured target language; page titles are not label authority.', 'source_item_id' => $id, 'missing_languages' => $missing_languages );
+				}
+				ksort( $labels );
+				$item['labels'] = $labels;
+			} elseif ( ! empty( $labels ) ) {
+				ksort( $labels );
+				$item['labels'] = $labels;
+			}
 			if ( 'page' === $type ) {
 				$object_id = absint( $raw['object_id'] ?? 0 );
 				$post      = $object_id ? get_post( $object_id ) : null;
@@ -918,6 +1152,11 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$rows      = array();
 		$skipped   = array();
 		foreach ( (array) $manifest['items'] as $item ) {
+			$label = sanitize_text_field( (string) ( $item['labels'][ $language ] ?? '' ) );
+			if ( '' === $label ) {
+				$skipped[] = array( 'source_item_id' => absint( $item['source_item_id'] ?? 0 ), 'reason' => 'missing_editorial_label_authority', 'language' => $language );
+				continue;
+			}
 			$source_item = (object) array(
 				'ID'               => absint( $item['source_item_id'] ?? 0 ),
 				'title'            => (string) ( $item['title'] ?? '' ),
@@ -938,9 +1177,8 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 					$skipped[] = array( 'source_item_id' => (int) $source_item->ID, 'source_page_id' => (int) $source_item->object_id, 'title' => (string) $source_item->title, 'reason' => 'missing_published_translation' );
 					continue;
 				}
-				$fallback = $is_source ? (string) $source_item->title : (string) get_the_title( $object_id );
 				$args = array(
-					'menu-item-title'     => self::localized_menu_item_title( $source_item, $language, $fallback ),
+					'menu-item-title'     => $label,
 					'menu-item-object'    => 'page',
 					'menu-item-object-id' => $object_id,
 					'menu-item-type'      => 'post_type',
@@ -954,7 +1192,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 					$url = $localized_url ?: $url;
 				}
 				$args = array(
-					'menu-item-title'     => self::localized_menu_item_title( $source_item, $language, (string) $source_item->title ),
+					'menu-item-title'     => $label,
 					'menu-item-url'       => $url,
 					'menu-item-type'      => 'custom',
 					'menu-item-status'    => 'publish',
@@ -1316,7 +1554,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function frontend_public_surface_integrity_for_url( string $url, string $language, int $timeout = 15, string $surface = 'public', array $expected_media = array() ): array {
+	private static function frontend_public_surface_integrity_for_url( string $url, string $language, int $timeout = 15, string $surface = 'public', array $expected_media = array(), array $expected_navigation = array() ): array {
 		$url       = esc_url_raw( $url );
 		$language  = sanitize_key( $language );
 		$issues    = array();
@@ -1343,7 +1581,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 					continue;
 				}
 				$issues = array_merge( $issues, self::frontend_public_surface_html_issues( $body, $language, $final_url, $surface . '_' . $cache_surface ) );
-				$issues = array_merge( $issues, self::localized_primary_navigation_html_issues( $body, $language, $url, $cache_surface ) );
+				$issues = array_merge( $issues, self::localized_primary_navigation_html_issues( $body, $language, $url, $cache_surface, $expected_navigation ) );
 				if ( $expected_media ) {
 					$issues = array_merge( $issues, self::frontend_featured_image_html_issues( $body, $expected_media, $url, $cache_surface ) );
 				}
@@ -1535,8 +1773,8 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	 *
 	 * @return array<int,array<string,mixed>>
 	 */
-	private static function localized_primary_navigation_html_issues( string $html, string $language, string $url, string $cache_surface ): array {
-		$expected = self::expected_localized_primary_navigation( $language );
+	private static function localized_primary_navigation_html_issues( string $html, string $language, string $url, string $cache_surface, array $expected_navigation = array() ): array {
+		$expected = ! empty( $expected_navigation ) ? array_values( $expected_navigation ) : self::expected_localized_primary_navigation( $language );
 		if ( empty( $expected ) ) {
 			return array( self::qa_item( 'frontend_primary_menu_identity_missing', 'No authoritative localized primary-menu identity is configured.', array( 'language' => $language, 'url' => $url, 'cache_surface' => $cache_surface ) ) );
 		}

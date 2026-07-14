@@ -10,6 +10,9 @@ $user_before = get_current_user_id();
 $posts = array(); $menus = array(); $filters = array(); $error = null; $result = null;
 $failure_mode = '';
 $failure_injected = false;
+$verification_fault_remaining = 0;
+$verification_fault_revision = '';
+$verification_rollback_observations = array();
 $staged_race_menu_id = 0;
 
 try {
@@ -51,22 +54,25 @@ try {
 
 	$urls = array( untrailingslashit( home_url( '/' ) ) => $source_language, untrailingslashit( (string) get_permalink( $source_blog ) ) => $source_language );
 	foreach ( $translated as $language => $ids ) { $urls[ untrailingslashit( (string) get_permalink( $ids['home'] ) ) ] = $language; $urls[ untrailingslashit( (string) get_permalink( $ids['blog'] ) ) ] = $language; }
-	$http = static function ( $preempt, array $args, string $url ) use ( &$failure_mode, $urls, $call, $source_language ) {
+	$http = static function ( $preempt, array $args, string $url ) use ( &$failure_mode, &$verification_fault_remaining, &$verification_fault_revision, &$verification_rollback_observations, $urls, $call, $source_language ) {
 		$canonical = untrailingslashit( (string) strtok( $url, '?' ) ); $language = $urls[ $canonical ] ?? ''; if ( '' === $language ) { return $preempt; }
 		$active = get_option( 'devenia_workflow_public_header_manifest', array() ); $revision = (string) ( $active['revision'] ?? '' );
 		$languages = Devenia_Workflow::languages( true );
 		$prefix = sanitize_key( (string) ( $languages[ $language ]['prefix'] ?? '' ) );
 		$request_before = $_SERVER['REQUEST_URI'] ?? '/';
 		$_SERVER['REQUEST_URI'] = $source_language === $language || '' === $prefix ? '/' : '/' . $prefix . '/fixture/';
-		if ( 'verification_fail' === $failure_mode && '' !== $revision && false !== strpos( (string) ( $active['items'][0]['title'] ?? '' ), 'Pending' ) ) { $navigation = '<a href="' . esc_url( home_url( '/wrong/' ) ) . '">Wrong</a>'; }
+		if ( 'verification_fail' === $failure_mode && $verification_fault_remaining > 0 && '' !== $verification_fault_revision && hash_equals( $verification_fault_revision, $revision ) ) { --$verification_fault_remaining; $navigation = '<a href="' . esc_url( home_url( '/wrong/' ) ) . '">Wrong</a>'; }
 		else {
 			$identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
 			$menu_id = absint( is_array( $identities ) ? ( $identities[ $language ]['menu_id'] ?? 0 ) : 0 );
+			if ( 'verification_fail' === $failure_mode && 0 === $verification_fault_remaining && '' !== $verification_fault_revision && ! hash_equals( $verification_fault_revision, $revision ) ) {
+				$verification_rollback_observations[] = array( 'language' => $language, 'schema_version' => (int) ( $active['schema_version'] ?? 0 ), 'manifest_revision' => $revision, 'identity_revision' => (string) ( $identities[ $language ]['manifest_revision'] ?? '' ) );
+			}
 			$menu_args = $source_language === $language
 				? array( 'theme_location' => 'primary', 'container' => false, 'echo' => false, 'fallback_cb' => false, 'items_wrap' => '%3$s' )
 				: array( 'menu' => $menu_id, 'container' => false, 'echo' => false, 'fallback_cb' => false, 'items_wrap' => '%3$s' );
 			$navigation = (string) wp_nav_menu( $menu_args );
-			if ( 'verification_extra_anchor' === $failure_mode && '' !== $revision && false !== strpos( (string) ( $active['items'][0]['title'] ?? '' ), 'Pending' ) ) { $navigation .= '<a href="' . esc_url( home_url( '/unexpected/' ) ) . '">Unexpected</a>'; }
+			if ( 'verification_extra_anchor' === $failure_mode && $verification_fault_remaining > 0 ) { --$verification_fault_remaining; $navigation .= '<a href="' . esc_url( home_url( '/unexpected/' ) ) . '">Unexpected</a>'; }
 		}
 		$_SERVER['REQUEST_URI'] = $request_before;
 		$lang = (string) $call( 'html_lang_for_language', $language ); $href = (string) $call( 'hreflang_for_language', $language );
@@ -110,12 +116,110 @@ try {
 	};
 	add_filter( 'devenia_workflow_public_header_projection_retirement_result', $retirement, 10, 2 ); $filters[] = array( 'devenia_workflow_public_header_projection_retirement_result', $retirement, 10 );
 
-	$manifest_items = static function ( string $prefix ) use ( $source_home, $source_blog ): array { return array(
-		array( 'source_item_id' => 800001, 'type' => 'page', 'title' => $prefix . ' home', 'object_id' => $source_home, 'parent_source_item_id' => 0, 'position' => 1 ),
-		array( 'source_item_id' => 800002, 'type' => 'page', 'title' => $prefix . ' blog', 'object_id' => $source_blog, 'parent_source_item_id' => 0, 'position' => 2 ),
+	$all_languages = array_merge( array( $source_language ), $targets );
+	$editorial_labels = static function ( string $prefix, string $item ) use ( $all_languages, $source_language ): array {
+		$labels = array();
+		foreach ( $all_languages as $language ) {
+			$labels[ $language ] = $source_language === $language
+				? $prefix . ' short ' . $item
+				: $prefix . ' ' . $language . ' editorial ' . $item;
+		}
+		return $labels;
+	};
+	$manifest_items = static function ( string $prefix ) use ( $source_home, $source_blog, $editorial_labels ): array { return array(
+		array( 'source_item_id' => 800001, 'type' => 'page', 'title' => $prefix . ' short home', 'labels' => $editorial_labels( $prefix, 'home' ), 'object_id' => $source_home, 'parent_source_item_id' => 0, 'position' => 1 ),
+		array( 'source_item_id' => 800003, 'type' => 'custom', 'title' => $prefix . ' short help', 'labels' => $editorial_labels( $prefix, 'help' ), 'url' => 'https://example.org/help/', 'parent_source_item_id' => 800001, 'position' => 2 ),
+		array( 'source_item_id' => 800002, 'type' => 'page', 'title' => $prefix . ' short blog', 'labels' => $editorial_labels( $prefix, 'blog' ), 'object_id' => $source_blog, 'parent_source_item_id' => 0, 'position' => 3 ),
 	); };
+
+	// Begin with the production-like 0.1.612 state: an enrolled schema-1
+	// manifest points at managed menus which already store short editorial
+	// labels, while mutable runtime text contains long page-title replacements.
+	$legacy_items = $manifest_items( 'Legacy' );
+	foreach ( $legacy_items as &$legacy_item ) { unset( $legacy_item['labels'] ); }
+	unset( $legacy_item );
+	$legacy_revision = (string) $call( 'public_header_manifest_revision_for_items', $legacy_items );
+	$legacy_manifest = array( 'schema_version' => 1, 'source_language' => $source_language, 'revision' => $legacy_revision, 'items' => $legacy_items, 'updated_at' => gmdate( 'c' ) );
+	$legacy_identities = array();
+	$conflicting_authority_menu_id = 0;
+	foreach ( $all_languages as $language ) {
+		$labels_home = $editorial_labels( 'Legacy', 'home' );
+		$labels_help = $editorial_labels( 'Legacy', 'help' );
+		$labels_blog = $editorial_labels( 'Legacy', 'blog' );
+		$object_home = $source_language === $language ? $source_home : (int) $translated[ $language ]['home'];
+		$object_blog = $source_language === $language ? $source_blog : (int) $translated[ $language ]['blog'];
+		$create_legacy_menu = static function ( string $name, bool $managed ) use ( &$menus, $language, $labels_home, $labels_help, $labels_blog, $object_home, $object_blog, $legacy_revision ): int {
+			$menu_id = wp_create_nav_menu( $name ); if ( is_wp_error( $menu_id ) ) { throw new RuntimeException( $menu_id->get_error_message() ); } $menus[] = (int) $menu_id;
+			$home_item = wp_update_nav_menu_item( (int) $menu_id, 0, array( 'menu-item-title' => $labels_home[ $language ], 'menu-item-object' => 'page', 'menu-item-object-id' => $object_home, 'menu-item-type' => 'post_type', 'menu-item-status' => 'publish', 'menu-item-position' => 1 ) );
+			$help_item = wp_update_nav_menu_item( (int) $menu_id, 0, array( 'menu-item-title' => $labels_help[ $language ], 'menu-item-url' => 'https://example.org/help/', 'menu-item-type' => 'custom', 'menu-item-status' => 'publish', 'menu-item-parent-id' => (int) $home_item, 'menu-item-position' => 2 ) );
+			$blog_item = wp_update_nav_menu_item( (int) $menu_id, 0, array( 'menu-item-title' => $labels_blog[ $language ], 'menu-item-object' => 'page', 'menu-item-object-id' => $object_blog, 'menu-item-type' => 'post_type', 'menu-item-status' => 'publish', 'menu-item-position' => 3 ) );
+			if ( is_wp_error( $home_item ) || is_wp_error( $help_item ) || is_wp_error( $blog_item ) ) { throw new RuntimeException( 'Could not build legacy editorial menu.' ); }
+			if ( $managed ) {
+				update_term_meta( (int) $menu_id, '_devenia_workflow_localized_menu_managed', '1' );
+				update_term_meta( (int) $menu_id, '_devenia_workflow_localized_menu_language', $language );
+				update_term_meta( (int) $menu_id, '_devenia_workflow_public_header_manifest_revision', $legacy_revision );
+				foreach ( array( (int) $home_item => 800001, (int) $help_item => 800003, (int) $blog_item => 800002 ) as $item_id => $source_item_id ) { update_post_meta( $item_id, '_devenia_translation_source_menu_item_id', $source_item_id ); }
+			}
+			return (int) $menu_id;
+		};
+		$authority_menu_id = $create_legacy_menu( (string) $registry[ $language ]['menu_name'], false );
+		$create_legacy_menu( 'Retained editorial ' . $language . ' ' . $token, false );
+		if ( $language === $targets[0] ) {
+			$conflicting_authority_menu_id = $create_legacy_menu( 'Conflicting editorial ' . $language . ' ' . $token, false );
+			$conflicting_items = wp_get_nav_menu_items( $conflicting_authority_menu_id, array( 'orderby' => 'menu_order' ) ) ?: array();
+			if ( empty( $conflicting_items ) || is_wp_error( wp_update_post( array( 'ID' => (int) $conflicting_items[0]->ID, 'post_title' => 'Conflicting retained label' ), true ) ) ) { throw new RuntimeException( 'Could not create conflicting retained-label fixture.' ); }
+		}
+		$managed_menu_id = $create_legacy_menu( 'Legacy managed ' . $language . ' ' . $token, true );
+		$legacy_identities[ $language ] = array( 'menu_id' => $managed_menu_id, 'configured_name' => (string) $registry[ $language ]['menu_name'], 'manifest_revision' => $legacy_revision );
+	}
+	$legacy_pending = array( 'status' => 'activated', 'revision' => $legacy_revision, 'activated_at' => 'legacy-fixture' );
+	update_option( 'devenia_workflow_public_header_manifest', $legacy_manifest, false );
+	update_option( 'devenia_workflow_localized_menu_identities', $legacy_identities, false );
+	update_option( 'devenia_workflow_pending_public_header_manifest', $legacy_pending, false );
+	update_option( 'devenia_workflow_public_header_enrollment', '1', false );
+	$runtime_registry = get_option( 'devenia_workflow_language_registry', array() );
+	$runtime_registry[ $targets[0] ]['menu_items'][ (string) $source_home ] = 'Long translated page title that must never render';
+	$runtime_registry[ $targets[0] ]['custom_menu_items']['Legacy short help'] = 'Long mutable custom replacement that must never render';
+	update_option( 'devenia_workflow_language_registry', $runtime_registry, false ); Devenia_Workflow::languages( true );
+	$request_before_legacy = $_SERVER['REQUEST_URI'] ?? '/'; $_SERVER['REQUEST_URI'] = '/' . sanitize_key( (string) ( $languages[ $targets[0] ]['prefix'] ?? $targets[0] ) ) . '/fixture/';
+	$legacy_render = (string) wp_nav_menu( array( 'menu' => (int) $legacy_identities[ $targets[0] ]['menu_id'], 'container' => false, 'echo' => false, 'fallback_cb' => false, 'items_wrap' => '%3$s' ) );
+	$_SERVER['REQUEST_URI'] = $request_before_legacy;
+	if ( false === strpos( $legacy_render, 'Legacy ' . $targets[0] . ' editorial home' ) || false === strpos( $legacy_render, 'Legacy ' . $targets[0] . ' editorial help' ) || false !== strpos( $legacy_render, 'Long translated page title' ) || false !== strpos( $legacy_render, 'Long mutable custom replacement' ) ) { throw new RuntimeException( 'Selected managed schema-1 menu was relocalized after its signed stored labels became reader authority.' ); }
+	$migration_conflict = $call( 'migrate_public_header_label_authority', array() );
+	if ( 'public_header_label_authority_incomplete' !== (string) ( $migration_conflict['code'] ?? '' ) || false === strpos( wp_json_encode( $migration_conflict['missing'] ?? array() ), 'authority_candidate_conflict' ) || $legacy_pending !== get_option( 'devenia_workflow_pending_public_header_manifest', array() ) ) { throw new RuntimeException( 'Conflicting retained menu labels did not remain unresolved.' ); }
+	wp_delete_nav_menu( $conflicting_authority_menu_id );
+	$migration_draft = $call( 'migrate_public_header_label_authority', array() );
+	if ( empty( $migration_draft['success'] ) || 2 !== (int) ( $migration_draft['draft']['schema_version'] ?? 0 ) || $legacy_pending !== get_option( 'devenia_workflow_pending_public_header_manifest', array() ) ) { throw new RuntimeException( 'Schema-1 label-authority migration draft failed or mutated pending state.' ); }
+	$migration_stage = $call( 'migrate_public_header_label_authority', array( 'stage' => true ) );
+	if ( empty( $migration_stage['staged'] ) ) { throw new RuntimeException( 'Schema-2 migration draft could not be staged.' ); }
+	$migration_pending = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
+	$failure_mode = 'verification_fail'; $verification_fault_remaining = 1; $verification_fault_revision = (string) ( $migration_pending['revision'] ?? '' ); $verification_rollback_observations = array();
+	$migration_rollback = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$rollback_observation_count = count( $all_languages ) * 4;
+	$rollback_observations_exact = $rollback_observation_count === count( $verification_rollback_observations ) && empty( array_filter( $verification_rollback_observations, static function ( array $observation ) use ( $legacy_revision ): bool { return 1 !== (int) $observation['schema_version'] || ! hash_equals( $legacy_revision, (string) $observation['manifest_revision'] ) || ! hash_equals( $legacy_revision, (string) $observation['identity_revision'] ); } ) );
+	$schema1_rollback_assertions = array(
+		'expected_failure_code' => 'public_header_projection_verification_failed' === (string) ( $migration_rollback['code'] ?? '' ),
+		'forward_fault_consumed_once' => 0 === $verification_fault_remaining,
+		'schema1_manifest_restored' => 1 === (int) ( get_option( 'devenia_workflow_public_header_manifest', array() )['schema_version'] ?? 0 ),
+		'identities_restored_exactly' => $legacy_identities === get_option( 'devenia_workflow_localized_menu_identities', array() ),
+		'pre_activation_pending_restored_exactly' => $migration_pending === get_option( 'devenia_workflow_pending_public_header_manifest', array() ),
+		'rollback_verification_passed' => ! empty( $migration_rollback['rollback_verification']['passed'] ),
+		'all_rollback_fetches_observed_legacy_receipts' => $rollback_observations_exact,
+	);
+	if ( in_array( false, $schema1_rollback_assertions, true ) ) { throw new RuntimeException( 'Schema-2 failure did not restore and verify the exact schema-1 reader surface: ' . wp_json_encode( $schema1_rollback_assertions ) ); }
+	$failure_mode = '';
+	$migration_stage = $call( 'migrate_public_header_label_authority', array( 'stage' => true ) );
+	$migration_success = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	if ( empty( $migration_stage['staged'] ) || empty( $migration_success['success'] ) || 2 !== (int) ( get_option( 'devenia_workflow_public_header_manifest', array() )['schema_version'] ?? 0 ) ) { throw new RuntimeException( 'Schema-1 editorial labels were not repaired through successful schema-2 activation.' ); }
+
+	// Reset the fixture and retain the existing exhaustive clean-install tests.
+	delete_option( 'devenia_workflow_public_header_manifest' ); delete_option( 'devenia_workflow_pending_public_header_manifest' ); delete_option( 'devenia_workflow_localized_menu_identities' ); delete_option( 'devenia_workflow_public_header_enrollment' );
 	$pre_enrollment_markup = (string) wp_nav_menu( array( 'theme_location' => 'primary', 'container' => false, 'echo' => false, 'fallback_cb' => false, 'items_wrap' => '%3$s' ) );
 	if ( false === strpos( $pre_enrollment_markup, 'Raw drift' ) ) { throw new RuntimeException( 'One-time pre-enrollment rendering did not preserve the existing primary menu.' ); }
+	$pending_before_missing_label = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
+	$missing_label_items = $manifest_items( 'Missing' ); unset( $missing_label_items[0]['labels'][ $targets[0] ] );
+	$missing_label_authority = $call( 'update_public_header_manifest', array( 'items' => $missing_label_items ) );
+	if ( 'public_header_label_authority_missing' !== (string) ( $missing_label_authority['code'] ?? '' ) || $pending_before_missing_label !== get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ) ) { throw new RuntimeException( 'Missing editorial label authority did not preserve pending state byte-exact.' ); }
 	$stage_a = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Active' ) ) );
 	$activate_a = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
 	if ( empty( $stage_a['pending'] ) || empty( $activate_a['success'] ) ) { throw new RuntimeException( 'Initial complete-set activation failed: ' . wp_json_encode( $activate_a ) ); }
@@ -124,8 +228,22 @@ try {
 	$source_args = apply_filters( 'wp_nav_menu_args', array( 'theme_location' => 'primary' ) );
 	if ( absint( $source_args['menu'] ?? 0 ) !== absint( $activate_a['projections'][ $source_language ]['target_menu']['id'] ?? 0 ) ) { throw new RuntimeException( 'wp_nav_menu_args did not select the managed source projection.' ); }
 	$managed_source_markup = (string) wp_nav_menu( array( 'theme_location' => 'primary', 'container' => false, 'echo' => false, 'fallback_cb' => false, 'items_wrap' => '%3$s' ) );
-	if ( false === strpos( $managed_source_markup, 'Active home' ) || false !== strpos( $managed_source_markup, 'Raw drift' ) ) { throw new RuntimeException( 'Real theme_location rendering did not select the managed source projection.' ); }
+	if ( false === strpos( $managed_source_markup, 'Active short home' ) || false === strpos( $managed_source_markup, 'Active short help' ) || false !== strpos( $managed_source_markup, 'Source home ' . $token ) || false !== strpos( $managed_source_markup, 'Raw drift' ) ) { throw new RuntimeException( 'Real theme_location rendering did not preserve exact source editorial labels.' ); }
+	foreach ( $all_languages as $language ) {
+		$projection_id = absint( $activate_a['projections'][ $language ]['target_menu']['id'] ?? 0 );
+		$projection_items = wp_get_nav_menu_items( $projection_id, array( 'orderby' => 'menu_order' ) ) ?: array();
+		$projection_by_source = array();
+		foreach ( $projection_items as $projection_item ) { $projection_by_source[ absint( get_post_meta( (int) $projection_item->ID, '_devenia_translation_source_menu_item_id', true ) ) ] = $projection_item; }
+		$expected_home_labels = $editorial_labels( 'Active', 'home' );
+		$expected_help_labels = $editorial_labels( 'Active', 'help' );
+		$expected_blog_labels = $editorial_labels( 'Active', 'blog' );
+		if ( (string) ( $projection_by_source[800001]->title ?? '' ) !== (string) $expected_home_labels[ $language ] || (string) ( $projection_by_source[800003]->title ?? '' ) !== (string) $expected_help_labels[ $language ] || (string) ( $projection_by_source[800002]->title ?? '' ) !== (string) $expected_blog_labels[ $language ] || absint( $projection_by_source[800003]->menu_item_parent ?? 0 ) !== absint( $projection_by_source[800001]->ID ?? 0 ) ) { throw new RuntimeException( 'Stable source-item label authority or custom parent hierarchy was not preserved for ' . $language . '.' ); }
+	}
 	$valid_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
+	$pending_before_active_label_rejection = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
+	$missing_active_label_items = $manifest_items( 'Rejected' ); unset( $missing_active_label_items[1]['labels'][ $targets[0] ] );
+	$missing_active_label_authority = $call( 'update_public_header_manifest', array( 'items' => $missing_active_label_items ) );
+	if ( 'public_header_label_authority_missing' !== (string) ( $missing_active_label_authority['code'] ?? '' ) || $active_a_revision !== (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' ) || $valid_identities !== get_option( 'devenia_workflow_localized_menu_identities', array() ) || $pending_before_active_label_rejection !== get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ) ) { throw new RuntimeException( 'Missing target label authority changed the prior active projection set: ' . wp_json_encode( array( 'result' => $missing_active_label_authority, 'expected_revision' => $active_a_revision, 'actual_revision' => (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' ), 'identities_equal' => $valid_identities === get_option( 'devenia_workflow_localized_menu_identities', array() ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__missing__' ) ) ) ); }
 	delete_option( 'devenia_workflow_localized_menu_identities' );
 	$missing_args = apply_filters( 'wp_nav_menu_args', array( 'theme_location' => 'primary' ) );
 	$missing_closed = apply_filters( 'pre_wp_nav_menu', null, (object) $missing_args );
@@ -155,7 +273,7 @@ try {
 	if ( absint( $pending_source_args['menu'] ?? 0 ) !== absint( $source_args['menu'] ?? 0 ) ) { throw new RuntimeException( 'Pending manifest displaced the old active source projection.' ); }
 	$missing_source_page = $create_page( 'Untranslated manifest page ' . $token, 'untranslated-manifest-' . $token );
 	$incomplete_items = $manifest_items( 'Incomplete' );
-	$incomplete_items[] = array( 'source_item_id' => 800003, 'type' => 'page', 'title' => 'Missing target', 'object_id' => $missing_source_page, 'parent_source_item_id' => 0, 'position' => 3 );
+	$incomplete_items[] = array( 'source_item_id' => 800004, 'type' => 'page', 'title' => 'Missing short target', 'labels' => $editorial_labels( 'Missing', 'target' ), 'object_id' => $missing_source_page, 'parent_source_item_id' => 0, 'position' => 4 );
 	$call( 'update_public_header_manifest', array( 'items' => $incomplete_items ) );
 	$incomplete = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
 	if ( 'public_header_projection_staging_failed' !== (string) ( $incomplete['code'] ?? '' ) || 'public_header_projection_incomplete' !== (string) ( $incomplete['projection']['code'] ?? '' ) || $active_a_revision !== (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' ) ) { throw new RuntimeException( 'Missing target translation did not fail the complete projection closed.' ); }
@@ -170,8 +288,8 @@ try {
 	if ( ! $failure_injected || 'public_header_projection_activation_failed' !== (string) ( $pending_race['code'] ?? '' ) || 'public_header_state_changed' !== (string) ( $pending_race['activation']['code'] ?? '' ) || 'pending' !== (string) ( $pending_race['activation']['slot'] ?? '' ) || $active_a_revision !== (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' ) ) { throw new RuntimeException( 'Pending manifest race did not block the locked atomic activation: ' . wp_json_encode( $pending_race ) ); }
 	$failure_mode = ''; $failure_injected = false; $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Pending' ) ) );
 	$failure_mode = 'invalidation_fail'; $invalidation_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) ); $assert_rolled_back( $invalidation_fail, 'public_header_cache_invalidation_failed' );
-	$failure_mode = 'verification_fail'; $verification_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) ); $assert_rolled_back( $verification_fail, 'public_header_projection_verification_failed' );
-	$failure_mode = 'verification_extra_anchor'; $extra_anchor_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) ); $assert_rolled_back( $extra_anchor_fail, 'public_header_projection_verification_failed' );
+	$failure_mode = 'verification_fail'; $verification_fault_remaining = 1; $verification_fault_revision = (string) ( get_option( 'devenia_workflow_pending_public_header_manifest', array() )['revision'] ?? '' ); $verification_rollback_observations = array(); $verification_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) ); $assert_rolled_back( $verification_fail, 'public_header_projection_verification_failed' );
+	$failure_mode = 'verification_extra_anchor'; $verification_fault_remaining = 1; $verification_fault_revision = (string) ( get_option( 'devenia_workflow_pending_public_header_manifest', array() )['revision'] ?? '' ); $extra_anchor_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) ); $assert_rolled_back( $extra_anchor_fail, 'public_header_projection_verification_failed' );
 	$failure_mode = 'retirement_fail'; $retirement_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) ); $assert_rolled_back( $retirement_fail, 'public_header_projection_retirement_failed' );
 	$failure_mode = 'rollback_cache_fail'; $rollback_cache_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
 	if ( 'public_header_projection_severe_rollback_failure' !== (string) ( $rollback_cache_fail['code'] ?? '' ) || 'critical' !== (string) ( $rollback_cache_fail['severity'] ?? '' ) ) { throw new RuntimeException( 'Rollback cache failure was not a structured critical state.' ); }
@@ -186,7 +304,7 @@ try {
 	$current_after_old_receipt = (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' );
 	if ( 'public_header_projection_severe_rollback_failure' !== (string) ( $old_receipt_fail['code'] ?? '' ) || 'public_header_staged_receipt_changed' !== (string) ( $old_receipt_fail['rollback']['code'] ?? '' ) || $active_b_revision === $current_after_old_receipt ) { throw new RuntimeException( 'Changed prior receipt was reactivated instead of leaving the verified new set active in a critical state: ' . wp_json_encode( array( 'attempt' => $old_receipt_fail, 'active_b_revision' => $active_b_revision, 'current_revision' => $current_after_old_receipt, 'failure_injected' => $failure_injected ) ) ); }
 
-	$result = array( 'success' => true, 'real_theme_location_pre_enrollment_preserved' => true, 'real_theme_location_managed_source_exercised' => true, 'wp_nav_menu_args_managed_source_exercised' => true, 'managed_identity_missing_failed_closed' => true, 'managed_identity_corrupt_failed_closed' => true, 'missing_active_manifest_durable_enrollment_failed_closed' => true, 'pending_manifest_preserved_old_active_set' => true, 'active_restage_cancelled_stale_pending' => true, 'missing_target_projection_failed_closed' => true, 'all_language_atomic_activation_exercised' => true, 'pre_activation_receipt_failure_rejected' => true, 'staged_revision_race_rejected' => true, 'pending_manifest_race_rejected' => true, 'invalidation_failure_cache_safe_rollback' => true, 'idempotent_enrollment_transition_exercised' => true, 'verification_failure_cache_safe_rollback' => true, 'extra_anchor_verification_failed_closed' => true, 'retirement_failure_cache_safe_rollback' => true, 'rollback_cache_failure_structured_critical' => true, 'changed_old_receipt_never_reactivated' => true, 'source_and_targets_home_blog_origin_canonical_verified' => true );
+	$result = array( 'success' => true, 'schema1_managed_label_runtime_override_bypassed' => true, 'schema1_label_authority_conflict_failed_closed' => true, 'schema1_to_schema2_migration_draft_created' => true, 'schema1_post_activation_rollback_verified' => true, 'schema1_to_schema2_repair_activated' => true, 'real_theme_location_pre_enrollment_preserved' => true, 'real_theme_location_managed_source_exercised' => true, 'wp_nav_menu_args_managed_source_exercised' => true, 'editorial_labels_bound_by_source_item_identity' => true, 'source_short_label_not_page_title' => true, 'target_editorial_label_not_translated_page_title' => true, 'custom_child_label_and_parent_preserved' => true, 'missing_label_authority_preserved_old_active_set' => true, 'managed_identity_missing_failed_closed' => true, 'managed_identity_corrupt_failed_closed' => true, 'missing_active_manifest_durable_enrollment_failed_closed' => true, 'pending_manifest_preserved_old_active_set' => true, 'active_restage_cancelled_stale_pending' => true, 'missing_target_projection_failed_closed' => true, 'all_language_atomic_activation_exercised' => true, 'pre_activation_receipt_failure_rejected' => true, 'staged_revision_race_rejected' => true, 'pending_manifest_race_rejected' => true, 'invalidation_failure_cache_safe_rollback' => true, 'idempotent_enrollment_transition_exercised' => true, 'verification_failure_cache_safe_rollback' => true, 'extra_anchor_verification_failed_closed' => true, 'retirement_failure_cache_safe_rollback' => true, 'rollback_cache_failure_structured_critical' => true, 'changed_old_receipt_never_reactivated' => true, 'source_and_targets_home_blog_origin_canonical_verified' => true );
 } catch ( Throwable $caught ) { $error = $caught; }
 finally {
 	foreach ( array_reverse( $filters ) as $filter ) { remove_filter( $filter[0], $filter[1], $filter[2] ); }

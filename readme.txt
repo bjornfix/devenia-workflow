@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.612
+Stable tag: 0.1.613
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,12 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.613 =
+
+* Bind every Public Header Projection item to explicit editorial labels for the source and every configured target language by stable source-item identity; never substitute page titles, and leave the active all-language header untouched when any label authority is missing.
+* Derive one deterministic Canonical Route Contract for legacy published translations whose route metadata is missing, require stored and canonical paths to match the observed WordPress permalink before staging and again under the publication lock, then bind storage and exact applied-surface verification to that same immutable route without changing the public URL.
+* Require the derived legacy contract to be persisted exactly during publication; a missing or different stored route still fails closed and rolls the public surface back.
 
 = 0.1.612 =
 

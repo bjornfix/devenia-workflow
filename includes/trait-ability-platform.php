@@ -44,6 +44,7 @@ trait Devenia_Workflow_Ability_Platform {
 			'warm_cache'                      => 'warm_translation_cache',
 			'update_runtime_text'             => 'update_runtime_language_text',
 			'update_public_header_manifest'   => 'update_public_header_manifest',
+			'migrate_public_header_label_authority' => 'migrate_public_header_label_authority',
 			'update_featured_image_alt'       => 'update_featured_image_alt',
 			'get_quality_profile'             => 'get_runtime_quality_profile',
 			'update_quality_profile'          => 'update_runtime_quality_profile',

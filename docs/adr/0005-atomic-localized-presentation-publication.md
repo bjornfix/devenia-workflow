@@ -64,6 +64,21 @@ languages use the same staged validation, managed term metadata, stable
 identity activation, cache invalidation, and public verification sequence.
 Verification compares the exact projected primary-navigation anchor sequence;
 additional raw anchors are a mismatch rather than an accepted subsequence.
+Every manifest item binds an explicit editorial label for the source language
+and every configured target language to the stable source-item identity. A page
+title or translated page title is never a menu-label fallback. Missing label
+authority rejects the pending manifest before the active manifest or identities
+can change; the manifest revision and recovery receipt therefore bind the exact
+labels that origin and canonical verification must render.
+For the schema-1 to schema-2 transition, a capability-gated migration Interface
+maps retained menu objects to the same stable source-item identities. At least
+two independent complete retained candidates must agree exactly per language;
+one candidate or conflicting candidates remain unresolved. The migration never
+uses page titles as label evidence. A selected managed menu's stored labels and
+URLs are already reader authority and are not passed through mutable runtime
+text localization again. If schema-2 activation fails, the locked schema-1 menu
+surface receipts provide a versioned exact-navigation verification oracle for
+rollback; recovery never tries to manufacture schema-2 labels for schema-1.
 
 Language menus use persisted WordPress term IDs as authority. Names remain
 display metadata and migration input, not runtime identity.

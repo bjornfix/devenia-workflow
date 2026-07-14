@@ -44,6 +44,17 @@ canonical verification for every language homepage and blog archive. A raw
 theme-location menu is only migration input; it cannot become public authority,
 its own verification oracle, or a frontend fallback when managed identity is
 missing or corrupt.
+Each manifest row also binds one explicit editorial label for the source and
+every configured target language to its stable source-item identity. Page and
+translation titles are content, not menu-label authority. A missing label fails
+the pending revision closed before it can change the active projection set.
+The schema-1 migration Adapter maps retained WordPress menus to stable source
+item identities, requires at least two independent complete candidates with
+identical labels for every language, and reports conflicts instead of choosing.
+Once a managed language menu is selected, its stored signed labels and URLs are
+final reader authority; mutable runtime text cannot relocalize it after receipt
+validation. Schema-1 rollback uses its locked prior menu receipts and exact
+stored navigation snapshot rather than attempting to invent schema-2 labels.
 Rollback locks and revalidates every prior term against its pre-activation
 recovery receipt before restoring identities. Verification compares the exact
 projected navigation anchors rather than accepting a matching subsequence.
@@ -308,6 +319,11 @@ the object identity to its Public Route. Ordinary content, translation, SEO,
 metadata, import, REST, MCP, and editor writes must preserve this contract. A
 different current permalink is route drift until an explicit URL Migration has
 completed successfully.
+Legacy backfill is permitted only when the stored localized path, any
+established canonical path, and the normalized current WordPress permalink all
+agree. This parity is required before artifact staging and again under the
+publication lock before mutation; route observation failure or drift is not
+translation authority.
 
 ## URL Migration
 

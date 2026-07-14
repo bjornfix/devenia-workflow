@@ -35,6 +35,22 @@ translation Module owns its custom localized route and the create-versus-update
 contract. Route evidence distinguishes established canonical, current observed,
 and historical variants; it must report drift rather than silently bless it.
 
+Legacy published translations can predate Canonical Route Contract metadata.
+For those objects only, staging derives one deterministic effective contract
+from the already-stored localized path and WordPress route-bearing identity.
+The same resolver supplies the publication write, while applied-surface
+verification still requires that exact contract to exist in post metadata.
+The derivation has no observation timestamp, changes no route-bearing field,
+and cannot authorize a URL migration. Once stored, it is an established route
+and receives the same immutable treatment as every other contract.
+Before staging, the resolver must also observe the current WordPress permalink
+and normalize its path. A nonempty established canonical path, a nonempty
+stored localized path, and the observed path must agree. Missing observation or
+any mismatch rejects artifact staging without changing the Job, Run, claim, or
+public surface. The same parity and exact staged route are checked again under
+the publication row lock before the first write, closing the staging-to-apply
+race without treating a route change as ordinary translation authority.
+
 ## Consequences
 
 Improving a title, translation, keyword, or wording cannot change a published

@@ -207,6 +207,16 @@ trait Devenia_Workflow_Ability_Catalogue {
 					},
 					'meta'             => self::ability_meta( false, false, true ),
 				),
+				'devenia-workflow/migrate-public-header-label-authority' => array(
+					'label'            => 'Migrate Public Header Label Authority',
+					'description'      => 'Builds or stages one complete schema-2 manifest from established WordPress menu labels mapped to stable source-item identities. It never derives menu labels from page titles.',
+					'input_schema'     => self::public_header_label_authority_migration_input_schema(),
+					'output_schema'    => self::generic_output_schema(),
+					'execute_callback' => function ( $input ) {
+						return self::run_ability_operation( 'migrate_public_header_label_authority', $input );
+					},
+					'meta'             => self::ability_meta( false, false, true ),
+				),
 				'devenia-workflow/update-featured-image-alt' => array(
 					'label'            => 'Update Localized Featured Image Alt',
 					'description'      => 'Stores localized featured-image alt text on one translated post without changing the shared attachment alt for other languages.',
