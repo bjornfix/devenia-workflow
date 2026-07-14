@@ -169,7 +169,7 @@ trait Devenia_Workflow_Ability_Catalogue {
 						),
 						'devenia-workflow/frontend-integrity-status' => array(
 							'label'            => 'Check Translation Frontend Integrity',
-							'description'      => 'Fetches localized public frontend surfaces, especially language homepages, and blocks visible English/source remnants that only appear after runtime widgets, menus, and shared chrome render.',
+							'description'      => 'Fetches source and target public homepages and blog archives on origin-bypassing and canonical cache surfaces, then verifies their managed Public Header Projection and localized chrome.',
 							'input_schema'     => self::frontend_integrity_status_input_schema(),
 							'output_schema'    => self::generic_output_schema(),
 							'execute_callback' => function ( $input ) {
@@ -194,6 +194,16 @@ trait Devenia_Workflow_Ability_Catalogue {
 					'output_schema'    => self::generic_output_schema(),
 					'execute_callback' => function ( $input ) {
 						return self::run_ability_operation( 'update_runtime_text', $input );
+					},
+					'meta'             => self::ability_meta( false, false, true ),
+				),
+				'devenia-workflow/update-public-header-manifest' => array(
+					'label'            => 'Stage Public Header Manifest',
+					'description'      => 'Stores a complete ordered source navigation manifest as pending only. The active manifest and reader-visible projections remain unchanged until complete-set activation succeeds.',
+					'input_schema'     => self::public_header_manifest_input_schema(),
+					'output_schema'    => self::generic_output_schema(),
+					'execute_callback' => function ( $input ) {
+						return self::run_ability_operation( 'update_public_header_manifest', $input );
 					},
 					'meta'             => self::ability_meta( false, false, true ),
 				),
@@ -564,8 +574,8 @@ trait Devenia_Workflow_Ability_Catalogue {
 				'meta'             => self::ability_meta( true, false, true ),
 			),
 			'devenia-workflow/sync-menu' => array(
-				'label'            => 'Sync Language Menu',
-				'description'      => 'Creates or rebuilds a language-specific menu from the source menu, using translated page mappings where available.',
+				'label'            => 'Activate Public Header Projections',
+				'description'      => 'Stages and validates the pending manifest for the configured source and every target language, atomically activates the complete set, then requires cache invalidation plus origin and canonical verification on every homepage and blog archive.',
 				'input_schema'     => self::sync_menu_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
@@ -595,7 +605,7 @@ trait Devenia_Workflow_Ability_Catalogue {
 			),
 			'devenia-workflow/repair-featured-images' => array(
 				'label'            => 'Repair Translation Featured Images',
-				'description'      => 'Mirrors source featured image state to existing translated pages and posts, records writer provenance, and invalidates stale review evidence.',
+				'description'      => 'Detects source/translation featured-image drift and routes it into the bounded Translation Job and Localized Presentation Publication lifecycle; it never mutates the public image directly.',
 				'input_schema'     => self::repair_featured_images_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {

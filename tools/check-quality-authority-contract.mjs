@@ -168,6 +168,9 @@ for (const field of ["post_author", "post_date", "post_date_gmt", "post_modified
 if (!restoreSnapshot || !/meta_verification/.test(restoreSnapshot) || !/taxonomy_verify_/.test(restoreSnapshot) || !/surface_restore_incomplete/.test(restoreSnapshot)) {
 	failures.push("rollback must verify post meta and taxonomy restoration instead of reporting unchecked success");
 }
+if (!/add_post_meta\([\s\S]*wp_slash\( maybe_unserialize\( \$value \) \)/.test(restoreSnapshot) || !/translation_job_restore_term_snapshot[\s\S]*add_term_meta\([\s\S]*wp_slash\( maybe_unserialize\( \$value \) \)/.test(source)) {
+	failures.push("rollback must preserve structured post and term metadata through WordPress metadata slashing");
+}
 if (!verifyApplied || !/route_canonical/.test(verifyApplied) || !/localized_parent_id/.test(verifyApplied) || !/array_key_exists\( 'featured_image_alt'/.test(verifyApplied) || !/translation_job_actual_taxonomy_surface/.test(verifyApplied)) {
 	failures.push("already-applied equivalence must compare canonical route, parent, empty media values, and exact taxonomy surface");
 }
@@ -209,8 +212,8 @@ if (!/hash\( 'sha256', \$source_id \. '\|' \. \$language \)/.test(source) || !/t
 if (!/atomic_replace_option_value/.test(atomicOptionSource) || !/atomic_delete_option_value/.test(atomicOptionSource) || !/atomic_delete_option_value\( \$key, \$owned \)/.test(source)) {
 	failures.push("lease takeover, renewal, and release must use compare-and-swap storage operations");
 }
-if (!/'retire_previous'\s*=>\s*false/.test(publicationSource) || !/rollback_localized_menu_projection/.test(publicationSource)) {
-	failures.push("localized menu activation must retain the previous projection until cache and live verification succeed, with an explicit rollback path");
+if (!/refresh_public_header_projection_for_publication/.test(publicationSource) || !/public_header_failure_after_activation/.test(publicationSource) || !/public_header_rollback_projection_receipts/.test(publicationSource)) {
+	failures.push("localized publication must use the complete Public Header Projection Interface with receipt-bound rollback");
 }
 if (!/localized_presentation_rollback/.test(rollbackFailure) || !/rollback_cache_invalidation_failed/.test(rollbackFailure)) {
 	failures.push("successful database rollback must purge the restored frontend surface and fail closed when that purge is unavailable");
@@ -235,7 +238,7 @@ if (!/staged_surface_drifted_before_locked_write/.test(source) || !/publication_
 	failures.push("locked mutation boundaries must compare the captured precondition before accepting ownership");
 }
 const stagedRecoveryPropagationCount = (publicationSource.match(/'mutation_started'\s*=>\s*\$recover_staged_mutation/g) || []).length;
-if (stagedRecoveryPropagationCount < 6 || !/prior_mutation_cas_revision/.test(publicationSource)) {
+if (stagedRecoveryPropagationCount < 5 || !/prior_mutation_cas_revision/.test(publicationSource)) {
 	failures.push("every early second-phase publication failure must preserve the prior committed staged-mutation recovery receipt");
 }
 if (!/number'\s*=>\s*2/.test(taxonomySource) || !/duplicate_localized_taxonomy_term_identity/.test(taxonomySource)) {
@@ -277,8 +280,8 @@ if (!/is_array\( \$surface_snapshot \)[\s\S]{0,180}rollback_expected_surface_rev
 if (!/translation_job_restore_publication_snapshot[\s\S]*translation_job_lock_recovery_surface[\s\S]*lock_localized_menu_projection_surface[\s\S]*localized_menu_projection_rollback_preflight[\s\S]*translation_job_restore_surface_snapshot_uncommitted[\s\S]*rollback_localized_menu_projection_uncommitted[\s\S]*translation_job_commit_recovery_transaction/.test(source)) {
 	failures.push("content, terms, active menu identity, and target menu deletion must recover in one shared transaction after both preflights pass");
 }
-if (!/menu_recovery_plan/.test(publicationSource) || /frontend_cache_adapter_missing[\s\S]{0,500}rollback_localized_menu_projection\(/.test(publicationSource)) {
-	failures.push("publication failure must defer menu recovery to the caller's combined content-menu transaction");
+if (!/publication_failure_with_public_header_rollback/.test(publicationSource) || /menu_recovery_plan/.test(publicationSource)) {
+	failures.push("publication follow-up failure must use verified all-language Public Header Projection rollback rather than the retired one-language recovery plan");
 }
 
 if (failures.length > 0) {

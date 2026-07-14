@@ -166,7 +166,7 @@ trait Devenia_Workflow_Source_Inventory {
 			elseif ( '' !== (string) $post->post_password ) { $reason = 'password_protected'; }
 			elseif ( ! is_post_publicly_viewable( $post ) ) { $reason = 'not_publicly_viewable'; }
 			$applicable = '' === $reason;
-			$revision = $applicable ? self::source_hash( $post ) : '';
+			$revision = $applicable ? self::source_publication_surface_revision( $post ) : '';
 			$inventory_rows[] = array(
 				'generation' => $generation, 'source_id' => $id, 'post_type' => $post->post_type,
 				'post_status' => $post->post_status, 'applicable' => $applicable ? 1 : 0,
@@ -199,13 +199,27 @@ trait Devenia_Workflow_Source_Inventory {
 	}
 
 	private static function project_translation_obligation( int $source_id, string $language, string $revision ): array {
+		$source = get_post( $source_id );
 		$translation_id = self::translation_index_id_for_source_language( $source_id, $language, self::translation_workflow_post_statuses( false ) );
 		$job_id = self::translation_job_id( $source_id, $language, $revision );
 		$job = self::translation_job_get_job( $job_id );
 		$state = 'missing';
+		$current_revision = $source instanceof WP_Post ? self::source_publication_surface_revision( $source ) : '';
+		if ( '' === $current_revision || ! hash_equals( $revision, $current_revision ) ) {
+			return array( 'source_id' => $source_id, 'target_language' => $language, 'state' => 'source_surface_stale', 'job_id' => $job_id, 'translation_id' => $translation_id, 'source_revision' => $revision );
+		}
 		if ( $job ) {
 			$state = sanitize_key( (string) ( $job['status'] ?? 'queued' ) );
-			if ( 'published' === $state && ! empty( $job['live_verification_passed'] ) && ! empty( $job['artifact_revision'] ) && ! empty( $job['quality_revision'] ) ) { $state = 'published_verified'; }
+			if ( 'published' === $state && ! empty( $job['live_verification_passed'] ) && ! empty( $job['artifact_revision'] ) && ! empty( $job['quality_revision'] ) ) {
+				$source_media = self::publication_featured_image_revision_identity( $source );
+				$translation_media = $translation_id > 0 ? self::publication_featured_image_revision_identity( $translation_id ) : array();
+				$authority = self::translation_job_validate_published_authority( $job, $translation_id, true );
+				$artifact = isset( $authority['artifact_record'] ) && is_array( $authority['artifact_record'] ) ? $authority['artifact_record'] : array();
+				$approved_media = is_array( $artifact ) ? (array) ( $artifact['surface_manifest']['media']['featured_image'] ?? array() ) : array();
+				$media_matches = self::translation_job_canonicalize( $source_media ) === self::translation_job_canonicalize( $translation_media )
+					&& self::translation_job_canonicalize( $source_media ) === self::translation_job_canonicalize( $approved_media );
+				$state = ! empty( $authority['success'] ) && $media_matches ? 'published_verified' : ( ! empty( $authority['success'] ) ? 'visible_media_stale' : 'publication_authority_stale' );
+			}
 		}
 		if ( ! $job && $translation_id > 0 ) {
 			$translation = get_post( $translation_id );
@@ -219,6 +233,7 @@ trait Devenia_Workflow_Source_Inventory {
 		$manifest = get_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, array() );
 		if ( ! is_array( $manifest ) || empty( $manifest['generation'] ) ) { return array( 'success' => false, 'code' => 'inventory_not_built' ); }
 		if ( ! is_array( get_option( self::inventory_store_index_name( (string) $manifest['generation'] ), null ) ) ) { return array( 'success' => false, 'code' => 'inventory_store_rebuild_required' ); }
+		self::source_inventory_refresh_dirty_state( $manifest );
 		$cursor = absint( $input['cursor'] ?? 0 ); $limit = min( 500, max( 1, absint( $input['limit'] ?? 100 ) ) );
 		$rows = array_values( array_filter( self::inventory_store_read_rows( (string) $manifest['generation'], 'source' ), static function ( $row ) use ( $cursor ) { return is_array( $row ) && absint( $row['source_id'] ?? 0 ) > $cursor; } ) );
 		$rows = array_slice( $rows, 0, $limit );
@@ -230,9 +245,7 @@ trait Devenia_Workflow_Source_Inventory {
 		$manifest = get_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, array() );
 		if ( ! is_array( $manifest ) || empty( $manifest['generation'] ) ) { return array(); }
 		if ( ! is_array( get_option( self::inventory_store_index_name( (string) $manifest['generation'] ), null ) ) ) { return array(); }
-		if ( '1' === get_option( self::OPTION_SOURCE_INVENTORY_DIRTY, '1' ) && hash_equals( (string) ( $manifest['source_signature'] ?? '' ), self::current_source_inventory_signature() ) ) {
-			update_option( self::OPTION_SOURCE_INVENTORY_DIRTY, '0', false );
-		}
+		self::source_inventory_refresh_dirty_state( $manifest );
 		$rows = self::inventory_store_read_rows( (string) $manifest['generation'], 'obligation' );
 		$changed = false;
 		foreach ( $rows as $index => $row ) {
@@ -247,6 +260,13 @@ trait Devenia_Workflow_Source_Inventory {
 		return $manifest;
 	}
 
+	/** Reconcile persisted dirty state with the complete live source signature. */
+	private static function source_inventory_refresh_dirty_state( array $manifest ): bool {
+		$dirty = ! hash_equals( (string) ( $manifest['source_signature'] ?? '' ), self::current_source_inventory_signature() );
+		update_option( self::OPTION_SOURCE_INVENTORY_DIRTY, $dirty ? '1' : '0', false );
+		return $dirty;
+	}
+
 	private static function current_source_inventory_signature(): string {
 		$post_types = self::translatable_post_types();
 		$query = new WP_Query( array( 'post_type' => $post_types, 'post_status' => 'publish', 'posts_per_page' => -1, 'orderby' => 'ID', 'order' => 'ASC', 'fields' => 'ids', 'no_found_rows' => true, 'has_password' => false ) );
@@ -254,7 +274,7 @@ trait Devenia_Workflow_Source_Inventory {
 		$rows = array();
 		foreach ( $ids as $id ) {
 			$post = get_post( $id );
-			if ( $post && ! self::is_translation_post( $id ) && is_post_publicly_viewable( $post ) ) { $rows[] = array( $id, self::source_hash( $post ) ); }
+			if ( $post && ! self::is_translation_post( $id ) && is_post_publicly_viewable( $post ) ) { $rows[] = array( $id, self::source_publication_surface_revision( $post ) ); }
 		}
 		return hash( 'sha256', wp_json_encode( $rows ) );
 	}

@@ -8,6 +8,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $post_id = 0;
+$translation_id = 0;
+$missing_languages_marker = '__devenia_packet_languages_missing_' . wp_generate_password( 10, false, false );
+$languages_before = get_option( Devenia_Workflow::OPTION_LANGUAGES, $missing_languages_marker );
 
 try {
 	$content = <<<'HTML'
@@ -138,16 +141,62 @@ HTML;
 	if ( home_url( '/fr/plugins/' ) !== $canonical_post_method->invoke( null, $post_id ) ) {
 		$failures[] = 'canonical_route_contract_url_resolution_failed';
 	}
-	update_post_meta( $post_id, Devenia_Workflow::META_SOURCE_ID, 123 );
 	$canonical_translation_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_translation_url_for_post_id' );
 	$canonical_translation_method->setAccessible( true );
-	if ( home_url( '/fr/plugins/' ) !== $canonical_translation_method->invoke( null, $post_id, 'fr' ) ) {
-		$failures[] = 'canonical_translation_route_url_resolution_failed';
+	$sharing_permalink_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_social_sharing_permalink_for_context' );
+	$sharing_permalink_method->setAccessible( true );
+	if ( home_url( '/fr/plugins/' ) !== $sharing_permalink_method->invoke( null, home_url( '/fr/Plugins/' ), $post_id, 'fr' ) ) {
+		$failures[] = 'canonical_social_sharing_permalink_filter_failed';
 	}
-	$scriptless_permalink_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_scriptless_permalink_for_context' );
-	$scriptless_permalink_method->setAccessible( true );
-	if ( home_url( '/fr/plugins/' ) !== $scriptless_permalink_method->invoke( null, home_url( '/fr/Plugins/' ), $post_id, 'fr' ) ) {
-		$failures[] = 'canonical_scriptless_permalink_filter_failed';
+	$languages = Devenia_Workflow::languages( true );
+	foreach ( $languages as &$language_config ) {
+		if ( is_array( $language_config ) ) {
+			$language_config['source'] = '0';
+		}
+	}
+	unset( $language_config );
+	$languages['fr']['source'] = '1';
+	$languages['en']['source'] = '0';
+	update_option( Devenia_Workflow::OPTION_LANGUAGES, $languages, false );
+	Devenia_Workflow::languages( true );
+	wp_update_post( array( 'ID' => $post_id, 'post_status' => 'publish' ) );
+	$translation_id = wp_insert_post(
+		array(
+			'post_type'    => 'page',
+			'post_status'  => 'publish',
+			'post_title'   => 'English translation runtime fixture',
+			'post_content' => $content,
+		),
+		true
+	);
+	if ( is_wp_error( $translation_id ) ) {
+		throw new RuntimeException( $translation_id->get_error_message() );
+	}
+	update_post_meta( $translation_id, Devenia_Workflow::META_SOURCE_ID, $post_id );
+	update_post_meta( $translation_id, Devenia_Workflow::META_LANGUAGE, 'en' );
+	update_post_meta( $translation_id, Devenia_Workflow::META_CANONICAL_ROUTE, array( 'path' => 'en/plugins' ) );
+	$sync_translation_index_method = new ReflectionMethod( Devenia_Workflow::class, 'sync_translation_index_row' );
+	$sync_translation_index_method->setAccessible( true );
+	$sync_translation_index_method->invoke( null, $translation_id );
+	$find_translation_method = new ReflectionMethod( Devenia_Workflow::class, 'find_translation_id' );
+	$find_translation_method->setAccessible( true );
+	if ( $translation_id !== $find_translation_method->invoke( null, $post_id, 'en', array( 'publish' ) ) ) {
+		$failures[] = 'real_non_english_source_english_target_lookup_failed';
+	}
+	if ( '' !== (string) get_post_meta( $post_id, Devenia_Workflow::META_SOURCE_ID, true ) ) {
+		$failures[] = 'real_source_was_misclassified_as_translation';
+	}
+	if ( home_url( '/en/plugins/' ) !== $canonical_translation_method->invoke( null, $post_id, 'en' ) ) {
+		$failures[] = 'non_english_source_english_target_canonical_failed';
+	}
+	if ( home_url( '/en/plugins/' ) !== $canonical_translation_method->invoke( null, $translation_id, 'en' ) ) {
+		$failures[] = 'separate_english_target_canonical_failed';
+	}
+	if ( '' !== $canonical_translation_method->invoke( null, $post_id, 'fr' ) ) {
+		$failures[] = 'registry_source_language_was_treated_as_target';
+	}
+	if ( home_url( '/en/plugins/' ) !== $sharing_permalink_method->invoke( null, home_url( '/fr/plugins/' ), $post_id, 'en' ) ) {
+		$failures[] = 'source_context_did_not_resolve_separate_english_target';
 	}
 	$canonical_request_method = new ReflectionMethod( Devenia_Workflow::class, 'canonical_url_for_current_request' );
 	$canonical_request_method->setAccessible( true );
@@ -191,7 +240,16 @@ HTML;
 	);
 	exit( 1 );
 } finally {
+	if ( $translation_id > 0 ) {
+		wp_delete_post( $translation_id, true );
+	}
 	if ( $post_id > 0 ) {
 		wp_delete_post( $post_id, true );
 	}
+	if ( $missing_languages_marker === $languages_before ) {
+		delete_option( Devenia_Workflow::OPTION_LANGUAGES );
+	} else {
+		update_option( Devenia_Workflow::OPTION_LANGUAGES, $languages_before, false );
+	}
+	Devenia_Workflow::languages( true );
 }

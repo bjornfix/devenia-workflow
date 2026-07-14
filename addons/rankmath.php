@@ -392,15 +392,35 @@ final class Devenia_Workflow_Translation_RankMath_Adapter {
 
 	/**
 	 * @param array<string,mixed>  $result Current sync result.
-	 * @param array<string,string> $fields Prepared SEO fields.
+	 * @param array<string,array{operation:string,value:string}> $fields Canonical SEO field operations.
 	 * @param array<string,mixed>  $context Adapter context.
 	 */
 	public static function sync_seo_meta( array $result, int $post_id, array $fields, array $context ): array {
 		$updated = is_array( $result['updated'] ?? null ) ? $result['updated'] : array();
+		$managed = false;
 		foreach ( array( 'title' => 'rank_math_title', 'description' => 'rank_math_description', 'focus_keyword' => 'rank_math_focus_keyword' ) as $field => $meta_key ) {
-			$value = trim( (string) ( $fields[ $field ] ?? '' ) );
-			if ( '' === $value ) {
+			$instruction = isset( $fields[ $field ] ) && is_array( $fields[ $field ] ) ? $fields[ $field ] : array();
+			$operation   = (string) ( $instruction['operation'] ?? '' );
+			if ( ! in_array( $operation, array( 'set', 'delete', 'preserve' ), true ) ) {
+				$result['success'] = false;
+				$result['message'] = 'Canonical SEO Surface supplied an invalid field operation.';
+				return $result;
+			}
+			if ( 'preserve' === $operation ) {
 				continue;
+			}
+			$managed = true;
+			if ( 'delete' === $operation ) {
+				if ( metadata_exists( 'post', $post_id, $meta_key ) && delete_post_meta( $post_id, $meta_key ) ) {
+					$updated[] = $meta_key;
+				}
+				continue;
+			}
+			$value = trim( (string) ( $instruction['value'] ?? '' ) );
+			if ( '' === $value ) {
+				$result['success'] = false;
+				$result['message'] = 'Canonical SEO Surface set operations require a nonempty value.';
+				return $result;
 			}
 			if ( 'description' === $field ) {
 				update_post_meta( $post_id, $meta_key, sanitize_textarea_field( $value ) );
@@ -410,8 +430,17 @@ final class Devenia_Workflow_Translation_RankMath_Adapter {
 			$updated[] = $meta_key;
 		}
 
-		if ( $updated ) {
-			update_post_meta( $post_id, self::META_SEO_SYNC_SIGNATURE, self::seo_sync_signature( $fields, $context ) );
+		if ( $managed ) {
+			update_post_meta(
+				$post_id,
+				self::META_SEO_SYNC_SIGNATURE,
+				self::seo_sync_signature_from_values(
+					(string) get_post_meta( $post_id, 'rank_math_title', true ),
+					(string) get_post_meta( $post_id, 'rank_math_description', true ),
+					(string) get_post_meta( $post_id, 'rank_math_focus_keyword', true ),
+					(string) ( $context['content_hash'] ?? '' )
+				)
+			);
 			clean_post_cache( $post_id );
 		}
 		$result['success']  = true;
@@ -676,19 +705,6 @@ final class Devenia_Workflow_Translation_RankMath_Adapter {
 			return 'default_title_pattern';
 		}
 		return $signature_ok ? 'current' : 'custom_title_reviewed';
-	}
-
-	/**
-	 * @param array<string,string> $fields Prepared SEO fields.
-	 * @param array<string,mixed>  $context Sync context.
-	 */
-	private static function seo_sync_signature( array $fields, array $context ): string {
-		return self::seo_sync_signature_from_values(
-			(string) ( $fields['title'] ?? '' ),
-			(string) ( $fields['description'] ?? '' ),
-			(string) ( $fields['focus_keyword'] ?? '' ),
-			(string) ( $context['content_hash'] ?? '' )
-		);
 	}
 
 	private static function seo_sync_signature_from_values( string $title, string $description, string $focus_keyword, string $content_hash ): string {

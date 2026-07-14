@@ -11,11 +11,17 @@ $source_id = 0;
 $linked_source_id = 0;
 $translation_id = 0;
 $source_thumbnail_id = 0;
+$source_thumbnail_file = '';
+$replacement_thumbnail_id = 0;
+$replacement_thumbnail_file = '';
 $option_keys = array();
 $original_user_id = get_current_user_id();
 $languages_option_before = get_option( 'devenia_workflow_language_registry' );
 $runtime_provenance_before = get_option( 'devenia_workflow_runtime_mutation_provenance' );
 $menu_identities_before = get_option( 'devenia_workflow_localized_menu_identities' );
+$public_header_manifest_before = get_option( 'devenia_workflow_public_header_manifest' );
+$pending_public_header_manifest_before = get_option( 'devenia_workflow_pending_public_header_manifest' );
+$source_inventory_dirty_before = get_option( 'devenia_workflow_source_inventory_dirty' );
 $nav_menu_locations_before = get_theme_mod( 'nav_menu_locations', array() );
 $runtime_menu_ids = array();
 $runtime_source_menu_id = 0;
@@ -142,16 +148,25 @@ try {
 	if ( is_wp_error( $source_id ) ) {
 		throw new RuntimeException( $source_id->get_error_message() );
 	}
+	$uploads = wp_upload_dir();
+	$source_thumbnail_file = trailingslashit( (string) $uploads['path'] ) . 'translation-job-source-media-' . wp_generate_password( 8, false, false ) . '.png';
+	$fixture_png_a = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
+	if ( false === $fixture_png_a || false === file_put_contents( $source_thumbnail_file, $fixture_png_a ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Ephemeral real-byte identity fixture.
+		throw new RuntimeException( 'Could not write the source featured-image byte fixture.' );
+	}
 	$source_thumbnail_id = wp_insert_attachment(
 		array(
 			'post_title' => 'Translation Job source media fixture',
 			'post_status' => 'inherit',
-			'post_mime_type' => 'image/webp',
-		)
+			'post_mime_type' => 'image/png',
+		),
+		$source_thumbnail_file
 	);
 	if ( ! $source_thumbnail_id || is_wp_error( $source_thumbnail_id ) ) {
 		throw new RuntimeException( 'Could not create the source featured-image fixture.' );
 	}
+	update_attached_file( $source_thumbnail_id, $source_thumbnail_file );
+	update_post_meta( $source_thumbnail_id, '_wp_attachment_metadata', array( 'width' => 1, 'height' => 1, 'file' => basename( $source_thumbnail_file ) ) );
 	update_post_meta( $source_id, '_thumbnail_id', $source_thumbnail_id );
 
 	$languages_method = new ReflectionMethod( Devenia_Workflow::class, 'target_languages' );
@@ -194,8 +209,8 @@ try {
 	$runtime_text_input = array(
 		'language' => $language,
 		'section' => 'share_text',
-		'source' => 'translation_job_runtime_fixture',
-		'translated' => 'Runtime fixture translation',
+		'source' => 'social_sharing_heading',
+		'translated' => 'Runtime fixture share heading',
 		'writer_process_id' => 'translation-job-runtime',
 		'writer_actor' => 'Runtime contract',
 	);
@@ -212,6 +227,14 @@ try {
 	$authorized_runtime_text = $call( 'update_runtime_language_text', $runtime_text_input );
 	if ( empty( $authorized_runtime_text['success'] ) ) {
 		throw new RuntimeException( 'Capability-authorized runtime text update failed: ' . wp_json_encode( $authorized_runtime_text ) );
+	}
+	$sharing_heading = $call( 'localized_social_sharing_runtime_value', 'Owner runtime fixture heading', $language, 'share_text.social_sharing_heading' );
+	if ( 'Runtime fixture share heading' !== $sharing_heading ) {
+		throw new RuntimeException( 'The Translation Job runtime did not resolve the semantic owned sharing heading key.' );
+	}
+	$runtime_readiness = $call( 'language_runtime_readiness', $language, 'post' );
+	if ( in_array( 'share_text.social_sharing_heading', (array) ( $runtime_readiness['missing'] ?? array() ), true ) ) {
+		throw new RuntimeException( 'Post runtime readiness rejected the configured semantic owned sharing heading key.' );
 	}
 	$source_qa_options = $call(
 		'update_source_qa_options',
@@ -239,6 +262,9 @@ try {
 	if ( ! empty( $unapproved_discover['success'] ) || 'source_quality_approval_required' !== (string) ( $unapproved_discover['code'] ?? '' ) ) {
 		throw new RuntimeException( 'Unapproved source was not blocked: ' . wp_json_encode( $unapproved_discover ) );
 	}
+	// The approval is bound to the complete public Source Publication Surface.
+	// Establish the final public post state before recording that immutable evidence.
+	wp_update_post( array( 'ID' => $source_id, 'post_status' => 'publish' ) );
 	$source_review = $call(
 		'mark_source_content_integrity_reviewed',
 		array(
@@ -254,7 +280,6 @@ try {
 	if ( empty( $source_review['success'] ) ) {
 		throw new RuntimeException( 'Source approval failed: ' . wp_json_encode( $source_review ) );
 	}
-	wp_update_post( array( 'ID' => $source_id, 'post_status' => 'publish' ) );
 
 	$expiry_languages = array_values( array_filter( $language_keys, static function ( $candidate ) use ( $language ) { return (string) $candidate !== $language; } ) );
 	if ( empty( $expiry_languages ) ) {
@@ -400,6 +425,7 @@ try {
 	update_post_meta( $translation_id, '_devenia_translation_language', $language );
 	update_post_meta( $translation_id, '_devenia_translation_status', 'needs_review' );
 	update_post_meta( $translation_id, '_thumbnail_id', $source_thumbnail_id );
+	update_post_meta( $translation_id, 'rank_math_focus_keyword', 'stale-runtime-focus-keyword' );
 	$runtime_localized_path = trim( $language . '/' . $runtime_localized_slug, '/' );
 	update_post_meta( $translation_id, '_devenia_translation_localized_path', $runtime_localized_path );
 	$runtime_translation_url = home_url( '/' . $runtime_localized_path . '/' );
@@ -488,7 +514,7 @@ try {
 		'excerpt' => 'En nyttig oversatt ingress.',
 		'localized_slug' => $runtime_localized_slug,
 		'localized_fragments' => $localized,
-		'seo' => array( 'title' => 'Oversatt testside', 'description' => 'En nyttig beskrivelse av den oversatte testsiden.' ),
+		'seo' => array( 'title' => 'Oversatt testside', 'description' => 'En nyttig beskrivelse av den oversatte testsiden.', 'focus_keyword' => '' ),
 	);
 	$pre_submit_surface_revision = $call( 'translation_job_current_surface_revision', $translation_id );
 	$invalid_artifact = $artifact;
@@ -590,6 +616,21 @@ try {
 	$runtime_languages[ $language ]['menu_name'] = 'Workflow runtime target ' . wp_generate_password( 8, false, false );
 	update_option( 'devenia_workflow_language_registry', $runtime_languages, false );
 	Devenia_Workflow::languages( true );
+	$source_language_code = $call( 'source_language_code' );
+	$runtime_manifest = $call(
+		'update_public_header_manifest',
+		array(
+			'items' => array(
+				array( 'source_item_id' => (int) $runtime_source_menu_parent_id, 'type' => 'custom', 'title' => 'Runtime group', 'url' => home_url( '/' ), 'parent_source_item_id' => 0, 'position' => 1 ),
+				array( 'source_item_id' => (int) $runtime_source_menu_item_id, 'type' => 'page', 'title' => 'Runtime source', 'object_id' => $source_id, 'parent_source_item_id' => (int) $runtime_source_menu_parent_id, 'position' => 2 ),
+			),
+		)
+	);
+	if ( empty( $runtime_manifest['success'] ) ) {
+		throw new RuntimeException( 'Could not register the runtime Public Header Projection manifest: ' . wp_json_encode( $runtime_manifest ) );
+	}
+	$runtime_pending_manifest = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
+	update_option( 'devenia_workflow_public_header_manifest', $runtime_pending_manifest, false );
 
 	$runtime_page_link = static function ( string $url, int $post_id ) use ( &$translation_id, $language ): string {
 		if ( $post_id !== $translation_id ) {
@@ -622,7 +663,10 @@ try {
 		$identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
 		$menu_id = absint( $identities[ $language ]['menu_id'] ?? 0 );
 		$navigation = (string) wp_nav_menu( array( 'menu' => $menu_id, 'container' => false, 'echo' => false, 'fallback_cb' => false, 'items_wrap' => '%3$s' ) );
-		$body = '<!doctype html><html lang="' . esc_attr( $surface_language ) . '"><head><link rel="alternate" hreflang="' . esc_attr( $surface_hreflang ) . '" href="' . esc_url( $surface_url ) . '"></head><body><nav id="site-navigation">' . $navigation . '</nav><main><h1>' . esc_html( (string) get_the_title( $surface_id ) ) . '</h1></main></body></html>';
+		$thumbnail_url = (string) wp_get_attachment_image_url( absint( get_post_thumbnail_id( $surface_id ) ), 'full' );
+		$media_head = '' !== $thumbnail_url ? '<meta property="og:image" content="' . esc_url( $thumbnail_url ) . '">' : '';
+		$media_body = '' !== $thumbnail_url ? '<img class="wp-post-image" src="' . esc_url( $thumbnail_url ) . '">' : '';
+		$body = '<!doctype html><html lang="' . esc_attr( $surface_language ) . '"><head><link rel="alternate" hreflang="' . esc_attr( $surface_hreflang ) . '" href="' . esc_url( $surface_url ) . '">' . $media_head . '</head><body><nav id="site-navigation">' . $navigation . '</nav><main><h1>' . esc_html( (string) get_the_title( $surface_id ) ) . '</h1>' . $media_body . '</main></body></html>';
 		return array(
 			'headers'  => array( 'cf-cache-status' => false === strpos( $url, 'devenia_frontend_integrity=' ) ? 'HIT' : 'DYNAMIC', 'age' => '0' ),
 			'body'     => $body,
@@ -1114,7 +1158,9 @@ try {
 	$publish_claim_probe_enabled = true;
 	$published = $call(
 		'translation_job_publish',
-		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true )
+		// Public Header Projection has its own all-language WordPress fixture.
+		// This lifecycle fixture keeps that independently proven Interface stable.
+		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => true )
 	);
 	$publish_claim_probe_enabled = false;
 	$runtime_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
@@ -1129,13 +1175,216 @@ try {
 		|| $pre_publish_concurrency_artifact !== (string) ( $published_concurrency_job['artifact_revision'] ?? '' )
 		|| $pre_publish_concurrency_quality !== (string) ( $published_concurrency_job['quality_revision'] ?? '' )
 		|| $pre_publish_concurrency_history !== maybe_serialize( $published_concurrency_job['surface_refresh_history'] ?? array() )
-		|| empty( $published['menu']['validation']['passed'] )
 		|| $runtime_active_menu_id < 1
 		|| empty( $cache_invalidation_calls )
 		|| 'localized_presentation_publication' !== (string) ( $cache_invalidation_calls[0]['context']['event'] ?? '' )
 		|| $job_id !== (string) ( $cache_invalidation_calls[0]['context']['job_id'] ?? '' )
 	) {
 		throw new RuntimeException( 'Publish-held lifecycle lease did not reject a concurrent translator claim while preserving final Job CAS: ' . wp_json_encode( array( 'published' => $published, 'concurrent_claim' => $publish_claim_probe, 'stored_job' => $published_concurrency_job, 'invalidation_calls' => $cache_invalidation_calls ) ) );
+	}
+
+	// Rollback media proof must purge and verify both cache surfaces. Exercise
+	// both the restored-media success path and a stale-cache failure path.
+	$rollback_artifact = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . (string) $published_concurrency_job['artifact_revision'] ) );
+	$rollback_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $rollback_artifact['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', $published_concurrency_job ) );
+	$rollback_snapshot['mutation_started'] = true;
+	update_post_meta( $translation_id, 'rank_math_title', 'Runtime rollback media success mutation' );
+	clean_post_cache( $translation_id );
+	$rollback_snapshot['rollback_expected_surface_revision'] = $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $rollback_snapshot['term_scope'] ?? array() ), (array) ( $rollback_snapshot['identity_scope'] ?? array() ) );
+	$rollback_invalidation_count = count( $cache_invalidation_calls );
+	$rollback_media_success = $call( 'translation_job_publish_failure_with_rollback', array( 'success' => false, 'code' => 'runtime_rollback_media_success', 'purge_urls' => array( get_permalink( $translation_id ) ) ), $rollback_snapshot, $translation_id );
+	$rollback_event = $cache_invalidation_calls[ $rollback_invalidation_count ]['context']['event'] ?? '';
+	if (
+		empty( $rollback_media_success['rollback']['success'] )
+		|| 'localized_presentation_rollback' !== $rollback_event
+		|| empty( $rollback_media_success['rollback']['media_verification']['success'] )
+		|| ! isset( $rollback_media_success['rollback']['media_verification']['responses']['origin'], $rollback_media_success['rollback']['media_verification']['responses']['canonical'] )
+	) {
+		throw new RuntimeException( 'Rollback did not purge and prove restored featured media on origin plus canonical surfaces: ' . wp_json_encode( $rollback_media_success ) );
+	}
+	$rollback_failure_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $rollback_artifact['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', $published_concurrency_job ) );
+	$rollback_failure_snapshot['mutation_started'] = true;
+	update_post_meta( $translation_id, 'rank_math_description', 'Runtime rollback stale-cache mutation' );
+	clean_post_cache( $translation_id );
+	$rollback_failure_snapshot['rollback_expected_surface_revision'] = $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $rollback_failure_snapshot['term_scope'] ?? array() ), (array) ( $rollback_failure_snapshot['identity_scope'] ?? array() ) );
+	$stale_rollback_http = static function ( $preempt, array $args, string $url ) use ( $runtime_source_url ) {
+		unset( $args, $url );
+		$body = '<html><head><meta property="og:image" content="' . esc_attr( $runtime_source_url ) . '"></head><body><img class="wp-post-image" src="' . esc_attr( $runtime_source_url ) . '"></body></html>';
+		return array( 'headers' => array( 'cf-cache-status' => 'HIT', 'age' => '0' ), 'body' => $body, 'response' => array( 'code' => 200, 'message' => 'OK' ), 'cookies' => array(), 'filename' => null );
+	};
+	add_filter( 'pre_http_request', $stale_rollback_http, 20, 3 );
+	try {
+		$rollback_media_failure = $call( 'translation_job_publish_failure_with_rollback', array( 'success' => false, 'code' => 'runtime_rollback_media_failure', 'purge_urls' => array( get_permalink( $translation_id ) ) ), $rollback_failure_snapshot, $translation_id );
+	} finally {
+		remove_filter( 'pre_http_request', $stale_rollback_http, 20 );
+	}
+	if (
+		'publication_rollback_failed' !== (string) ( $rollback_media_failure['code'] ?? '' )
+		|| ! empty( $rollback_media_failure['rollback']['success'] )
+		|| 'rollback_featured_image_verification_failed' !== (string) ( $rollback_media_failure['rollback']['error'] ?? '' )
+		|| empty( $rollback_media_failure['rollback']['media_verification']['issues'] )
+	) {
+		throw new RuntimeException( 'Rollback accepted stale featured media from origin/canonical cache verification: ' . wp_json_encode( $rollback_media_failure ) );
+	}
+
+	// Source Publication Surface: timestamps are diagnostic, bytes are authority.
+	$source_surface_a = $call( 'source_publication_surface_revision', get_post( $source_id ) );
+	$source_media_a = $call( 'publication_featured_image_revision_identity', $source_id );
+	$published_authority_job = get_option( 'devenia_workflow_translation_job_' . $job_id );
+	$published_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a );
+	$published_quality = get_option( 'devenia_workflow_translation_quality_' . (string) ( $published_authority_job['quality_revision'] ?? '' ) );
+	$published_evidence_key = 'devenia_tj_quality_evidence_' . (string) ( $published_quality['evidence_revision'] ?? '' );
+	$published_evidence = get_option( $published_evidence_key );
+	delete_option( $published_evidence_key );
+	$missing_evidence_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a );
+	update_option( $published_evidence_key, $published_evidence, false );
+	$published_artifact_key = 'devenia_workflow_translation_artifact_' . (string) ( $published_authority_job['artifact_revision'] ?? '' );
+	$published_artifact_exact = get_option( $published_artifact_key );
+	delete_option( $published_artifact_key );
+	$missing_artifact_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a );
+	update_option( $published_artifact_key, $published_artifact_exact, false );
+	if (
+		'published_verified' !== (string) ( $published_obligation['state'] ?? '' )
+		|| 'publication_authority_stale' !== (string) ( $missing_evidence_obligation['state'] ?? '' )
+		|| 'publication_authority_stale' !== (string) ( $missing_artifact_obligation['state'] ?? '' )
+	) {
+		throw new RuntimeException( 'Published obligation accepted a missing immutable Artifact or Quality Evidence binding: ' . wp_json_encode( compact( 'published_obligation', 'missing_evidence_obligation', 'missing_artifact_obligation' ) ) );
+	}
+	$inventory_signature_a = $call( 'current_source_inventory_signature' );
+	$translation_media_cas_a = $call( 'translation_job_rollback_cas_revision', $translation_id );
+	$source_file_bytes = file_get_contents( $source_thumbnail_file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Ephemeral byte-identity fixture.
+	$source_file_mtime = filemtime( $source_thumbnail_file );
+	$source_file_stat = stat( $source_thumbnail_file );
+	$mutated_stat = $source_file_stat;
+	$mutated_stat['mtime'] = (int) $mutated_stat['mtime'] + 1;
+	if ( empty( $call( 'publication_file_sample_is_stable', $source_file_stat, $source_file_stat ) ) || ! empty( $call( 'publication_file_sample_is_stable', $source_file_stat, $mutated_stat ) ) ) {
+		throw new RuntimeException( 'Stable file-sampling predicate accepted a mutated stat boundary.' );
+	}
+	touch( $source_thumbnail_file, (int) $source_file_mtime + 5 );
+	clearstatcache( true, $source_thumbnail_file );
+	$source_surface_same_bytes_new_mtime = $call( 'source_publication_surface_revision', get_post( $source_id ) );
+	if ( ! hash_equals( $source_surface_a, $source_surface_same_bytes_new_mtime ) ) {
+		throw new RuntimeException( 'Diagnostic file mtime changed the content-addressed Source Publication Surface revision.' );
+	}
+	$fixture_png_mutated = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=', true );
+	file_put_contents( $source_thumbnail_file, $fixture_png_mutated ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Ephemeral same-ID mutation fixture.
+	clearstatcache( true, $source_thumbnail_file );
+	$source_surface_same_id_new_bytes = $call( 'source_publication_surface_revision', get_post( $source_id ) );
+	$translation_media_cas_b = $call( 'translation_job_rollback_cas_revision', $translation_id );
+	$inventory_dirty_from_bytes = $call( 'source_inventory_refresh_dirty_state', array( 'source_signature' => $inventory_signature_a ) );
+	if ( hash_equals( $source_surface_a, $source_surface_same_id_new_bytes ) || hash_equals( $translation_media_cas_a, $translation_media_cas_b ) || empty( $inventory_dirty_from_bytes ) || '1' !== (string) get_option( 'devenia_workflow_source_inventory_dirty', '0' ) ) {
+		throw new RuntimeException( 'Same-ID attachment byte replacement did not change Source Publication Surface revision.' );
+	}
+	file_put_contents( $source_thumbnail_file, $source_file_bytes ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Restore ephemeral fixture.
+	touch( $source_thumbnail_file, (int) $source_file_mtime );
+	clearstatcache( true, $source_thumbnail_file );
+	if ( ! hash_equals( $source_surface_a, $call( 'source_publication_surface_revision', get_post( $source_id ) ) ) ) {
+		throw new RuntimeException( 'Restoring exact source bytes did not restore the content-addressed Source Publication Surface revision.' );
+	}
+
+	$replacement_thumbnail_file = trailingslashit( (string) $uploads['path'] ) . 'translation-job-replacement-media-' . wp_generate_password( 8, false, false ) . '.png';
+	file_put_contents( $replacement_thumbnail_file, $fixture_png_mutated ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Ephemeral replacement fixture.
+	$replacement_thumbnail_id = wp_insert_attachment( array( 'post_title' => 'Translation Job replacement media fixture', 'post_status' => 'inherit', 'post_mime_type' => 'image/png' ), $replacement_thumbnail_file );
+	if ( ! $replacement_thumbnail_id || is_wp_error( $replacement_thumbnail_id ) ) { throw new RuntimeException( 'Could not create replacement featured-image fixture.' ); }
+	update_attached_file( $replacement_thumbnail_id, $replacement_thumbnail_file );
+	update_post_meta( $replacement_thumbnail_id, '_wp_attachment_metadata', array( 'width' => 600, 'height' => 600, 'file' => basename( $replacement_thumbnail_file ), 'sizes' => array( 'thumbnail' => array( 'file' => 'translation-job-replacement-thumbnail.png', 'width' => 150, 'height' => 150, 'mime-type' => 'image/png' ) ) ) );
+	update_post_meta( $source_id, '_thumbnail_id', $replacement_thumbnail_id );
+	clean_post_cache( $source_id );
+	$source_surface_b = $call( 'source_publication_surface_revision', get_post( $source_id ) );
+	$source_media_b = $call( 'publication_featured_image_revision_identity', $source_id );
+	$stale_job = array( 'source_id' => $source_id, 'source_revision' => $source_surface_a );
+	$stale_approval = $call( 'translation_job_source_approval', get_post( $source_id ) );
+	$old_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id ) );
+	foreach ( array_keys( Devenia_Workflow::languages() ) as $target_language ) {
+		if ( $target_language === $call( 'source_language_code' ) ) { continue; }
+		$obligation = $call( 'project_translation_obligation', $source_id, (string) $target_language, $source_surface_a );
+		if ( 'source_surface_stale' !== (string) ( $obligation['state'] ?? '' ) ) {
+			throw new RuntimeException( 'A configured language remained resolved after source featured-image replacement: ' . wp_json_encode( $obligation ) );
+		}
+	}
+	$translation_before_repair = $call( 'publication_featured_image_revision_identity', $translation_id );
+	$call( 'sync_translation_index_row', $translation_id );
+	$repair_dry_run = $call( 'repair_featured_images', array( 'source_ids' => array( $source_id ), 'languages' => array( $language ), 'dry_run' => true ) );
+	wp_set_current_user( 0 );
+	$repair_forbidden = $call( 'repair_featured_images', array( 'source_ids' => array( $source_id ), 'languages' => array( $language ), 'dry_run' => false ) );
+	wp_set_current_user( (int) $administrator_ids[0] );
+	$repair_bounded = $call( 'repair_featured_images', array( 'source_ids' => array( $source_id ), 'languages' => array( $language ), 'dry_run' => false ) );
+	$translation_after_repair = $call( 'publication_featured_image_revision_identity', $translation_id );
+	$media_issues = new ReflectionMethod( Devenia_Workflow::class, 'frontend_featured_image_html_issues' );
+	$media_issues->setAccessible( true );
+	$replacement_url = (string) ( $source_media_b['url'] ?? '' );
+	$replacement_srcset = (string) wp_get_attachment_image_srcset( $replacement_thumbnail_id, 'full' );
+	$correct_media_html = '<html><head><meta property="og:image" content="' . esc_attr( $replacement_url ) . '"></head><body><img class="wp-post-image" src="' . esc_attr( $replacement_url ) . '" srcset="' . esc_attr( $replacement_srcset ) . '"></body></html>';
+	$correct_media_issues = $media_issues->invoke( null, $correct_media_html, $source_media_b, get_permalink( $translation_id ), 'canonical' );
+	$missing_srcset_media_issues = $media_issues->invoke( null, preg_replace( '/\s+srcset="[^"]*"/', '', $correct_media_html ), $source_media_b, get_permalink( $translation_id ), 'canonical' );
+	$srcset_candidates = preg_split( '/\s*,\s*/', $replacement_srcset ) ?: array();
+	$partial_srcset_html = str_replace( esc_attr( $replacement_srcset ), esc_attr( (string) ( $srcset_candidates[0] ?? '' ) ), $correct_media_html );
+	$partial_srcset_media_issues = $media_issues->invoke( null, $partial_srcset_html, $source_media_b, get_permalink( $translation_id ), 'canonical' );
+	$invalid_descriptor_srcset = preg_replace( '/\s+[0-9]+w(,|$)/', ' 999q$1', $replacement_srcset, 1 );
+	$invalid_descriptor_html = str_replace( esc_attr( $replacement_srcset ), esc_attr( (string) $invalid_descriptor_srcset ), $correct_media_html );
+	$invalid_descriptor_media_issues = $media_issues->invoke( null, $invalid_descriptor_html, $source_media_b, get_permalink( $translation_id ), 'canonical' );
+	$extra_token_srcset = preg_replace( '/\s+([0-9]+w)(,|$)/', ' $1 garbage$2', $replacement_srcset, 1 );
+	$extra_token_html = str_replace( esc_attr( $replacement_srcset ), esc_attr( (string) $extra_token_srcset ), $correct_media_html );
+	$extra_token_media_issues = $media_issues->invoke( null, $extra_token_html, $source_media_b, get_permalink( $translation_id ), 'canonical' );
+	$empty_candidate_srcset = $replacement_srcset . ',';
+	$empty_candidate_html = str_replace( esc_attr( $replacement_srcset ), esc_attr( $empty_candidate_srcset ), $correct_media_html );
+	$empty_candidate_media_issues = $media_issues->invoke( null, $empty_candidate_html, $source_media_b, get_permalink( $translation_id ), 'canonical' );
+	$wrong_media_issues = $media_issues->invoke( null, str_replace( $replacement_url, (string) ( $source_media_a['url'] ?? '' ), $correct_media_html ), $source_media_b, get_permalink( $translation_id ), 'origin' );
+	$missing_media_issues = $media_issues->invoke( null, '<html><head></head><body></body></html>', $source_media_b, get_permalink( $translation_id ), 'canonical' );
+	$extra_stale_media_issues = $media_issues->invoke( null, str_replace( '</body>', '<img class="wp-post-image" src="' . esc_attr( (string) ( $source_media_a['url'] ?? '' ) ) . '"></body>', $correct_media_html ), $source_media_b, get_permalink( $translation_id ), 'canonical' );
+	$no_image_media = $call( 'publication_featured_image_revision_identity', $linked_source_id );
+	$no_image_clean_issues = $media_issues->invoke( null, '<html><head></head><body></body></html>', $no_image_media, get_permalink( $linked_source_id ), 'origin' );
+	$no_image_stale_og_issues = $media_issues->invoke( null, '<html><head><meta property="og:image" content="' . esc_attr( (string) ( $source_media_a['url'] ?? '' ) ) . '"></head><body></body></html>', $no_image_media, get_permalink( $linked_source_id ), 'canonical' );
+	$no_image_empty_hero_issues = $media_issues->invoke( null, '<html><head></head><body><img class="wp-post-image" src=""></body></html>', $no_image_media, get_permalink( $linked_source_id ), 'origin' );
+	$no_image_empty_og_issues = $media_issues->invoke( null, '<html><head><meta property="og:image" content=""></head><body></body></html>', $no_image_media, get_permalink( $linked_source_id ), 'canonical' );
+	$no_image_parser_unavailable_issues = $media_issues->invoke( null, '<html><head></head><body></body></html>', $no_image_media, get_permalink( $linked_source_id ), 'origin', false );
+	$no_image_parse_failure_issues = $media_issues->invoke( null, '', $no_image_media, get_permalink( $linked_source_id ), 'canonical' );
+	if (
+		hash_equals( $source_surface_a, $source_surface_b )
+		|| empty( $call( 'translation_job_source_is_stale', $stale_job ) )
+		|| ! empty( $stale_approval['evidence_matches_publication_surface'] )
+		|| 'job_superseded' !== (string) ( $old_publish['code'] ?? '' )
+		|| '1' !== (string) get_option( 'devenia_workflow_source_inventory_dirty', '0' )
+		|| empty( $repair_dry_run['changed'] )
+		|| 'featured_image_repair_forbidden' !== (string) ( $repair_forbidden['code'] ?? '' )
+		|| empty( $repair_bounded['changed'][0]['bounded_lifecycle'] )
+		|| maybe_serialize( $translation_before_repair ) !== maybe_serialize( $translation_after_repair )
+		|| ! empty( $correct_media_issues )
+		|| empty( $replacement_srcset )
+		|| empty( $missing_srcset_media_issues )
+		|| empty( $partial_srcset_media_issues )
+		|| empty( $invalid_descriptor_media_issues )
+		|| empty( $extra_token_media_issues )
+		|| empty( $empty_candidate_media_issues )
+		|| empty( $wrong_media_issues )
+		|| empty( $missing_media_issues )
+		|| empty( $extra_stale_media_issues )
+		|| ! empty( $no_image_clean_issues )
+		|| empty( $no_image_stale_og_issues )
+		|| empty( $no_image_empty_hero_issues )
+		|| empty( $no_image_empty_og_issues )
+		|| empty( $no_image_parser_unavailable_issues )
+		|| empty( $no_image_parse_failure_issues )
+	) {
+		throw new RuntimeException( 'Source Publication Surface media lifecycle failed closed incorrectly: ' . wp_json_encode( compact( 'source_surface_a', 'source_surface_b', 'stale_approval', 'old_publish', 'repair_dry_run', 'repair_forbidden', 'repair_bounded', 'correct_media_issues', 'missing_srcset_media_issues', 'partial_srcset_media_issues', 'invalid_descriptor_media_issues', 'extra_token_media_issues', 'empty_candidate_media_issues', 'wrong_media_issues', 'missing_media_issues', 'extra_stale_media_issues', 'no_image_clean_issues', 'no_image_stale_og_issues', 'no_image_empty_hero_issues', 'no_image_empty_og_issues', 'no_image_parser_unavailable_issues', 'no_image_parse_failure_issues' ) ) );
+	}
+	update_post_meta( $source_id, '_thumbnail_id', $source_thumbnail_id );
+	clean_post_cache( $source_id );
+	if (
+		metadata_exists( 'post', $translation_id, 'rank_math_focus_keyword' )
+		|| 'Oversatt testside' !== (string) get_post_meta( $translation_id, 'rank_math_title', true )
+		|| 'En nyttig beskrivelse av den oversatte testsiden.' !== (string) get_post_meta( $translation_id, 'rank_math_description', true )
+	) {
+		throw new RuntimeException(
+			'Approved empty Rank Math focus keyword did not delete the stale key while preserving exact approved title and description: ' .
+			wp_json_encode(
+				array(
+					'focus_keyword_exists' => metadata_exists( 'post', $translation_id, 'rank_math_focus_keyword' ),
+					'title'                => get_post_meta( $translation_id, 'rank_math_title', true ),
+					'description'          => get_post_meta( $translation_id, 'rank_math_description', true ),
+				)
+			)
+		);
 	}
 
 	// Claim-time drift detection must reopen a live ready_to_publish clone and
@@ -1437,6 +1686,8 @@ try {
 		throw new RuntimeException( 'Could not create the configured-name migration fixture: ' . $migration_menu_id->get_error_message() );
 	}
 	add_term_meta( (int) $migration_menu_id, '_devenia_workflow_localized_menu_managed', '1', true );
+	add_term_meta( (int) $migration_menu_id, '_devenia_workflow_localized_menu_language', $language, true );
+	add_term_meta( (int) $migration_menu_id, '_devenia_workflow_public_header_manifest_revision', (string) $runtime_manifest['revision'], true );
 	$runtime_menu_ids[] = (int) $migration_menu_id;
 	unset( $migration_identities[ $language ] );
 	update_option( 'devenia_workflow_localized_menu_identities', $migration_identities, false );
@@ -1482,10 +1733,10 @@ try {
 		|| empty( $republished['transaction_rollback']['success'] )
 		|| empty( $republished['transaction_rollback']['rolled_back'] )
 		|| ! isset( $republished['surface_refresh'] )
-		|| empty( $republished['surface_refresh']['success'] )
-		|| ! empty( $republished['surface_refresh']['refreshed'] )
-		|| 'published' !== (string) ( $republished['surface_refresh']['job']['status'] ?? '' )
-		|| 'published' !== (string) ( $published_job_after_media_drift['status'] ?? '' )
+		|| ! empty( $republished['surface_refresh']['success'] )
+		|| 'surface_refresh_generation_limit' !== (string) ( $republished['surface_refresh']['code'] ?? '' )
+		|| 'failed_technical' !== (string) ( $republished['surface_refresh']['job']['status'] ?? '' )
+		|| 'failed_technical' !== (string) ( $published_job_after_media_drift['status'] ?? '' )
 		|| (string) ( $stored_job['artifact_revision'] ?? '' ) !== (string) ( $published_job_after_media_drift['artifact_revision'] ?? '' )
 		|| (string) ( $stored_job['quality_revision'] ?? '' ) !== (string) ( $published_job_after_media_drift['quality_revision'] ?? '' )
 		|| maybe_serialize( $published_artifact_before_media_drift ) !== maybe_serialize( get_option( 'devenia_workflow_translation_artifact_' . (string) ( $stored_job['artifact_revision'] ?? '' ) ) )
@@ -1494,6 +1745,9 @@ try {
 	) {
 		throw new RuntimeException( 'Published Translation Job media drift did not fail closed with immutable approved records and an explicit correction path: ' . wp_json_encode( array( 'publish' => $republished, 'stored_job' => $published_job_after_media_drift, 'effective_thumbnail_id' => get_post_meta( $translation_id, '_thumbnail_id', true ) ) ) );
 	}
+	// The next scenario independently exercises the published correction entry
+	// path, so restore its exact pre-limit Job fixture without changing public data.
+	update_option( 'devenia_workflow_translation_job_' . $job_id, $stored_job, false );
 	// The next fixture independently proves the explicit published correction
 	// lifecycle. Restore this deliberate drift first so its packet starts from a
 	// stable public baseline rather than silently laundering unreviewed media.
@@ -1646,8 +1900,15 @@ try {
 			'submission_contracts_in_packets' => true,
 			'submission_contracts_share_live_schema' => true,
 			'runtime_text_uses_wordpress_capability' => true,
+				'social_sharing_uses_semantic_runtime_key' => true,
 			'mailto_query_copy_must_be_localized' => true,
 			'featured_image_synchronized_before_quality' => true,
+			'source_publication_surface_media_reopens_all_language_obligations' => true,
+			'same_id_attachment_bytes_change_revision_but_mtime_does_not' => true,
+			'featured_image_srcset_candidate_descriptor_set_is_exact' => true,
+			'rollback_media_purge_origin_canonical_success_and_failure_proven' => true,
+			'featured_image_repair_routes_through_bounded_lifecycle_without_public_mutation' => true,
+			'approved_empty_rankmath_focus_keyword_deleted_exactly' => true,
 			'published_job_media_drift_failed_closed_without_silent_reconcile' => true,
 			'duplicate_thumbnail_meta_drift_used_wordpress_effective_value' => true,
 			'published_job_browser_correction_reentered_bounded_lifecycle' => true,
@@ -1661,7 +1922,7 @@ try {
 			'substantive_run_attempt_limit_enforced' => true,
 			'quality_pending_contract_gap_reopened_for_translator' => true,
 			'orphaned_run_finalized_during_publish' => true,
-			'real_sync_menu_publication_exercised' => true,
+			'translation_publish_preserved_seeded_menu_identity' => true,
 			'atomic_menu_failure_preserved_active_identity' => true,
 			'stable_menu_identity_migrated' => true,
 			'frontend_cache_invalidation_adapter_consumed' => true,
@@ -1702,6 +1963,21 @@ try {
 	} else {
 		update_option( 'devenia_workflow_localized_menu_identities', $menu_identities_before, false );
 	}
+	if ( false === $public_header_manifest_before ) {
+		delete_option( 'devenia_workflow_public_header_manifest' );
+	} else {
+		update_option( 'devenia_workflow_public_header_manifest', $public_header_manifest_before, false );
+	}
+	if ( false === $pending_public_header_manifest_before ) {
+		delete_option( 'devenia_workflow_pending_public_header_manifest' );
+	} else {
+		update_option( 'devenia_workflow_pending_public_header_manifest', $pending_public_header_manifest_before, false );
+	}
+	if ( false === $source_inventory_dirty_before ) {
+		delete_option( 'devenia_workflow_source_inventory_dirty' );
+	} else {
+		update_option( 'devenia_workflow_source_inventory_dirty', $source_inventory_dirty_before, false );
+	}
 	foreach ( array_unique( $runtime_menu_ids ) as $runtime_menu_id ) {
 		if ( $runtime_menu_id > 0 && '1' === (string) get_term_meta( $runtime_menu_id, '_devenia_workflow_localized_menu_managed', true ) ) {
 			wp_delete_nav_menu( $runtime_menu_id );
@@ -1721,6 +1997,12 @@ try {
 	}
 	if ( $source_thumbnail_id > 0 ) {
 		wp_delete_attachment( $source_thumbnail_id, true );
+	}
+	if ( $replacement_thumbnail_id > 0 ) {
+		wp_delete_attachment( $replacement_thumbnail_id, true );
+	}
+	foreach ( array( $source_thumbnail_file, $replacement_thumbnail_file ) as $fixture_file ) {
+		if ( is_string( $fixture_file ) && '' !== $fixture_file && file_exists( $fixture_file ) ) { unlink( $fixture_file ); } // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Ephemeral runtime fixture cleanup.
 	}
 	foreach ( array_unique( $option_keys ) as $option_key ) {
 		delete_option( $option_key );

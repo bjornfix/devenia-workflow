@@ -162,6 +162,7 @@ trait Devenia_Workflow_Translation_Job {
 						'allow_source_slug_in_url' => array( 'type' => 'boolean' ),
 						'seo' => array( 'type' => 'object' ),
 						'taxonomies' => array( 'type' => 'object' ),
+						'featured_image_alt' => array( 'type' => 'string' ),
 						'localized_fragments' => array(
 							'type' => 'array',
 							'items' => array(
@@ -290,7 +291,7 @@ trait Devenia_Workflow_Translation_Job {
 				'source_approval' => $source_approval,
 			);
 		}
-		$source_revision = self::source_hash( $source );
+		$source_revision = self::source_publication_surface_revision( $source );
 		$job_id = self::translation_job_id( $source_id, $language, $source_revision );
 		$job = self::translation_job_get_job( $job_id );
 		if ( ! $job ) {
@@ -865,45 +866,25 @@ trait Devenia_Workflow_Translation_Job {
 		if ( ! in_array( $job_status, array( 'ready_to_publish', 'published' ), true ) ) {
 			return array( 'success' => false, 'code' => 'job_not_ready_to_publish', 'message' => 'Translation Job does not have a passing current Quality Decision.', 'job' => self::translation_job_public_job( $job ) );
 		}
-		$quality = get_option( self::translation_job_quality_key( (string) ( $job['quality_revision'] ?? '' ) ) );
 		$coordinator_id = self::translation_job_clean_id( (string) ( $input['coordinator_id'] ?? '' ) );
-		$is_quality_authority_v3 = is_array( $quality ) && ! empty( $quality['evidence_revision'] ) && ! empty( $quality['reviewer_principal']['principal_id'] );
-		if ( ! is_array( $quality ) || 'pass' !== (string) ( $quality['decision'] ?? '' ) || ! $is_quality_authority_v3 ) {
-			return array( 'success' => false, 'code' => 'quality_decision_authority_mismatch', 'message' => 'Publication requires the current server-owned v3 Quality evidence and principal bindings. Coordinator labels grant no authority.' );
+		$authority = self::translation_job_validate_published_authority( $job, absint( $job['translation_id'] ?? 0 ), false );
+		if ( empty( $authority['success'] ) ) {
+			$authority_code = (string) ( $authority['code'] ?? '' );
+			if ( in_array( $authority_code, array( 'job_source_revision_stale', 'job_identity_mismatch' ), true ) ) { return array( 'success' => false, 'code' => 'job_superseded', 'authority_code' => $authority_code, 'message' => 'Source or artifact changed after the Quality Decision.' ); }
+			return array( 'success' => false, 'code' => 'quality_decision_authority_mismatch', 'authority_code' => $authority_code, 'message' => 'Publication requires the exact current Job, Artifact, Quality and Evidence authority chain. Coordinator labels grant no authority.' );
 		}
-		if ( self::translation_job_source_is_stale( $job ) || (string) ( $quality['artifact_revision'] ?? '' ) !== (string) ( $job['artifact_revision'] ?? '' ) ) {
-			return array( 'success' => false, 'code' => 'job_superseded', 'message' => 'Source or artifact changed after the Quality Decision.' );
-		}
+		$quality = (array) $authority['quality'];
+		$artifact_record = (array) $authority['artifact_record'];
 		$source = get_post( (int) $job['source_id'] );
 		$source_approval = $source instanceof WP_Post ? self::translation_job_source_approval( $source ) : array( 'passed' => false );
 		if ( empty( $source_approval['passed'] ) ) {
 			return array( 'success' => false, 'code' => 'source_quality_approval_required', 'message' => 'Current source revision is not approved for publication.', 'source_approval' => $source_approval );
-		}
-		$artifact_record = self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) ) );
-		if ( ! is_array( $artifact_record ) || empty( $artifact_record['artifact_revision'] ) ) {
-			return array( 'success' => false, 'code' => 'artifact_record_missing', 'message' => 'The approved artifact record is unavailable.' );
-		}
-		$writer_principal = isset( $artifact_record['writer_principal'] ) && is_array( $artifact_record['writer_principal'] ) ? $artifact_record['writer_principal'] : array();
-		if (
-			empty( $writer_principal['principal_id'] )
-			|| (string) ( $writer_principal['principal_id'] ?? '' ) === (string) ( $quality['reviewer_principal']['principal_id'] ?? '' )
-			|| self::translation_job_submission_generation( $job ) !== absint( $artifact_record['submission_generation'] ?? 1 )
-			|| self::translation_job_submission_generation( $job ) !== absint( $quality['submission_generation'] ?? 1 )
-		) {
-			return array( 'success' => false, 'code' => 'quality_principal_generation_mismatch', 'message' => 'Publication requires fresh, separate writer and Quality principals bound to the current submission generation.' );
 		}
 		$translation_id = self::translation_job_resolve_publication_translation_id( $job, $artifact_record );
 		if ( $translation_id ) { $job['translation_id'] = $translation_id; }
 		$staged_apply = null;
 		$surface_snapshot = null;
 		if ( ! empty( $artifact_record['staged'] ) ) {
-			if (
-				! $is_quality_authority_v3
-				|| ! hash_equals( (string) ( $artifact_record['surface_revision'] ?? '' ), (string) ( $quality['surface_revision'] ?? '' ) )
-				|| empty( self::translation_job_validate_quality_evidence_record( $quality, $artifact_record )['success'] )
-			) {
-				return array( 'success' => false, 'code' => 'quality_authority_evidence_missing', 'message' => 'Staged publication requires the exact server-bound Quality evidence record.' );
-			}
 			$surface_snapshot = self::translation_job_capture_surface_snapshot( $translation_id, (array) ( $artifact_record['surface_manifest'] ?? array() ), self::translation_job_publication_identity_scope( $job ) );
 			if ( empty( $surface_snapshot['snapshot_valid'] ) ) {
 				return array( 'success' => false, 'code' => 'publication_snapshot_failed', 'message' => 'The complete pre-publication surface could not be captured safely.', 'snapshot' => $surface_snapshot );
@@ -975,6 +956,7 @@ trait Devenia_Workflow_Translation_Job {
 				'language'                  => $language,
 				'source_id'                 => (int) $job['source_id'],
 				'job_id'                    => (string) $job['job_id'],
+				'expected_media'             => (array) ( $artifact_record['surface_manifest']['media']['featured_image'] ?? array() ),
 				'sync_menu'                 => ! array_key_exists( 'sync_menu', $input ) || ! empty( $input['sync_menu'] ),
 				'include_custom_links'      => true,
 				'verify_live'               => true,
@@ -1032,7 +1014,7 @@ trait Devenia_Workflow_Translation_Job {
 		if ( '' === $job_id && ! empty( $input['source_id'] ) && ! empty( $input['language'] ) ) {
 			$source = get_post( absint( $input['source_id'] ) );
 			if ( $source ) {
-				$job_id = self::translation_job_id( (int) $source->ID, sanitize_key( (string) $input['language'] ), self::source_hash( $source ) );
+				$job_id = self::translation_job_id( (int) $source->ID, sanitize_key( (string) $input['language'] ), self::source_publication_surface_revision( $source ) );
 			}
 		}
 		$job = self::translation_job_get_job( $job_id );
@@ -1084,6 +1066,8 @@ trait Devenia_Workflow_Translation_Job {
 				'seo_title' => (string) get_post_meta( (int) $source->ID, 'rank_math_title', true ),
 				'seo_description' => (string) get_post_meta( (int) $source->ID, 'rank_math_description', true ),
 				'post_type' => (string) $source->post_type,
+				'publication_surface_revision' => self::source_publication_surface_revision( $source ),
+				'publication_surface' => self::source_publication_surface_manifest( $source ),
 			),
 			'fragments' => $fragments,
 			'route' => array( 'language_prefix' => self::language_prefix( $language ), 'source_slug' => (string) $source->post_name, 'source_parent_id' => (int) $source->post_parent, 'existing' => $existing_route, 'policy' => $existing_route && ! empty( $existing_route['route_locked'] ) ? 'Preserve the established canonical route exactly. Ordinary translation work cannot migrate a published URL.' : 'Create one localized route for this new translation; publication establishes its Canonical Route Contract.' ),
@@ -1114,7 +1098,8 @@ trait Devenia_Workflow_Translation_Job {
 			'source' => array(
 				'title' => get_the_title( $source ),
 				'excerpt' => (string) $source->post_excerpt,
-				'source_revision' => self::source_hash( $source ),
+				'source_revision' => self::source_publication_surface_revision( $source ),
+				'publication_surface' => self::source_publication_surface_manifest( $source ),
 				'fragments' => self::translation_job_source_fragments( $source_contract ),
 				'approval' => self::translation_job_source_approval( $source ),
 			),
@@ -1654,11 +1639,11 @@ trait Devenia_Workflow_Translation_Job {
 	 */
 	private static function translation_job_refresh_drifted_surface( array $job, string $reason, array $publication_failure = array() ): array {
 		$reason = sanitize_key( $reason );
-		if ( ! in_array( $reason, array( 'claim_baseline_mismatch', 'quality_packet_baseline_mismatch', 'quality_submission_baseline_mismatch', 'publish_baseline_mismatch' ), true ) ) {
+		if ( ! in_array( $reason, array( 'claim_baseline_mismatch', 'quality_packet_baseline_mismatch', 'quality_submission_baseline_mismatch', 'publish_baseline_mismatch', 'repair_visible_media_drift' ), true ) ) {
 			return array( 'success' => false, 'code' => 'surface_refresh_reason_invalid', 'message' => 'Surface Refresh requires a fixed server-owned lifecycle reason.' );
 		}
 		$status = sanitize_key( (string) ( $job['status'] ?? '' ) );
-		if ( ! in_array( $status, array( 'quality_pending', 'ready_to_publish' ), true ) ) {
+		if ( ! in_array( $status, array( 'quality_pending', 'ready_to_publish', 'published' ), true ) ) {
 			return array( 'success' => true, 'refreshed' => false, 'job' => $job );
 		}
 		if ( self::translation_job_source_is_stale( $job ) ) {
@@ -1764,12 +1749,14 @@ trait Devenia_Workflow_Translation_Job {
 
 	private static function translation_job_source_approval( WP_Post $source ): array {
 		$source_hash = self::source_hash( $source );
+		$source_surface_revision = self::source_publication_surface_revision( $source );
 		$validation = self::source_content_integrity_validation( $source );
 		$evidence = self::json_post_meta_value( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_EVIDENCE );
 		$reviewed_at = (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWED_AT, true );
 		$reviewer = (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWER, true );
 		$publication = self::publication_experience_readiness_for_post( $source, self::source_language_code(), 'pre_publish' );
 		$evidence_source_hash = (string) ( $evidence['source_hash'] ?? '' );
+		$evidence_surface_revision = (string) ( $evidence['source_publication_surface_revision'] ?? '' );
 		$passed = empty( $validation['issue_count'] )
 			&& ! empty( $publication['passed'] )
 			&& ! empty( $evidence['content_integrity_already_clean'] )
@@ -1777,6 +1764,8 @@ trait Devenia_Workflow_Translation_Job {
 			&& '' !== $reviewer
 			&& '' !== $evidence_source_hash
 			&& hash_equals( $source_hash, $evidence_source_hash )
+			&& '' !== $evidence_surface_revision
+			&& hash_equals( $source_surface_revision, $evidence_surface_revision )
 			&& strlen( trim( (string) ( $evidence['audit_notes'] ?? '' ) ) ) >= 80
 			&& strlen( trim( (string) ( $evidence['reviewer_statement'] ?? '' ) ) ) >= 80;
 		return array(
@@ -1784,11 +1773,13 @@ trait Devenia_Workflow_Translation_Job {
 			'state' => $passed ? 'source_quality_approved' : 'source_quality_approval_required',
 			'source_id' => (int) $source->ID,
 			'source_hash' => $source_hash,
+			'source_publication_surface_revision' => $source_surface_revision,
 			'reviewed_at' => $reviewed_at,
 			'reviewer' => $reviewer,
 			'content_integrity_passed' => empty( $validation['issue_count'] ),
 			'publication_experience_passed' => ! empty( $publication['passed'] ),
 			'evidence_matches_source' => '' !== $evidence_source_hash && hash_equals( $source_hash, $evidence_source_hash ),
+			'evidence_matches_publication_surface' => '' !== $evidence_surface_revision && hash_equals( $source_surface_revision, $evidence_surface_revision ),
 		);
 	}
 
@@ -1800,7 +1791,7 @@ trait Devenia_Workflow_Translation_Job {
 
 	private static function translation_job_source_is_stale( array $job ): bool {
 		$source = get_post( absint( $job['source_id'] ?? 0 ) );
-		return ! $source || ! hash_equals( (string) ( $job['source_revision'] ?? '' ), self::source_hash( $source ) );
+		return ! $source || ! hash_equals( (string) ( $job['source_revision'] ?? '' ), self::source_publication_surface_revision( $source ) );
 	}
 
 	private static function translation_job_translation_revision( int $translation_id ): string {

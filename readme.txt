@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.611
+Stable tag: 0.1.612
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,15 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 == Changelog ==
 
+= 0.1.612 =
+
+* Bind Translation Jobs, artifacts, Quality Decisions, publication evidence, and Source Inventory to one complete source publication surface covering content, routes, taxonomies, design, and byte-stable featured media identity.
+* Fail localized publication closed unless the exact featured image, WordPress srcset candidates, and Open Graph image are verified on both origin and canonical public URLs; reopen stale work through bounded Translation Jobs instead of mutating public media directly.
+* Publish source and localized public-header projections as one all-language transaction with durable enrollment, locked receipts, cache-coherent rollback, and exact origin/canonical menu verification.
+* Resolve translated post links through the authoritative relationship index without language-specific route assumptions.
+* Integrate the separate owned Devenia Social Sharing plugin only through its public manifest and filters; require every rendered semantic string from the language registry and verify exact heading cardinality and values on live public surfaces.
+* Apply the complete approved SEO surface with explicit set/delete operations during Translation Job publication, while preserving genuinely absent optional fields in general updates and signing the actual final Rank Math state.
+
 = 0.1.611 =
 
 * Normalizes mixed HTML and text translation fragments to the deterministic storage representation before staging and applied-surface verification, preserving exact source-design hash and fragment-value checks while remaining compatible with already-approved manifests.
@@ -172,11 +181,11 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 = 0.1.592 =
 
-* Keeps Scriptless email-share links under the dedicated canonical URL renderer instead of replacing them with legacy full-mailto runtime mappings.
+* Keeps owned email-share links under the dedicated canonical URL renderer instead of replacing them with full-mailto runtime mappings.
 
 = 0.1.591 =
 
-* Supplies Scriptless Social Sharing with the translation's Canonical Route Contract before share links are built.
+* Supplies Devenia Social Sharing with the translation's Canonical Route Contract before share links are built.
 
 = 0.1.590 =
 
@@ -214,7 +223,7 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 * Keeps translated bylines on the working source author archive until a localized author archive is published.
 * Restores the author archive localization queue and stops internal-link validation from accepting unpublished localized author paths.
-* Normalizes Scriptless email-share URLs to the rendered canonical URL when only path casing differs.
+* Normalizes owned email-share URLs to the rendered canonical URL when only path casing differs.
 
 = 0.1.580 =
 

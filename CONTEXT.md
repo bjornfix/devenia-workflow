@@ -20,14 +20,37 @@ the shared `Devenia_Workflow` product namespace.
 ## Localized Presentation Publication
 
 The deep Module that turns one approved Translation Job into a stable public
-reader surface. Its Interface owns the content publish transition, Atomic
-Localized Menu Projection, canonical frontend-cache invalidation, and origin
-plus canonical-cache verification as one outcome. A stored post status alone
-is not successful Localized Presentation Publication.
+reader surface. Its Interface owns the content publish transition, Public
+Header Projection, canonical frontend-cache invalidation, and origin plus
+canonical-cache verification as one outcome. A stored post status alone is not
+successful Localized Presentation Publication.
+
+## Public Header Projection
+
+The complete ordered primary-navigation projection for one configured source
+or target language. Its authoritative Interface is a separate runtime manifest
+plus registered language data, never the currently rendered WordPress primary
+menu. Manifest updates create a pending revision. That revision becomes active
+only after every configured source and target projection has staged, validated,
+and produced a recovery receipt, followed by one atomic manifest-and-identity
+activation. The prior complete set remains active until that boundary passes.
+Every manifest row must resolve in every configured language; a skipped row is
+an incomplete projection, not a successful partial menu. Normal Translation Job
+publication enters this same pending-manifest Interface and cannot activate one
+language independently. Enrollment is durable, so loss of the active manifest
+or an identity after enrollment fails closed instead of reopening a raw menu.
+Activation and rollback both require cache invalidation and origin plus
+canonical verification for every language homepage and blog archive. A raw
+theme-location menu is only migration input; it cannot become public authority,
+its own verification oracle, or a frontend fallback when managed identity is
+missing or corrupt.
+Rollback locks and revalidates every prior term against its pre-activation
+recovery receipt before restoring identities. Verification compares the exact
+projected navigation anchors rather than accepting a matching subsequence.
 
 ## Localized Menu Projection
 
-The complete ordered navigation projection for one configured target language.
+The target-language specialization of Public Header Projection.
 It binds a stable WordPress menu term identity to the expected translated page
 targets, localized labels, custom links, and parent graph. A replacement
 projection is built and validated away from the active term, then activated in
@@ -41,6 +64,25 @@ Adapter clears local object/content caches and the Cloudflare Adapter purges
 canonical public URL prefixes after publication or plugin rollout. Cache-aware
 verification reads both an origin-bypassing view and the canonical cacheable
 view.
+
+## Devenia Social Sharing
+
+The separate owned WordPress Module that renders accessible social-sharing
+links without frontend JavaScript, external SDKs, tracking, runtime HTTP, or
+external icon resources. Its deep Interface owns settings, network definitions,
+canonical permalink input, localized heading and link text, automatic placement,
+and the exact rendered-surface manifest consumed by Workflow. Workflow supplies
+runtime localization and Canonical Route Contract values through owned Adapters;
+it never introspects the sharing Module's implementation.
+
+## Canonical SEO Surface
+
+The complete SEO member of a Staged Translation Artifact and the deep Module
+that resolves every SEO field to an explicit `set`, `delete`, or `preserve`
+operation before an installed SEO Adapter receives it. Localized Presentation
+Publication uses complete-replace semantics from the immutable Artifact Surface
+Revision. General translation and generated-source writes use patch/derive
+semantics, so a missing optional field never becomes deletion authority.
 
 ## Translation Job
 
@@ -163,6 +205,27 @@ default. Draft, pending, future, private, trashed, password-protected, deleted,
 translation, and non-public post-type objects remain visible in inventory
 evidence but are excluded with a structured reason. `noindex` does not make a
 publicly viewable source non-public and is not an exclusion reason.
+
+## Source Publication Surface
+
+The deep Module that gives Source Inventory, Translation Jobs, Staged
+Translation Artifacts, Quality, and Localized Presentation Publication one
+canonical view of everything on the source that can change the localized public
+reader surface. Its Interface returns a data-driven manifest and content-addressed
+revision covering source content, Public Route inputs, taxonomy, source design,
+and visible media. Featured-media identity includes the effective WordPress
+attachment relation, canonical URL, attachment revision and metadata, source alt,
+and a bounded local file identity with byte size, modification time, and SHA-256.
+An expected local file that cannot be identified is a structured fail-closed
+state, never permission to reuse earlier Quality evidence.
+
+Changing any Source Publication Surface member dirties Source Inventory and
+creates unresolved Translation Obligations for every configured target language.
+A Translation Obligation is `published_verified` only when the current source
+surface, approved Artifact Surface Revision, stored localized surface, and both
+origin and canonical rendered media identities agree. The featured-image repair
+ability is an Adapter into the bounded Translation Job and Localized Presentation
+Publication lifecycle; it cannot directly mutate the public reader surface.
 
 ## Inventory Generation
 

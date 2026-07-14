@@ -746,12 +746,17 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			if ( self::translation_slug_conflicts( $slug, (string) $source->post_type, $parent_id, 0 ) ) { return array( 'success' => false, 'code' => 'staged_localized_slug_collision', 'message' => 'The staged localized route collides with existing content.' ); }
 		}
 
-		$seo_input = isset( $artifact['seo'] ) && is_array( $artifact['seo'] ) ? $artifact['seo'] : array();
-		$seo_title = self::seo_meta_input_value( $seo_input, array( 'seo_title', 'title' ) );
-		$seo_description = self::seo_meta_input_value( $seo_input, array( 'seo_description', 'description' ) );
+		$seo_surface = self::canonical_seo_surface_for_translation_job( $artifact, $title, $excerpt, $content );
 		$expected_taxonomies = self::translation_job_expected_taxonomy_surface( $source, $language, is_array( $artifact['taxonomies'] ?? null ) ? $artifact['taxonomies'] : array() );
 		if ( is_wp_error( $expected_taxonomies ) ) {
 			return array( 'success' => false, 'code' => 'staged_taxonomy_read_failed', 'message' => $expected_taxonomies->get_error_message(), 'mutation_started' => false );
+		}
+		$featured_image_identity = self::publication_featured_image_revision_identity( $source );
+		if (
+			absint( $featured_image_identity['attachment_id'] ?? 0 ) > 0
+			&& empty( $featured_image_identity['file_identity']['available'] )
+		) {
+			return array( 'success' => false, 'code' => 'source_featured_image_identity_unavailable', 'message' => 'The source featured-image bytes could not be identified; staging fails closed.', 'media_identity' => $featured_image_identity );
 		}
 		$manifest = array(
 			'schema_version'  => 2,
@@ -759,16 +764,12 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'source_revision' => (string) $job['source_revision'],
 			'language'        => $language,
 			'content'         => array( 'title' => $title, 'excerpt' => $excerpt, 'gutenberg' => $content ),
-			'seo'             => array(
-				'title'         => '' !== $seo_title ? $seo_title : $title,
-				'description'   => '' !== $seo_description ? $seo_description : ( '' !== $excerpt ? $excerpt : self::seo_description_from_content( $content ) ),
-				'focus_keyword' => self::seo_meta_input_value( $seo_input, array( 'focus_keyword', 'keyword' ) ),
-			),
+			'seo'             => $seo_surface,
 			'taxonomies'      => self::translation_job_canonicalize( $expected_taxonomies ),
 			'route'           => $route,
 			'media'           => array(
-				'featured_image_id' => (int) get_post_thumbnail_id( (int) $source->ID ),
-				'featured_image_alt'=> sanitize_text_field( (string) ( $artifact['featured_image_alt'] ?? '' ) ),
+				'featured_image'     => $featured_image_identity,
+				'featured_image_alt' => sanitize_text_field( (string) ( $artifact['featured_image_alt'] ?? '' ) ),
 			),
 			'presentation'    => array(
 				'source_design_hash' => (string) ( self::source_design_contract( $source )['design_hash'] ?? '' ),
@@ -825,7 +826,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'canonical_route' => self::json_post_meta_value( $translation_id, self::META_CANONICAL_ROUTE ),
 			),
 			'media' => array(
-				'featured_image_id' => (int) get_post_thumbnail_id( $translation_id ),
+				'featured_image' => self::publication_featured_image_revision_identity( $translation_id ),
 				'visible_media_provenance' => self::json_post_meta_value( $translation_id, self::META_VISIBLE_MEDIA_PROVENANCE ),
 			),
 			'presentation' => array(
@@ -1207,7 +1208,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			return array( 'success' => false, 'code' => 'staged_surface_drifted', 'message' => 'The public translation surface changed after the staged artifact was submitted.', 'mutation_started' => false );
 		}
 		if ( $already_applied ) {
-			$thumbnail_id = (int) get_post_thumbnail_id( $translation_id );
+			$thumbnail_id = self::featured_image_id_for_post( $translation_id );
 			return array(
 				'success' => true,
 				'translation_id' => $translation_id,
@@ -1224,6 +1225,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$upsert = array_merge(
 			$artifact,
 			array(
+				'_canonical_seo_surface' => (array) ( $artifact_record['surface_manifest']['seo'] ?? array() ),
 				'source_id' => (int) $job['source_id'],
 				'language' => (string) $job['target_language'],
 				'translation_id' => $translation_id,
@@ -1308,7 +1310,9 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		if ( array_key_exists( 'localized_path', $route ) && $expected_path !== trim( (string) get_post_meta( $translation_id, self::META_LOCALIZED_PATH, true ), '/' ) ) { $failed[] = 'route_path'; }
 		if ( array_key_exists( 'canonical_route', $route ) && self::translation_job_canonicalize( (array) $route['canonical_route'] ) !== self::translation_job_canonicalize( self::json_post_meta_value( $translation_id, self::META_CANONICAL_ROUTE ) ) ) { $failed[] = 'route_canonical'; }
 		$media = (array) ( $manifest['media'] ?? array() );
-		if ( (int) ( $media['featured_image_id'] ?? 0 ) !== (int) get_post_thumbnail_id( $translation_id ) ) { $failed[] = 'media_image'; }
+		$expected_featured_image = (array) ( $media['featured_image'] ?? array() );
+		$actual_featured_image = self::publication_featured_image_revision_identity( $translation_id );
+		if ( self::translation_job_canonicalize( $expected_featured_image ) !== self::translation_job_canonicalize( $actual_featured_image ) ) { $failed[] = 'media_image'; }
 		if ( array_key_exists( 'featured_image_alt', $media ) && (string) $media['featured_image_alt'] !== (string) get_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT, true ) ) { $failed[] = 'media_alt'; }
 		$presentation = (array) ( $manifest['presentation'] ?? array() );
 		$stored_presentation = self::stored_localized_source_design_fragments( $translation_id );
@@ -1490,6 +1494,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'post_modified' => (string) $post->post_modified, 'post_modified_gmt' => (string) $post->post_modified_gmt,
 			) : null,
 			'meta' => $post instanceof WP_Post ? get_post_meta( $translation_id ) : array(),
+			'featured_image_identity' => $post instanceof WP_Post ? self::publication_featured_image_revision_identity( $translation_id ) : array(),
 			'taxonomies' => $taxonomies,
 			'term_scope' => $term_states,
 		);
@@ -1583,6 +1588,9 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'publication_attempt_id' => $publication_attempt_id,
 			'identity_scope' => $identity_scope,
 			'captured_surface_revision' => self::translation_job_current_surface_revision( $translation_id ),
+			'featured_image_identity' => self::publication_featured_image_revision_identity( $translation_id ),
+			'rollback_public_url' => esc_url_raw( (string) get_permalink( $translation_id ) ),
+			'language' => sanitize_key( (string) ( $manifest['language'] ?? '' ) ),
 			'term_scope' => $term_snapshot['terms'],
 			'captured_cas_revision' => self::translation_job_rollback_cas_revision( $translation_id, $term_snapshot['terms'], $identity_scope ),
 			'post' => array(
@@ -1625,7 +1633,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			}
 			foreach ( (array) ( $state['meta'] ?? array() ) as $meta_key => $values ) {
 				foreach ( (array) $values as $value ) {
-					if ( false === add_term_meta( $expected_id, (string) $meta_key, maybe_unserialize( $value ) ) ) { $errors[] = 'term_meta_add_' . $key; }
+					if ( false === add_term_meta( $expected_id, (string) $meta_key, wp_slash( maybe_unserialize( $value ) ) ) ) { $errors[] = 'term_meta_add_' . $key; }
 				}
 			}
 			$actual = self::translation_job_taxonomy_term_state( $expected_id, $taxonomy );
@@ -1757,10 +1765,21 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		}
 		foreach ( (array) ( $snapshot['meta'] ?? array() ) as $key => $values ) {
 			foreach ( (array) $values as $value ) {
-				if ( false === add_post_meta( $original_id, (string) $key, maybe_unserialize( $value ) ) ) { $errors[] = 'meta_add_' . $key; }
+				if ( false === add_post_meta( $original_id, (string) $key, wp_slash( maybe_unserialize( $value ) ) ) ) { $errors[] = 'meta_add_' . $key; }
 			}
 		}
-		if ( self::translation_job_canonicalize( (array) ( $snapshot['meta'] ?? array() ) ) !== self::translation_job_canonicalize( get_post_meta( $original_id ) ) ) { $errors[] = 'meta_verification'; }
+		$expected_meta = self::translation_job_canonicalize( (array) ( $snapshot['meta'] ?? array() ) );
+		$restored_meta = self::translation_job_canonicalize( get_post_meta( $original_id ) );
+		$meta_verification = array();
+		if ( $expected_meta !== $restored_meta ) {
+			$errors[] = 'meta_verification';
+			foreach ( array_values( array_unique( array_merge( array_keys( $expected_meta ), array_keys( $restored_meta ) ) ) ) as $meta_key ) {
+				if ( ( $expected_meta[ $meta_key ] ?? null ) !== ( $restored_meta[ $meta_key ] ?? null ) ) {
+					$meta_verification[] = (string) $meta_key;
+				}
+			}
+		}
+		if ( self::translation_job_canonicalize( (array) ( $snapshot['featured_image_identity'] ?? array() ) ) !== self::translation_job_canonicalize( self::publication_featured_image_revision_identity( $original_id ) ) ) { $errors[] = 'featured_image_byte_identity_verification'; }
 		foreach ( (array) ( $snapshot['taxonomies'] ?? array() ) as $taxonomy => $term_ids ) {
 			$result = wp_set_object_terms( $original_id, array_map( 'absint', (array) $term_ids ), (string) $taxonomy, false );
 			if ( is_wp_error( $result ) ) {
@@ -1779,7 +1798,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		clean_post_cache( $original_id );
 		return empty( $errors )
 			? array( 'success' => true, 'action' => 'restore_existing', 'translation_id' => $original_id )
-			: array( 'success' => false, 'action' => 'restore_existing', 'translation_id' => $original_id, 'error' => 'surface_restore_incomplete', 'restore_errors' => array_values( array_unique( $errors ) ), 'term_restore' => $term_restore );
+			: array( 'success' => false, 'action' => 'restore_existing', 'translation_id' => $original_id, 'error' => 'surface_restore_incomplete', 'restore_errors' => array_values( array_unique( $errors ) ), 'meta_verification_keys' => $meta_verification, 'term_restore' => $term_restore );
 	}
 
 	/** Restore content/terms and menu projection in one all-or-nothing transaction. */
@@ -1847,17 +1866,28 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$failure['rollback'] = is_array( $menu_recovery_plan )
 			? self::translation_job_restore_publication_snapshot( $snapshot, $translation_id, sanitize_key( (string) ( $menu_recovery_plan['language'] ?? '' ) ), $menu_recovery_plan )
 			: self::translation_job_restore_surface_snapshot( $snapshot, $translation_id );
-		if ( ! empty( $failure['rollback']['success'] ) && ! empty( $failure['purge_urls'] ) && is_array( $failure['purge_urls'] ) ) {
+		if ( ! empty( $failure['rollback']['success'] ) ) {
+			$rollback_urls = array_values( array_unique( array_filter( array_merge( (array) ( $failure['purge_urls'] ?? array() ), array( (string) ( $snapshot['rollback_public_url'] ?? '' ) ) ) ) ) );
 			$rollback_invalidation = apply_filters(
 				'devenia_workflow_frontend_cache_invalidation_result',
 				null,
-				array_values( array_filter( array_map( 'esc_url_raw', $failure['purge_urls'] ) ) ),
+				array_values( array_filter( array_map( 'esc_url_raw', $rollback_urls ) ) ),
 				array( 'event' => 'localized_presentation_rollback', 'translation_id' => $translation_id, 'reason' => sanitize_key( (string) ( $failure['code'] ?? 'publication_failed' ) ) )
 			);
 			$failure['rollback']['cache_invalidation'] = $rollback_invalidation;
 			if ( ! is_array( $rollback_invalidation ) || true !== ( $rollback_invalidation['success'] ?? null ) ) {
 				$failure['rollback']['success'] = false;
 				$failure['rollback']['error'] = 'rollback_cache_invalidation_failed';
+			}
+			if ( ! empty( $failure['rollback']['success'] ) && ! empty( $snapshot['existed'] ) ) {
+				$rollback_verification = self::verify_frontend_featured_image_for_url( (string) ( $snapshot['rollback_public_url'] ?? '' ), (array) ( $snapshot['featured_image_identity'] ?? array() ), 15 );
+				$failure['rollback']['media_verification'] = $rollback_verification;
+				if ( empty( $rollback_verification['success'] ) ) {
+					$failure['rollback']['success'] = false;
+					$failure['rollback']['error'] = 'rollback_featured_image_verification_failed';
+				}
+			} elseif ( ! empty( $failure['rollback']['success'] ) ) {
+				$failure['rollback']['media_verification'] = array( 'success' => true, 'policy' => 'new_candidate_removed_no_prior_media_surface' );
 			}
 		}
 		if ( empty( $failure['rollback']['success'] ) ) {
@@ -1875,7 +1905,15 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		unset( $hash_input['evidence_revision'] );
 		$expected_revision = 'qe_' . substr( hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $hash_input ) ) ?: '' ), 0, 40 );
 		if ( ! hash_equals( $expected_revision, (string) ( $record['evidence_revision'] ?? '' ) ) ) { return array( 'success' => false, 'code' => 'quality_evidence_tampered' ); }
-		if ( (string) ( $record['artifact_revision'] ?? '' ) !== (string) ( $artifact_record['artifact_revision'] ?? '' ) || (string) ( $record['surface_revision'] ?? '' ) !== (string) ( $artifact_record['surface_revision'] ?? '' ) ) { return array( 'success' => false, 'code' => 'quality_evidence_binding_mismatch' ); }
+		if (
+			(string) ( $record['job_id'] ?? '' ) !== (string) ( $artifact_record['job_id'] ?? '' )
+			|| (string) ( $record['job_id'] ?? '' ) !== (string) ( $quality['job_id'] ?? '' )
+			|| (string) ( $record['artifact_revision'] ?? '' ) !== (string) ( $artifact_record['artifact_revision'] ?? '' )
+			|| (string) ( $quality['artifact_revision'] ?? '' ) !== (string) ( $artifact_record['artifact_revision'] ?? '' )
+			|| (string) ( $record['surface_revision'] ?? '' ) !== (string) ( $artifact_record['surface_revision'] ?? '' )
+			|| (string) ( $quality['surface_revision'] ?? '' ) !== (string) ( $artifact_record['surface_revision'] ?? '' )
+			|| self::translation_job_canonicalize( (array) ( $record['reviewer_principal'] ?? array() ) ) !== self::translation_job_canonicalize( (array) ( $quality['reviewer_principal'] ?? array() ) )
+		) { return array( 'success' => false, 'code' => 'quality_evidence_binding_mismatch' ); }
 		$required = array( 'deterministic_structure', 'source_coverage', 'localized_route_links', 'seo_taxonomy', 'offer_contact', 'http_live_dom' );
 		$kinds = array();
 		foreach ( (array) ( $record['server_receipts'] ?? array() ) as $receipt ) {
@@ -1888,6 +1926,57 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		if ( count( (array) ( $record['browser_attestations'] ?? array() ) ) < 4 || count( (array) ( $record['reviewer_attestations'] ?? array() ) ) < 2 ) { return array( 'success' => false, 'code' => 'quality_reviewer_evidence_incomplete' ); }
 		if ( empty( $quality['usage']['usage_receipt_id'] ) || 'server_payload_estimate' !== (string) ( $quality['usage']['measurement_source'] ?? '' ) ) { return array( 'success' => false, 'code' => 'quality_usage_state_missing' ); }
 		return array( 'success' => true, 'record' => $record );
+	}
+
+	/** Validate one complete immutable Job, Artifact, Quality and Evidence authority chain. */
+	private static function translation_job_validate_published_authority( array $job, int $translation_id, bool $require_applied_surface = false ): array {
+		$artifact_revision = (string) ( $job['artifact_revision'] ?? '' );
+		$quality_revision = (string) ( $job['quality_revision'] ?? '' );
+		$artifact_record = self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( $artifact_revision ) ) );
+		if ( ! is_array( $artifact_record ) || empty( $artifact_record['staged'] ) ) { return array( 'success' => false, 'code' => 'artifact_record_missing' ); }
+		$quality = get_option( self::translation_job_quality_key( $quality_revision ) );
+		if ( ! is_array( $quality ) ) { return array( 'success' => false, 'code' => 'quality_record_missing' ); }
+		$generation = self::translation_job_submission_generation( $job );
+		$manifest = (array) ( $artifact_record['surface_manifest'] ?? array() );
+		$source = get_post( absint( $job['source_id'] ?? 0 ) );
+		$artifact_reconstructed = self::translation_job_revision(
+			array(
+				'job_id' => (string) ( $job['job_id'] ?? '' ),
+				'source_revision' => (string) ( $job['source_revision'] ?? '' ),
+				'target_language' => (string) ( $job['target_language'] ?? '' ),
+				'submission_generation' => $generation,
+				'baseline_surface_revision' => (string) ( $artifact_record['baseline_surface_revision'] ?? '' ),
+				'writer_principal_id' => (string) ( $artifact_record['writer_principal']['principal_id'] ?? '' ),
+				'artifact' => (array) ( $artifact_record['artifact'] ?? array() ),
+			)
+		);
+		$evidence = self::translation_job_validate_quality_evidence_record( $quality, $artifact_record );
+		$quality_reconstructed = self::translation_job_revision( array( $artifact_revision, (string) ( $artifact_record['surface_revision'] ?? '' ), (string) ( $quality['decision'] ?? '' ), (string) ( $quality['evidence_revision'] ?? '' ), (string) ( $quality['reviewer_observations'] ?? '' ), (array) ( $quality['corrections'] ?? array() ) ) );
+		$checks = array(
+			'job_source_missing' => $source instanceof WP_Post,
+			'job_identity_mismatch' => (string) ( $job['job_id'] ?? '' ) === self::translation_job_id( absint( $job['source_id'] ?? 0 ), (string) ( $job['target_language'] ?? '' ), (string) ( $job['source_revision'] ?? '' ) ),
+			'job_source_revision_stale' => $source instanceof WP_Post && (string) ( $job['source_revision'] ?? '' ) === self::source_publication_surface_revision( $source ),
+			'artifact_revision_mismatch' => $artifact_revision === (string) ( $artifact_record['artifact_revision'] ?? '' ) && $artifact_revision === $artifact_reconstructed,
+			'artifact_job_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $artifact_record['job_id'] ?? '' ) && (string) ( $job['source_revision'] ?? '' ) === (string) ( $artifact_record['source_revision'] ?? '' ),
+			'artifact_manifest_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $manifest['job_id'] ?? '' ) && (string) ( $job['source_revision'] ?? '' ) === (string) ( $manifest['source_revision'] ?? '' ) && (string) ( $job['target_language'] ?? '' ) === (string) ( $manifest['language'] ?? '' ),
+			'artifact_surface_revision_mismatch' => (string) ( $artifact_record['surface_revision'] ?? '' ) === self::translation_job_surface_revision( $manifest ),
+			'quality_revision_mismatch' => $quality_revision === (string) ( $quality['quality_revision'] ?? '' ) && $quality_revision === $quality_reconstructed,
+			'quality_job_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $quality['job_id'] ?? '' ) && $artifact_revision === (string) ( $quality['artifact_revision'] ?? '' ),
+			'quality_surface_binding_mismatch' => (string) ( $artifact_record['surface_revision'] ?? '' ) === (string) ( $quality['surface_revision'] ?? '' ) && (string) ( $job['content_revision'] ?? '' ) === (string) ( $quality['content_revision'] ?? '' ),
+			'translation_identity_mismatch' => $translation_id === absint( $job['translation_id'] ?? 0 ) && $translation_id === absint( $artifact_record['translation_id'] ?? 0 ) && $translation_id === absint( $quality['translation_id'] ?? 0 ),
+			'quality_decision_not_pass' => 'pass' === (string) ( $quality['decision'] ?? '' ),
+			'submission_generation_mismatch' => $generation === absint( $artifact_record['submission_generation'] ?? 0 ) && $generation === absint( $quality['submission_generation'] ?? 0 ),
+			'quality_principal_mismatch' => ! empty( $artifact_record['writer_principal']['principal_id'] ) && ! empty( $quality['reviewer_principal']['principal_id'] ) && (string) ( $artifact_record['writer_principal']['principal_id'] ?? '' ) !== (string) ( $quality['reviewer_principal']['principal_id'] ?? '' ),
+			(string) ( $evidence['code'] ?? 'quality_evidence_invalid' ) => ! empty( $evidence['success'] ),
+		);
+		if ( $require_applied_surface ) {
+			$checks['published_content_revision_stale'] = $translation_id > 0 && (string) ( $job['content_revision'] ?? '' ) === self::translation_job_translation_revision( $translation_id );
+			$checks['published_surface_revision_stale'] = $translation_id > 0 && (string) ( $job['applied_surface_revision'] ?? '' ) === self::translation_job_current_surface_revision( $translation_id );
+		}
+		foreach ( $checks as $code => $passed ) {
+			if ( ! $passed ) { return array( 'success' => false, 'code' => sanitize_key( (string) $code ), 'artifact_record' => $artifact_record, 'quality' => $quality, 'evidence' => $evidence ); }
+		}
+		return array( 'success' => true, 'artifact_record' => $artifact_record, 'quality' => $quality, 'evidence' => $evidence );
 	}
 
 	private static function translation_job_quality_evidence_key( string $revision ): string {

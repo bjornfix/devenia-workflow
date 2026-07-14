@@ -46,7 +46,7 @@ $update_internal_post = static function ( array $post_data ) use ( $call ) {
 
 try {
 	$assert( class_exists( Devenia_Workflow::class ), 'Devenia Workflow is not active.' );
-	$assert( '0.1.611' === (string) Devenia_Workflow::VERSION, 'The active dev plugin is not the exact 0.1.611 candidate.' );
+	$assert( '0.1.612' === (string) Devenia_Workflow::VERSION, 'The active dev plugin is not the exact 0.1.612 candidate.' );
 
 	$languages = $call( 'target_languages' );
 	$assert( is_array( $languages ) && isset( $languages['nb'] ), 'The dev language registry must include Norwegian Bokmal (nb).' );

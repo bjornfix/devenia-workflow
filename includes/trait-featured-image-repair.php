@@ -28,31 +28,6 @@ trait Devenia_Workflow_Translation_Featured_Image_Repair {
 					'items'       => array( 'type' => 'integer' ),
 				),
 				'dry_run'                          => array( 'type' => 'boolean', 'default' => false ),
-				'record_provenance_when_unchanged' => array(
-					'type'        => 'boolean',
-					'default'     => false,
-					'description' => 'When true, record writer and visible-media provenance and invalidate reviews even when the translation already matches the source image. Use only to bring an already-applied featured-image repair under workflow provenance.',
-				),
-				'claim_token'                      => array(
-					'type'        => 'string',
-					'description' => 'Optional bounded Translation Job claim token.',
-				),
-				'execution_id'                 => array(
-					'type'        => 'string',
-					'description' => 'Required for writes: stable agent/client session identifier.',
-				),
-				'llm_vendor'                       => self::execution_identity_schema_properties()['llm_vendor'],
-				'llm_client'                       => self::execution_identity_schema_properties()['llm_client'],
-				'authority_vendor'                 => self::execution_identity_schema_properties()['authority_vendor'],
-				'authority_client'                 => self::execution_identity_schema_properties()['authority_client'],
-				'writer_process_id'                => array(
-					'type'        => 'string',
-					'description' => 'Optional stable identifier for the process/session doing this visible media repair. Defaults to execution_id.',
-				),
-				'writer_actor'                     => array(
-					'type'        => 'string',
-					'description' => 'Optional human/operator label for the writer process.',
-				),
 			),
 			'additionalProperties' => false,
 		);
@@ -65,30 +40,19 @@ trait Devenia_Workflow_Translation_Featured_Image_Repair {
 		$dry_run    = ! empty( $input['dry_run'] );
 		$languages  = self::repair_language_filter( $input['languages'] ?? array() );
 		$source_ids = self::repair_source_filter( $input['source_ids'] ?? array() );
-		$record_provenance_when_unchanged = ! empty( $input['record_provenance_when_unchanged'] );
-		$step_token_gate = array();
-		if ( ! $dry_run ) {
-			$step_token_gate = self::translation_step_token_gate( 'draft_write', $input );
-			if ( empty( $step_token_gate['success'] ) ) {
-				return $step_token_gate;
-			}
+		if ( ! $dry_run && ! current_user_can( 'manage_options' ) ) {
+			return array( 'success' => false, 'code' => 'featured_image_repair_forbidden', 'message' => 'Managing Translation Job repair intake requires manage_options.' );
 		}
 
 		$posts = array();
-		if ( $source_ids ) {
-			foreach ( $source_ids as $source_id ) {
-				foreach ( self::translation_posts_for_source( (int) $source_id, self::translation_workflow_post_statuses( false ) ) as $post ) {
-					$posts[] = $post;
-				}
-			}
-		} else {
-			$query = self::translation_content_query(
-				array(
-					'post_status'    => self::translation_workflow_post_statuses( false ),
-					'posts_per_page' => 1000,
-				)
-			);
-			$posts = $query->posts;
+		if ( ! self::translation_index_available() ) {
+			return array( 'success' => false, 'code' => 'translation_index_required', 'message' => 'Authoritative featured-image repair intake requires the complete Translation Index.' );
+		}
+		foreach ( self::translation_index_ids( self::translation_workflow_post_statuses( false ) ) as $translation_id ) {
+			$post = get_post( $translation_id );
+			if ( ! $post instanceof WP_Post ) { continue; }
+			if ( $source_ids && ! in_array( absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) ), $source_ids, true ) ) { continue; }
+			$posts[] = $post;
 		}
 
 		$checked = 0;
@@ -123,58 +87,45 @@ trait Devenia_Workflow_Translation_Featured_Image_Repair {
 				);
 				continue;
 			}
-			if ( ! $dry_run ) {
-				$claim_gate = self::translation_job_write_gate( $source_id, $language, (string) ( $input['claim_token'] ?? '' ) );
-				if ( $claim_gate ) {
-					$skipped[] = array(
-						'translation_id' => $translation_id,
-						'source_id'      => $source_id,
-						'language'       => $language,
-						'reason'         => sanitize_key( (string) ( $claim_gate['code'] ?? 'job_claim_conflict' ) ),
-						'message'        => sanitize_text_field( (string) ( $claim_gate['message'] ?? 'Translation work is currently reserved by another worker.' ) ),
-					);
-					continue;
-				}
-			}
-
 			++$checked;
-			$sync = self::sync_source_featured_image( $translation_id, $source, $dry_run );
-			if ( empty( $sync['changed'] ) && ( $dry_run || ! $record_provenance_when_unchanged ) ) {
+			$source_media = self::publication_featured_image_revision_identity( $source );
+			$translation_media = self::publication_featured_image_revision_identity( $translation_id );
+			if ( self::translation_job_canonicalize( $source_media ) === self::translation_job_canonicalize( $translation_media ) ) {
 				continue;
 			}
-			$review_invalidated  = false;
-			$provenance_recorded = false;
+			$lifecycle = array( 'success' => true, 'queued' => false );
 			if ( ! $dry_run ) {
-				$review_invalidated = self::invalidate_translation_reviews_after_visible_metadata_change( $translation_id, 'featured_image_repair' );
-				self::record_translation_writer_provenance( $translation_id, $step_token_gate );
-				self::record_translation_visible_media_provenance( $translation_id, $step_token_gate, 'featured_image_repair' );
-				self::sync_translation_index_row( $translation_id );
-				$provenance_recorded = true;
+				self::mark_source_inventory_dirty( $source_id );
+				$source_revision = self::source_publication_surface_revision( $source );
+				$job_id = self::translation_job_id( $source_id, $language, $source_revision );
+				$job = self::translation_job_get_job( $job_id );
+				if ( ! $job ) {
+					$lifecycle = self::translation_job_discover( array( 'source_id' => $source_id, 'language' => $language, 'observability_label' => 'visible-media-repair' ) );
+					$lifecycle['queued'] = ! empty( $lifecycle['success'] );
+				} else {
+					$lifecycle = self::translation_job_refresh_drifted_surface( $job, 'repair_visible_media_drift' );
+					$lifecycle['queued'] = ! empty( $lifecycle['success'] ) && ( ! empty( $lifecycle['refreshed'] ) || in_array( (string) ( $job['status'] ?? '' ), array( 'queued', 'changes_requested' ), true ) );
+				}
 			}
 
 			$changed[] = array(
 				'translation_id'      => $translation_id,
 				'source_id'           => $source_id,
 				'language'            => $language,
-				'changed'             => (bool) $sync['changed'],
-				'before_thumbnail_id' => $sync['before_thumbnail_id'],
-				'after_thumbnail_id'  => $sync['after_thumbnail_id'],
-				'review_invalidated'  => $review_invalidated,
-				'provenance_recorded' => $provenance_recorded,
-				'media_provenance_recorded' => $provenance_recorded,
+				'changed'             => false,
+				'before_thumbnail_id' => absint( $translation_media['attachment_id'] ?? 0 ),
+				'after_thumbnail_id'  => absint( $source_media['attachment_id'] ?? 0 ),
+				'bounded_lifecycle'   => $lifecycle,
 				'url'                 => get_permalink( $translation_id ) ?: '',
 			);
-		}
-
-		if ( ! $dry_run && $changed ) {
-			self::flush_sitemap_cache();
 		}
 
 		return array(
 			'success'       => true,
 			'dry_run'       => $dry_run,
 			'checked_count' => $checked,
-			'changed_count' => count( $changed ),
+			'changed_count' => 0,
+			'queued_count'  => count( array_filter( $changed, static function ( $row ): bool { return ! empty( $row['bounded_lifecycle']['queued'] ); } ) ),
 			'skipped_count' => count( $skipped ),
 			'changed'       => $changed,
 			'skipped'       => $skipped,
