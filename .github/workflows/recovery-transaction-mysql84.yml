@@ -8,12 +8,14 @@ on:
       - devenia-workflow.php
       - includes/**
       - tools/check-recovery-transaction-portability-runtime.php
+      - tools/check-wp-cli-upgrade-bootstrap-runtime.php
   pull_request:
     paths:
       - .github/workflows/recovery-transaction-mysql84.yml
       - devenia-workflow.php
       - includes/**
       - tools/check-recovery-transaction-portability-runtime.php
+      - tools/check-wp-cli-upgrade-bootstrap-runtime.php
 
 permissions:
   contents: read
@@ -101,6 +103,19 @@ jobs:
           WP_PATH: ${{ runner.temp }}/wordpress
         run: |
           set -euo pipefail
+          if wp option get devenia_workflow_version --path="$WP_PATH" --skip-plugins --skip-themes >/dev/null 2>&1; then
+            wp option delete devenia_workflow_version --path="$WP_PATH" --skip-plugins --skip-themes >/dev/null
+          fi
+          bootstrap_result="$(wp eval-file \
+            "$GITHUB_WORKSPACE/tools/check-wp-cli-upgrade-bootstrap-runtime.php" \
+            --path="$WP_PATH" \
+            --skip-themes)"
+          printf '%s\n' "$bootstrap_result"
+          if [[ "$bootstrap_result" != '{"success":true,"context":"wp-cli","fresh_upgrade":true}' ]]; then
+            echo "Fresh WP-CLI upgrade bootstrap did not return the exact success proof." >&2
+            exit 1
+          fi
+
           mysql_version="$(wp eval 'global $wpdb; echo $wpdb->get_var( "SELECT VERSION()" );' --path="$WP_PATH" --skip-themes)"
           if [[ ! "$mysql_version" =~ ^8\.4\. ]]; then
             echo "Expected MySQL 8.4.x, got: $mysql_version" >&2

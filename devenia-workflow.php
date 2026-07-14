@@ -6101,9 +6101,7 @@ final class Devenia_Workflow {
 	 * Report and optionally install WordPress core language packs.
 	 */
 	private static function wordpress_language_pack_status( bool $install_missing = false ): array {
-		if ( ! function_exists( 'wp_get_available_translations' ) || ! function_exists( 'wp_download_language_pack' ) || ! function_exists( 'wp_can_install_language_pack' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/translation-install.php';
-		}
+		self::load_wordpress_language_pack_dependencies();
 
 		$installed     = get_available_languages();
 		$available     = function_exists( 'wp_get_available_translations' ) ? wp_get_available_translations() : array();
@@ -6157,6 +6155,24 @@ final class Devenia_Workflow {
 			'missing'       => array_values( array_unique( $missing ) ),
 			'installations' => $installations,
 		);
+	}
+
+	/**
+	 * Load the complete WordPress admin API required by language-pack checks.
+	 *
+	 * Normal wp-admin requests load the File API through wp-admin/includes/admin.php.
+	 * Other supported upgrade contexts, including WP-CLI and REST bootstrap, do not.
+	 * The core language-pack upgrader calls request_filesystem_credentials(), so the
+	 * owning integration must load both APIs before invoking it in any context.
+	 */
+	private static function load_wordpress_language_pack_dependencies(): void {
+		if ( ! function_exists( 'request_filesystem_credentials' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+
+		if ( ! function_exists( 'wp_get_available_translations' ) || ! function_exists( 'wp_download_language_pack' ) || ! function_exists( 'wp_can_install_language_pack' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/translation-install.php';
+		}
 	}
 
 	/**
