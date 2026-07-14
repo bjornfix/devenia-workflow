@@ -10,32 +10,412 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 trait Devenia_Workflow_Translation_Job_Quality_Authority {
+	/** @var array<string,mixed> Request-local ownership receipt for the current recovery transaction. */
+	private static $translation_job_recovery_transaction = array();
+
+	/** @var array<string,mixed> Request-local wpdb reconnect-retry guard. */
+	private static $translation_job_reconnect_guard = array();
+
+	/** Whether the request-end reconnect guard cleanup hook is registered. */
+	private static $translation_job_reconnect_guard_shutdown_registered = false;
+
+	/** @var array<string,mixed> Last safe recovery-transaction diagnostic. */
+	private static $translation_job_recovery_transaction_diagnostic = array(
+		'phase' => 'idle',
+		'code'  => 'not_started',
+	);
+
+	/** Save one credential-free, SQL-free transaction diagnostic. */
+	private static function translation_job_set_recovery_transaction_diagnostic( string $phase, string $code, array $context = array() ): void {
+		$diagnostic = array(
+			'phase' => sanitize_key( $phase ),
+			'code'  => sanitize_key( $code ),
+		);
+		foreach ( array( 'metadata_source', 'missing_table_count', 'table_count' ) as $key ) {
+			if ( isset( $context[ $key ] ) && is_scalar( $context[ $key ] ) ) {
+				$diagnostic[ $key ] = is_numeric( $context[ $key ] ) ? (int) $context[ $key ] : sanitize_key( (string) $context[ $key ] );
+			}
+		}
+		self::$translation_job_recovery_transaction_diagnostic = $diagnostic;
+	}
+
+	/** Return the stable structured diagnostic exposed by publication errors. */
+	private static function translation_job_recovery_transaction_diagnostic(): array {
+		return self::$translation_job_recovery_transaction_diagnostic;
+	}
+
+	/** Add safe transaction context without changing existing response fields. */
+	private static function translation_job_recovery_transaction_error_fields(): array {
+		return array( 'transaction' => self::translation_job_recovery_transaction_diagnostic() );
+	}
+
+	/** Normalize a database identifier for exact core-table comparison. */
+	private static function translation_job_normalize_recovery_table_name( string $table ): string {
+		$table = trim( $table );
+		return preg_match( '/^[A-Za-z0-9_$]+$/D', $table ) ? strtolower( $table ) : '';
+	}
+
+	/** Read portable isolation and connection metadata without exposing SQL errors. */
+	private static function translation_job_recovery_session_metadata(): array {
+		global $wpdb;
+		$state = $wpdb->get_row( 'SELECT CONNECTION_ID() AS connection_id', ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- CONNECTION_ID() is portable across supported MySQL and MariaDB versions.
+		if ( ! is_array( $state ) || ! isset( $state['connection_id'] ) || absint( $state['connection_id'] ) < 1 ) {
+			return array( 'success' => false, 'code' => 'transaction_metadata_unavailable' );
+		}
+		$isolation_rows = $wpdb->get_results( "SHOW SESSION VARIABLES WHERE Variable_name IN ('transaction_isolation', 'tx_isolation')", ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- One portable metadata read avoids probing a missing MySQL/MariaDB variable and logging a database error.
+		$isolation = '';
+		foreach ( is_array( $isolation_rows ) ? $isolation_rows : array() as $row ) {
+			$name = strtolower( (string) ( $row['Variable_name'] ?? '' ) );
+			if ( in_array( $name, array( 'transaction_isolation', 'tx_isolation' ), true ) && is_scalar( $row['Value'] ?? null ) ) {
+				$isolation = (string) $row['Value'];
+				if ( 'transaction_isolation' === $name ) { break; }
+			}
+		}
+		if ( ! is_string( $isolation ) || '' === trim( $isolation ) ) {
+			return array( 'success' => false, 'code' => 'transaction_isolation_unavailable' );
+		}
+		return array(
+			'success'       => true,
+			'connection_id' => absint( $state['connection_id'] ),
+			'isolation'     => strtoupper( str_replace( ' ', '-', trim( $isolation ) ) ),
+		);
+	}
+
+	/** Resolve one observed isolation level to a fixed SQL-token allowlist. */
+	private static function translation_job_recovery_isolation_sql( string $isolation ): string {
+		$levels = array(
+			'READ-UNCOMMITTED' => 'READ UNCOMMITTED',
+			'READ-COMMITTED'   => 'READ COMMITTED',
+			'REPEATABLE-READ'  => 'REPEATABLE READ',
+			'SERIALIZABLE'     => 'SERIALIZABLE',
+		);
+		return (string) ( $levels[ $isolation ] ?? '' );
+	}
+
+	/** Clear an unconsumed next-transaction override from a fixed allowlist. */
+	private static function translation_job_clear_recovery_next_isolation( string $isolation ): bool {
+		global $wpdb;
+		switch ( $isolation ) {
+			case 'READ-UNCOMMITTED':
+				return false !== $wpdb->query( 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Fixed literal replaces an unconsumed next-transaction override after START failure; SESSION state is never mutated.
+			case 'READ-COMMITTED':
+				return false !== $wpdb->query( 'SET TRANSACTION ISOLATION LEVEL READ COMMITTED' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Fixed literal replaces an unconsumed next-transaction override after START failure; SESSION state is never mutated.
+			case 'REPEATABLE-READ':
+				return false !== $wpdb->query( 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Fixed literal replaces an unconsumed next-transaction override after START failure; SESSION state is never mutated.
+			case 'SERIALIZABLE':
+				return false !== $wpdb->query( 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Fixed literal replaces an unconsumed next-transaction override after START failure; SESSION state is never mutated.
+			default:
+				return false;
+		}
+	}
+
+	/** Derive one unforgeable request-local SQL-safe savepoint identifier. */
+	private static function translation_job_recovery_savepoint_name( string $owner_id ): string {
+		$name = 'devenia_workflow_recovery_' . substr( hash( 'sha256', $owner_id ), 0, 24 );
+		return preg_match( '/^[a-z0-9_]{1,64}$/D', $name ) ? $name : '';
+	}
+
+	/** Read/write wpdb's protected reconnect retry counter fail-closed. */
+	private static function translation_job_wpdb_reconnect_retries( ?int $new_value = null ): array {
+		global $wpdb;
+		try {
+			$reflection = new ReflectionObject( $wpdb );
+			if ( ! $reflection->hasProperty( 'reconnect_retries' ) ) { return array( 'success' => false, 'code' => 'reconnect_retries_unavailable' ); }
+			$property = $reflection->getProperty( 'reconnect_retries' );
+			if ( PHP_VERSION_ID < 80100 ) { $property->setAccessible( true ); }
+			$before = $property->getValue( $wpdb );
+			if ( ! is_int( $before ) || $before < 0 ) { return array( 'success' => false, 'code' => 'reconnect_retries_invalid' ); }
+			if ( null !== $new_value ) {
+				if ( $new_value < 0 || $new_value > 100 ) { return array( 'success' => false, 'code' => 'reconnect_retries_restore_invalid' ); }
+				$property->setValue( $wpdb, $new_value );
+				if ( $new_value !== $property->getValue( $wpdb ) ) { return array( 'success' => false, 'code' => 'reconnect_retries_write_failed' ); }
+			}
+			return array( 'success' => true, 'value' => $before );
+		} catch ( Throwable $error ) {
+			return array( 'success' => false, 'code' => 'reconnect_retries_reflection_failed' );
+		}
+	}
+
+	/** Disable wpdb reconnect/retry before any owned transaction SQL can run. */
+	private static function translation_job_disable_reconnect_retries(): array {
+		global $wpdb;
+		if ( ! empty( self::$translation_job_reconnect_guard['active'] ) ) { return array( 'success' => false, 'code' => 'reconnect_guard_already_active' ); }
+		$current = self::translation_job_wpdb_reconnect_retries();
+		if ( empty( $current['success'] ) ) { return $current; }
+		$disabled = self::translation_job_wpdb_reconnect_retries( 0 );
+		if ( empty( $disabled['success'] ) ) { return $disabled; }
+		$token = 'trg_' . substr( hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) ), 0, 32 );
+		self::$translation_job_reconnect_guard = array( 'active' => true, 'token' => $token, 'wpdb_id' => spl_object_id( $wpdb ), 'original_retries' => (int) $current['value'] );
+		if ( ! self::$translation_job_reconnect_guard_shutdown_registered ) {
+			self::$translation_job_reconnect_guard_shutdown_registered = true;
+			add_action( 'shutdown', static function (): void {
+				if ( empty( self::$translation_job_recovery_transaction['owned'] ) ) { self::translation_job_restore_reconnect_retries(); }
+			}, PHP_INT_MAX );
+		}
+		return array( 'success' => true, 'token' => $token );
+	}
+
+	/** Prove reconnect/retry is still disabled on the exact guarded wpdb object. */
+	private static function translation_job_reconnect_guard_active( string $token ): bool {
+		global $wpdb;
+		if ( empty( self::$translation_job_reconnect_guard['active'] ) || ! hash_equals( (string) ( self::$translation_job_reconnect_guard['token'] ?? '' ), $token ) || spl_object_id( $wpdb ) !== (int) ( self::$translation_job_reconnect_guard['wpdb_id'] ?? 0 ) ) { return false; }
+		$current = self::translation_job_wpdb_reconnect_retries();
+		return ! empty( $current['success'] ) && 0 === (int) ( $current['value'] ?? -1 );
+	}
+
+	/** Restore wpdb reconnect/retry only after a proven terminal boundary. */
+	private static function translation_job_restore_reconnect_retries(): bool {
+		if ( empty( self::$translation_job_reconnect_guard['active'] ) ) { return true; }
+		$original = (int) ( self::$translation_job_reconnect_guard['original_retries'] ?? -1 );
+		$restored = self::translation_job_wpdb_reconnect_retries( $original );
+		if ( empty( $restored['success'] ) ) { return false; }
+		self::$translation_job_reconnect_guard = array();
+		return true;
+	}
+
+	/** Roll back only the transaction that this begin operation has just started. */
+	private static function translation_job_abort_started_recovery_transaction(): array {
+		global $wpdb;
+		// START succeeded only after this same connection proved that no outer
+		// transaction existed. A failed post-START state query must therefore not
+		// leak the transaction. No callback or caller runs between START and this
+		// branch, so the just-started boundary is the only possible active one.
+		$rolled_back = false !== $wpdb->query( 'ROLLBACK AND NO CHAIN NO RELEASE' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Successful START after the no-outer guard proves this immediate private cleanup boundary; explicit NO CHAIN/NO RELEASE overrides completion_type.
+		$guard_restored = $rolled_back && self::translation_job_restore_reconnect_retries();
+		return array(
+			'success'     => $rolled_back && $guard_restored,
+			'rolled_back' => $rolled_back,
+			'reconnect_guard_restored' => $guard_restored,
+			'code'        => ! $rolled_back ? 'abort_rollback_failed' : ( $guard_restored ? 'abort_complete' : 'abort_reconnect_guard_restore_failed' ),
+		);
+	}
+
 	/** Begin one InnoDB recovery boundary for a bounded publication mutation. */
 	private static function translation_job_begin_recovery_transaction(): bool {
 		global $wpdb;
-		$tables = array( $wpdb->posts, $wpdb->postmeta, $wpdb->terms, $wpdb->term_taxonomy, $wpdb->term_relationships, $wpdb->termmeta, $wpdb->options );
-		$engine_rows = $wpdb->get_results( $wpdb->prepare( 'SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (%s, %s, %s, %s, %s, %s, %s)', $tables[0], $tables[1], $tables[2], $tables[3], $tables[4], $tables[5], $tables[6] ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Recovery must fail closed unless every fixed owned core table is transactional.
-		$engines = array();
-		foreach ( is_array( $engine_rows ) ? $engine_rows : array() as $row ) { $engines[ (string) ( $row['TABLE_NAME'] ?? '' ) ] = strtoupper( (string) ( $row['ENGINE'] ?? '' ) ); }
-		foreach ( $tables as $table ) {
-			if ( 'INNODB' !== (string) ( $engines[ $table ] ?? '' ) ) { return false; }
-		}
-		if ( false === $wpdb->query( 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Serializable next-key locking prevents concurrent inserts into postmeta, termmeta, and relationship ranges while recovery verifies and writes.
+		if ( ! empty( self::$translation_job_recovery_transaction['owned'] ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'preexisting_check', 'owned_transaction_already_active' );
 			return false;
 		}
-		return false !== $wpdb->query( 'START TRANSACTION' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- WordPress has no transaction API; publication recovery requires one atomic database boundary.
+		self::$translation_job_recovery_transaction = array();
+		$tables = array_values( array_unique( array( $wpdb->posts, $wpdb->postmeta, $wpdb->terms, $wpdb->term_taxonomy, $wpdb->term_relationships, $wpdb->termmeta, $wpdb->options ) ) );
+		$normalized_tables = array();
+		foreach ( $tables as $table ) {
+			$normalized = self::translation_job_normalize_recovery_table_name( (string) $table );
+			if ( '' === $normalized || isset( $normalized_tables[ $normalized ] ) ) {
+				self::translation_job_set_recovery_transaction_diagnostic( 'metadata_primary', 'core_table_identity_invalid' );
+				return false;
+			}
+			$normalized_tables[ $normalized ] = (string) $table;
+		}
+		if ( 7 !== count( $normalized_tables ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'metadata_primary', 'core_table_set_incomplete', array( 'table_count' => count( $normalized_tables ) ) );
+			return false;
+		}
+		$engine_rows = $wpdb->get_results( $wpdb->prepare( 'SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (%s, %s, %s, %s, %s, %s, %s)', $tables[0], $tables[1], $tables[2], $tables[3], $tables[4], $tables[5], $tables[6] ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Primary exact engine proof for the seven fixed owned core tables.
+		$engines = array();
+		foreach ( is_array( $engine_rows ) ? $engine_rows : array() as $row ) {
+			$name = self::translation_job_normalize_recovery_table_name( (string) ( $row['TABLE_NAME'] ?? '' ) );
+			if ( isset( $normalized_tables[ $name ] ) ) { $engines[ $name ] = strtoupper( trim( (string) ( $row['ENGINE'] ?? '' ) ) ); }
+		}
+		foreach ( $engines as $normalized => $engine ) {
+			if ( '' === $engine ) {
+				unset( $engines[ $normalized ] );
+			} elseif ( 'INNODB' !== $engine ) {
+				self::translation_job_set_recovery_transaction_diagnostic( 'metadata_primary', 'core_table_non_transactional', array( 'metadata_source' => 'information_schema' ) );
+				return false;
+			}
+		}
+		$missing = array_diff_key( $normalized_tables, $engines );
+		if ( $missing ) {
+			foreach ( $missing as $normalized => $table ) {
+				$fallback_rows = $wpdb->get_results( $wpdb->prepare( 'SHOW TABLE STATUS WHERE Name = %s', $table ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Safe exact-name fallback only for primary metadata gaps.
+				if ( ! is_array( $fallback_rows ) || 1 !== count( $fallback_rows ) ) {
+					self::translation_job_set_recovery_transaction_diagnostic( 'metadata_fallback', 'core_table_metadata_unavailable', array( 'metadata_source' => 'show_table_status', 'missing_table_count' => count( $missing ) ) );
+					return false;
+				}
+				$row = $fallback_rows[0];
+				if ( $normalized !== self::translation_job_normalize_recovery_table_name( (string) ( $row['Name'] ?? '' ) ) ) {
+					self::translation_job_set_recovery_transaction_diagnostic( 'metadata_fallback', 'core_table_identity_mismatch', array( 'metadata_source' => 'show_table_status' ) );
+					return false;
+				}
+				$engine = strtoupper( trim( (string) ( $row['Engine'] ?? '' ) ) );
+				if ( 'INNODB' !== $engine ) {
+					self::translation_job_set_recovery_transaction_diagnostic( 'metadata_fallback', '' === $engine ? 'core_table_engine_unknown' : 'core_table_non_transactional', array( 'metadata_source' => 'show_table_status' ) );
+					return false;
+				}
+				$engines[ $normalized ] = $engine;
+			}
+		}
+		if ( 7 !== count( $engines ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'metadata_complete', 'core_table_set_unproven', array( 'table_count' => count( $engines ) ) );
+			return false;
+		}
+		$before = self::translation_job_recovery_session_metadata();
+		if ( empty( $before['success'] ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'preexisting_check', (string) ( $before['code'] ?? 'transaction_metadata_unavailable' ) );
+			return false;
+		}
+		$original_isolation = (string) ( $before['isolation'] ?? '' );
+		if ( '' === self::translation_job_recovery_isolation_sql( $original_isolation ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'preexisting_check', 'transaction_isolation_unsupported' );
+			return false;
+		}
+		$reconnect_guard = self::translation_job_disable_reconnect_retries();
+		if ( empty( $reconnect_guard['success'] ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'reconnect_guard', (string) ( $reconnect_guard['code'] ?? 'reconnect_guard_unavailable' ) );
+			return false;
+		}
+		// Portable outer-transaction guard: MySQL and MariaDB reject the
+		// transaction-scoped form while a transaction is already active. A
+		// successful statement affects only the next transaction and is consumed
+		// by START below or explicitly restored on every pre-START failure path.
+		if ( false === $wpdb->query( 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Portable active/unknown transaction guard; deliberately not SESSION scope.
+			$restored = self::translation_job_restore_reconnect_retries();
+			self::translation_job_set_recovery_transaction_diagnostic( 'preexisting_check', $restored ? 'preexisting_or_unknown_transaction_refused' : 'preexisting_or_unknown_transaction_refused_reconnect_guard_restore_failed' );
+			return false;
+		}
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- WordPress has no transaction API; publication recovery requires one atomic database boundary.
+			$cleared = self::translation_job_clear_recovery_next_isolation( $original_isolation );
+			$restored = self::translation_job_restore_reconnect_retries();
+			self::translation_job_set_recovery_transaction_diagnostic( 'start', ! $cleared ? 'start_transaction_failed_next_isolation_clear_failed' : ( $restored ? 'start_transaction_failed' : 'start_transaction_failed_reconnect_guard_restore_failed' ) );
+			return false;
+		}
+		$connection_id = absint( $before['connection_id'] ?? 0 );
+		$active = self::translation_job_recovery_session_metadata();
+		if ( empty( $active['success'] ) || $connection_id !== absint( $active['connection_id'] ?? 0 ) || $original_isolation !== (string) ( $active['isolation'] ?? '' ) ) {
+			$aborted = self::translation_job_abort_started_recovery_transaction();
+			$code = empty( $active['success'] ) ? (string) ( $active['code'] ?? 'transaction_metadata_unavailable' ) : ( $connection_id !== absint( $active['connection_id'] ?? 0 ) ? 'connection_identity_changed' : 'session_isolation_changed' );
+			self::translation_job_set_recovery_transaction_diagnostic( 'verify_start', ! empty( $aborted['success'] ) ? $code : $code . '_abort_failed' );
+			return false;
+		}
+		$owner_id = wp_generate_uuid4();
+		$savepoint = self::translation_job_recovery_savepoint_name( $owner_id );
+		if ( '' === $savepoint || false === $wpdb->query( $wpdb->prepare( 'SAVEPOINT %i', $savepoint ) ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- WordPress-native identifier preparation protects the private, strictly validated savepoint name.
+			$aborted = self::translation_job_abort_started_recovery_transaction();
+			self::translation_job_set_recovery_transaction_diagnostic( 'ownership', ! empty( $aborted['success'] ) ? 'savepoint_create_failed' : 'savepoint_create_failed_abort_failed' );
+			return false;
+		}
+		self::$translation_job_recovery_transaction = array( 'owned' => true, 'owner_id' => $owner_id, 'savepoint' => $savepoint, 'reconnect_guard_token' => (string) $reconnect_guard['token'], 'connection_id' => $connection_id, 'session_isolation' => $original_isolation, 'transaction_isolation' => 'SERIALIZABLE' );
+		self::translation_job_set_recovery_transaction_diagnostic( 'ready', 'transaction_owned', array( 'metadata_source' => $missing ? 'information_schema_and_show' : 'information_schema', 'table_count' => 7 ) );
+		return true;
 	}
 
-	/** Commit one bounded publication/recovery transaction. */
-	private static function translation_job_commit_recovery_transaction(): bool {
+	/** Commit one bounded publication/recovery transaction with a terminal outcome. */
+	private static function translation_job_commit_recovery_transaction(): array {
 		global $wpdb;
-		return false !== $wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- WordPress has no transaction API.
+		$receipt = self::$translation_job_recovery_transaction;
+		$savepoint = self::translation_job_recovery_savepoint_name( (string) ( $receipt['owner_id'] ?? '' ) );
+		if ( empty( $receipt['owned'] ) || empty( $receipt['owner_id'] ) || '' === $savepoint || ! hash_equals( $savepoint, (string) ( $receipt['savepoint'] ?? '' ) ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'commit_preflight', 'transaction_not_owned' );
+			return array( 'success' => false, 'committed' => null, 'code' => 'transaction_not_owned' );
+		}
+		if ( ! self::translation_job_reconnect_guard_active( (string) ( $receipt['reconnect_guard_token'] ?? '' ) ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'commit_preflight', 'reconnect_guard_lost' );
+			return array( 'success' => false, 'committed' => null, 'code' => 'commit_outcome_unknown' );
+		}
+		$state = self::translation_job_recovery_session_metadata();
+		if ( empty( $state['success'] ) ) {
+			$rollback = self::translation_job_rollback_recovery_transaction();
+			self::translation_job_set_recovery_transaction_diagnostic( 'commit_preflight', ! empty( $rollback['success'] ) ? 'transaction_metadata_unavailable_owned_rollback_complete' : 'transaction_metadata_unavailable_owned_rollback_failed' );
+			return array( 'success' => false, 'committed' => ! empty( $rollback['success'] ) ? false : null, 'code' => ! empty( $rollback['success'] ) ? 'transaction_metadata_unavailable_rolled_back' : 'commit_outcome_unknown', 'rollback' => $rollback );
+		}
+		if ( absint( $receipt['connection_id'] ?? 0 ) !== absint( $state['connection_id'] ?? 0 ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'commit_preflight', 'transaction_ownership_lost' );
+			return array( 'success' => false, 'committed' => null, 'code' => 'commit_outcome_unknown' );
+		}
+		if ( (string) ( $receipt['session_isolation'] ?? '' ) !== (string) ( $state['isolation'] ?? '' ) || 'SERIALIZABLE' !== (string) ( $receipt['transaction_isolation'] ?? '' ) ) {
+			$rollback = self::translation_job_rollback_recovery_transaction();
+			self::translation_job_set_recovery_transaction_diagnostic( 'commit_preflight', ! empty( $rollback['success'] ) ? 'serializable_ownership_lost_rollback_complete' : 'serializable_ownership_lost_rollback_failed' );
+			return array( 'success' => false, 'committed' => ! empty( $rollback['success'] ) ? false : null, 'code' => ! empty( $rollback['success'] ) ? 'serializable_ownership_lost_rolled_back' : 'commit_outcome_unknown', 'rollback' => $rollback );
+		}
+		if ( false === $wpdb->query( $wpdb->prepare( 'RELEASE SAVEPOINT %i', $savepoint ) ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- WordPress-native identifier preparation protects the private savepoint receipt that must still exist.
+			$rollback = self::translation_job_rollback_recovery_transaction();
+			self::translation_job_set_recovery_transaction_diagnostic( 'commit_preflight', 'transaction_ownership_lost' );
+			return array( 'success' => false, 'committed' => ! empty( $rollback['success'] ) ? false : null, 'code' => ! empty( $rollback['success'] ) ? 'transaction_ownership_lost_rolled_back' : 'commit_outcome_unknown', 'rollback' => $rollback );
+		}
+		if ( false === $wpdb->query( $wpdb->prepare( 'SAVEPOINT %i', $savepoint ) ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Re-establish the same WordPress-prepared private receipt immediately after the ownership check.
+			$rolled_back = false !== $wpdb->query( 'ROLLBACK AND NO CHAIN NO RELEASE' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Ownership was proven by the immediately preceding release; explicit NO CHAIN/NO RELEASE overrides completion_type.
+			$guard_restored = $rolled_back && self::translation_job_restore_reconnect_retries();
+			if ( $rolled_back ) { self::$translation_job_recovery_transaction = array(); }
+			self::translation_job_set_recovery_transaction_diagnostic( 'commit_preflight', $rolled_back && $guard_restored ? 'ownership_receipt_refresh_failed_rollback_complete' : 'ownership_receipt_refresh_failed_rollback_incomplete' );
+			return array(
+				'success' => false,
+				'committed' => false,
+				'code' => 'ownership_receipt_refresh_failed',
+				'rollback' => array( 'success' => $rolled_back && $guard_restored, 'rolled_back' => $rolled_back, 'reconnect_guard_restored' => $guard_restored, 'code' => ! $rolled_back ? 'rollback_failed' : ( $guard_restored ? 'transaction_rolled_back' : 'rollback_reconnect_guard_restore_failed' ) ),
+			);
+		}
+		$committed = false !== $wpdb->query( 'COMMIT AND NO CHAIN NO RELEASE' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Explicit NO CHAIN/NO RELEASE overrides completion_type.
+		if ( ! $committed ) {
+			$rollback = self::translation_job_rollback_recovery_transaction();
+			self::translation_job_set_recovery_transaction_diagnostic( 'commit', ! empty( $rollback['success'] ) ? 'commit_failed_owned_rollback_complete' : 'commit_outcome_unknown' );
+			return array( 'success' => false, 'committed' => ! empty( $rollback['success'] ) ? false : null, 'code' => ! empty( $rollback['success'] ) ? 'commit_failed_rolled_back' : 'commit_outcome_unknown', 'rollback' => $rollback );
+		}
+		// wpdb::query() may reconnect after a server-gone-away error and retry the
+		// same COMMIT on a fresh connection. A truthy SQL result is therefore not
+		// sufficient: prove that the post-COMMIT metadata still belongs to the
+		// exact connection and unchanged session captured by this receipt.
+		$after_commit = self::translation_job_recovery_session_metadata();
+		if ( empty( $after_commit['success'] ) || absint( $receipt['connection_id'] ?? 0 ) !== absint( $after_commit['connection_id'] ?? 0 ) || (string) ( $receipt['session_isolation'] ?? '' ) !== (string) ( $after_commit['isolation'] ?? '' ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'commit_verify', 'commit_outcome_unknown' );
+			return array( 'success' => false, 'committed' => null, 'code' => 'commit_outcome_unknown' );
+		}
+		$guard_restored = self::translation_job_restore_reconnect_retries();
+		self::$translation_job_recovery_transaction = array();
+		self::translation_job_set_recovery_transaction_diagnostic( 'committed', $guard_restored ? 'transaction_committed' : 'transaction_committed_reconnect_guard_restore_failed' );
+		return array( 'success' => $guard_restored, 'committed' => true, 'reconnect_guard_restored' => $guard_restored, 'code' => $guard_restored ? 'transaction_committed' : 'transaction_committed_reconnect_guard_restore_failed' );
 	}
 
 	/** Roll back one bounded publication/recovery transaction. */
-	private static function translation_job_rollback_recovery_transaction(): void {
+	private static function translation_job_rollback_recovery_transaction(): array {
 		global $wpdb;
-		$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- WordPress has no transaction API.
+		$receipt = self::$translation_job_recovery_transaction;
+		$savepoint = self::translation_job_recovery_savepoint_name( (string) ( $receipt['owner_id'] ?? '' ) );
+		if ( empty( $receipt['owned'] ) || empty( $receipt['owner_id'] ) || '' === $savepoint || ! hash_equals( $savepoint, (string) ( $receipt['savepoint'] ?? '' ) ) ) {
+			return array( 'success' => false, 'rolled_back' => false, 'code' => 'transaction_not_owned' );
+		}
+		if ( ! self::translation_job_reconnect_guard_active( (string) ( $receipt['reconnect_guard_token'] ?? '' ) ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'rollback_preflight', 'reconnect_guard_lost' );
+			return array( 'success' => false, 'rolled_back' => false, 'reconnect_guard_restored' => false, 'code' => 'transaction_ownership_lost' );
+		}
+		$state = self::translation_job_recovery_session_metadata();
+		if ( empty( $state['success'] ) || absint( $receipt['connection_id'] ?? 0 ) !== absint( $state['connection_id'] ?? 0 ) || (string) ( $receipt['session_isolation'] ?? '' ) !== (string) ( $state['isolation'] ?? '' ) || 'SERIALIZABLE' !== (string) ( $receipt['transaction_isolation'] ?? '' ) ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'rollback_preflight', 'transaction_ownership_lost' );
+			return array( 'success' => false, 'rolled_back' => false, 'code' => 'transaction_ownership_lost' );
+		}
+		if ( false === $wpdb->query( $wpdb->prepare( 'ROLLBACK TO SAVEPOINT %i', $savepoint ) ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- WordPress-native identifier preparation preserves the private savepoint as independent activity proof.
+			self::translation_job_set_recovery_transaction_diagnostic( 'rollback_preflight', 'transaction_ownership_lost' );
+			return array( 'success' => false, 'rolled_back' => false, 'code' => 'transaction_ownership_lost' );
+		}
+		$rolled_back = false !== $wpdb->query( 'ROLLBACK AND NO CHAIN NO RELEASE' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Savepoint proof binds this rollback to the owned transaction; explicit NO CHAIN/NO RELEASE overrides completion_type.
+		if ( ! $rolled_back ) {
+			self::translation_job_set_recovery_transaction_diagnostic( 'rolled_back', 'rollback_failed' );
+			return array( 'success' => false, 'rolled_back' => false, 'code' => 'rollback_failed' );
+		}
+		$guard_restored = self::translation_job_restore_reconnect_retries();
+		self::$translation_job_recovery_transaction = array();
+		self::translation_job_set_recovery_transaction_diagnostic( 'rolled_back', $guard_restored ? 'transaction_rolled_back' : 'rollback_reconnect_guard_restore_failed' );
+		return array( 'success' => $guard_restored, 'rolled_back' => true, 'reconnect_guard_restored' => $guard_restored, 'code' => $guard_restored ? 'transaction_rolled_back' : 'rollback_reconnect_guard_restore_failed' );
+	}
+
+	/** Expose a terminal rollback outcome without overstating incomplete cleanup. */
+	private static function translation_job_rollback_response_fields( array $outcome ): array {
+		return array(
+			'transaction_rolled_back' => ! empty( $outcome['rolled_back'] ),
+			'transaction_rollback'    => array(
+				'success'            => ! empty( $outcome['success'] ),
+				'rolled_back'        => ! empty( $outcome['rolled_back'] ),
+				'reconnect_guard_restored' => ! empty( $outcome['reconnect_guard_restored'] ),
+				'code'               => sanitize_key( (string) ( $outcome['code'] ?? 'rollback_outcome_unavailable' ) ),
+			),
+		);
+	}
+
+	/** Roll back and attach the exact terminal result to an array failure. */
+	private static function translation_job_failure_after_recovery_rollback( array $failure ): array {
+		$rollback = self::translation_job_rollback_recovery_transaction();
+		return array_merge( $failure, self::translation_job_rollback_response_fields( $rollback ) );
 	}
 
 	/** Lock every database row and indexed relationship range owned by recovery. */
@@ -725,53 +1105,52 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$term_scope = (array) ( $surface_snapshot['term_scope'] ?? array() );
 		$identity_scope = self::translation_job_publication_identity_scope( $job );
 		if ( ! self::translation_job_begin_recovery_transaction() ) {
-			return array( 'success' => false, 'code' => 'publication_transaction_unavailable', 'message' => 'The staged publication transaction could not be started.', 'mutation_started' => false );
+			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_unavailable', 'message' => 'The staged publication transaction could not be started.', 'mutation_started' => false ), self::translation_job_recovery_transaction_error_fields() );
 		}
 		try {
 			$translation_id = self::translation_job_resolve_publication_translation_id( $job, $artifact_record );
 			$locked = self::translation_job_lock_recovery_surface( $translation_id, $term_scope, $identity_scope );
 			if ( empty( $locked['success'] ) ) {
-				self::translation_job_rollback_recovery_transaction();
-				return array_merge( $locked, array( 'mutation_started' => false ) );
+				return self::translation_job_failure_after_recovery_rollback( array_merge( $locked, array( 'mutation_started' => false ) ) );
 			}
 			$translation_id = absint( $locked['identity_translation_id'] ?? $translation_id );
 			if ( ! self::translation_job_snapshot_translation_identity_matches( $surface_snapshot, $translation_id ) ) {
-				self::translation_job_rollback_recovery_transaction();
+				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-				return array( 'success' => false, 'code' => 'staged_translation_identity_changed_before_locked_write', 'message' => 'The canonical translation identity changed after snapshot capture; publication must retry from a fresh locked snapshot.', 'translation_id' => $translation_id, 'mutation_started' => false );
+				return array_merge( array( 'success' => false, 'code' => 'staged_translation_identity_changed_before_locked_write', 'message' => 'The canonical translation identity changed after snapshot capture; publication must retry from a fresh locked snapshot.', 'translation_id' => $translation_id, 'mutation_started' => false ), self::translation_job_rollback_response_fields( $rollback ) );
 			}
 			$captured_revision = (string) ( $surface_snapshot['captured_cas_revision'] ?? '' );
 			if ( '' === $captured_revision || ! hash_equals( $captured_revision, self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope ) ) ) {
-				self::translation_job_rollback_recovery_transaction();
-				return array( 'success' => false, 'code' => 'staged_surface_drifted_before_locked_write', 'message' => 'The translation surface changed before the staged publication transaction acquired ownership.', 'translation_id' => $translation_id, 'mutation_started' => false );
+				return self::translation_job_failure_after_recovery_rollback( array( 'success' => false, 'code' => 'staged_surface_drifted_before_locked_write', 'message' => 'The translation surface changed before the staged publication transaction acquired ownership.', 'translation_id' => $translation_id, 'mutation_started' => false ) );
 			}
 			$result = self::translation_job_apply_staged_artifact_uncommitted( $job, $artifact_record, $surface_snapshot, $translation_id );
 			$resolved_id = absint( $result['translation_id'] ?? $translation_id );
 			if ( empty( $result['success'] ) ) {
-				self::translation_job_rollback_recovery_transaction();
+				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $resolved_id, $term_scope );
 				$result['mutation_started'] = false;
-				$result['transaction_rolled_back'] = true;
+				$result = array_merge( $result, self::translation_job_rollback_response_fields( $rollback ) );
 				unset( $result['mutation_surface_revision'] );
 				return $result;
 			}
 			$result['mutation_cas_revision'] = self::translation_job_rollback_cas_revision( $resolved_id, $term_scope, $identity_scope );
 			if ( '' === (string) $result['mutation_cas_revision'] ) {
-				self::translation_job_rollback_recovery_transaction();
+				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $resolved_id, $term_scope );
-				return array( 'success' => false, 'code' => 'staged_mutation_receipt_failed', 'message' => 'The exact staged mutation receipt could not be captured under lock.', 'translation_id' => $resolved_id, 'mutation_started' => false, 'transaction_rolled_back' => true );
+				return array_merge( array( 'success' => false, 'code' => 'staged_mutation_receipt_failed', 'message' => 'The exact staged mutation receipt could not be captured under lock.', 'translation_id' => $resolved_id, 'mutation_started' => false ), self::translation_job_rollback_response_fields( $rollback ) );
 			}
-			if ( ! self::translation_job_commit_recovery_transaction() ) {
-				self::translation_job_rollback_recovery_transaction();
+			$commit = self::translation_job_commit_recovery_transaction();
+			if ( empty( $commit['success'] ) ) {
 				self::translation_job_clean_recovery_caches( $resolved_id, $term_scope );
-				return array( 'success' => false, 'code' => 'publication_transaction_commit_failed', 'message' => 'The staged publication transaction could not be committed safely.', 'translation_id' => $resolved_id, 'mutation_started' => false );
+				return array_merge( array( 'success' => false, 'code' => 'publication_transaction_commit_failed', 'message' => 'The staged publication transaction could not be committed safely.', 'translation_id' => $resolved_id, 'mutation_started' => false, 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
 			}
 			self::translation_job_clean_recovery_caches( $resolved_id, $term_scope );
+			$result['transaction_commit'] = $commit;
 			return $result;
 		} catch ( Throwable $error ) {
-			self::translation_job_rollback_recovery_transaction();
+			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array( 'success' => false, 'code' => 'publication_transaction_exception', 'message' => $error->getMessage(), 'translation_id' => $translation_id, 'mutation_started' => false );
+			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_exception', 'message' => 'The staged publication transaction stopped unexpectedly.', 'translation_id' => $translation_id, 'mutation_started' => false ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 		}
 	}
 
@@ -1109,37 +1488,37 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$publication_attempt_id = 'tpa_' . substr( hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) ), 0, 32 );
 		$term_scope = self::translation_job_term_lock_scope_from_manifest( $manifest, $publication_attempt_id );
 		if ( ! self::translation_job_begin_recovery_transaction() ) {
-			return array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_transaction_unavailable', 'mutation_started' => false );
+			return array_merge( array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_transaction_unavailable', 'mutation_started' => false ), self::translation_job_recovery_transaction_error_fields() );
 		}
 		try {
 			$locked = self::translation_job_lock_recovery_surface( $translation_id, $term_scope, $identity_scope );
 			if ( empty( $locked['success'] ) ) {
-				self::translation_job_rollback_recovery_transaction();
-				return array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => (string) ( $locked['code'] ?? 'publication_snapshot_lock_failed' ), 'mutation_started' => false );
+				return self::translation_job_failure_after_recovery_rollback( array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => (string) ( $locked['code'] ?? 'publication_snapshot_lock_failed' ), 'mutation_started' => false ) );
 			}
 			$locked_identity_id = absint( $locked['identity_translation_id'] ?? $translation_id );
 			if ( $locked_identity_id !== $translation_id ) {
-				self::translation_job_rollback_recovery_transaction();
+				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-				return array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $locked_identity_id, 'message' => 'publication_snapshot_identity_changed', 'mutation_started' => false );
+				return array_merge( array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $locked_identity_id, 'message' => 'publication_snapshot_identity_changed', 'mutation_started' => false ), self::translation_job_rollback_response_fields( $rollback ) );
 			}
 			$snapshot = self::translation_job_capture_surface_snapshot_uncommitted( $translation_id, $manifest, $publication_attempt_id, $identity_scope );
 			if ( empty( $snapshot['snapshot_valid'] ) ) {
-				self::translation_job_rollback_recovery_transaction();
+				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-				return $snapshot;
+				return array_merge( $snapshot, self::translation_job_rollback_response_fields( $rollback ) );
 			}
-			if ( ! self::translation_job_commit_recovery_transaction() ) {
-				self::translation_job_rollback_recovery_transaction();
+			$commit = self::translation_job_commit_recovery_transaction();
+			if ( empty( $commit['success'] ) ) {
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-				return array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_commit_failed', 'mutation_started' => false );
+				return array_merge( array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_commit_failed', 'mutation_started' => false, 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
 			}
 			self::translation_job_clean_recovery_caches( $translation_id, (array) ( $snapshot['term_scope'] ?? $term_scope ) );
+			$snapshot['transaction_commit'] = $commit;
 			return $snapshot;
 		} catch ( Throwable $error ) {
-			self::translation_job_rollback_recovery_transaction();
+			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => $error->getMessage(), 'mutation_started' => false );
+			return array_merge( array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_transaction_exception', 'mutation_started' => false ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 		}
 	}
 
@@ -1247,33 +1626,32 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
 		$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
 		if ( ! self::translation_job_begin_recovery_transaction() ) {
-			return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_unavailable', 'translation_id' => $translation_id );
+			return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_unavailable', 'translation_id' => $translation_id ), self::translation_job_recovery_transaction_error_fields() );
 		}
 		try {
 			$locked = self::translation_job_lock_recovery_surface( $translation_id, $term_scope, $identity_scope );
 			if ( empty( $locked['success'] ) ) {
-				self::translation_job_rollback_recovery_transaction();
-				return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => (string) ( $locked['code'] ?? 'recovery_surface_lock_failed' ), 'translation_id' => $translation_id );
+				return self::translation_job_failure_after_recovery_rollback( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => (string) ( $locked['code'] ?? 'recovery_surface_lock_failed' ), 'translation_id' => $translation_id ) );
 			}
 			$result = self::translation_job_restore_surface_snapshot_uncommitted( $snapshot, $translation_id );
 			if ( empty( $result['success'] ) ) {
-				self::translation_job_rollback_recovery_transaction();
+				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-				$result['transaction_rolled_back'] = true;
-				return $result;
+				return array_merge( $result, self::translation_job_rollback_response_fields( $rollback ) );
 			}
-			if ( ! self::translation_job_commit_recovery_transaction() ) {
-				self::translation_job_rollback_recovery_transaction();
+			$commit = self::translation_job_commit_recovery_transaction();
+			if ( empty( $commit['success'] ) ) {
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-				return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_commit_failed', 'translation_id' => $translation_id );
+				return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_commit_failed', 'translation_id' => $translation_id, 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
 			}
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 			$result['transaction_committed'] = true;
+			$result['transaction_commit'] = $commit;
 			return $result;
 		} catch ( Throwable $error ) {
-			self::translation_job_rollback_recovery_transaction();
+			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_exception', 'message' => $error->getMessage(), 'translation_id' => $translation_id );
+			return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_exception', 'message' => 'The recovery transaction stopped unexpectedly.', 'translation_id' => $translation_id ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 		}
 	}
 
@@ -1374,45 +1752,43 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
 		$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
 		$target_menu_id = absint( $menu['target_menu']['id'] ?? 0 );
-		if ( ! self::translation_job_begin_recovery_transaction() ) { return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_unavailable' ); }
+		if ( ! self::translation_job_begin_recovery_transaction() ) { return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_unavailable' ), self::translation_job_recovery_transaction_error_fields() ); }
 		try {
 			$content_lock = self::translation_job_lock_recovery_surface( $translation_id, $term_scope, $identity_scope );
 			$menu_lock = $target_menu_id ? self::lock_localized_menu_projection_surface( $target_menu_id ) : array( 'success' => true );
 			$previous_menu_id = absint( $menu['previous_menu_id'] ?? 0 );
 			$previous_menu_lock = $previous_menu_id ? self::lock_localized_menu_projection_surface( $previous_menu_id ) : array( 'success' => true );
 			if ( empty( $content_lock['success'] ) || empty( $menu_lock['success'] ) || empty( $previous_menu_lock['success'] ) ) {
-				self::translation_job_rollback_recovery_transaction();
-				return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_surface_lock_failed', 'content_lock' => $content_lock, 'menu_lock' => $menu_lock, 'previous_menu_lock' => $previous_menu_lock );
+				return self::translation_job_failure_after_recovery_rollback( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_surface_lock_failed', 'content_lock' => $content_lock, 'menu_lock' => $menu_lock, 'previous_menu_lock' => $previous_menu_lock ) );
 			}
 			$expected_revision = (string) ( $snapshot['rollback_expected_surface_revision'] ?? '' );
 			$current_revision = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
 			$menu_preflight = self::localized_menu_projection_rollback_preflight( $language, $menu );
 			if ( '' === $expected_revision || '' === $current_revision || ! hash_equals( $expected_revision, $current_revision ) || empty( $menu_preflight['success'] ) ) {
-				self::translation_job_rollback_recovery_transaction();
-				return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_preflight_failed', 'menu_rollback' => $menu_preflight );
+				return self::translation_job_failure_after_recovery_rollback( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_preflight_failed', 'menu_rollback' => $menu_preflight ) );
 			}
 			$content_rollback = self::translation_job_restore_surface_snapshot_uncommitted( $snapshot, $translation_id );
 			$menu_rollback = ! empty( $content_rollback['success'] ) ? self::rollback_localized_menu_projection_uncommitted( $language, $menu ) : array( 'success' => false, 'action' => 'not_attempted_after_content_failure' );
 			if ( empty( $content_rollback['success'] ) || empty( $menu_rollback['success'] ) ) {
-				self::translation_job_rollback_recovery_transaction();
+				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 				if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
-				return array( 'success' => false, 'action' => 'publication_restore_rolled_back', 'error' => 'publication_restore_incomplete', 'transaction_rolled_back' => true, 'content_rollback' => $content_rollback, 'menu_rollback' => $menu_rollback );
+				return array_merge( array( 'success' => false, 'action' => 'publication_restore_rolled_back', 'error' => 'publication_restore_incomplete', 'content_rollback' => $content_rollback, 'menu_rollback' => $menu_rollback ), self::translation_job_rollback_response_fields( $rollback ) );
 			}
-			if ( ! self::translation_job_commit_recovery_transaction() ) {
-				self::translation_job_rollback_recovery_transaction();
+			$commit = self::translation_job_commit_recovery_transaction();
+			if ( empty( $commit['success'] ) ) {
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 				if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
-				return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_commit_failed' );
+				return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_commit_failed', 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
 			}
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 			if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
-			return array( 'success' => true, 'action' => 'restore_publication', 'transaction_committed' => true, 'content_rollback' => $content_rollback, 'menu_rollback' => $menu_rollback );
+			return array( 'success' => true, 'action' => 'restore_publication', 'transaction_committed' => true, 'transaction_commit' => $commit, 'content_rollback' => $content_rollback, 'menu_rollback' => $menu_rollback );
 		} catch ( Throwable $error ) {
-			self::translation_job_rollback_recovery_transaction();
+			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 			if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
-			return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_exception', 'message' => $error->getMessage() );
+			return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_exception', 'message' => 'The publication recovery transaction stopped unexpectedly.' ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 		}
 	}
 

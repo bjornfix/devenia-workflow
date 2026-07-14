@@ -1,0 +1,118 @@
+name: Recovery transaction on MySQL 8.4
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/recovery-transaction-mysql84.yml
+      - devenia-workflow.php
+      - includes/**
+      - tools/check-recovery-transaction-portability-runtime.php
+  pull_request:
+    paths:
+      - .github/workflows/recovery-transaction-mysql84.yml
+      - devenia-workflow.php
+      - includes/**
+      - tools/check-recovery-transaction-portability-runtime.php
+
+permissions:
+  contents: read
+
+jobs:
+  portability-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      mysql:
+        image: mysql:8.4@sha256:c831a0f11348d402b43d77453e17d770be2eef356615a2823fe0f5a0d6c8b9af
+        env:
+          MYSQL_DATABASE: wordpress
+          MYSQL_USER: wordpress
+          MYSQL_PASSWORD: wordpress
+          MYSQL_ROOT_PASSWORD: ci-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --host=127.0.0.1 --user=root --password=ci-root-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Check out plugin
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install PHP database support and WP-CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes php-cli php-mysql curl ca-certificates unzip
+          curl --fail --silent --show-error --location \
+            https://github.com/wp-cli/wp-cli/releases/download/v2.12.0/wp-cli-2.12.0.phar \
+            --output /tmp/wp-cli.phar
+          printf '%s  %s\n' \
+            ce34ddd838f7351d6759068d09793f26755463b4a4610a5a5c0a97b68220d85c \
+            /tmp/wp-cli.phar \
+            | sha256sum --check --strict -
+          php /tmp/wp-cli.phar --info
+          chmod +x /tmp/wp-cli.phar
+          sudo mv /tmp/wp-cli.phar /usr/local/bin/wp
+
+      - name: Install fresh WordPress and activate the plugin
+        shell: bash
+        env:
+          WP_PATH: ${{ runner.temp }}/wordpress
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            https://wordpress.org/wordpress-7.0.zip \
+            --output "${{ runner.temp }}/wordpress-7.0.zip"
+          printf '%s  %s\n' \
+            b2b6827eb7b2b51f4610893e1a6ad02466e76fe0a307bd40ca2a8ba821c40d0b \
+            "${{ runner.temp }}/wordpress-7.0.zip" \
+            | sha256sum --check --strict -
+          unzip -q "${{ runner.temp }}/wordpress-7.0.zip" -d "${{ runner.temp }}"
+          wp core verify-checksums --path="$WP_PATH" --version=7.0
+          wp config create \
+            --path="$WP_PATH" \
+            --dbname=wordpress \
+            --dbuser=wordpress \
+            --dbpass=wordpress \
+            --dbhost=127.0.0.1:3306 \
+            --skip-check
+          wp core install \
+            --path="$WP_PATH" \
+            --url=http://localhost \
+            --title="Devenia Workflow CI" \
+            --admin_user=ci-admin \
+            --admin_password=ci-password \
+            --admin_email=ci@example.invalid \
+            --skip-email
+          ln -s "$GITHUB_WORKSPACE" "$WP_PATH/wp-content/plugins/devenia-workflow"
+          wp plugin activate devenia-workflow --path="$WP_PATH"
+
+      - name: Prove MySQL 8.4 and all 22 recovery scenarios
+        shell: bash
+        env:
+          WP_PATH: ${{ runner.temp }}/wordpress
+        run: |
+          set -euo pipefail
+          mysql_version="$(wp eval 'global $wpdb; echo $wpdb->get_var( "SELECT VERSION()" );' --path="$WP_PATH" --skip-themes)"
+          if [[ ! "$mysql_version" =~ ^8\.4\. ]]; then
+            echo "Expected MySQL 8.4.x, got: $mysql_version" >&2
+            exit 1
+          fi
+
+          result="$(wp eval-file \
+            "$GITHUB_WORKSPACE/tools/check-recovery-transaction-portability-runtime.php" \
+            --path="$WP_PATH" \
+            --skip-themes)"
+          printf '%s\n' "$result"
+          if [[ "$result" != '{"success":true,"scenarios":22}' ]]; then
+            echo "Recovery runtime did not return the exact 22-scenario success proof." >&2
+            exit 1
+          fi

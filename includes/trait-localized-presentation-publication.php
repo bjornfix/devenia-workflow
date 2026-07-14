@@ -63,29 +63,27 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$recover_staged_mutation = ! empty( $input['recover_staged_mutation'] );
 		$prior_mutation_cas_revision = (string) ( $input['expected_mutation_cas_revision'] ?? '' );
 		if ( ! self::translation_job_begin_recovery_transaction() ) {
-			return array( 'success' => false, 'code' => 'publication_transaction_unavailable', 'message' => 'The localized presentation transaction could not be started.', 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision );
+			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_unavailable', 'message' => 'The localized presentation transaction could not be started.', 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision ), self::translation_job_recovery_transaction_error_fields() );
 		}
 		try {
 		$locked = self::translation_job_lock_recovery_surface( $translation_id, $term_scope, $identity_scope );
 		if ( empty( $locked['success'] ) ) {
-			self::translation_job_rollback_recovery_transaction();
-			return array_merge( $locked, array( 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision ) );
+			return self::translation_job_failure_after_recovery_rollback( array_merge( $locked, array( 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision ) ) );
 		}
 		$expected_before = (string) ( $input['expected_mutation_cas_revision'] ?? '' );
 		$current_before = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
 		if ( '' === $expected_before || '' === $current_before || ! hash_equals( $expected_before, $current_before ) ) {
-			self::translation_job_rollback_recovery_transaction();
+			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array( 'success' => false, 'code' => 'publication_surface_changed_before_locked_transition', 'message' => 'The translation surface changed before the publication transaction acquired ownership.', 'published' => false, 'mutation_started' => ! empty( $input['recover_staged_mutation'] ), 'mutation_cas_revision' => $expected_before );
+			return array_merge( array( 'success' => false, 'code' => 'publication_surface_changed_before_locked_transition', 'message' => 'The translation surface changed before the publication transaction acquired ownership.', 'published' => false, 'mutation_started' => ! empty( $input['recover_staged_mutation'] ), 'mutation_cas_revision' => $expected_before ), self::translation_job_rollback_response_fields( $rollback ) );
 		}
 		$transition = self::apply_translation_publish_transition( $translation_id, $language, $source_id, $term_scope );
 		if ( empty( $transition['success'] ) ) {
-			self::translation_job_rollback_recovery_transaction();
+			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 			$transition['mutation_started'] = $recover_staged_mutation;
 			$transition['mutation_cas_revision'] = $prior_mutation_cas_revision;
-			$transition['transaction_rolled_back'] = true;
-			return $transition;
+			return array_merge( $transition, self::translation_job_rollback_response_fields( $rollback ) );
 		}
 		$menu = null;
 		$post = get_post( $translation_id );
@@ -99,9 +97,9 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				)
 			);
 			if ( empty( $menu['success'] ) ) {
-				self::translation_job_rollback_recovery_transaction();
+				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-				return array(
+				return array_merge( array(
 					'success'     => false,
 					'code'        => 'localized_menu_projection_failed',
 					'message'     => 'The localized menu projection failed and the publication transaction was rolled back.',
@@ -110,14 +108,13 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 					'menu'        => $menu,
 					'mutation_started' => $recover_staged_mutation,
 					'mutation_cas_revision' => $prior_mutation_cas_revision,
-					'transaction_rolled_back' => true,
-				);
+				), self::translation_job_rollback_response_fields( $rollback ) );
 			}
 			$menu_surface_revision = self::localized_menu_projection_revision( absint( $menu['target_menu']['id'] ?? 0 ) );
 			if ( '' === $menu_surface_revision ) {
-				self::translation_job_rollback_recovery_transaction();
+				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-				return array( 'success' => false, 'code' => 'menu_projection_receipt_failed', 'message' => 'The localized menu projection could not produce an exact recovery receipt.', 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision, 'transaction_rolled_back' => true );
+				return array_merge( array( 'success' => false, 'code' => 'menu_projection_receipt_failed', 'message' => 'The localized menu projection could not produce an exact recovery receipt.', 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision ), self::translation_job_rollback_response_fields( $rollback ) );
 			}
 			$menu['menu_surface_revision'] = $menu_surface_revision;
 		}
@@ -126,20 +123,20 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		// differ from this receipt before any rollback begins.
 		$mutation_cas_revision = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
 		if ( '' === $mutation_cas_revision ) {
-			self::translation_job_rollback_recovery_transaction();
+			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array( 'success' => false, 'code' => 'publication_mutation_receipt_failed', 'message' => 'The publication transaction could not produce its exact recovery receipt.', 'published' => false, 'transition' => $transition, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision, 'transaction_rolled_back' => true );
+			return array_merge( array( 'success' => false, 'code' => 'publication_mutation_receipt_failed', 'message' => 'The publication transaction could not produce its exact recovery receipt.', 'published' => false, 'transition' => $transition, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision ), self::translation_job_rollback_response_fields( $rollback ) );
 		}
-		if ( ! self::translation_job_commit_recovery_transaction() ) {
-			self::translation_job_rollback_recovery_transaction();
+		$commit = self::translation_job_commit_recovery_transaction();
+		if ( empty( $commit['success'] ) ) {
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array( 'success' => false, 'code' => 'publication_transaction_commit_failed', 'message' => 'The localized presentation transaction could not be committed safely.', 'published' => false, 'transition' => $transition, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision );
+			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_commit_failed', 'message' => 'The localized presentation transaction could not be committed safely.', 'published' => false, 'transition' => $transition, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision, 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
 		}
 		self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 		} catch ( Throwable $error ) {
-			self::translation_job_rollback_recovery_transaction();
+			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array( 'success' => false, 'code' => 'publication_transaction_exception', 'message' => $error->getMessage(), 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision );
+			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_exception', 'message' => 'The localized presentation transaction stopped unexpectedly.', 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 		}
 
 		$purge_urls = self::localized_presentation_purge_urls( $language, (array) ( $transition['purge_urls'] ?? array() ) );
@@ -222,6 +219,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			'cache_invalidation' => $invalidation,
 			'live_verification'  => $live,
 			'mutation_cas_revision' => $mutation_cas_revision,
+			'transaction_commit' => $commit,
 		);
 	}
 
@@ -229,35 +227,35 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	private static function rollback_localized_menu_projection( string $language, array $menu ): array {
 		$target_id = absint( $menu['target_menu']['id'] ?? 0 );
 		if ( ! $target_id ) { return array( 'success' => true, 'action' => 'not_required' ); }
-		if ( ! self::translation_job_begin_recovery_transaction() ) { return array( 'success' => false, 'action' => 'menu_rollback_conflict', 'error' => 'menu_recovery_transaction_unavailable' ); }
+		if ( ! self::translation_job_begin_recovery_transaction() ) { return array_merge( array( 'success' => false, 'action' => 'menu_rollback_conflict', 'error' => 'menu_recovery_transaction_unavailable' ), self::translation_job_recovery_transaction_error_fields() ); }
 		try {
 		$locked = self::lock_localized_menu_projection_surface( $target_id );
-		if ( empty( $locked['success'] ) ) { self::translation_job_rollback_recovery_transaction(); return $locked; }
+		if ( empty( $locked['success'] ) ) { return self::translation_job_failure_after_recovery_rollback( $locked ); }
 		$previous_id = absint( $menu['previous_menu_id'] ?? 0 );
 		if ( $previous_id ) {
 			$previous_locked = self::lock_localized_menu_projection_surface( $previous_id );
-			if ( empty( $previous_locked['success'] ) ) { self::translation_job_rollback_recovery_transaction(); return $previous_locked; }
+			if ( empty( $previous_locked['success'] ) ) { return self::translation_job_failure_after_recovery_rollback( $previous_locked ); }
 		}
 		clean_term_cache( array( $target_id ) );
 		$result = self::rollback_localized_menu_projection_uncommitted( $language, $menu );
 		if ( empty( $result['success'] ) ) {
-			self::translation_job_rollback_recovery_transaction();
+			$rollback = self::translation_job_rollback_recovery_transaction();
 			clean_term_cache( array( $target_id ) );
-			$result['transaction_rolled_back'] = true;
-			return $result;
+			return array_merge( $result, self::translation_job_rollback_response_fields( $rollback ) );
 		}
-		if ( ! self::translation_job_commit_recovery_transaction() ) {
-			self::translation_job_rollback_recovery_transaction();
+		$commit = self::translation_job_commit_recovery_transaction();
+		if ( empty( $commit['success'] ) ) {
 			clean_term_cache( array( $target_id ) );
-			return array( 'success' => false, 'action' => 'menu_rollback_conflict', 'error' => 'menu_recovery_transaction_commit_failed' );
+			return array_merge( array( 'success' => false, 'action' => 'menu_rollback_conflict', 'error' => 'menu_recovery_transaction_commit_failed', 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
 		}
 		clean_term_cache( array( $target_id ) );
 		$result['transaction_committed'] = true;
+		$result['transaction_commit'] = $commit;
 		return $result;
 		} catch ( Throwable $error ) {
-			self::translation_job_rollback_recovery_transaction();
+			$rollback = self::translation_job_rollback_recovery_transaction();
 			clean_term_cache( array( $target_id ) );
-			return array( 'success' => false, 'action' => 'menu_rollback_conflict', 'error' => 'menu_recovery_transaction_exception', 'message' => $error->getMessage() );
+			return array_merge( array( 'success' => false, 'action' => 'menu_rollback_conflict', 'error' => 'menu_recovery_transaction_exception', 'message' => 'The menu recovery transaction stopped unexpectedly.' ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 		}
 	}
 
@@ -536,8 +534,13 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				return false;
 			}
 			$result = wp_delete_nav_menu( $menu_id );
-			if ( is_wp_error( $result ) || false === $result || ! self::translation_job_commit_recovery_transaction() ) {
+			if ( is_wp_error( $result ) || false === $result ) {
 				self::translation_job_rollback_recovery_transaction();
+				clean_term_cache( array( $menu_id, $active_id ) );
+				return false;
+			}
+			$commit = self::translation_job_commit_recovery_transaction();
+			if ( empty( $commit['success'] ) ) {
 				clean_term_cache( array( $menu_id, $active_id ) );
 				return false;
 			}

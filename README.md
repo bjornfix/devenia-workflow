@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.608
+**Stable tag:** 0.1.609
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.609
+
+- Adds a fail-closed, owned transaction preflight for publication and recovery, including exact core-table engine proof, portable MySQL/MariaDB metadata, a transaction-scoped SERIALIZABLE boundary with private savepoint ownership, completion-mode-safe terminal SQL, and structured failure diagnostics.
 
 ### 0.1.608
 

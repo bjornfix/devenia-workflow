@@ -37,6 +37,75 @@ const rollbackCas = functionBody("translation_job_rollback_cas_revision", "trans
 const captureSnapshot = functionBody("translation_job_capture_surface_snapshot", "translation_job_restore_surface_snapshot");
 const restoreSnapshot = functionBody("translation_job_restore_surface_snapshot", "translation_job_publish_failure_with_rollback");
 const rollbackFailure = functionBody("translation_job_publish_failure_with_rollback", "translation_job_validate_quality_evidence_record");
+const clearRecoveryIsolation = functionBody("translation_job_clear_recovery_next_isolation", "translation_job_recovery_savepoint_name");
+const beginRecoveryTransaction = functionBody("translation_job_begin_recovery_transaction", "translation_job_commit_recovery_transaction");
+const commitRecoveryTransaction = functionBody("translation_job_commit_recovery_transaction", "translation_job_rollback_recovery_transaction");
+const rollbackRecoveryTransaction = functionBody("translation_job_rollback_recovery_transaction", "translation_job_lock_recovery_surface");
+
+if (!beginRecoveryTransaction || (beginRecoveryTransaction.match(/\$wpdb->(?:posts|postmeta|terms|term_taxonomy|term_relationships|termmeta|options)/g) || []).length !== 7) {
+	failures.push("recovery transaction must prove the exact seven mutable WordPress core tables");
+}
+if (!/information_schema\.TABLES/.test(beginRecoveryTransaction) || !/SHOW TABLE STATUS WHERE Name = %s/.test(beginRecoveryTransaction) || beginRecoveryTransaction.indexOf("core_table_non_transactional") > beginRecoveryTransaction.indexOf("SHOW TABLE STATUS")) {
+	failures.push("engine preflight must use primary information_schema proof and fallback only after rejecting proven non-InnoDB tables");
+}
+if (!/translation_job_normalize_recovery_table_name/.test(beginRecoveryTransaction) || !/core_table_identity_mismatch/.test(beginRecoveryTransaction) || !/core_table_metadata_unavailable/.test(beginRecoveryTransaction)) {
+	failures.push("engine preflight must normalize exact table identities and fail closed on incomplete fallback metadata");
+}
+if (!/owned_transaction_already_active/.test(beginRecoveryTransaction) || !/preexisting_or_unknown_transaction_refused/.test(beginRecoveryTransaction) || !/SET TRANSACTION ISOLATION LEVEL SERIALIZABLE/.test(beginRecoveryTransaction) || /SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE/.test(beginRecoveryTransaction) || !/START TRANSACTION/.test(beginRecoveryTransaction) || !/transaction_isolation['"]?\s*=>\s*['"]SERIALIZABLE/.test(beginRecoveryTransaction) || !/translation_job_recovery_savepoint_name/.test(beginRecoveryTransaction) || !/\$wpdb->prepare\( 'SAVEPOINT %i', \$savepoint \)/.test(beginRecoveryTransaction)) {
+	failures.push("begin recovery must refuse outer transactions and verify an owned active SERIALIZABLE boundary");
+}
+for (const level of ["READ UNCOMMITTED", "READ COMMITTED", "REPEATABLE READ", "SERIALIZABLE"]) {
+	if (!clearRecoveryIsolation.includes(`$wpdb->query( 'SET TRANSACTION ISOLATION LEVEL ${level}' )`)) failures.push(`recovery isolation reset must use fixed literal SQL for ${level}`);
+}
+if (/\$level|SET TRANSACTION ISOLATION LEVEL ['"]?\s*\./.test(clearRecoveryIsolation)) {
+	failures.push("recovery isolation reset must not interpolate an allowlisted SQL token");
+}
+if (/@@(?:session\.)?in_transaction/.test(authoritySource) || !/SELECT CONNECTION_ID\(\) AS connection_id/.test(authoritySource) || !/SHOW SESSION VARIABLES WHERE Variable_name IN \('transaction_isolation', 'tx_isolation'\)/.test(authoritySource)) {
+	failures.push("transaction metadata must be portable across MySQL and MariaDB without probing in_transaction variables");
+}
+if (!/ReflectionObject\( \$wpdb \)/.test(authoritySource) || !/PHP_VERSION_ID < 80100/.test(authoritySource) || !/translation_job_disable_reconnect_retries/.test(beginRecoveryTransaction) || beginRecoveryTransaction.indexOf("translation_job_disable_reconnect_retries") > beginRecoveryTransaction.indexOf("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")) {
+	failures.push("owned recovery must disable wpdb reconnect retries before the first transaction SQL without PHP 8.5 reflection deprecations");
+}
+if (!/\$wpdb->prepare\( 'RELEASE SAVEPOINT %i', \$savepoint \)/.test(commitRecoveryTransaction) || !/\$wpdb->prepare\( 'SAVEPOINT %i', \$savepoint \)/.test(commitRecoveryTransaction) || !/COMMIT AND NO CHAIN NO RELEASE/.test(commitRecoveryTransaction) || !/\$after_commit = self::translation_job_recovery_session_metadata\(\)/.test(commitRecoveryTransaction) || !/\$receipt\['connection_id'\][\s\S]*\$after_commit\['connection_id'\]/.test(commitRecoveryTransaction) || !/commit_outcome_unknown/.test(commitRecoveryTransaction) || !/'committed'\s*=>\s*! empty\( \$rollback\['success'\] \) \? false : null/.test(commitRecoveryTransaction) || !/'rollback'\s*=>\s*\$rollback/.test(commitRecoveryTransaction)) {
+	failures.push("commit must prove and refresh ownership, override completion_type, and propagate the exact failed-commit rollback outcome");
+}
+if (!/translation_job_reconnect_guard_active/.test(commitRecoveryTransaction) || !/translation_job_restore_reconnect_retries/.test(commitRecoveryTransaction) || !/translation_job_reconnect_guard_active/.test(rollbackRecoveryTransaction) || !/translation_job_restore_reconnect_retries/.test(rollbackRecoveryTransaction)) {
+	failures.push("commit and rollback must prove the reconnect guard and restore it at every proven terminal boundary");
+}
+if (!/\$wpdb->prepare\( 'ROLLBACK TO SAVEPOINT %i', \$savepoint \)/.test(rollbackRecoveryTransaction) || !/ROLLBACK AND NO CHAIN NO RELEASE/.test(rollbackRecoveryTransaction) || !/transaction_ownership_lost/.test(rollbackRecoveryTransaction) || !/'rolled_back'\s*=>\s*false/.test(rollbackRecoveryTransaction)) {
+	failures.push("rollback must never affect a transaction whose ownership receipt is missing or lost");
+}
+if (/'(?:SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT) ' \. \$savepoint/.test(`${beginRecoveryTransaction}\n${commitRecoveryTransaction}\n${rollbackRecoveryTransaction}`)) {
+	failures.push("savepoint SQL must use WordPress-native prepared identifier placeholders");
+}
+if (/devenia_workflow_recovery_owned/.test(`${beginRecoveryTransaction}\n${commitRecoveryTransaction}\n${rollbackRecoveryTransaction}`)) {
+	failures.push("recovery ownership must not use a forgeable fixed savepoint identifier");
+}
+const portabilityRuntimeUrl = new URL("./check-recovery-transaction-portability-runtime.php", import.meta.url);
+if (!existsSync(portabilityRuntimeUrl)) {
+	failures.push("missing real wpdb recovery transaction portability/fault runtime proof");
+} else {
+	const portabilityRuntime = readFileSync(portabilityRuntimeUrl, "utf8");
+	if (!/primary_missing_one/.test(portabilityRuntime) || !/1 === count\( \$show_queries \)/.test(portabilityRuntime) || !/0 === count\( \$show_queries \)/.test(portabilityRuntime)) failures.push("runtime must prove missing-only fallback and reject fallback after proven non-InnoDB metadata");
+	if (!/INSERT INTO \{\$base->options\}/.test(portabilityRuntime) || !/Failed guard committed the caller-owned outer write/.test(portabilityRuntime)) failures.push("runtime must prove outer transaction preservation with a real uncommitted write");
+	if (!/null === \$commit\['committed'\]/.test(portabilityRuntime) || !/connection_id_override/.test(portabilityRuntime) || !/preserving the ownership receipt/.test(portabilityRuntime)) failures.push("runtime must prove ambiguous COMMIT and lost-connection receipt preservation");
+	if (!/reconnect_after_commit/.test(portabilityRuntime) || !/Truthy COMMIT followed by changed connection identity/.test(portabilityRuntime)) failures.push("runtime must prove wpdb reconnect/retry after truthy COMMIT remains an unknown outcome");
+	if (!/First standard-wpdb boundary did not disable reconnect retries/.test(portabilityRuntime) || !/Second sequential standard-wpdb boundary could not acquire the restored guard/.test(portabilityRuntime)) failures.push("runtime must prove standard wpdb retry state is restored between sequential boundaries");
+	if (!/mid_write_disconnect/.test(portabilityRuntime) || !/MID_WRITE_RECONNECT_BLOCKED/.test(portabilityRuntime) || !/Mid-write reconnect produced an autocommitted partial write/.test(portabilityRuntime)) failures.push("runtime must prove a mid-write disconnect is never reissued on an autocommit connection");
+	if (!/Committed boundary overstated guard cleanup/.test(portabilityRuntime) || !/Rolled-back boundary lost database truth/.test(portabilityRuntime)) failures.push("runtime must preserve committed and rolled-back truth when reconnect-guard restoration fails");
+}
+if (/if \( ! self::translation_job_commit_recovery_transaction\(\) \)/.test(`${authoritySource}\n${publicationSource}`) || /\|\| ! self::translation_job_commit_recovery_transaction\(\)/.test(`${authoritySource}\n${publicationSource}`)) {
+	failures.push("structured commit outcomes must never be reduced to truthy-array boolean tests");
+}
+if (/['"]transaction_rolled_back['"]\s*=>\s*true|\[['"]transaction_rolled_back['"]\]\s*=\s*true/.test(`${authoritySource}\n${publicationSource}`)) {
+	failures.push("callers must derive rollback truth from the structured terminal outcome");
+}
+if (!/'transaction_rolled_back'\s*=>\s*! empty\( \$outcome\['rolled_back'\] \)/.test(authoritySource)) {
+	failures.push("rollback response truth must follow the database rollback fact independently of reconnect-guard cleanup");
+}
+if (!/translation_job_recovery_transaction_error_fields/.test(authoritySource) || !/translation_job_recovery_transaction_error_fields/.test(publicationSource) || /transaction_exception['"][^\n]*\$error->getMessage/.test(`${authoritySource}\n${publicationSource}`)) {
+	failures.push("snapshot, staged apply, and presentation errors must expose safe structured diagnostics without raw exception text");
+}
 
 requireMatch(/private static function translation_job_authenticated_principal\s*\(/, "missing server-issued Translation Run Principal Interface");
 requireMatch(/private static function translation_job_surface_revision\s*\(/, "missing complete Artifact Surface Revision Interface");
