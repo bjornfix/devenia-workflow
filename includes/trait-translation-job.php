@@ -19,6 +19,12 @@ trait Devenia_Workflow_Translation_Job {
 		return array();
 	}
 	const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 3;
+	const TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS = 3;
+	const TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES = array(
+		'staged_surface_drifted',
+		'staged_surface_drifted_before_locked_write',
+		'staged_translation_identity_changed_before_locked_write',
+	);
 
 	private static $translation_job_internal_identity = array();
 
@@ -241,10 +247,10 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_publish_schema(): array {
 		return array(
 			'type' => 'object',
-			'required' => array( 'job_id', 'coordinator_id' ),
+			'required' => array( 'job_id' ),
 			'properties' => array(
 				'job_id' => array( 'type' => 'string' ),
-				'coordinator_id' => array( 'type' => 'string' ),
+				'coordinator_id' => array( 'type' => 'string', 'description' => 'Deprecated compatibility label. It grants no publication authority.' ),
 				'sync_menu' => array( 'type' => 'boolean', 'default' => true ),
 				'verify_live' => array( 'type' => 'boolean', 'default' => true, 'description' => 'Deprecated compatibility input. Publication always verifies origin and canonical cache surfaces.' ),
 				'live_verification_timeout' => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
@@ -290,7 +296,7 @@ trait Devenia_Workflow_Translation_Job {
 		if ( ! $job ) {
 			$now = gmdate( 'c' );
 			$job = array(
-				'schema_version' => 2,
+				'schema_version' => 3,
 				'job_id' => $job_id,
 				'source_id' => $source_id,
 				'source_revision' => $source_revision,
@@ -300,6 +306,8 @@ trait Devenia_Workflow_Translation_Job {
 				'created_at' => $now,
 				'updated_at' => $now,
 				'run_ids' => array(),
+				'submission_generation' => 1,
+				'surface_refresh_history' => array(),
 				'source_approval' => array(
 					'reviewed_at' => (string) ( $source_approval['reviewed_at'] ?? '' ),
 					'reviewer' => (string) ( $source_approval['reviewer'] ?? '' ),
@@ -314,14 +322,43 @@ trait Devenia_Workflow_Translation_Job {
 	}
 
 	private static function translation_job_claim( array $input ): array {
-		$job = self::translation_job_get_job( (string) ( $input['job_id'] ?? '' ) );
-		if ( ! $job ) {
-			return self::error( 'Translation Job not found.' );
-		}
+		$job_id = self::translation_job_clean_id( (string) ( $input['job_id'] ?? '' ) );
 		$role = sanitize_key( (string) ( $input['role'] ?? '' ) );
 		if ( ! in_array( $role, array( 'translator', 'quality' ), true ) ) {
 			return self::error( 'Run role must be translator or quality.' );
 		}
+		$run_id = self::translation_job_clean_id( (string) ( $input['run_id'] ?? '' ) );
+		$coordinator_id = self::translation_job_clean_id( (string) ( $input['coordinator_id'] ?? '' ) );
+		if ( '' === $job_id || '' === $run_id || '' === $coordinator_id ) {
+			return self::error( 'job_id, run_id, and coordinator_id are required.' );
+		}
+		$initial_job = self::translation_job_get_job( $job_id );
+		if ( ! $initial_job ) {
+			return self::error( 'Translation Job not found.' );
+		}
+		$lifecycle_lease = self::translation_job_acquire_lifecycle_lease( $initial_job, 'claim' );
+		if ( empty( $lifecycle_lease['success'] ) ) {
+			return $lifecycle_lease;
+		}
+		try {
+			$job = self::translation_job_get_job( $job_id );
+			if ( ! $job ) {
+				return self::error( 'Translation Job not found after lifecycle lease acquisition.' );
+			}
+			if (
+				absint( $job['source_id'] ?? 0 ) !== absint( $initial_job['source_id'] ?? 0 )
+				|| sanitize_key( (string) ( $job['target_language'] ?? '' ) ) !== sanitize_key( (string) ( $initial_job['target_language'] ?? '' ) )
+			) {
+				return array( 'success' => false, 'code' => 'translation_job_lifecycle_binding_changed', 'message' => 'The Translation Job source/language binding changed before lifecycle mutation.' );
+			}
+			return self::translation_job_claim_under_lifecycle_lease( $input, $job, $role, $run_id, $coordinator_id );
+		} finally {
+			self::translation_job_release_lifecycle_lease( $lifecycle_lease );
+		}
+	}
+
+	/** Mutate expiry, refresh, claim, Run, and Job state only while the lifecycle lease is owned. */
+	private static function translation_job_claim_under_lifecycle_lease( array $input, array $job, string $role, string $run_id, string $coordinator_id ): array {
 		$lock_key = self::translation_job_claim_key( (string) $job['job_id'] );
 		$existing_lock = get_option( $lock_key );
 		if ( is_array( $existing_lock ) && strtotime( (string) ( $existing_lock['expires_at'] ?? '' ) ) <= time() ) {
@@ -338,6 +375,18 @@ trait Devenia_Workflow_Translation_Job {
 			}
 			$job = $resumed['job'];
 			$existing_lock = null;
+		}
+		if ( ! is_array( $existing_lock ) && in_array( (string) ( $job['status'] ?? '' ), array( 'quality_pending', 'ready_to_publish' ), true ) ) {
+			$surface_refresh = self::translation_job_refresh_drifted_surface( $job, 'claim_baseline_mismatch' );
+			if ( empty( $surface_refresh['success'] ) ) {
+				return $surface_refresh;
+			}
+			if ( ! empty( $surface_refresh['refreshed'] ) ) {
+				$job = $surface_refresh['job'];
+				if ( 'quality' === $role ) {
+					return array_merge( $surface_refresh, array( 'success' => false, 'code' => 'surface_refresh_required', 'message' => 'The public baseline drifted. The Job was reopened for a fresh translator generation before Quality could claim it.' ) );
+				}
+			}
 		}
 		if ( 'translator' === $role && 'quality_pending' === (string) $job['status'] && ! is_array( $existing_lock ) ) {
 			$artifact = self::translation_job_unpack_artifact_record(
@@ -379,14 +428,10 @@ trait Devenia_Workflow_Translation_Job {
 		if ( empty( $source_approval['passed'] ) ) {
 			return array( 'success' => false, 'code' => 'source_quality_approval_required', 'message' => 'Current source revision is not approved for translation.', 'source_approval' => $source_approval );
 		}
-		$run_id = self::translation_job_clean_id( (string) ( $input['run_id'] ?? '' ) );
-		$coordinator_id = self::translation_job_clean_id( (string) ( $input['coordinator_id'] ?? '' ) );
-		if ( '' === $run_id || '' === $coordinator_id ) {
-			return self::error( 'run_id and coordinator_id are required.' );
-		}
 		$existing_runs = isset( $job['run_ids'] ) && is_array( $job['run_ids'] ) ? $job['run_ids'] : array();
-		if ( self::translation_job_role_attempt_count( $existing_runs, $role ) >= self::TRANSLATION_JOB_MAX_RUNS_PER_ROLE ) {
-			return array( 'success' => false, 'code' => 'run_attempt_limit', 'message' => 'This Job used every allowed bounded Run for this role.' );
+		$submission_generation = self::translation_job_submission_generation( $job );
+		if ( self::translation_job_role_attempt_count( $existing_runs, $role, $submission_generation ) >= self::TRANSLATION_JOB_MAX_RUNS_PER_ROLE ) {
+			return array( 'success' => false, 'code' => 'run_attempt_limit', 'message' => 'This Job generation used every allowed bounded Run for this role.', 'submission_generation' => $submission_generation );
 		}
 		if ( is_array( $existing_lock ) ) {
 			return array( 'success' => false, 'code' => 'job_claim_conflict', 'message' => 'Translation Job is already claimed.', 'claim' => self::translation_job_public_claim( $existing_lock ) );
@@ -400,6 +445,7 @@ trait Devenia_Workflow_Translation_Job {
 			'coordinator_id' => $coordinator_id,
 			'role' => $role,
 			'previous_status' => (string) $job['status'],
+			'submission_generation' => $submission_generation,
 			'token_hash' => hash( 'sha256', $token ),
 			'claimed_at' => gmdate( 'c', $now ),
 			'expires_at' => gmdate( 'c', $now + $ttl ),
@@ -440,15 +486,16 @@ trait Devenia_Workflow_Translation_Job {
 			'principal' => $principal,
 			'status' => 'running',
 			'started_at' => gmdate( 'c', $now ),
+			'submission_generation' => $submission_generation,
 		);
 		if ( ! self::atomic_create_option( self::translation_job_run_key( $run_id ), $run ) ) {
 			delete_option( $lock_key );
 			return array( 'success' => false, 'code' => 'run_id_conflict', 'message' => 'run_id already exists.' );
 		}
 		$next_runs = $existing_runs;
-		$next_runs[] = array( 'run_id' => $run_id, 'role' => $role );
+		$next_runs[] = array( 'run_id' => $run_id, 'role' => $role, 'submission_generation' => $submission_generation );
 		$next_status = 'translator' === $role ? 'claimed' : 'quality_pending';
-		$next = self::translation_job_transition( $job, array( 'status' => $next_status, 'run_ids' => $next_runs, 'active_run_id' => $run_id, 'coordinator_id' => $coordinator_id ) );
+		$next = self::translation_job_transition( $job, array( 'status' => $next_status, 'run_ids' => $next_runs, 'active_run_id' => $run_id, 'coordinator_id' => $coordinator_id, 'submission_generation' => $submission_generation ) );
 		if ( empty( $next['success'] ) ) {
 			delete_option( $lock_key );
 			delete_option( self::translation_job_run_key( $run_id ) );
@@ -464,6 +511,21 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$job = $access['job'];
 		$run = $access['run'];
+		if ( 'quality' === (string) ( $run['role'] ?? '' ) ) {
+			$surface_refresh = self::translation_job_refresh_drifted_surface( $job, 'quality_packet_baseline_mismatch' );
+			if ( empty( $surface_refresh['success'] ) || ! empty( $surface_refresh['refreshed'] ) ) {
+				if ( ! empty( $surface_refresh['refreshed'] ) || 'surface_refresh_generation_limit' === (string) ( $surface_refresh['code'] ?? '' ) ) {
+					self::translation_job_finish_run_without_usage( $run, 'surface_refresh_required' );
+					self::translation_job_release_claim( (string) $job['job_id'] );
+				}
+				if ( ! empty( $surface_refresh['refreshed'] ) ) {
+					$surface_refresh['success'] = false;
+					$surface_refresh['code'] = 'surface_refresh_required';
+					$surface_refresh['message'] = 'The public baseline drifted. The Job was reopened for a fresh translator generation before the Quality packet was issued.';
+				}
+				return $surface_refresh;
+			}
+		}
 		$source = get_post( (int) $job['source_id'] );
 		if ( ! $source || self::translation_job_source_is_stale( $job ) ) {
 			return array( 'success' => false, 'code' => 'job_superseded', 'message' => 'The source changed before the packet was fetched.' );
@@ -582,6 +644,8 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$translation_id = absint( $staging['translation_id'] ?? 0 );
 		$writer_principal = self::translation_job_authenticated_principal( $job, $run, $access['claim'] );
+		$submission_generation = self::translation_job_submission_generation( $job );
+		$baseline_surface_revision = $translation_id ? self::translation_job_current_surface_revision( $translation_id ) : '';
 		// Scope the content-addressed revision to its immutable Job contract.
 		// Identical localized payloads can legitimately occur after a source
 		// revision changes; they must not collide with another Job's record.
@@ -590,6 +654,9 @@ trait Devenia_Workflow_Translation_Job {
 				'job_id'          => (string) $job['job_id'],
 				'source_revision' => (string) $job['source_revision'],
 				'target_language' => (string) $job['target_language'],
+				'submission_generation' => $submission_generation,
+				'baseline_surface_revision' => $baseline_surface_revision,
+				'writer_principal_id' => (string) ( $writer_principal['principal_id'] ?? '' ),
 				'artifact'        => $artifact,
 			)
 		);
@@ -603,7 +670,8 @@ trait Devenia_Workflow_Translation_Job {
 			'content_revision' => $content_revision,
 			'surface_revision' => $surface_revision,
 			'surface_manifest' => $staging['manifest'],
-			'baseline_surface_revision' => $translation_id ? self::translation_job_current_surface_revision( $translation_id ) : '',
+			'baseline_surface_revision' => $baseline_surface_revision,
+			'submission_generation' => $submission_generation,
 			'writer_principal' => $writer_principal,
 			'staged' => true,
 			'staged_validation' => array(
@@ -660,6 +728,19 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$job = $access['job'];
 		$run = $access['run'];
+		$surface_refresh = self::translation_job_refresh_drifted_surface( $job, 'quality_submission_baseline_mismatch' );
+		if ( empty( $surface_refresh['success'] ) || ! empty( $surface_refresh['refreshed'] ) ) {
+			if ( ! empty( $surface_refresh['refreshed'] ) || 'surface_refresh_generation_limit' === (string) ( $surface_refresh['code'] ?? '' ) ) {
+				self::translation_job_finish_run_without_usage( $run, 'surface_refresh_required' );
+				self::translation_job_release_claim( (string) $job['job_id'] );
+			}
+			if ( ! empty( $surface_refresh['refreshed'] ) ) {
+				$surface_refresh['success'] = false;
+				$surface_refresh['code'] = 'surface_refresh_required';
+				$surface_refresh['message'] = 'The public baseline drifted. The Job was reopened for a fresh translator generation before Quality could decide.';
+			}
+			return $surface_refresh;
+		}
 		$source = get_post( (int) $job['source_id'] );
 		$source_approval = $source instanceof WP_Post ? self::translation_job_source_approval( $source ) : array( 'passed' => false );
 		if ( empty( $source_approval['passed'] ) || self::translation_job_source_is_stale( $job ) ) {
@@ -739,6 +820,7 @@ trait Devenia_Workflow_Translation_Job {
 			'corrections' => array_values( array_map( 'sanitize_text_field', is_array( $input['corrections'] ?? null ) ? $input['corrections'] : array() ) ),
 			'coordinator_id' => (string) $run['coordinator_id'],
 			'run_id' => (string) $run['run_id'],
+			'submission_generation' => self::translation_job_submission_generation( $job ),
 			'qa' => array( 'passed' => ! empty( $qa['passed'] ), 'issue_count' => absint( $qa['issue_count'] ?? 0 ), 'warning_count' => absint( $qa['warning_count'] ?? 0 ) ),
 			'publication_experience' => array( 'passed' => ! empty( $publication_experience['passed'] ), 'state' => (string) ( $publication_experience['state'] ?? '' ) ),
 			'decided_at' => gmdate( 'c' ),
@@ -746,7 +828,7 @@ trait Devenia_Workflow_Translation_Job {
 		$quality_key = self::translation_job_quality_key( $quality['quality_revision'] );
 		if ( ! self::atomic_create_option( $quality_key, $quality ) ) {
 			$existing_quality = get_option( $quality_key );
-			$identity_fields = array( 'quality_revision', 'job_id', 'artifact_revision', 'content_revision', 'surface_revision', 'translation_id', 'evidence_revision' );
+			$identity_fields = array( 'quality_revision', 'job_id', 'artifact_revision', 'content_revision', 'surface_revision', 'translation_id', 'evidence_revision', 'submission_generation' );
 			$existing_identity = array_intersect_key( is_array( $existing_quality ) ? $existing_quality : array(), array_flip( $identity_fields ) );
 			$submitted_identity = array_intersect_key( $quality, array_flip( $identity_fields ) );
 			if ( count( $existing_identity ) !== count( $identity_fields ) || self::translation_job_canonicalize( $existing_identity ) !== self::translation_job_canonicalize( $submitted_identity ) ) {
@@ -765,19 +847,29 @@ trait Devenia_Workflow_Translation_Job {
 	}
 
 	private static function translation_job_publish( array $input ): array {
-		$job = self::translation_job_get_job( (string) ( $input['job_id'] ?? '' ) );
-		$job_status = (string) ( $job['status'] ?? '' );
-		if ( ! $job || ! in_array( $job_status, array( 'ready_to_publish', 'published' ), true ) ) {
-			return array( 'success' => false, 'code' => 'job_not_ready_to_publish', 'message' => 'Translation Job does not have a passing current Quality Decision.' );
-		}
-		$publication_lease = self::translation_job_acquire_publication_lease( $job );
-		if ( empty( $publication_lease['success'] ) ) { return $publication_lease; }
+		$job_id = self::translation_job_clean_id( (string) ( $input['job_id'] ?? '' ) );
+		$initial_job = self::translation_job_get_job( $job_id );
+		if ( ! $initial_job ) { return self::error( 'Translation Job not found.' ); }
+		$lifecycle_lease = self::translation_job_acquire_lifecycle_lease( $initial_job, 'publish' );
+		if ( empty( $lifecycle_lease['success'] ) ) { return $lifecycle_lease; }
 		try {
+		$job = self::translation_job_get_job( $job_id );
+		if ( ! $job ) { return self::error( 'Translation Job not found after lifecycle lease acquisition.' ); }
+		if (
+			absint( $job['source_id'] ?? 0 ) !== absint( $initial_job['source_id'] ?? 0 )
+			|| sanitize_key( (string) ( $job['target_language'] ?? '' ) ) !== sanitize_key( (string) ( $initial_job['target_language'] ?? '' ) )
+		) {
+			return array( 'success' => false, 'code' => 'translation_job_lifecycle_binding_changed', 'message' => 'The Translation Job source/language binding changed before publication.' );
+		}
+		$job_status = (string) ( $job['status'] ?? '' );
+		if ( ! in_array( $job_status, array( 'ready_to_publish', 'published' ), true ) ) {
+			return array( 'success' => false, 'code' => 'job_not_ready_to_publish', 'message' => 'Translation Job does not have a passing current Quality Decision.', 'job' => self::translation_job_public_job( $job ) );
+		}
 		$quality = get_option( self::translation_job_quality_key( (string) ( $job['quality_revision'] ?? '' ) ) );
 		$coordinator_id = self::translation_job_clean_id( (string) ( $input['coordinator_id'] ?? '' ) );
 		$is_quality_authority_v3 = is_array( $quality ) && ! empty( $quality['evidence_revision'] ) && ! empty( $quality['reviewer_principal']['principal_id'] );
-		if ( ! is_array( $quality ) || 'pass' !== (string) ( $quality['decision'] ?? '' ) || ( ! $is_quality_authority_v3 && $coordinator_id !== (string) ( $quality['coordinator_id'] ?? '' ) ) ) {
-			return array( 'success' => false, 'code' => 'quality_decision_authority_mismatch', 'message' => 'The current coordinator and passing Quality Decision do not match.' );
+		if ( ! is_array( $quality ) || 'pass' !== (string) ( $quality['decision'] ?? '' ) || ! $is_quality_authority_v3 ) {
+			return array( 'success' => false, 'code' => 'quality_decision_authority_mismatch', 'message' => 'Publication requires the current server-owned v3 Quality evidence and principal bindings. Coordinator labels grant no authority.' );
 		}
 		if ( self::translation_job_source_is_stale( $job ) || (string) ( $quality['artifact_revision'] ?? '' ) !== (string) ( $job['artifact_revision'] ?? '' ) ) {
 			return array( 'success' => false, 'code' => 'job_superseded', 'message' => 'Source or artifact changed after the Quality Decision.' );
@@ -790,6 +882,15 @@ trait Devenia_Workflow_Translation_Job {
 		$artifact_record = self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) ) );
 		if ( ! is_array( $artifact_record ) || empty( $artifact_record['artifact_revision'] ) ) {
 			return array( 'success' => false, 'code' => 'artifact_record_missing', 'message' => 'The approved artifact record is unavailable.' );
+		}
+		$writer_principal = isset( $artifact_record['writer_principal'] ) && is_array( $artifact_record['writer_principal'] ) ? $artifact_record['writer_principal'] : array();
+		if (
+			empty( $writer_principal['principal_id'] )
+			|| (string) ( $writer_principal['principal_id'] ?? '' ) === (string) ( $quality['reviewer_principal']['principal_id'] ?? '' )
+			|| self::translation_job_submission_generation( $job ) !== absint( $artifact_record['submission_generation'] ?? 1 )
+			|| self::translation_job_submission_generation( $job ) !== absint( $quality['submission_generation'] ?? 1 )
+		) {
+			return array( 'success' => false, 'code' => 'quality_principal_generation_mismatch', 'message' => 'Publication requires fresh, separate writer and Quality principals bound to the current submission generation.' );
 		}
 		$translation_id = self::translation_job_resolve_publication_translation_id( $job, $artifact_record );
 		if ( $translation_id ) { $job['translation_id'] = $translation_id; }
@@ -811,7 +912,15 @@ trait Devenia_Workflow_Translation_Job {
 			if ( empty( $staged_apply['success'] ) ) {
 				$surface_snapshot['mutation_started'] = ! empty( $staged_apply['mutation_started'] );
 				$surface_snapshot['rollback_expected_surface_revision'] = (string) ( $staged_apply['mutation_surface_revision'] ?? '' );
-				return self::translation_job_publish_failure_with_rollback( $staged_apply, $surface_snapshot, absint( $staged_apply['translation_id'] ?? $translation_id ) );
+				$failure = self::translation_job_publish_failure_with_rollback( $staged_apply, $surface_snapshot, absint( $staged_apply['translation_id'] ?? $translation_id ) );
+				if ( in_array( (string) ( $staged_apply['code'] ?? '' ), self::TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES, true ) ) {
+					$surface_refresh = self::translation_job_refresh_drifted_surface( $job, 'publish_baseline_mismatch', $failure );
+					$failure['surface_refresh'] = $surface_refresh;
+					if ( isset( $surface_refresh['job'] ) && is_array( $surface_refresh['job'] ) ) {
+						$failure['job'] = self::translation_job_public_job( $surface_refresh['job'] );
+					}
+				}
+				return $failure;
 			}
 			$translation_id = absint( $staged_apply['translation_id'] ?? 0 );
 			$surface_snapshot['mutation_started'] = ! empty( $staged_apply['mutation_started'] );
@@ -849,11 +958,11 @@ trait Devenia_Workflow_Translation_Job {
 		if ( empty( $publication_experience['passed'] ) ) {
 			return self::translation_job_publish_failure_with_rollback( array( 'success' => false, 'code' => 'publication_experience_failed', 'message' => 'Publication experience failed before publication.', 'publication_experience' => $publication_experience ), $surface_snapshot, $translation_id );
 		}
-		$renewed_lease = self::translation_job_renew_publication_lease( $publication_lease );
+		$renewed_lease = self::translation_job_renew_lifecycle_lease( $lifecycle_lease );
 		if ( empty( $renewed_lease['success'] ) ) {
 			return self::translation_job_publish_failure_with_rollback( $renewed_lease, $surface_snapshot, $translation_id );
 		}
-		$publication_lease = $renewed_lease;
+		$lifecycle_lease = $renewed_lease;
 		$prepublication_cas_revision = is_array( $surface_snapshot )
 			? (string) ( $surface_snapshot['rollback_expected_surface_revision'] ?? '' )
 			: self::translation_job_rollback_cas_revision( $translation_id );
@@ -914,7 +1023,7 @@ trait Devenia_Workflow_Translation_Job {
 			'orphaned_runs_finalized' => $orphaned_runs_finalized,
 		);
 		} finally {
-			self::translation_job_release_publication_lease( $publication_lease );
+			self::translation_job_release_lifecycle_lease( $lifecycle_lease );
 		}
 	}
 
@@ -968,7 +1077,7 @@ trait Devenia_Workflow_Translation_Job {
 		$packet = array(
 			'contract_version' => 3,
 			'job' => self::translation_job_public_job( $job ),
-			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet' ),
+			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'submission_generation' => self::translation_job_submission_generation( $job ), 'principal' => $run['principal'] ?? array() ),
 			'source' => array(
 				'title' => get_the_title( $source ),
 				'excerpt' => (string) $source->post_excerpt,
@@ -1001,7 +1110,7 @@ trait Devenia_Workflow_Translation_Job {
 		return array(
 			'contract_version' => 3,
 			'job' => self::translation_job_public_job( $job ),
-			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'principal' => $run['principal'] ?? array() ),
+			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'submission_generation' => self::translation_job_submission_generation( $job ), 'principal' => $run['principal'] ?? array() ),
 			'source' => array(
 				'title' => get_the_title( $source ),
 				'excerpt' => (string) $source->post_excerpt,
@@ -1359,6 +1468,10 @@ trait Devenia_Workflow_Translation_Job {
 		if ( '' !== $role && $role !== (string) ( $run['role'] ?? '' ) ) {
 			return array( 'success' => false, 'code' => 'job_run_role_mismatch', 'message' => 'Run role does not match this operation.' );
 		}
+		$generation = self::translation_job_submission_generation( $job );
+		if ( $generation !== max( 1, absint( $run['submission_generation'] ?? 1 ) ) || $generation !== max( 1, absint( $lock['submission_generation'] ?? 1 ) ) ) {
+			return array( 'success' => false, 'code' => 'job_claim_generation_mismatch', 'message' => 'The claim belongs to an older immutable submission generation.' );
+		}
 		$configured_budget = self::translation_job_budget( (string) ( $run['role'] ?? '' ) );
 		$stored_budget = isset( $run['budget'] ) && is_array( $run['budget'] ) ? $run['budget'] : array();
 		if ( (int) ( $stored_budget['input_token_limit'] ?? 0 ) < (int) $configured_budget['input_token_limit'] ) {
@@ -1426,6 +1539,15 @@ trait Devenia_Workflow_Translation_Job {
 		update_option( self::translation_job_run_key( (string) $run['run_id'] ), $run, false );
 	}
 
+	/** Finish a defensive pre-submission Run without inventing measured usage. */
+	private static function translation_job_finish_run_without_usage( array $run, string $outcome ): void {
+		$run['status'] = 'completed';
+		$run['outcome'] = sanitize_key( $outcome );
+		$run['usage'] = array( 'measurement_state' => 'unavailable_before_submission' );
+		$run['finished_at'] = gmdate( 'c' );
+		update_option( self::translation_job_run_key( (string) $run['run_id'] ), $run, false );
+	}
+
 	private static function translation_job_transition( array $job, array $patch ): array {
 		$key = self::translation_job_job_key( (string) $job['job_id'] );
 		$next = array_merge( $job, $patch, array( 'updated_at' => gmdate( 'c' ) ) );
@@ -1485,28 +1607,158 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_correction_context( array $job ): array {
 		$quality_revision = (string) ( $job['quality_revision'] ?? '' );
 		$artifact_revision = (string) ( $job['artifact_revision'] ?? '' );
+		$refresh = array();
 		if ( '' === $quality_revision || '' === $artifact_revision ) {
+			$history = is_array( $job['surface_refresh_history'] ?? null ) ? $job['surface_refresh_history'] : array();
+			$refresh = $history ? (array) end( $history ) : array();
+			$quality_revision = (string) ( $refresh['prior_quality_revision'] ?? '' );
+			$artifact_revision = (string) ( $refresh['prior_artifact_revision'] ?? '' );
+		}
+		if ( '' === $artifact_revision || ( empty( $refresh ) && '' === $quality_revision ) ) {
 			return array();
 		}
-		$quality = get_option( self::translation_job_quality_key( $quality_revision ) );
+		$quality = '' !== $quality_revision ? get_option( self::translation_job_quality_key( $quality_revision ) ) : null;
 		$artifact = self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( $artifact_revision ) ) );
-		if ( ! is_array( $quality ) || ! is_array( $artifact ) || 'revise' !== (string) ( $quality['decision'] ?? '' ) ) {
+		if ( ! is_array( $artifact ) || ( empty( $refresh ) && ( ! is_array( $quality ) || 'revise' !== (string) ( $quality['decision'] ?? '' ) ) ) ) {
 			return array();
 		}
 		return array(
 			'previous_artifact_revision' => $artifact_revision,
 			'previous_artifact' => $artifact,
 			'quality_revision' => $quality_revision,
-			'failed_checks' => array_values(
+			'failed_checks' => is_array( $quality ) ? array_values(
 				array_keys(
 					array_filter(
 						(array) ( $quality['checks'] ?? array() ),
 						static function ( $passed ): bool { return ! $passed; }
 					)
 				)
-			),
-			'evidence' => (string) ( $quality['evidence'] ?? '' ),
-			'corrections' => array_values( (array) ( $quality['corrections'] ?? array() ) ),
+			) : array(),
+			'evidence' => is_array( $quality ) ? (string) ( $quality['reviewer_observations'] ?? $quality['evidence'] ?? '' ) : '',
+			'corrections' => is_array( $quality ) ? array_values( (array) ( $quality['corrections'] ?? array() ) ) : array(),
+			'surface_refresh' => $refresh,
+		);
+	}
+
+	/** Return the server-owned generation for current and legacy Job records. */
+	private static function translation_job_submission_generation( array $job ): int {
+		return max( 1, absint( $job['submission_generation'] ?? 1 ) );
+	}
+
+	/**
+	 * Reopen the exact current Job after server-observed public baseline drift.
+	 *
+	 * Old artifacts, Quality Decisions, evidence receipts, and Runs stay immutable.
+	 * The publish path additionally requires proof that its owned transaction was
+	 * rolled back before this compare-and-swap transition is allowed.
+	 */
+	private static function translation_job_refresh_drifted_surface( array $job, string $reason, array $publication_failure = array() ): array {
+		$reason = sanitize_key( $reason );
+		if ( ! in_array( $reason, array( 'claim_baseline_mismatch', 'quality_packet_baseline_mismatch', 'quality_submission_baseline_mismatch', 'publish_baseline_mismatch' ), true ) ) {
+			return array( 'success' => false, 'code' => 'surface_refresh_reason_invalid', 'message' => 'Surface Refresh requires a fixed server-owned lifecycle reason.' );
+		}
+		$status = sanitize_key( (string) ( $job['status'] ?? '' ) );
+		if ( ! in_array( $status, array( 'quality_pending', 'ready_to_publish' ), true ) ) {
+			return array( 'success' => true, 'refreshed' => false, 'job' => $job );
+		}
+		if ( self::translation_job_source_is_stale( $job ) ) {
+			return array( 'success' => true, 'refreshed' => false, 'job' => $job );
+		}
+		$artifact_revision = (string) ( $job['artifact_revision'] ?? '' );
+		$artifact = self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( $artifact_revision ) ) );
+		if ( '' === $artifact_revision || empty( $artifact['staged'] ) ) {
+			return array( 'success' => true, 'refreshed' => false, 'job' => $job );
+		}
+		if (
+			(string) ( $artifact['job_id'] ?? '' ) !== (string) ( $job['job_id'] ?? '' )
+			|| self::translation_job_submission_generation( $job ) !== max( 1, absint( $artifact['submission_generation'] ?? 1 ) )
+		) {
+			return array( 'success' => false, 'code' => 'surface_refresh_artifact_binding_mismatch', 'message' => 'The active artifact is not bound to the exact current Job generation.', 'job' => self::translation_job_public_job( $job ) );
+		}
+		$translation_id = self::translation_job_resolve_publication_translation_id( $job, $artifact );
+		$current_surface_revision = $translation_id ? self::translation_job_current_surface_revision( $translation_id ) : '';
+		$baseline_surface_revision = (string) ( $artifact['baseline_surface_revision'] ?? '' );
+		if ( hash_equals( $baseline_surface_revision, $current_surface_revision ) ) {
+			return array( 'success' => true, 'refreshed' => false, 'job' => $job, 'baseline_surface_revision' => $baseline_surface_revision, 'current_surface_revision' => $current_surface_revision );
+		}
+
+		if ( 'publish_baseline_mismatch' === $reason ) {
+			$rollback = isset( $publication_failure['transaction_rollback'] ) && is_array( $publication_failure['transaction_rollback'] ) ? $publication_failure['transaction_rollback'] : array();
+			if (
+				! in_array( (string) ( $publication_failure['code'] ?? '' ), self::TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES, true )
+				|| ! empty( $publication_failure['mutation_started'] )
+				|| empty( $rollback['success'] )
+				|| empty( $rollback['rolled_back'] )
+			) {
+				return array( 'success' => false, 'code' => 'surface_refresh_proof_missing', 'message' => 'Publication may reopen a Job only after zero mutation and a proven successful transaction rollback.', 'job' => self::translation_job_public_job( $job ) );
+			}
+		}
+
+		$generation = self::translation_job_submission_generation( $job );
+		if ( $generation >= self::TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS ) {
+			$terminal = self::translation_job_transition(
+				$job,
+				array(
+					'status' => 'failed_technical',
+					'active_run_id' => '',
+					'surface_refresh_limit' => array(
+						'failed_at' => gmdate( 'c' ),
+						'generation' => $generation,
+						'max_generations' => self::TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS,
+						'baseline_surface_revision' => $baseline_surface_revision,
+						'current_surface_revision' => $current_surface_revision,
+						'reason' => $reason,
+					),
+				)
+			);
+			if ( empty( $terminal['success'] ) ) {
+				return $terminal;
+			}
+			return array(
+				'success' => false,
+				'code' => 'surface_refresh_generation_limit',
+				'message' => 'The finite Surface Refresh generation limit was reached. The Job failed closed for operator inspection.',
+				'job' => self::translation_job_public_job( $terminal['job'] ),
+				'max_generations' => self::TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS,
+			);
+		}
+
+		$history = is_array( $job['surface_refresh_history'] ?? null ) ? array_values( $job['surface_refresh_history'] ) : array();
+		$history[] = array(
+			'prior_artifact_revision' => $artifact_revision,
+			'prior_content_revision' => (string) ( $job['content_revision'] ?? '' ),
+			'prior_surface_revision' => (string) ( $job['surface_revision'] ?? '' ),
+			'prior_quality_revision' => (string) ( $job['quality_revision'] ?? '' ),
+			'prior_baseline_surface_revision' => $baseline_surface_revision,
+			'current_surface_revision' => $current_surface_revision,
+			'reason' => $reason,
+			'publication_failure_code' => 'publish_baseline_mismatch' === $reason ? sanitize_key( (string) ( $publication_failure['code'] ?? '' ) ) : '',
+			'refreshed_at' => gmdate( 'c' ),
+			'from_generation' => $generation,
+			'to_generation' => $generation + 1,
+		);
+		$transition = self::translation_job_transition(
+			$job,
+			array(
+				'status' => 'changes_requested',
+				'submission_generation' => $generation + 1,
+				'surface_refresh_history' => $history,
+				'artifact_revision' => '',
+				'content_revision' => '',
+				'surface_revision' => '',
+				'quality_revision' => '',
+				'active_run_id' => '',
+			)
+		);
+		if ( empty( $transition['success'] ) ) {
+			return $transition;
+		}
+		return array(
+			'success' => true,
+			'refreshed' => true,
+			'message' => 'The exact current Job was reopened for a fresh translator and Quality generation after public baseline drift.',
+			'job' => self::translation_job_public_job( $transition['job'] ),
+			'refresh' => end( $history ),
 		);
 	}
 
@@ -1606,8 +1858,9 @@ trait Devenia_Workflow_Translation_Job {
 		return substr( (string) $value, 0, 100 );
 	}
 
-	private static function translation_job_role_attempt_count( array $run_rows, string $role ): int {
+	private static function translation_job_role_attempt_count( array $run_rows, string $role, int $submission_generation = 1 ): int {
 		$role = sanitize_key( $role );
+		$submission_generation = max( 1, $submission_generation );
 		$count = 0;
 		foreach ( $run_rows as $run_row ) {
 			if ( ! is_array( $run_row ) || $role !== sanitize_key( (string) ( $run_row['role'] ?? '' ) ) ) {
@@ -1615,6 +1868,10 @@ trait Devenia_Workflow_Translation_Job {
 			}
 			$run_id = self::translation_job_clean_id( (string) ( $run_row['run_id'] ?? '' ) );
 			$run = '' !== $run_id ? get_option( self::translation_job_run_key( $run_id ) ) : null;
+			$run_generation = max( 1, absint( is_array( $run ) ? ( $run['submission_generation'] ?? 1 ) : ( $run_row['submission_generation'] ?? 1 ) ) );
+			if ( $submission_generation !== $run_generation ) {
+				continue;
+			}
 			if (
 				is_array( $run )
 				&& 'completed' === (string) ( $run['status'] ?? '' )
@@ -1633,6 +1890,8 @@ trait Devenia_Workflow_Translation_Job {
 	}
 
 	private static function translation_job_public_job( array $job ): array {
+		$job['submission_generation'] = self::translation_job_submission_generation( $job );
+		$job['surface_refresh_history'] = is_array( $job['surface_refresh_history'] ?? null ) ? array_values( $job['surface_refresh_history'] ) : array();
 		unset( $job['claim_token'], $job['token_hash'] );
 		return $job;
 	}

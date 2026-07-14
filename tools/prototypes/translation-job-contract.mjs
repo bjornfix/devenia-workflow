@@ -118,6 +118,7 @@ export function createTranslationJob(input) {
 		target_language: language(input.target_language, "job_input.target_language"),
 		created_at: isoDate(input.created_at, "job_input.created_at"),
 		observability_label: String(input.observability_label || "").trim(),
+		submission_generation: 1,
 		status: "queued",
 	};
 }
@@ -170,6 +171,7 @@ export function createTranslationRun(input) {
 		budget: input.budget,
 		started_at: isoDate(input.started_at, "run_input.started_at"),
 		status: "running",
+		submission_generation: integer(input.job.submission_generation ?? 1, "run_input.job.submission_generation", { min: 1, max: 3 }),
 	};
 }
 
@@ -296,6 +298,9 @@ export function submitTranslation(input) {
 		job_id: input.job.job_id,
 		source_revision: input.job.source_revision,
 		target_language: input.job.target_language,
+		submission_generation: integer(input.job.submission_generation ?? 1, "translation_submission.job.submission_generation", { min: 1, max: 3 }),
+		captured_baseline_surface_revision: String(input.packet.captured_baseline_surface_revision || ""),
+		writer_principal_id: text(input.run.run_id, "translation_submission.writer_principal_id", { max: 100 }),
 		localized_fragments: localizedFragments,
 		metadata: input.metadata,
 	};

@@ -202,9 +202,9 @@ requireMatch(/new_candidate_publication_attempt_mismatch/, "new-candidate rollba
 if (!/TERM_META_PUBLICATION_ATTEMPT/.test(mainSource) || !/TERM_META_PUBLICATION_ATTEMPT/.test(taxonomySource) || !/new_term_publication_attempt_/.test(source)) {
 	failures.push("new translated-term rollback must bind deletion to the publication attempt that created the term");
 }
-requireMatch(/translation_job_acquire_publication_lease[\s\S]*publication_already_in_progress/, "publication must serialize duplicate Workflow attempts with an atomic lease");
-if (!/hash\( 'sha256', sanitize_key\( \(string\) \( \$job\['target_language'\]/.test(source) || !/translation_job_renew_publication_lease/.test(source)) {
-	failures.push("publication lease must serialize every publication for one language and renew before slow public checks");
+requireMatch(/translation_job_acquire_lifecycle_lease[\s\S]*translation_job_lifecycle_lease_conflict/, "claim and publication must serialize lifecycle mutation with one atomic lease");
+if (!/hash\( 'sha256', \$source_id \. '\|' \. \$language \)/.test(source) || !/translation_job_renew_lifecycle_lease/.test(source) || !/translation_job_acquire_lifecycle_lease\( \$initial_job, 'claim' \)/.test(source) || !/translation_job_acquire_lifecycle_lease\( \$initial_job, 'publish' \)/.test(source)) {
+	failures.push("the lifecycle lease must bind the exact source/language, cover claim and publish, and renew before slow public checks");
 }
 if (!/atomic_replace_option_value/.test(atomicOptionSource) || !/atomic_delete_option_value/.test(atomicOptionSource) || !/atomic_delete_option_value\( \$key, \$owned \)/.test(source)) {
 	failures.push("lease takeover, renewal, and release must use compare-and-swap storage operations");

@@ -140,6 +140,42 @@ cannot finish inside its budget returns `budget_exceeded` with evidence. It does
 not reinterpret size or language as permission to abandon, and it does not keep
 spending while waiting for another Job.
 
+### Bounded Surface Refresh
+
+Public reader state can change after a staged artifact captures its baseline
+and before publication acquires the guarded mutation boundary. Workflow may
+reopen the exact current Job only when it directly proves that baseline drift.
+The publish path additionally requires `mutation_started=false` and a proven
+successful rollback of its owned transaction. Quality and claim paths may use
+the same private transition before any publication mutation. There is no public
+refresh ability.
+
+Publish-time classification is an exact server-owned allowlist, never a prefix
+or suffix match: `staged_surface_drifted`,
+`staged_surface_drifted_before_locked_write`, and
+`staged_translation_identity_changed_before_locked_write`. Every allowed code
+must carry `mutation_started=false` plus a successful, completed transaction
+rollback before the same publish call may perform the compare-and-swap reopen.
+
+Claim mutation and publication share one short-lived atomic lifecycle lease for
+the exact source/language pair. Caller identifiers and role are validated
+before claim acquires the lease. Claim and publish both re-read the exact Job
+after acquisition and perform their status, generation, artifact, and Quality
+checks against that current record. The claim request releases the lease before
+returning its Run token; the lease is not held for the Run lifetime. A publish
+request keeps it through the final Job compare-and-swap, so a translator claim
+cannot clear approved pointers after staged publication but before the Job is
+marked published.
+
+Each refresh appends immutable history, clears only the active artifact and
+Quality pointers, increments a server-owned submission generation, and requires
+a fresh translator principal plus a separate fresh Quality principal. Prior
+Runs, artifacts, evidence, and Quality Decisions remain immutable. Run attempt
+ceilings apply independently to each generation. A Job may use at most three
+submission generations (the original plus two refreshes); further baseline
+drift ends in `failed_technical` for operator inspection instead of reopening
+an unbounded retry loop.
+
 ### Minimal Interface
 
 The target Translation Job Interface is deliberately small:
@@ -202,8 +238,8 @@ into three target languages. It is accepted only when all of these are proven:
   merely structurally green;
 - the localized page preserves or improves the source offer, proof, next action,
   SEO intent, and contact path;
-- dev WordPress stores the artifact as `needs_review` before approval and the
-  coordinator publishes only after the Quality Decision passes.
+- dev WordPress stores the artifact as `needs_review` before approval and
+  Workflow publishes only after the server-owned v3 Quality Decision passes.
 
 The comparison report must show completion rate, interventions, elapsed time,
 model tokens, estimated cost, validation failures, quality edits, and final

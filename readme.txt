@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.609
+Stable tag: 0.1.610
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.610 =
+
+* Adds a private, bounded Surface Refresh transition that safely reopens the exact current Translation Job after server-proven public baseline, snapshot-to-lock surface, or canonical identity drift; every publish-time classification requires zero mutation and a completed owned rollback. A shared source/language lifecycle lease serializes claim mutation with publication through the final Job CAS. It preserves immutable artifact and Quality history, binds fresh Runs and submissions to a new generation, and removes coordinator labels from publication authority.
 
 = 0.1.609 =
 

@@ -174,6 +174,23 @@ const submitted = submitTranslation({
 pass(() => assert.equal(submitted.job.status, "quality_pending"));
 pass(() => assert.equal(submitted.run.usage.total_tokens, 44000));
 pass(() => assert.match(submitted.artifact.artifact_revision, /^a_[a-f0-9]{32}$/));
+pass(() => assert.equal(submitted.artifact.submission_generation, 1));
+pass(() => {
+	const refreshed = submitTranslation({
+		job: { ...claimedJob, submission_generation: 2 },
+		run: { ...writerRun, run_id: "tr_it_writer_generation_2", submission_generation: 2 },
+		packet: { ...packet, captured_baseline_surface_revision: "sr_current_public_generation_2" },
+		localized_fragments: localizedFragments,
+		metadata,
+		usage: writerUsage,
+		attempts: 1,
+		finished_at: "2026-07-10T12:06:00.000Z",
+	});
+	assert.equal(refreshed.artifact.submission_generation, 2);
+	assert.equal(refreshed.artifact.captured_baseline_surface_revision, "sr_current_public_generation_2");
+	assert.equal(refreshed.artifact.writer_principal_id, "tr_it_writer_generation_2");
+	assert.notEqual(refreshed.artifact.artifact_revision, submitted.artifact.artifact_revision);
+});
 pass(() => {
 	const samePayloadOtherJob = submitTranslation({
 		job: { ...claimedJob, job_id: "tj_source-4122_it_revision2", source_revision: "r_source_4122_revision2" },

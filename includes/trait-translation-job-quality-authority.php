@@ -565,32 +565,40 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		foreach ( $term_ids as $term_id ) { wp_cache_delete( $term_id, 'term_meta' ); }
 	}
 
-	/** Serialize Workflow publication attempts for one source/language pair. */
-	private static function translation_job_acquire_publication_lease( array $job ): array {
-		$key = 'devenia_workflow_publish_lease_' . substr( hash( 'sha256', sanitize_key( (string) ( $job['target_language'] ?? '' ) ) ), 0, 32 );
-		$lease = array( 'token' => 'tpl_' . substr( hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) ), 0, 32 ), 'job_id' => (string) ( $job['job_id'] ?? '' ), 'expires_at' => time() + 600 );
+	/** Serialize every Job/publication lifecycle mutation for one source/language pair. */
+	private static function translation_job_acquire_lifecycle_lease( array $job, string $operation ): array {
+		$source_id = absint( $job['source_id'] ?? 0 );
+		$language = sanitize_key( (string) ( $job['target_language'] ?? '' ) );
+		if ( $source_id < 1 || '' === $language ) {
+			return array( 'success' => false, 'code' => 'translation_job_lifecycle_binding_invalid', 'message' => 'The Translation Job source/language lifecycle binding is unavailable.' );
+		}
+		$key = 'devenia_workflow_lifecycle_lease_' . substr( hash( 'sha256', $source_id . '|' . $language ), 0, 32 );
+		$lease = array( 'token' => 'tjl_' . substr( hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) ), 0, 32 ), 'job_id' => (string) ( $job['job_id'] ?? '' ), 'source_id' => $source_id, 'target_language' => $language, 'operation' => sanitize_key( $operation ), 'expires_at' => time() + 600 );
 		if ( self::atomic_create_option( $key, $lease ) ) { return array( 'success' => true, 'key' => $key, 'lease' => $lease ); }
 		$existing = get_option( $key );
 		if ( is_array( $existing ) && absint( $existing['expires_at'] ?? 0 ) < time() ) {
 			if ( self::atomic_replace_option_value( $key, $existing, $lease ) ) { return array( 'success' => true, 'key' => $key, 'lease' => $lease ); }
 		}
-		return array( 'success' => false, 'code' => 'publication_already_in_progress', 'message' => 'Another Workflow publication attempt already owns this source/language lease.' );
+		return array( 'success' => false, 'code' => 'translation_job_lifecycle_lease_conflict', 'message' => 'Another Workflow lifecycle operation already owns this source/language lease.' );
 	}
 
-	/** Renew the owned lease through compare-and-swap before slow public checks. */
-	private static function translation_job_renew_publication_lease( array $lease_result ): array {
+	/** Renew the owned lifecycle lease through compare-and-swap before slow public checks. */
+	private static function translation_job_renew_lifecycle_lease( array $lease_result ): array {
 		$key = (string) ( $lease_result['key'] ?? '' );
 		$owned = (array) ( $lease_result['lease'] ?? array() );
 		$renewed = $owned;
-		$renewed['expires_at'] = time() + 600;
+		// A renewal may run in the same second as acquisition. Always advance the
+		// serialized value so MySQL reports a successful owned CAS instead of a
+		// no-op update with zero affected rows.
+		$renewed['expires_at'] = max( time() + 600, absint( $owned['expires_at'] ?? 0 ) + 1 );
 		if ( ! self::atomic_replace_option_value( $key, $owned, $renewed ) ) {
-			return array( 'success' => false, 'code' => 'publication_lease_lost', 'message' => 'The Workflow publication lease could not be renewed safely.' );
+			return array( 'success' => false, 'code' => 'translation_job_lifecycle_lease_lost', 'message' => 'The Workflow lifecycle lease could not be renewed safely.' );
 		}
 		return array( 'success' => true, 'key' => $key, 'lease' => $renewed );
 	}
 
-	/** Release only the lease token acquired by this request. */
-	private static function translation_job_release_publication_lease( array $lease_result ): void {
+	/** Release only the lifecycle lease token acquired by this request. */
+	private static function translation_job_release_lifecycle_lease( array $lease_result ): void {
 		$key = sanitize_key( (string) ( $lease_result['key'] ?? '' ) );
 		$owned = (array) ( $lease_result['lease'] ?? array() );
 		if ( '' !== $key ) { self::atomic_delete_option_value( $key, $owned ); }
@@ -609,7 +617,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$run_id     = self::translation_job_clean_id( (string) ( $run['run_id'] ?? $claim['run_id'] ?? '' ) );
 		$token_hash = sanitize_text_field( (string) ( $claim['token_hash'] ?? '' ) );
 		$user_id    = get_current_user_id();
-		$material   = implode( '|', array( (string) ( $job['job_id'] ?? '' ), $run_id, $role, (string) $user_id, $token_hash ) );
+		$submission_generation = max( 1, absint( $run['submission_generation'] ?? $claim['submission_generation'] ?? $job['submission_generation'] ?? 1 ) );
+		$material   = implode( '|', array( (string) ( $job['job_id'] ?? '' ), (string) $submission_generation, $run_id, $role, (string) $user_id, $token_hash ) );
 
 		return array(
 			'principal_id'     => 'tjp_' . substr( hash( 'sha256', $material ), 0, 32 ),
@@ -622,6 +631,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'claim_digest'     => $token_hash,
 			'issued_at'        => sanitize_text_field( (string) ( $claim['claimed_at'] ?? gmdate( 'c' ) ) ),
 			'expires_at'       => sanitize_text_field( (string) ( $claim['expires_at'] ?? '' ) ),
+			'submission_generation' => $submission_generation,
 		);
 	}
 
