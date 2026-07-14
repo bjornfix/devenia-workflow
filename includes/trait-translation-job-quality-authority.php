@@ -10,6 +10,211 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 trait Devenia_Workflow_Translation_Job_Quality_Authority {
+	/** Begin one InnoDB recovery boundary for a bounded publication mutation. */
+	private static function translation_job_begin_recovery_transaction(): bool {
+		global $wpdb;
+		$tables = array( $wpdb->posts, $wpdb->postmeta, $wpdb->terms, $wpdb->term_taxonomy, $wpdb->term_relationships, $wpdb->termmeta, $wpdb->options );
+		$engine_rows = $wpdb->get_results( $wpdb->prepare( 'SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (%s, %s, %s, %s, %s, %s, %s)', $tables[0], $tables[1], $tables[2], $tables[3], $tables[4], $tables[5], $tables[6] ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Recovery must fail closed unless every fixed owned core table is transactional.
+		$engines = array();
+		foreach ( is_array( $engine_rows ) ? $engine_rows : array() as $row ) { $engines[ (string) ( $row['TABLE_NAME'] ?? '' ) ] = strtoupper( (string) ( $row['ENGINE'] ?? '' ) ); }
+		foreach ( $tables as $table ) {
+			if ( 'INNODB' !== (string) ( $engines[ $table ] ?? '' ) ) { return false; }
+		}
+		if ( false === $wpdb->query( 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Serializable next-key locking prevents concurrent inserts into postmeta, termmeta, and relationship ranges while recovery verifies and writes.
+			return false;
+		}
+		return false !== $wpdb->query( 'START TRANSACTION' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- WordPress has no transaction API; publication recovery requires one atomic database boundary.
+	}
+
+	/** Commit one bounded publication/recovery transaction. */
+	private static function translation_job_commit_recovery_transaction(): bool {
+		global $wpdb;
+		return false !== $wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- WordPress has no transaction API.
+	}
+
+	/** Roll back one bounded publication/recovery transaction. */
+	private static function translation_job_rollback_recovery_transaction(): void {
+		global $wpdb;
+		$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- WordPress has no transaction API.
+	}
+
+	/** Lock every database row and indexed relationship range owned by recovery. */
+	private static function translation_job_lock_recovery_surface( int $translation_id, array $term_scope = array(), array $identity_scope = array() ): array {
+		global $wpdb;
+		$queries = array();
+		$identity_translation_id = 0;
+		if ( ! empty( $identity_scope['source_id'] ) && ! empty( $identity_scope['language'] ) && ! empty( $identity_scope['post_type'] ) ) {
+			$identity_queries = array(
+				$wpdb->prepare( "SELECT meta_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %s FOR UPDATE", self::META_SOURCE_ID, (string) absint( $identity_scope['source_id'] ) ),
+				$wpdb->prepare( "SELECT meta_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %s FOR UPDATE", self::META_LANGUAGE, sanitize_key( (string) $identity_scope['language'] ) ),
+			);
+			foreach ( $identity_queries as $identity_query ) {
+				if ( false === $wpdb->query( $identity_query ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Prepared next-key locks protect the canonical translation identity, including absence.
+					return array( 'success' => false, 'code' => 'recovery_translation_identity_lock_failed', 'message' => 'The canonical translation identity range could not be locked safely.' );
+				}
+			}
+			$candidate_ids = self::translation_job_find_translation_identity_candidate_ids_for_update( $identity_scope );
+			if ( is_wp_error( $candidate_ids ) ) { return array( 'success' => false, 'code' => 'recovery_translation_candidate_lock_failed', 'message' => $candidate_ids->get_error_message() ); }
+			$identity_ids = self::translation_job_find_translation_identity_ids( $identity_scope, true );
+			if ( is_wp_error( $identity_ids ) ) { return array( 'success' => false, 'code' => 'recovery_translation_identity_lookup_failed', 'message' => $identity_ids->get_error_message() ); }
+			$identity_translation_id = empty( $identity_ids ) ? 0 : absint( $identity_ids[0] );
+		}
+		$post_ids = array_values( array_unique( array_filter( array_merge( array( $translation_id, $identity_translation_id ), isset( $candidate_ids ) ? $candidate_ids : array() ) ) ) );
+		foreach ( $post_ids as $post_id ) {
+			$queries[] = $wpdb->prepare( "SELECT ID FROM {$wpdb->posts} WHERE ID = %d FOR UPDATE", $post_id );
+			$queries[] = $wpdb->prepare( "SELECT meta_id FROM {$wpdb->postmeta} WHERE post_id = %d FOR UPDATE", $post_id );
+			$queries[] = $wpdb->prepare( "SELECT object_id, term_taxonomy_id FROM {$wpdb->term_relationships} WHERE object_id = %d FOR UPDATE", $post_id );
+		}
+		$term_ids = array();
+		foreach ( $term_scope as $entry ) {
+			$entry = (array) $entry;
+			$source_term_id = absint( $entry['source_term_id'] ?? 0 );
+			$language = sanitize_key( (string) ( $entry['language'] ?? '' ) );
+			$taxonomy = sanitize_key( (string) ( $entry['taxonomy'] ?? '' ) );
+			// Lock both identity-meta key ranges before resolving an existing or
+			// absent term. This prevents a cached miss from leaving a phantom
+			// insertion window for the same source/language identity.
+			$identity_queries = array(
+				$wpdb->prepare( "SELECT meta_id FROM {$wpdb->termmeta} WHERE meta_key = %s AND meta_value = %s FOR UPDATE", self::TERM_META_SOURCE_ID, (string) $source_term_id ),
+				$wpdb->prepare( "SELECT meta_id FROM {$wpdb->termmeta} WHERE meta_key = %s AND meta_value = %s FOR UPDATE", self::TERM_META_LANGUAGE, $language ),
+			);
+			foreach ( $identity_queries as $identity_query ) {
+				if ( false === $wpdb->query( $identity_query ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Prepared next-key locks protect absent identity ranges.
+					return array( 'success' => false, 'code' => 'recovery_term_identity_lock_failed', 'message' => 'The translated-term identity range could not be locked safely.' );
+				}
+			}
+			$term_id = self::translation_job_find_scoped_term_id_for_update( $source_term_id, $language, $taxonomy );
+			if ( is_wp_error( $term_id ) ) { return array( 'success' => false, 'code' => 'recovery_term_lock_lookup_failed', 'message' => $term_id->get_error_message() ); }
+			if ( $term_id ) { $term_ids[] = absint( $term_id ); }
+		}
+		$term_ids = array_values( array_unique( array_filter( $term_ids ) ) );
+		foreach ( $term_ids as $term_id ) {
+			$queries[] = $wpdb->prepare( "SELECT term_id FROM {$wpdb->terms} WHERE term_id = %d FOR UPDATE", $term_id );
+			$queries[] = $wpdb->prepare( "SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE term_id = %d FOR UPDATE", $term_id );
+			$queries[] = $wpdb->prepare( "SELECT meta_id FROM {$wpdb->termmeta} WHERE term_id = %d FOR UPDATE", $term_id );
+			$queries[] = $wpdb->prepare( "SELECT tr.object_id, tr.term_taxonomy_id FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id WHERE tt.term_id = %d FOR UPDATE", $term_id );
+		}
+		foreach ( $queries as $query ) {
+			if ( false === $wpdb->query( $query ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Prepared row locks form the atomic recovery boundary.
+				return array( 'success' => false, 'code' => 'recovery_surface_lock_failed', 'message' => 'The publication recovery surface could not be locked safely.' );
+			}
+		}
+		foreach ( $post_ids as $post_id ) { clean_post_cache( $post_id ); }
+		if ( $term_ids ) { clean_term_cache( $term_ids ); }
+		return array( 'success' => true, 'term_ids' => $term_ids, 'identity_translation_id' => $identity_translation_id );
+	}
+
+	/** Lock every source/language candidate before post_type can enter or leave the exact identity. */
+	private static function translation_job_find_translation_identity_candidate_ids_for_update( array $identity_scope ) {
+		global $wpdb;
+		$sql = $wpdb->prepare(
+			"SELECT DISTINCT p.ID FROM {$wpdb->posts} p INNER JOIN {$wpdb->postmeta} sm ON sm.post_id = p.ID AND sm.meta_key = %s AND sm.meta_value = %s INNER JOIN {$wpdb->postmeta} lm ON lm.post_id = p.ID AND lm.meta_key = %s AND lm.meta_value = %s ORDER BY p.ID ASC FOR UPDATE",
+			self::META_SOURCE_ID,
+			(string) absint( $identity_scope['source_id'] ?? 0 ),
+			self::META_LANGUAGE,
+			sanitize_key( (string) ( $identity_scope['language'] ?? '' ) )
+		);
+		$ids = $wpdb->get_col( $sql ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Locks all candidates before post_type changes can alter the exact canonical identity.
+		if ( '' !== (string) $wpdb->last_error ) { return new WP_Error( 'translation_identity_candidate_lock_failed', $wpdb->last_error ); }
+		return array_values( array_map( 'absint', (array) $ids ) );
+	}
+
+	/** Read the exact canonical translation identity, optionally retaining row locks. */
+	private static function translation_job_find_translation_identity_ids( array $identity_scope, bool $for_update = false ) {
+		global $wpdb;
+		$sql = $for_update
+			? $wpdb->prepare(
+				"SELECT DISTINCT p.ID FROM {$wpdb->posts} p INNER JOIN {$wpdb->postmeta} sm ON sm.post_id = p.ID AND sm.meta_key = %s AND sm.meta_value = %s INNER JOIN {$wpdb->postmeta} lm ON lm.post_id = p.ID AND lm.meta_key = %s AND lm.meta_value = %s WHERE p.post_type = %s ORDER BY p.ID ASC LIMIT 2 FOR UPDATE",
+				self::META_SOURCE_ID,
+				(string) absint( $identity_scope['source_id'] ?? 0 ),
+				self::META_LANGUAGE,
+				sanitize_key( (string) ( $identity_scope['language'] ?? '' ) ),
+				sanitize_key( (string) ( $identity_scope['post_type'] ?? '' ) )
+			)
+			: $wpdb->prepare(
+				"SELECT DISTINCT p.ID FROM {$wpdb->posts} p INNER JOIN {$wpdb->postmeta} sm ON sm.post_id = p.ID AND sm.meta_key = %s AND sm.meta_value = %s INNER JOIN {$wpdb->postmeta} lm ON lm.post_id = p.ID AND lm.meta_key = %s AND lm.meta_value = %s WHERE p.post_type = %s ORDER BY p.ID ASC LIMIT 2",
+				self::META_SOURCE_ID,
+				(string) absint( $identity_scope['source_id'] ?? 0 ),
+				self::META_LANGUAGE,
+				sanitize_key( (string) ( $identity_scope['language'] ?? '' ) ),
+				sanitize_key( (string) ( $identity_scope['post_type'] ?? '' ) )
+			);
+		$ids = $wpdb->get_col( $sql ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Exact prepared identity read is required for publication ownership.
+		if ( '' !== (string) $wpdb->last_error ) { return new WP_Error( 'translation_identity_lookup_failed', $wpdb->last_error ); }
+		if ( count( (array) $ids ) > 1 ) { return new WP_Error( 'duplicate_translation_identity', 'More than one translation has the same source, language, and post type.' ); }
+		return array_values( array_map( 'absint', (array) $ids ) );
+	}
+
+	/** Resolve one scoped identity with an uncached locking read. */
+	private static function translation_job_find_scoped_term_id_for_update( int $source_term_id, string $language, string $taxonomy ) {
+		global $wpdb;
+		$sql = $wpdb->prepare(
+			"SELECT DISTINCT t.term_id FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id AND tt.taxonomy = %s INNER JOIN {$wpdb->termmeta} sm ON sm.term_id = t.term_id AND sm.meta_key = %s AND sm.meta_value = %s INNER JOIN {$wpdb->termmeta} lm ON lm.term_id = t.term_id AND lm.meta_key = %s AND lm.meta_value = %s ORDER BY t.term_id ASC LIMIT 2 FOR UPDATE",
+			$taxonomy,
+			self::TERM_META_SOURCE_ID,
+			(string) $source_term_id,
+			self::TERM_META_LANGUAGE,
+			sanitize_key( $language )
+		);
+		$ids = $wpdb->get_col( $sql ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Exact prepared locking read is required for publication ownership.
+		if ( '' !== (string) $wpdb->last_error ) { return new WP_Error( 'localized_term_lock_lookup_failed', $wpdb->last_error ); }
+		if ( count( (array) $ids ) > 1 ) { return new WP_Error( 'duplicate_localized_term_identity', 'More than one translated term has the same source/language identity.' ); }
+		return empty( $ids ) ? 0 : absint( $ids[0] );
+	}
+
+	/** Drop object-cache views after a committed or rolled-back recovery boundary. */
+	private static function translation_job_clean_recovery_caches( int $translation_id, array $term_scope = array() ): void {
+		if ( $translation_id > 0 ) {
+			clean_post_cache( $translation_id );
+			wp_cache_delete( $translation_id, 'post_meta' );
+		}
+		$term_ids = array();
+		foreach ( $term_scope as $entry ) {
+			$entry = (array) $entry;
+			$term_id = self::translation_job_find_scoped_term_id( absint( $entry['source_term_id'] ?? 0 ), (string) ( $entry['language'] ?? '' ), sanitize_key( (string) ( $entry['taxonomy'] ?? '' ) ) );
+			if ( ! is_wp_error( $term_id ) && $term_id ) { $term_ids[] = absint( $term_id ); }
+		}
+		self::translation_job_clean_term_caches( $term_ids );
+	}
+
+	/** Drop both term objects and metadata written inside a transaction boundary. */
+	private static function translation_job_clean_term_caches( array $term_ids ): void {
+		$term_ids = array_values( array_unique( array_filter( array_map( 'absint', $term_ids ) ) ) );
+		if ( empty( $term_ids ) ) { return; }
+		clean_term_cache( $term_ids );
+		foreach ( $term_ids as $term_id ) { wp_cache_delete( $term_id, 'term_meta' ); }
+	}
+
+	/** Serialize Workflow publication attempts for one source/language pair. */
+	private static function translation_job_acquire_publication_lease( array $job ): array {
+		$key = 'devenia_workflow_publish_lease_' . substr( hash( 'sha256', sanitize_key( (string) ( $job['target_language'] ?? '' ) ) ), 0, 32 );
+		$lease = array( 'token' => 'tpl_' . substr( hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) ), 0, 32 ), 'job_id' => (string) ( $job['job_id'] ?? '' ), 'expires_at' => time() + 600 );
+		if ( self::atomic_create_option( $key, $lease ) ) { return array( 'success' => true, 'key' => $key, 'lease' => $lease ); }
+		$existing = get_option( $key );
+		if ( is_array( $existing ) && absint( $existing['expires_at'] ?? 0 ) < time() ) {
+			if ( self::atomic_replace_option_value( $key, $existing, $lease ) ) { return array( 'success' => true, 'key' => $key, 'lease' => $lease ); }
+		}
+		return array( 'success' => false, 'code' => 'publication_already_in_progress', 'message' => 'Another Workflow publication attempt already owns this source/language lease.' );
+	}
+
+	/** Renew the owned lease through compare-and-swap before slow public checks. */
+	private static function translation_job_renew_publication_lease( array $lease_result ): array {
+		$key = (string) ( $lease_result['key'] ?? '' );
+		$owned = (array) ( $lease_result['lease'] ?? array() );
+		$renewed = $owned;
+		$renewed['expires_at'] = time() + 600;
+		if ( ! self::atomic_replace_option_value( $key, $owned, $renewed ) ) {
+			return array( 'success' => false, 'code' => 'publication_lease_lost', 'message' => 'The Workflow publication lease could not be renewed safely.' );
+		}
+		return array( 'success' => true, 'key' => $key, 'lease' => $renewed );
+	}
+
+	/** Release only the lease token acquired by this request. */
+	private static function translation_job_release_publication_lease( array $lease_result ): void {
+		$key = sanitize_key( (string) ( $lease_result['key'] ?? '' ) );
+		$owned = (array) ( $lease_result['lease'] ?? array() );
+		if ( '' !== $key ) { self::atomic_delete_option_value( $key, $owned ); }
+	}
 	/**
 	 * Return the server-issued principal represented by one active Job claim.
 	 *
@@ -48,7 +253,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	private static function translation_job_stage_artifact( array $job, array $artifact ): array {
 		$source = get_post( absint( $job['source_id'] ?? 0 ) );
 		if ( ! $source instanceof WP_Post ) {
-			return array( 'success' => false, 'code' => 'job_source_missing', 'message' => 'Translation Job source is unavailable.' );
+			return array( 'success' => false, 'code' => 'job_source_missing', 'message' => 'Translation Job source is unavailable.', 'mutation_started' => false );
 		}
 		$title   = sanitize_text_field( (string) ( $artifact['title'] ?? '' ) );
 		$excerpt = sanitize_textarea_field( (string) ( $artifact['excerpt'] ?? '' ) );
@@ -105,7 +310,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'translation_id'       => 0,
 				'localized_slug'       => sanitize_title( (string) ( $artifact['localized_slug'] ?? '' ) ),
 				'localized_path'       => trim( sanitize_text_field( (string) ( $artifact['localized_path'] ?? '' ) ), '/' ),
-				'localized_parent_id'  => absint( $artifact['localized_parent_id'] ?? 0 ),
+				'localized_parent_id'  => 0,
 				'localized_parent_path'=> trim( sanitize_text_field( (string) ( $artifact['localized_parent_path'] ?? '' ) ), '/' ),
 			);
 		if ( ! $existing instanceof WP_Post ) {
@@ -116,14 +321,27 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			if ( $slug_issue ) { return $slug_issue; }
 			if ( self::has_wordpress_duplicate_slug_suffix( $slug ) ) { return array( 'success' => false, 'code' => 'staged_duplicate_slug_suffix', 'message' => 'A staged localized slug cannot use a WordPress duplicate suffix.' ); }
 			$parent_id = absint( $artifact['localized_parent_id'] ?? 0 );
+			if ( 'page' === (string) $source->post_type ) {
+				$parent_path = self::normalize_localized_parent_path( (string) ( $artifact['localized_parent_path'] ?? '' ), $language );
+				$parent_result = self::translation_job_resolve_localized_parent( $source, $language, $parent_id, $parent_path, ! empty( $artifact['allow_source_slug_in_url'] ), (string) ( $artifact['source_slug_reason'] ?? '' ) );
+				if ( empty( $parent_result['success'] ) ) { return $parent_result; }
+				$parent_id = absint( $parent_result['parent_id'] ?? 0 );
+				$parent_path = (string) ( $parent_result['parent_path'] ?? $parent_path );
+				$route['localized_parent_id'] = $parent_id;
+				$route['localized_parent_path'] = $parent_path;
+			}
 			if ( self::translation_slug_conflicts( $slug, (string) $source->post_type, $parent_id, 0 ) ) { return array( 'success' => false, 'code' => 'staged_localized_slug_collision', 'message' => 'The staged localized route collides with existing content.' ); }
 		}
 
 		$seo_input = isset( $artifact['seo'] ) && is_array( $artifact['seo'] ) ? $artifact['seo'] : array();
 		$seo_title = self::seo_meta_input_value( $seo_input, array( 'seo_title', 'title' ) );
 		$seo_description = self::seo_meta_input_value( $seo_input, array( 'seo_description', 'description' ) );
+		$expected_taxonomies = self::translation_job_expected_taxonomy_surface( $source, $language, is_array( $artifact['taxonomies'] ?? null ) ? $artifact['taxonomies'] : array() );
+		if ( is_wp_error( $expected_taxonomies ) ) {
+			return array( 'success' => false, 'code' => 'staged_taxonomy_read_failed', 'message' => $expected_taxonomies->get_error_message(), 'mutation_started' => false );
+		}
 		$manifest = array(
-			'schema_version'  => 1,
+			'schema_version'  => 2,
 			'job_id'          => (string) $job['job_id'],
 			'source_revision' => (string) $job['source_revision'],
 			'language'        => $language,
@@ -133,7 +351,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'description'   => '' !== $seo_description ? $seo_description : ( '' !== $excerpt ? $excerpt : self::seo_description_from_content( $content ) ),
 				'focus_keyword' => self::seo_meta_input_value( $seo_input, array( 'focus_keyword', 'keyword' ) ),
 			),
-			'taxonomies'      => self::translation_job_canonicalize( is_array( $artifact['taxonomies'] ?? null ) ? $artifact['taxonomies'] : array() ),
+			'taxonomies'      => self::translation_job_canonicalize( $expected_taxonomies ),
 			'route'           => $route,
 			'media'           => array(
 				'featured_image_id' => (int) get_post_thumbnail_id( (int) $source->ID ),
@@ -451,15 +669,143 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function translation_job_apply_staged_artifact( array $job, array $artifact_record ): array {
+	private static function translation_job_resolve_publication_translation_id( array $job, array $artifact_record = array() ): int {
+		$source_id = absint( $job['source_id'] ?? 0 );
+		$language = sanitize_key( (string) ( $job['target_language'] ?? '' ) );
+		$source = get_post( $source_id );
+		if ( ! $source instanceof WP_Post || ! self::is_translatable_post_type( (string) $source->post_type ) ) { return 0; }
+		$is_owned_translation = static function ( int $translation_id ) use ( $source, $source_id, $language ): bool {
+			$post = get_post( $translation_id );
+			return $post instanceof WP_Post
+				&& (string) $source->post_type === (string) $post->post_type
+				&& $source_id === absint( get_post_meta( $translation_id, self::META_SOURCE_ID, true ) )
+				&& $language === sanitize_key( (string) get_post_meta( $translation_id, self::META_LANGUAGE, true ) );
+		};
+		foreach ( array_values( array_unique( array_filter( array( absint( $artifact_record['translation_id'] ?? 0 ), absint( $job['translation_id'] ?? 0 ) ) ) ) ) as $translation_id ) {
+			if ( $is_owned_translation( $translation_id ) ) { return $translation_id; }
+		}
+		$indexed_id = self::find_translation_id( $source_id, $language, self::translation_workflow_post_statuses( false ) );
+		if ( $indexed_id && $is_owned_translation( $indexed_id ) ) { return $indexed_id; }
+		$query = self::translation_page_query(
+			array(
+				'post_status' => self::translation_workflow_post_statuses( false ),
+				'posts_per_page' => 1000,
+				'fields' => 'ids',
+			)
+		);
+		foreach ( (array) $query->posts as $translation_id ) {
+			$translation_id = absint( $translation_id );
+			if ( $is_owned_translation( $translation_id ) ) { return $translation_id; }
+		}
+		return 0;
+	}
+
+	/** Require the staged-write identity to be exactly the identity captured by the snapshot. */
+	private static function translation_job_snapshot_translation_identity_matches( array $surface_snapshot, int $locked_translation_id ): bool {
+		$captured_id = absint( $surface_snapshot['translation_id'] ?? 0 );
+		$captured_existed = ! empty( $surface_snapshot['existed'] );
+		return $captured_existed
+			? $captured_id > 0 && $captured_id === $locked_translation_id
+			: 0 === $captured_id && 0 === $locked_translation_id;
+	}
+
+	/** Build the canonical translation identity independently of mutable candidate IDs. */
+	private static function translation_job_publication_identity_scope( array $job ): array {
+		$source = get_post( absint( $job['source_id'] ?? 0 ) );
+		if ( ! $source instanceof WP_Post ) { return array(); }
+		return array(
+			'source_id' => (int) $source->ID,
+			'language' => sanitize_key( (string) ( $job['target_language'] ?? '' ) ),
+			'post_type' => sanitize_key( (string) $source->post_type ),
+		);
+	}
+
+	private static function translation_job_apply_staged_artifact( array $job, array $artifact_record, array $surface_snapshot = array() ): array {
+		$translation_id = 0;
+		$term_scope = (array) ( $surface_snapshot['term_scope'] ?? array() );
+		$identity_scope = self::translation_job_publication_identity_scope( $job );
+		if ( ! self::translation_job_begin_recovery_transaction() ) {
+			return array( 'success' => false, 'code' => 'publication_transaction_unavailable', 'message' => 'The staged publication transaction could not be started.', 'mutation_started' => false );
+		}
+		try {
+			$translation_id = self::translation_job_resolve_publication_translation_id( $job, $artifact_record );
+			$locked = self::translation_job_lock_recovery_surface( $translation_id, $term_scope, $identity_scope );
+			if ( empty( $locked['success'] ) ) {
+				self::translation_job_rollback_recovery_transaction();
+				return array_merge( $locked, array( 'mutation_started' => false ) );
+			}
+			$translation_id = absint( $locked['identity_translation_id'] ?? $translation_id );
+			if ( ! self::translation_job_snapshot_translation_identity_matches( $surface_snapshot, $translation_id ) ) {
+				self::translation_job_rollback_recovery_transaction();
+				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+				return array( 'success' => false, 'code' => 'staged_translation_identity_changed_before_locked_write', 'message' => 'The canonical translation identity changed after snapshot capture; publication must retry from a fresh locked snapshot.', 'translation_id' => $translation_id, 'mutation_started' => false );
+			}
+			$captured_revision = (string) ( $surface_snapshot['captured_cas_revision'] ?? '' );
+			if ( '' === $captured_revision || ! hash_equals( $captured_revision, self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope ) ) ) {
+				self::translation_job_rollback_recovery_transaction();
+				return array( 'success' => false, 'code' => 'staged_surface_drifted_before_locked_write', 'message' => 'The translation surface changed before the staged publication transaction acquired ownership.', 'translation_id' => $translation_id, 'mutation_started' => false );
+			}
+			$result = self::translation_job_apply_staged_artifact_uncommitted( $job, $artifact_record, $surface_snapshot, $translation_id );
+			$resolved_id = absint( $result['translation_id'] ?? $translation_id );
+			if ( empty( $result['success'] ) ) {
+				self::translation_job_rollback_recovery_transaction();
+				self::translation_job_clean_recovery_caches( $resolved_id, $term_scope );
+				$result['mutation_started'] = false;
+				$result['transaction_rolled_back'] = true;
+				unset( $result['mutation_surface_revision'] );
+				return $result;
+			}
+			$result['mutation_cas_revision'] = self::translation_job_rollback_cas_revision( $resolved_id, $term_scope, $identity_scope );
+			if ( '' === (string) $result['mutation_cas_revision'] ) {
+				self::translation_job_rollback_recovery_transaction();
+				self::translation_job_clean_recovery_caches( $resolved_id, $term_scope );
+				return array( 'success' => false, 'code' => 'staged_mutation_receipt_failed', 'message' => 'The exact staged mutation receipt could not be captured under lock.', 'translation_id' => $resolved_id, 'mutation_started' => false, 'transaction_rolled_back' => true );
+			}
+			if ( ! self::translation_job_commit_recovery_transaction() ) {
+				self::translation_job_rollback_recovery_transaction();
+				self::translation_job_clean_recovery_caches( $resolved_id, $term_scope );
+				return array( 'success' => false, 'code' => 'publication_transaction_commit_failed', 'message' => 'The staged publication transaction could not be committed safely.', 'translation_id' => $resolved_id, 'mutation_started' => false );
+			}
+			self::translation_job_clean_recovery_caches( $resolved_id, $term_scope );
+			return $result;
+		} catch ( Throwable $error ) {
+			self::translation_job_rollback_recovery_transaction();
+			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+			return array( 'success' => false, 'code' => 'publication_transaction_exception', 'message' => $error->getMessage(), 'translation_id' => $translation_id, 'mutation_started' => false );
+		}
+	}
+
+	/** Execute staged writes only inside the row-locked publication transaction. */
+	private static function translation_job_apply_staged_artifact_uncommitted( array $job, array $artifact_record, array $surface_snapshot, int $translation_id ): array {
+		$term_scope = (array) ( $surface_snapshot['term_scope'] ?? array() );
+		$identity_scope = (array) ( $surface_snapshot['identity_scope'] ?? self::translation_job_publication_identity_scope( $job ) );
 		$artifact = isset( $artifact_record['artifact'] ) && is_array( $artifact_record['artifact'] ) ? $artifact_record['artifact'] : array();
 		$source = get_post( absint( $job['source_id'] ?? 0 ) );
 		if ( ! $source instanceof WP_Post ) {
 			return array( 'success' => false, 'code' => 'job_source_missing', 'message' => 'Translation Job source is unavailable.' );
 		}
-		$translation_id = absint( $artifact_record['translation_id'] ?? $job['translation_id'] ?? 0 );
-		if ( $translation_id && (string) ( $artifact_record['baseline_surface_revision'] ?? '' ) !== self::translation_job_current_surface_revision( $translation_id ) ) {
-			return array( 'success' => false, 'code' => 'staged_surface_drifted', 'message' => 'The public translation surface changed after the staged artifact was submitted.' );
+		$current_surface_revision = $translation_id ? self::translation_job_current_surface_revision( $translation_id ) : '';
+		$already_applied_verification = $translation_id
+			? self::translation_job_verify_applied_surface( $source, $translation_id, (array) $artifact_record['surface_manifest'] )
+			: array( 'success' => false );
+		$already_applied = $translation_id
+			&& ! empty( $already_applied_verification['success'] )
+			&& hash_equals( (string) ( $artifact_record['content_revision'] ?? '' ), self::translation_job_translation_revision( $translation_id ) );
+		if ( $translation_id && ! $already_applied && (string) ( $artifact_record['baseline_surface_revision'] ?? '' ) !== $current_surface_revision ) {
+			return array( 'success' => false, 'code' => 'staged_surface_drifted', 'message' => 'The public translation surface changed after the staged artifact was submitted.', 'mutation_started' => false );
+		}
+		if ( $already_applied ) {
+			$thumbnail_id = (int) get_post_thumbnail_id( $translation_id );
+			return array(
+				'success' => true,
+				'translation_id' => $translation_id,
+				'translation' => self::translation_payload( get_post( $translation_id ) ),
+				'featured_image_sync' => array( 'changed' => false, 'before_thumbnail_id' => $thumbnail_id, 'after_thumbnail_id' => $thumbnail_id, 'verified_thumbnail_id' => $thumbnail_id, 'write_verified' => true ),
+				'surface_verification' => $already_applied_verification,
+				'current_surface_revision' => $current_surface_revision,
+				'already_applied' => true,
+				'mutation_started' => false,
+			);
 		}
 		$status = $translation_id && 'publish' === get_post_status( $translation_id ) ? 'publish' : 'draft';
 		$writer = isset( $artifact_record['writer_principal'] ) && is_array( $artifact_record['writer_principal'] ) ? $artifact_record['writer_principal'] : array();
@@ -477,6 +823,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'execution_id' => (string) ( $writer['principal_id'] ?? 'translation-job-writer' ),
 				'writer_process_id' => (string) ( $writer['run_id'] ?? '' ),
 				'writer_actor' => (string) ( $writer['principal_id'] ?? '' ),
+				'publication_attempt_id' => sanitize_text_field( (string) ( $surface_snapshot['publication_attempt_id'] ?? '' ) ),
 			)
 		);
 		self::$translation_job_internal_identity = array(
@@ -499,26 +846,36 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			self::$translation_job_internal_identity = array();
 		}
 		if ( empty( $result['success'] ) ) {
+			$result['mutation_started'] = true;
+			$result['translation_id'] = $translation_id;
+			$result['mutation_surface_revision'] = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
 			return $result;
 		}
 		$translation_id = absint( $result['translation']['id'] ?? 0 );
 		$featured_image_sync = self::sync_source_featured_image( $translation_id, $source );
 		if ( empty( $featured_image_sync['write_verified'] ) ) {
-			return array( 'success' => false, 'code' => 'featured_image_sync_failed', 'message' => 'The approved source featured image could not be synchronized.', 'featured_image_sync' => $featured_image_sync, 'translation_id' => $translation_id );
+			return array( 'success' => false, 'code' => 'featured_image_sync_failed', 'message' => 'The approved source featured image could not be synchronized.', 'featured_image_sync' => $featured_image_sync, 'translation_id' => $translation_id, 'mutation_started' => true, 'mutation_surface_revision' => self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope ) );
+		}
+		if ( ! empty( $featured_image_sync['changed'] ) ) {
+			$media_identity = self::translation_job_identity( $job, array( 'coordinator_id' => 'publication-module', 'run_id' => 'publish-media-reconcile' ), 'publish' );
+			self::record_translation_visible_media_provenance( $translation_id, $media_identity, 'translation_job_publish_reconcile' );
+			self::sync_translation_index_row( $translation_id );
 		}
 		$featured_alt = trim( wp_strip_all_tags( (string) ( $artifact['featured_image_alt'] ?? '' ) ) );
 		if ( '' !== $featured_alt ) {
 			update_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT, $featured_alt );
+		} else {
+			delete_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT );
 		}
 		$actual_content_revision = self::translation_job_translation_revision( $translation_id );
 		if ( ! hash_equals( (string) $artifact_record['content_revision'], $actual_content_revision ) ) {
-			return array( 'success' => false, 'code' => 'applied_content_revision_mismatch', 'message' => 'The applied WordPress content does not match the approved staged artifact.', 'translation_id' => $translation_id );
+			return array( 'success' => false, 'code' => 'applied_content_revision_mismatch', 'message' => 'The applied WordPress content does not match the approved staged artifact.', 'translation_id' => $translation_id, 'mutation_started' => true, 'mutation_surface_revision' => self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope ) );
 		}
 		$surface_verification = self::translation_job_verify_applied_surface( $source, $translation_id, (array) $artifact_record['surface_manifest'] );
 		if ( empty( $surface_verification['success'] ) ) {
-			return array( 'success' => false, 'code' => 'applied_surface_revision_mismatch', 'message' => 'The applied WordPress surface does not match the complete approved staged surface.', 'translation_id' => $translation_id, 'surface_verification' => $surface_verification );
+			return array( 'success' => false, 'code' => 'applied_surface_revision_mismatch', 'message' => 'The applied WordPress surface does not match the complete approved staged surface.', 'translation_id' => $translation_id, 'surface_verification' => $surface_verification, 'mutation_started' => true, 'mutation_surface_revision' => self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope ) );
 		}
-		return array( 'success' => true, 'translation_id' => $translation_id, 'translation' => $result['translation'], 'featured_image_sync' => $featured_image_sync, 'surface_verification' => $surface_verification, 'current_surface_revision' => self::translation_job_current_surface_revision( $translation_id ) );
+		return array( 'success' => true, 'translation_id' => $translation_id, 'translation' => $result['translation'], 'featured_image_sync' => $featured_image_sync, 'surface_verification' => $surface_verification, 'current_surface_revision' => self::translation_job_current_surface_revision( $translation_id ), 'mutation_cas_revision' => self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope ), 'mutation_started' => true );
 	}
 
 	/** Verify every public surface family represented by the approved manifest. */
@@ -534,21 +891,25 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$expected_slug = (string) ( $route['post_name'] ?? $route['localized_slug'] ?? '' );
 		if ( '' !== $expected_slug && $expected_slug !== (string) $post->post_name ) { $failed[] = 'route_slug'; }
 		if ( isset( $route['post_parent'] ) && (int) $route['post_parent'] !== (int) $post->post_parent ) { $failed[] = 'route_parent'; }
+		if ( isset( $route['localized_parent_id'] ) && (int) $route['localized_parent_id'] !== (int) $post->post_parent ) { $failed[] = 'route_parent'; }
 		$expected_path = trim( (string) ( $route['localized_path'] ?? '' ), '/' );
-		if ( '' !== $expected_path && $expected_path !== trim( (string) get_post_meta( $translation_id, self::META_LOCALIZED_PATH, true ), '/' ) ) { $failed[] = 'route_path'; }
+		if ( array_key_exists( 'localized_path', $route ) && $expected_path !== trim( (string) get_post_meta( $translation_id, self::META_LOCALIZED_PATH, true ), '/' ) ) { $failed[] = 'route_path'; }
+		if ( array_key_exists( 'canonical_route', $route ) && self::translation_job_canonicalize( (array) $route['canonical_route'] ) !== self::translation_job_canonicalize( self::json_post_meta_value( $translation_id, self::META_CANONICAL_ROUTE ) ) ) { $failed[] = 'route_canonical'; }
 		$media = (array) ( $manifest['media'] ?? array() );
 		if ( (int) ( $media['featured_image_id'] ?? 0 ) !== (int) get_post_thumbnail_id( $translation_id ) ) { $failed[] = 'media_image'; }
-		if ( '' !== (string) ( $media['featured_image_alt'] ?? '' ) && (string) ( $media['featured_image_alt'] ?? '' ) !== (string) get_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT, true ) ) { $failed[] = 'media_alt'; }
+		if ( array_key_exists( 'featured_image_alt', $media ) && (string) $media['featured_image_alt'] !== (string) get_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT, true ) ) { $failed[] = 'media_alt'; }
 		$presentation = (array) ( $manifest['presentation'] ?? array() );
 		$stored_presentation = self::stored_localized_source_design_fragments( $translation_id );
 		if ( (string) ( $presentation['source_design_hash'] ?? '' ) !== (string) get_post_meta( $translation_id, self::META_SOURCE_DESIGN_HASH, true ) || self::translation_job_canonicalize( (array) ( $presentation['localized_fragments'] ?? array() ) ) !== self::translation_job_canonicalize( (array) ( $stored_presentation['fragments'] ?? array() ) ) ) { $failed[] = 'presentation'; }
 		if ( 'post' === $source->post_type ) {
-			$actual = self::post_taxonomy_payload( $post );
-			foreach ( array( 'category', 'post_tag' ) as $taxonomy ) {
-				$source_ids = array_values( array_map( static function ( WP_Term $term ): int { return (int) $term->term_id; }, (array) wp_get_post_terms( (int) $source->ID, $taxonomy, array( 'hide_empty' => false ) ) ) );
-				$actual_source_ids = array_values( array_filter( array_map( static function ( array $term ): int { return absint( $term['source_term_id'] ?? 0 ); }, (array) ( $actual[ $taxonomy ] ?? array() ) ) ) );
-				sort( $source_ids ); sort( $actual_source_ids );
-				if ( $source_ids !== $actual_source_ids ) { $failed[] = 'taxonomy_' . $taxonomy; }
+			$expected_taxonomies = absint( $manifest['schema_version'] ?? 1 ) >= 2
+				? (array) ( $manifest['taxonomies'] ?? array() )
+				: self::translation_job_expected_taxonomy_surface( $source, (string) ( $manifest['language'] ?? '' ), (array) ( $manifest['taxonomies'] ?? array() ) );
+			$actual_taxonomies = self::translation_job_actual_taxonomy_surface( $post );
+			if ( is_wp_error( $expected_taxonomies ) || is_wp_error( $actual_taxonomies ) ) {
+				$failed[] = 'taxonomy_read';
+			} elseif ( self::translation_job_canonicalize( $expected_taxonomies ) !== self::translation_job_canonicalize( $actual_taxonomies ) ) {
+				$failed[] = 'taxonomies';
 			}
 		}
 		$evidence = array( 'translation_id' => $translation_id, 'approved_surface_revision' => self::translation_job_surface_revision( $manifest ), 'failed' => $failed );
@@ -556,21 +917,263 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		return array_merge( $evidence, array( 'success' => empty( $failed ) ) );
 	}
 
-	/** Capture the complete mutable WordPress surface before staged publication. */
-	private static function translation_job_capture_surface_snapshot( int $translation_id ): array {
+	/** Resolve the exact logical taxonomy surface represented by staged input. */
+	private static function translation_job_expected_taxonomy_surface( WP_Post $source, string $language, array $taxonomy_input ) {
+		$out = array();
+		foreach ( array( 'category', 'post_tag' ) as $taxonomy ) {
+			$terms = wp_get_post_terms( (int) $source->ID, $taxonomy, array( 'hide_empty' => false ) );
+			if ( is_wp_error( $terms ) ) { return $terms; }
+			$input_terms = self::taxonomy_input_by_source_term( $taxonomy_input[ $taxonomy ] ?? array() );
+			$out[ $taxonomy ] = array();
+			foreach ( is_array( $terms ) ? $terms : array() as $source_term ) {
+				if ( ! $source_term instanceof WP_Term ) { continue; }
+				$term_data = (array) ( $input_terms[ (int) $source_term->term_id ] ?? array() );
+				$existing_id = self::translation_job_find_scoped_term_id( (int) $source_term->term_id, $language, $taxonomy );
+				if ( is_wp_error( $existing_id ) ) { return $existing_id; }
+				$existing = $existing_id ? get_term( $existing_id, $taxonomy ) : null;
+				$out[ $taxonomy ][] = array(
+					'source_term_id' => (int) $source_term->term_id,
+					'taxonomy' => $taxonomy,
+					'language' => sanitize_key( $language ),
+					'name' => isset( $term_data['name'] ) && '' !== trim( (string) $term_data['name'] ) ? trim( (string) $term_data['name'] ) : ( $existing instanceof WP_Term ? (string) $existing->name : (string) $source_term->name ),
+					'slug' => isset( $term_data['slug'] ) && '' !== trim( (string) $term_data['slug'] ) ? sanitize_title( (string) $term_data['slug'] ) : sanitize_title( $language . '-' . (string) $source_term->slug ),
+					'description' => array_key_exists( 'description', $term_data ) ? (string) $term_data['description'] : ( $existing instanceof WP_Term ? (string) $existing->description : '' ),
+					'parent_source_term_id' => (int) $source_term->parent,
+				);
+			}
+			usort( $out[ $taxonomy ], static function ( array $a, array $b ): int { return (int) $a['source_term_id'] <=> (int) $b['source_term_id']; } );
+		}
+		return $out;
+	}
+
+	/** Read the exact logical taxonomy surface currently assigned to a translation. */
+	private static function translation_job_actual_taxonomy_surface( WP_Post $post ) {
+		$out = array();
+		foreach ( array( 'category', 'post_tag' ) as $taxonomy ) {
+			$terms = wp_get_post_terms( (int) $post->ID, $taxonomy, array( 'hide_empty' => false ) );
+			if ( is_wp_error( $terms ) ) { return $terms; }
+			$out[ $taxonomy ] = array();
+			foreach ( is_array( $terms ) ? $terms : array() as $term ) {
+				if ( ! $term instanceof WP_Term ) { continue; }
+				$parent_source_id = $term->parent ? absint( get_term_meta( (int) $term->parent, self::TERM_META_SOURCE_ID, true ) ) : 0;
+				$out[ $taxonomy ][] = array(
+					'source_term_id' => absint( get_term_meta( (int) $term->term_id, self::TERM_META_SOURCE_ID, true ) ),
+					'taxonomy' => $taxonomy,
+					'language' => sanitize_key( (string) get_term_meta( (int) $term->term_id, self::TERM_META_LANGUAGE, true ) ),
+					'name' => (string) $term->name,
+					'slug' => (string) $term->slug,
+					'description' => (string) $term->description,
+					'parent_source_term_id' => $parent_source_id,
+				);
+			}
+			usort( $out[ $taxonomy ], static function ( array $a, array $b ): int { return (int) $a['source_term_id'] <=> (int) $b['source_term_id']; } );
+		}
+		return $out;
+	}
+
+	/** Resolve exactly one translated taxonomy term without hiding storage errors. */
+	private static function translation_job_find_scoped_term_id( int $source_term_id, string $language, string $taxonomy ) {
+		$terms = get_terms(
+			array(
+				'taxonomy' => $taxonomy, 'hide_empty' => false, 'number' => 2, 'fields' => 'ids',
+				'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Bounded rollback ownership lookup.
+					'relation' => 'AND',
+					array( 'key' => self::TERM_META_SOURCE_ID, 'value' => (string) $source_term_id ),
+					array( 'key' => self::TERM_META_LANGUAGE, 'value' => sanitize_key( $language ) ),
+				),
+			)
+		);
+		if ( is_wp_error( $terms ) ) { return $terms; }
+		if ( count( (array) $terms ) > 1 ) { return new WP_Error( 'duplicate_localized_term_identity', 'More than one translated term has the same source/language identity.' ); }
+		return empty( $terms ) ? 0 : absint( $terms[0] );
+	}
+
+	/** Read every mutable field and relationship owned by a translated term. */
+	private static function translation_job_taxonomy_term_state( int $term_id, string $taxonomy ) {
+		$term = get_term( $term_id, $taxonomy );
+		if ( is_wp_error( $term ) ) { return $term; }
+		if ( ! $term instanceof WP_Term ) { return new WP_Error( 'localized_term_missing', 'The scoped translated term is missing.' ); }
+		$objects = get_objects_in_term( $term_id, $taxonomy );
+		if ( is_wp_error( $objects ) ) { return $objects; }
+		$objects = array_values( array_map( 'absint', (array) $objects ) );
+		sort( $objects );
+		return array(
+			'term_id' => (int) $term->term_id, 'term_taxonomy_id' => (int) $term->term_taxonomy_id, 'term_group' => (int) $term->term_group,
+			'taxonomy' => (string) $term->taxonomy, 'name' => (string) $term->name, 'slug' => (string) $term->slug,
+			'description' => (string) $term->description, 'parent' => (int) $term->parent, 'count' => (int) $term->count,
+			'meta' => get_term_meta( (int) $term->term_id ), 'objects' => $objects,
+		);
+	}
+
+	/** Capture the global term records which staged post publication may mutate. */
+	private static function translation_job_capture_term_snapshot( array $manifest, string $publication_attempt_id ): array {
+		$snapshot = array();
+		foreach ( (array) ( $manifest['taxonomies'] ?? array() ) as $taxonomy => $items ) {
+			$taxonomy = sanitize_key( (string) $taxonomy );
+			foreach ( (array) $items as $item ) {
+				$item = (array) $item;
+				$source_term_id = absint( $item['source_term_id'] ?? 0 );
+				$language = sanitize_key( (string) ( $item['language'] ?? $manifest['language'] ?? '' ) );
+				if ( ! $source_term_id || '' === $taxonomy || '' === $language ) { continue; }
+				$key = $taxonomy . ':' . $source_term_id . ':' . $language;
+				$term_id = self::translation_job_find_scoped_term_id( $source_term_id, $language, $taxonomy );
+				if ( is_wp_error( $term_id ) ) { return array( 'success' => false, 'error' => $term_id->get_error_message() ); }
+				$entry = array( 'taxonomy' => $taxonomy, 'source_term_id' => $source_term_id, 'language' => $language, 'existed' => (bool) $term_id, 'term_id' => absint( $term_id ) );
+				if ( $term_id ) {
+					$state = self::translation_job_taxonomy_term_state( absint( $term_id ), $taxonomy );
+					if ( is_wp_error( $state ) ) { return array( 'success' => false, 'error' => $state->get_error_message() ); }
+					$entry['state'] = $state;
+				} else {
+					$entry['publication_attempt_id'] = sanitize_text_field( $publication_attempt_id );
+				}
+				$snapshot[ $key ] = $entry;
+			}
+		}
+		ksort( $snapshot );
+		return array( 'success' => true, 'terms' => $snapshot );
+	}
+
+	/** Read the current term states for one immutable rollback scope. */
+	private static function translation_job_current_term_scope( array $term_scope ) {
+		$current = array();
+		foreach ( $term_scope as $key => $entry ) {
+			$entry = (array) $entry;
+			$taxonomy = sanitize_key( (string) ( $entry['taxonomy'] ?? '' ) );
+			$term_id = self::translation_job_find_scoped_term_id( absint( $entry['source_term_id'] ?? 0 ), (string) ( $entry['language'] ?? '' ), $taxonomy );
+			if ( is_wp_error( $term_id ) ) { return $term_id; }
+			if ( ! $term_id ) { $current[ (string) $key ] = array( 'exists' => false ); continue; }
+			$state = self::translation_job_taxonomy_term_state( absint( $term_id ), $taxonomy );
+			if ( is_wp_error( $state ) ) { return $state; }
+			$current[ (string) $key ] = array( 'exists' => true, 'state' => $state );
+		}
+		ksort( $current );
+		return $current;
+	}
+
+	/** Fingerprint every mutable field rollback owns for compare-and-swap safety. */
+	private static function translation_job_rollback_cas_revision( int $translation_id, array $term_scope = array(), array $identity_scope = array() ): string {
+		$post = get_post( $translation_id );
+		if ( ! $post instanceof WP_Post && empty( $term_scope ) && empty( $identity_scope ) ) { return ''; }
+		$taxonomies = array();
+		foreach ( $post instanceof WP_Post ? get_object_taxonomies( $post->post_type ) : array() as $taxonomy ) {
+			$ids = wp_get_object_terms( $translation_id, $taxonomy, array( 'fields' => 'ids' ) );
+			if ( is_wp_error( $ids ) ) { return ''; }
+			$ids = array_values( array_map( 'absint', (array) $ids ) );
+			sort( $ids );
+			$taxonomies[ $taxonomy ] = $ids;
+		}
+		$term_states = self::translation_job_current_term_scope( $term_scope );
+		if ( is_wp_error( $term_states ) ) { return ''; }
+		$identity_ids = empty( $identity_scope ) ? array() : self::translation_job_find_translation_identity_ids( $identity_scope );
+		if ( is_wp_error( $identity_ids ) ) { return ''; }
+		$surface = array(
+			'translation_identity' => array( 'scope' => $identity_scope, 'ids' => $identity_ids ),
+			'post' => $post instanceof WP_Post ? array(
+				'ID' => (int) $post->ID, 'post_author' => (int) $post->post_author, 'post_title' => (string) $post->post_title,
+				'post_excerpt' => (string) $post->post_excerpt, 'post_content' => (string) $post->post_content, 'post_status' => (string) $post->post_status,
+				'post_name' => (string) $post->post_name, 'post_parent' => (int) $post->post_parent, 'menu_order' => (int) $post->menu_order,
+				'post_date' => (string) $post->post_date, 'post_date_gmt' => (string) $post->post_date_gmt,
+				'post_modified' => (string) $post->post_modified, 'post_modified_gmt' => (string) $post->post_modified_gmt,
+			) : null,
+			'meta' => $post instanceof WP_Post ? get_post_meta( $translation_id ) : array(),
+			'taxonomies' => $taxonomies,
+			'term_scope' => $term_states,
+		);
+		return 'rcas_' . substr( hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $surface ) ) ?: '' ), 0, 40 );
+	}
+
+	/** Build the immutable translated-term lock scope without reading mutable state. */
+	private static function translation_job_term_lock_scope_from_manifest( array $manifest, string $publication_attempt_id ): array {
+		$scope = array();
+		foreach ( (array) ( $manifest['taxonomies'] ?? array() ) as $taxonomy => $items ) {
+			$taxonomy = sanitize_key( (string) $taxonomy );
+			foreach ( (array) $items as $item ) {
+				$item = (array) $item;
+				$source_term_id = absint( $item['source_term_id'] ?? 0 );
+				$language = sanitize_key( (string) ( $item['language'] ?? $manifest['language'] ?? '' ) );
+				if ( ! $source_term_id || '' === $taxonomy || '' === $language ) { continue; }
+				$scope[ $taxonomy . ':' . $source_term_id . ':' . $language ] = array(
+					'taxonomy' => $taxonomy,
+					'source_term_id' => $source_term_id,
+					'language' => $language,
+					'publication_attempt_id' => sanitize_text_field( $publication_attempt_id ),
+				);
+			}
+		}
+		ksort( $scope );
+		return $scope;
+	}
+
+	/** Capture the complete mutable WordPress surface inside one locked snapshot. */
+	private static function translation_job_capture_surface_snapshot( int $translation_id, array $manifest = array(), array $identity_scope = array() ): array {
+		$publication_attempt_id = 'tpa_' . substr( hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) ), 0, 32 );
+		$term_scope = self::translation_job_term_lock_scope_from_manifest( $manifest, $publication_attempt_id );
+		if ( ! self::translation_job_begin_recovery_transaction() ) {
+			return array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_transaction_unavailable', 'mutation_started' => false );
+		}
+		try {
+			$locked = self::translation_job_lock_recovery_surface( $translation_id, $term_scope, $identity_scope );
+			if ( empty( $locked['success'] ) ) {
+				self::translation_job_rollback_recovery_transaction();
+				return array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => (string) ( $locked['code'] ?? 'publication_snapshot_lock_failed' ), 'mutation_started' => false );
+			}
+			$locked_identity_id = absint( $locked['identity_translation_id'] ?? $translation_id );
+			if ( $locked_identity_id !== $translation_id ) {
+				self::translation_job_rollback_recovery_transaction();
+				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+				return array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $locked_identity_id, 'message' => 'publication_snapshot_identity_changed', 'mutation_started' => false );
+			}
+			$snapshot = self::translation_job_capture_surface_snapshot_uncommitted( $translation_id, $manifest, $publication_attempt_id, $identity_scope );
+			if ( empty( $snapshot['snapshot_valid'] ) ) {
+				self::translation_job_rollback_recovery_transaction();
+				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+				return $snapshot;
+			}
+			if ( ! self::translation_job_commit_recovery_transaction() ) {
+				self::translation_job_rollback_recovery_transaction();
+				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+				return array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_commit_failed', 'mutation_started' => false );
+			}
+			self::translation_job_clean_recovery_caches( $translation_id, (array) ( $snapshot['term_scope'] ?? $term_scope ) );
+			return $snapshot;
+		} catch ( Throwable $error ) {
+			self::translation_job_rollback_recovery_transaction();
+			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+			return array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => $error->getMessage(), 'mutation_started' => false );
+		}
+	}
+
+	/** Read the snapshot only after its complete post, meta, relationship and term scope is locked. */
+	private static function translation_job_capture_surface_snapshot_uncommitted( int $translation_id, array $manifest, string $publication_attempt_id, array $identity_scope ): array {
+		$term_snapshot = self::translation_job_capture_term_snapshot( $manifest, $publication_attempt_id );
+		if ( empty( $term_snapshot['success'] ) ) {
+			return array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => (string) ( $term_snapshot['error'] ?? 'taxonomy_term_snapshot_failed' ), 'mutation_started' => false );
+		}
 		$post = $translation_id ? get_post( $translation_id ) : null;
 		if ( ! $post instanceof WP_Post ) {
-			return array( 'existed' => false, 'translation_id' => 0 );
+			return array( 'snapshot_valid' => true, 'existed' => false, 'translation_id' => 0, 'mutation_started' => false, 'term_scope' => $term_snapshot['terms'], 'identity_scope' => $identity_scope, 'publication_attempt_id' => $publication_attempt_id, 'captured_cas_revision' => self::translation_job_rollback_cas_revision( 0, $term_snapshot['terms'], $identity_scope ) );
 		}
 		$taxonomies = array();
 		foreach ( get_object_taxonomies( $post->post_type ) as $taxonomy ) {
-			$taxonomies[ $taxonomy ] = wp_get_object_terms( $translation_id, $taxonomy, array( 'fields' => 'ids' ) );
+			$term_ids = wp_get_object_terms( $translation_id, $taxonomy, array( 'fields' => 'ids' ) );
+			if ( is_wp_error( $term_ids ) ) {
+				return array( 'snapshot_valid' => false, 'existed' => true, 'translation_id' => $translation_id, 'message' => $term_ids->get_error_message(), 'mutation_started' => false );
+			}
+			$taxonomies[ $taxonomy ] = $term_ids;
 		}
 		return array(
+			'snapshot_valid' => true,
 			'existed' => true,
 			'translation_id' => $translation_id,
+			'mutation_started' => false,
+			'publication_attempt_id' => $publication_attempt_id,
+			'identity_scope' => $identity_scope,
+			'captured_surface_revision' => self::translation_job_current_surface_revision( $translation_id ),
+			'term_scope' => $term_snapshot['terms'],
+			'captured_cas_revision' => self::translation_job_rollback_cas_revision( $translation_id, $term_snapshot['terms'], $identity_scope ),
 			'post' => array(
 				'ID' => $translation_id,
+				'post_author' => (int) $post->post_author,
 				'post_title' => (string) $post->post_title,
 				'post_excerpt' => (string) $post->post_excerpt,
 				'post_content' => (string) $post->post_content,
@@ -578,42 +1181,274 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'post_name' => (string) $post->post_name,
 				'post_parent' => (int) $post->post_parent,
 				'menu_order' => (int) $post->menu_order,
+				'post_date' => (string) $post->post_date,
+				'post_date_gmt' => (string) $post->post_date_gmt,
+				'post_modified' => (string) $post->post_modified,
+				'post_modified_gmt' => (string) $post->post_modified_gmt,
+				'edit_date' => true,
 			),
 			'meta' => get_post_meta( $translation_id ),
 			'taxonomies' => $taxonomies,
 		);
 	}
 
+	/** Restore or remove every global translated term changed inside the publication attempt. */
+	private static function translation_job_restore_term_snapshot( array $term_scope, int $translation_id ): array {
+		$errors = array();
+		foreach ( $term_scope as $key => $entry ) {
+			$entry = (array) $entry;
+			if ( empty( $entry['existed'] ) ) { continue; }
+			$taxonomy = sanitize_key( (string) ( $entry['taxonomy'] ?? '' ) );
+			$expected_id = absint( $entry['term_id'] ?? 0 );
+			$current_id = self::translation_job_find_scoped_term_id( absint( $entry['source_term_id'] ?? 0 ), (string) ( $entry['language'] ?? '' ), $taxonomy );
+			if ( is_wp_error( $current_id ) || $expected_id !== absint( $current_id ) ) { $errors[] = 'term_identity_' . $key; continue; }
+			$state = (array) ( $entry['state'] ?? array() );
+			$updated = wp_update_term( $expected_id, $taxonomy, array( 'name' => (string) ( $state['name'] ?? '' ), 'slug' => (string) ( $state['slug'] ?? '' ), 'description' => (string) ( $state['description'] ?? '' ), 'parent' => absint( $state['parent'] ?? 0 ) ) );
+			if ( is_wp_error( $updated ) ) { $errors[] = 'term_restore_' . $key; continue; }
+			$existing_meta = get_term_meta( $expected_id );
+			foreach ( array_keys( $existing_meta ) as $meta_key ) {
+				if ( ! delete_term_meta( $expected_id, (string) $meta_key ) && metadata_exists( 'term', $expected_id, (string) $meta_key ) ) { $errors[] = 'term_meta_delete_' . $key; }
+			}
+			foreach ( (array) ( $state['meta'] ?? array() ) as $meta_key => $values ) {
+				foreach ( (array) $values as $value ) {
+					if ( false === add_term_meta( $expected_id, (string) $meta_key, maybe_unserialize( $value ) ) ) { $errors[] = 'term_meta_add_' . $key; }
+				}
+			}
+			$actual = self::translation_job_taxonomy_term_state( $expected_id, $taxonomy );
+			if ( is_wp_error( $actual ) ) { $errors[] = 'term_verify_' . $key; continue; }
+			foreach ( array( 'term_id', 'taxonomy', 'name', 'slug', 'description', 'parent', 'count' ) as $field ) {
+				if ( (string) ( $state[ $field ] ?? '' ) !== (string) ( $actual[ $field ] ?? '' ) ) { $errors[] = 'term_field_' . $key . '_' . $field; }
+			}
+			if ( self::translation_job_canonicalize( (array) ( $state['meta'] ?? array() ) ) !== self::translation_job_canonicalize( (array) ( $actual['meta'] ?? array() ) ) ) { $errors[] = 'term_meta_verify_' . $key; }
+			if ( self::translation_job_canonicalize( (array) ( $state['objects'] ?? array() ) ) !== self::translation_job_canonicalize( (array) ( $actual['objects'] ?? array() ) ) ) { $errors[] = 'term_objects_verify_' . $key; }
+		}
+		foreach ( $term_scope as $key => $entry ) {
+			$entry = (array) $entry;
+			if ( ! empty( $entry['existed'] ) ) { continue; }
+			$taxonomy = sanitize_key( (string) ( $entry['taxonomy'] ?? '' ) );
+			$current_id = self::translation_job_find_scoped_term_id( absint( $entry['source_term_id'] ?? 0 ), (string) ( $entry['language'] ?? '' ), $taxonomy );
+			if ( is_wp_error( $current_id ) ) { $errors[] = 'new_term_identity_' . $key; continue; }
+			if ( ! $current_id ) { continue; }
+			$attempt_id = sanitize_text_field( (string) ( $entry['publication_attempt_id'] ?? '' ) );
+			$current_attempt_id = sanitize_text_field( (string) get_term_meta( absint( $current_id ), self::TERM_META_PUBLICATION_ATTEMPT, true ) );
+			if ( '' === $attempt_id || ! hash_equals( $attempt_id, $current_attempt_id ) ) { $errors[] = 'new_term_publication_attempt_' . $key; continue; }
+			$objects = get_objects_in_term( absint( $current_id ), $taxonomy );
+			if ( is_wp_error( $objects ) ) { $errors[] = 'new_term_objects_' . $key; continue; }
+			$outside = array_values( array_diff( array_map( 'absint', (array) $objects ), array_filter( array( $translation_id ) ) ) );
+			if ( $outside ) { $errors[] = 'new_term_shared_' . $key; continue; }
+			$deleted = wp_delete_term( absint( $current_id ), $taxonomy );
+			if ( is_wp_error( $deleted ) || false === $deleted || 0 === $deleted ) { $errors[] = 'new_term_delete_' . $key; }
+		}
+		return empty( $errors ) ? array( 'success' => true ) : array( 'success' => false, 'errors' => array_values( array_unique( $errors ) ) );
+	}
+
 	/** Restore the pre-publication surface, or remove a newly-created candidate. */
 	private static function translation_job_restore_surface_snapshot( array $snapshot, int $translation_id ): array {
+		$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
+		$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
+		if ( ! self::translation_job_begin_recovery_transaction() ) {
+			return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_unavailable', 'translation_id' => $translation_id );
+		}
+		try {
+			$locked = self::translation_job_lock_recovery_surface( $translation_id, $term_scope, $identity_scope );
+			if ( empty( $locked['success'] ) ) {
+				self::translation_job_rollback_recovery_transaction();
+				return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => (string) ( $locked['code'] ?? 'recovery_surface_lock_failed' ), 'translation_id' => $translation_id );
+			}
+			$result = self::translation_job_restore_surface_snapshot_uncommitted( $snapshot, $translation_id );
+			if ( empty( $result['success'] ) ) {
+				self::translation_job_rollback_recovery_transaction();
+				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+				$result['transaction_rolled_back'] = true;
+				return $result;
+			}
+			if ( ! self::translation_job_commit_recovery_transaction() ) {
+				self::translation_job_rollback_recovery_transaction();
+				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+				return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_commit_failed', 'translation_id' => $translation_id );
+			}
+			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+			$result['transaction_committed'] = true;
+			return $result;
+		} catch ( Throwable $error ) {
+			self::translation_job_rollback_recovery_transaction();
+			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+			return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_exception', 'message' => $error->getMessage(), 'translation_id' => $translation_id );
+		}
+	}
+
+	/** Perform recovery writes only after every owned row/range is locked. */
+	private static function translation_job_restore_surface_snapshot_uncommitted( array $snapshot, int $translation_id ): array {
+		$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
+		$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
+		$expected_current_revision = (string) ( $snapshot['rollback_expected_surface_revision'] ?? '' );
+		if ( '' === $expected_current_revision ) {
+			return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'missing_expected_mutation_revision', 'translation_id' => $translation_id );
+		}
+		if ( ! hash_equals( $expected_current_revision, self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope ) ) ) {
+			return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'surface_changed_after_publication_failure', 'translation_id' => $translation_id );
+		}
 		if ( empty( $snapshot['existed'] ) ) {
 			if ( $translation_id && get_post( $translation_id ) ) {
+				$attempt_id = sanitize_text_field( (string) ( $snapshot['publication_attempt_id'] ?? '' ) );
+				if ( '' === $attempt_id || ! hash_equals( $attempt_id, (string) get_post_meta( $translation_id, '_devenia_workflow_publication_attempt_id', true ) ) ) {
+					return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'new_candidate_publication_attempt_mismatch', 'translation_id' => $translation_id );
+				}
 				$result = wp_delete_post( $translation_id, true );
-				return array( 'success' => $result instanceof WP_Post, 'action' => 'delete_new_candidate', 'translation_id' => $translation_id );
+				if ( ! $result instanceof WP_Post ) { return array( 'success' => false, 'action' => 'delete_new_candidate', 'translation_id' => $translation_id, 'error' => 'candidate_delete_failed' ); }
 			}
-			return array( 'success' => true, 'action' => 'no_candidate_created' );
+			$term_restore = self::translation_job_restore_term_snapshot( $term_scope, $translation_id );
+			return empty( $term_restore['success'] )
+				? array( 'success' => false, 'action' => 'delete_new_candidate', 'translation_id' => $translation_id, 'error' => 'term_restore_incomplete', 'term_restore' => $term_restore )
+				: array( 'success' => true, 'action' => $translation_id ? 'delete_new_candidate' : 'no_candidate_created', 'translation_id' => $translation_id );
 		}
 		$original_id = absint( $snapshot['translation_id'] ?? 0 );
-		$updated = wp_update_post( (array) ( $snapshot['post'] ?? array() ), true );
+		$post_snapshot = (array) ( $snapshot['post'] ?? array() );
+		$modified = (string) ( $post_snapshot['post_modified'] ?? '' );
+		$modified_gmt = (string) ( $post_snapshot['post_modified_gmt'] ?? '' );
+		$preserve_modified = static function ( array $data, array $postarr ) use ( $original_id, $modified, $modified_gmt ): array {
+			if ( $original_id === absint( $postarr['ID'] ?? 0 ) ) {
+				$data['post_modified'] = $modified;
+				$data['post_modified_gmt'] = $modified_gmt;
+			}
+			return $data;
+		};
+		add_filter( 'wp_insert_post_data', $preserve_modified, 10, 2 );
+		$updated = null;
+		try {
+			self::with_direct_save_storage_guardrails_suspended(
+				static function () use ( &$updated, $post_snapshot ): void {
+					self::with_reviewer_style_capture_suspended(
+						static function () use ( &$updated, $post_snapshot ): void {
+							$updated = wp_update_post( wp_slash( $post_snapshot ), true );
+						}
+					);
+				}
+			);
+		} finally {
+			remove_filter( 'wp_insert_post_data', $preserve_modified, 10 );
+		}
 		if ( is_wp_error( $updated ) || $original_id !== absint( $updated ) ) {
 			return array( 'success' => false, 'action' => 'restore_existing', 'error' => is_wp_error( $updated ) ? $updated->get_error_message() : 'post_restore_failed' );
 		}
+		$errors = array();
+		$restored_post = get_post( $original_id );
+		foreach ( array( 'post_author', 'post_title', 'post_excerpt', 'post_content', 'post_status', 'post_name', 'post_parent', 'menu_order', 'post_date', 'post_date_gmt', 'post_modified', 'post_modified_gmt' ) as $field ) {
+			if ( ! $restored_post instanceof WP_Post || (string) ( $post_snapshot[ $field ] ?? '' ) !== (string) $restored_post->{$field} ) {
+				$errors[] = 'post_field_' . $field;
+			}
+		}
 		$existing_meta = get_post_meta( $original_id );
-		foreach ( array_keys( $existing_meta ) as $key ) { delete_post_meta( $original_id, $key ); }
+		foreach ( array_keys( $existing_meta ) as $key ) {
+			if ( ! delete_post_meta( $original_id, $key ) && metadata_exists( 'post', $original_id, $key ) ) { $errors[] = 'meta_delete_' . $key; }
+		}
 		foreach ( (array) ( $snapshot['meta'] ?? array() ) as $key => $values ) {
-			foreach ( (array) $values as $value ) { add_post_meta( $original_id, (string) $key, maybe_unserialize( $value ) ); }
+			foreach ( (array) $values as $value ) {
+				if ( false === add_post_meta( $original_id, (string) $key, maybe_unserialize( $value ) ) ) { $errors[] = 'meta_add_' . $key; }
+			}
 		}
+		if ( self::translation_job_canonicalize( (array) ( $snapshot['meta'] ?? array() ) ) !== self::translation_job_canonicalize( get_post_meta( $original_id ) ) ) { $errors[] = 'meta_verification'; }
 		foreach ( (array) ( $snapshot['taxonomies'] ?? array() ) as $taxonomy => $term_ids ) {
-			wp_set_object_terms( $original_id, array_map( 'absint', (array) $term_ids ), (string) $taxonomy, false );
+			$result = wp_set_object_terms( $original_id, array_map( 'absint', (array) $term_ids ), (string) $taxonomy, false );
+			if ( is_wp_error( $result ) ) {
+				$errors[] = 'taxonomy_restore_' . $taxonomy;
+				continue;
+			}
+			$expected_ids = array_values( array_map( 'absint', (array) $term_ids ) );
+			$actual_ids = wp_get_object_terms( $original_id, (string) $taxonomy, array( 'fields' => 'ids' ) );
+			if ( is_wp_error( $actual_ids ) ) { $errors[] = 'taxonomy_verify_' . $taxonomy; continue; }
+			$actual_ids = array_values( array_map( 'absint', (array) $actual_ids ) );
+			sort( $expected_ids ); sort( $actual_ids );
+			if ( $expected_ids !== $actual_ids ) { $errors[] = 'taxonomy_verify_' . $taxonomy; }
 		}
+		$term_restore = self::translation_job_restore_term_snapshot( $term_scope, $original_id );
+		if ( empty( $term_restore['success'] ) ) { $errors[] = 'term_restore'; }
 		clean_post_cache( $original_id );
-		return array( 'success' => true, 'action' => 'restore_existing', 'translation_id' => $original_id );
+		return empty( $errors )
+			? array( 'success' => true, 'action' => 'restore_existing', 'translation_id' => $original_id )
+			: array( 'success' => false, 'action' => 'restore_existing', 'translation_id' => $original_id, 'error' => 'surface_restore_incomplete', 'restore_errors' => array_values( array_unique( $errors ) ), 'term_restore' => $term_restore );
+	}
+
+	/** Restore content/terms and menu projection in one all-or-nothing transaction. */
+	private static function translation_job_restore_publication_snapshot( array $snapshot, int $translation_id, string $language, array $menu ): array {
+		$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
+		$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
+		$target_menu_id = absint( $menu['target_menu']['id'] ?? 0 );
+		if ( ! self::translation_job_begin_recovery_transaction() ) { return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_unavailable' ); }
+		try {
+			$content_lock = self::translation_job_lock_recovery_surface( $translation_id, $term_scope, $identity_scope );
+			$menu_lock = $target_menu_id ? self::lock_localized_menu_projection_surface( $target_menu_id ) : array( 'success' => true );
+			$previous_menu_id = absint( $menu['previous_menu_id'] ?? 0 );
+			$previous_menu_lock = $previous_menu_id ? self::lock_localized_menu_projection_surface( $previous_menu_id ) : array( 'success' => true );
+			if ( empty( $content_lock['success'] ) || empty( $menu_lock['success'] ) || empty( $previous_menu_lock['success'] ) ) {
+				self::translation_job_rollback_recovery_transaction();
+				return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_surface_lock_failed', 'content_lock' => $content_lock, 'menu_lock' => $menu_lock, 'previous_menu_lock' => $previous_menu_lock );
+			}
+			$expected_revision = (string) ( $snapshot['rollback_expected_surface_revision'] ?? '' );
+			$current_revision = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
+			$menu_preflight = self::localized_menu_projection_rollback_preflight( $language, $menu );
+			if ( '' === $expected_revision || '' === $current_revision || ! hash_equals( $expected_revision, $current_revision ) || empty( $menu_preflight['success'] ) ) {
+				self::translation_job_rollback_recovery_transaction();
+				return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_preflight_failed', 'menu_rollback' => $menu_preflight );
+			}
+			$content_rollback = self::translation_job_restore_surface_snapshot_uncommitted( $snapshot, $translation_id );
+			$menu_rollback = ! empty( $content_rollback['success'] ) ? self::rollback_localized_menu_projection_uncommitted( $language, $menu ) : array( 'success' => false, 'action' => 'not_attempted_after_content_failure' );
+			if ( empty( $content_rollback['success'] ) || empty( $menu_rollback['success'] ) ) {
+				self::translation_job_rollback_recovery_transaction();
+				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+				if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
+				return array( 'success' => false, 'action' => 'publication_restore_rolled_back', 'error' => 'publication_restore_incomplete', 'transaction_rolled_back' => true, 'content_rollback' => $content_rollback, 'menu_rollback' => $menu_rollback );
+			}
+			if ( ! self::translation_job_commit_recovery_transaction() ) {
+				self::translation_job_rollback_recovery_transaction();
+				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+				if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
+				return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_commit_failed' );
+			}
+			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+			if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
+			return array( 'success' => true, 'action' => 'restore_publication', 'transaction_committed' => true, 'content_rollback' => $content_rollback, 'menu_rollback' => $menu_rollback );
+		} catch ( Throwable $error ) {
+			self::translation_job_rollback_recovery_transaction();
+			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+			if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
+			return array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_exception', 'message' => $error->getMessage() );
+		}
 	}
 
 	/** Attach rollback evidence to any failure after the first staged mutation. */
 	private static function translation_job_publish_failure_with_rollback( array $failure, $snapshot, int $translation_id ): array {
 		if ( ! is_array( $snapshot ) ) { return $failure; }
-		$failure['rollback'] = self::translation_job_restore_surface_snapshot( $snapshot, $translation_id );
+		if ( empty( $snapshot['mutation_started'] ) ) {
+			$failure['rollback'] = array( 'success' => true, 'action' => 'not_required_before_mutation', 'translation_id' => $translation_id );
+			return $failure;
+		}
+		if ( empty( $snapshot['rollback_expected_surface_revision'] ) ) {
+			$snapshot['rollback_expected_surface_revision'] = (string) ( $failure['mutation_surface_revision'] ?? '' );
+		}
+		if ( empty( $snapshot['rollback_expected_surface_revision'] ) ) {
+			$failure['rollback'] = array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'missing_expected_mutation_revision', 'translation_id' => $translation_id );
+			$failure['code'] = 'publication_rollback_failed';
+			$failure['message'] = 'Publication failed and rollback could not prove exclusive ownership of the current surface.';
+			return $failure;
+		}
+		$menu_recovery_plan = isset( $failure['menu_recovery_plan'] ) && is_array( $failure['menu_recovery_plan'] ) ? $failure['menu_recovery_plan'] : null;
+		$failure['rollback'] = is_array( $menu_recovery_plan )
+			? self::translation_job_restore_publication_snapshot( $snapshot, $translation_id, sanitize_key( (string) ( $menu_recovery_plan['language'] ?? '' ) ), $menu_recovery_plan )
+			: self::translation_job_restore_surface_snapshot( $snapshot, $translation_id );
+		if ( ! empty( $failure['rollback']['success'] ) && ! empty( $failure['purge_urls'] ) && is_array( $failure['purge_urls'] ) ) {
+			$rollback_invalidation = apply_filters(
+				'devenia_workflow_frontend_cache_invalidation_result',
+				null,
+				array_values( array_filter( array_map( 'esc_url_raw', $failure['purge_urls'] ) ) ),
+				array( 'event' => 'localized_presentation_rollback', 'translation_id' => $translation_id, 'reason' => sanitize_key( (string) ( $failure['code'] ?? 'publication_failed' ) ) )
+			);
+			$failure['rollback']['cache_invalidation'] = $rollback_invalidation;
+			if ( ! is_array( $rollback_invalidation ) || true !== ( $rollback_invalidation['success'] ?? null ) ) {
+				$failure['rollback']['success'] = false;
+				$failure['rollback']['error'] = 'rollback_cache_invalidation_failed';
+			}
+		}
 		if ( empty( $failure['rollback']['success'] ) ) {
 			$failure['code'] = 'publication_rollback_failed';
 			$failure['message'] = 'Publication failed and the original WordPress surface could not be restored automatically.';

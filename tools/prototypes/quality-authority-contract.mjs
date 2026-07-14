@@ -284,6 +284,21 @@ export function submitQualityDecision(input) {
 	};
 }
 
+export function exactAppliedSurfaceMatches(approvedSurface, currentSurface) {
+	return JSON.stringify(canonical(approvedSurface)) === JSON.stringify(canonical(currentSurface));
+}
+
+export function recoverFailedPublication({ snapshot, currentSurface, expectedMutationSurface, mutationStarted, restoreFailures = [] }) {
+	if (!mutationStarted) return { success: true, action: "not_required_before_mutation", surface: clone(currentSurface) };
+	if (!exactAppliedSurfaceMatches(expectedMutationSurface, currentSurface)) {
+		return { success: false, action: "rollback_conflict", surface: clone(currentSurface) };
+	}
+	if (restoreFailures.length > 0) {
+		return { success: false, action: "restore_existing", restore_errors: [...restoreFailures], surface: clone(currentSurface) };
+	}
+	return { success: true, action: "restore_existing", surface: clone(snapshot) };
+}
+
 export const qualityAuthorityPolicy = Object.freeze({
 	required_quality_kinds: [...REQUIRED_QUALITY_KINDS],
 	required_reviewer_kinds: [...REQUIRED_REVIEWER_KINDS],

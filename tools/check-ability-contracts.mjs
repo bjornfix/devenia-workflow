@@ -29,6 +29,12 @@ if (runtime.includes("enqueue_frontend_heading_fit_assets") || runtime.includes(
 if (!runtime.includes("array( 'Skip to content' )")) {
   failures.push("live verification must reject an untranslated public skip-to-content link");
 }
+const slugConflictStart = runtime.indexOf("private static function translation_slug_conflicts");
+const slugConflictEnd = runtime.indexOf("private static function validate_localized_parent_path", slugConflictStart);
+const slugConflictSource = runtime.slice(slugConflictStart, slugConflictEnd);
+if (!/\$slug\s*=\s*sanitize_title\( \$slug \);[\s\S]*if \( '' === \$slug \) \{[\s\S]*return array\(\);[\s\S]*new WP_Query/.test(slugConflictSource)) {
+  failures.push("empty translation slugs must short-circuit before the collision query and permalink filter chain");
+}
 for (const siteCopy of ["One brand operated", "Email Devenia about the website", "Get a homepage that makes people contact you"]) {
   if (runtime.includes(siteCopy)) {
     failures.push(`site-specific public-surface copy remains in public Workflow: ${siteCopy}`);

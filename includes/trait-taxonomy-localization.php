@@ -16,7 +16,7 @@ trait Devenia_Workflow_Translation_Taxonomy_Localization {
 	 * @param mixed $taxonomy_input Optional per-taxonomy term overrides from the client.
 	 * @return array<string,mixed>
 	 */
-	private static function sync_translated_post_terms( int $translation_id, WP_Post $source, string $language, $taxonomy_input ): array {
+	private static function sync_translated_post_terms( int $translation_id, WP_Post $source, string $language, $taxonomy_input, string $publication_attempt_id = '' ): array {
 		if ( 'post' !== $source->post_type || ! self::is_translation_language( $language ) ) {
 			return array( 'success' => true, 'synced' => array(), 'description_decisions' => array() );
 		}
@@ -39,7 +39,9 @@ trait Devenia_Workflow_Translation_Taxonomy_Localization {
 				}
 
 				$term_data = $input_terms[ (int) $source_term->term_id ] ?? array();
-				$existing_term_id = self::find_translated_term_id( (int) $source_term->term_id, $language, (string) $taxonomy );
+				$existing_result = self::find_translated_term_result( (int) $source_term->term_id, $language, (string) $taxonomy );
+				if ( empty( $existing_result['success'] ) ) { return $existing_result; }
+				$existing_term_id = absint( $existing_result['term_id'] ?? 0 );
 				$term_issue = self::translated_taxonomy_term_guardrail( $source_term, $language, $term_data, $existing_term_id );
 				if ( $term_issue ) {
 					return $term_issue;
@@ -49,7 +51,7 @@ trait Devenia_Workflow_Translation_Taxonomy_Localization {
 					return $description_decision;
 				}
 				$description_decisions[] = $description_decision['decision'];
-				$term_id = self::ensure_translated_term( $source_term, $language, $term_data );
+				$term_id = self::ensure_translated_term( $source_term, $language, $term_data, $publication_attempt_id );
 				if ( ! $term_id ) {
 					return array(
 						'success'        => false,
@@ -126,7 +128,9 @@ trait Devenia_Workflow_Translation_Taxonomy_Localization {
 				}
 
 				$term_data        = $input_terms[ (int) $source_term->term_id ] ?? array();
-				$existing_term_id = self::find_translated_term_id( (int) $source_term->term_id, $language, (string) $taxonomy );
+				$existing_result = self::find_translated_term_result( (int) $source_term->term_id, $language, (string) $taxonomy );
+				if ( empty( $existing_result['success'] ) ) { return $existing_result; }
+				$existing_term_id = absint( $existing_result['term_id'] ?? 0 );
 				$term_issue       = self::translated_taxonomy_term_guardrail( $source_term, $language, $term_data, $existing_term_id );
 				if ( $term_issue ) {
 					$term_issue['stage'] = 'taxonomy_preflight';
@@ -345,8 +349,10 @@ trait Devenia_Workflow_Translation_Taxonomy_Localization {
 	 *
 	 * @param array{name?:string,slug?:string,description?:string,description_not_useful_reason?:string} $term_data Client-provided localized term data.
 	 */
-	private static function ensure_translated_term( WP_Term $source_term, string $language, array $term_data ): int {
-		$existing_id = self::find_translated_term_id( (int) $source_term->term_id, $language, (string) $source_term->taxonomy );
+	private static function ensure_translated_term( WP_Term $source_term, string $language, array $term_data, string $publication_attempt_id = '' ): int {
+		$existing_result = self::find_translated_term_result( (int) $source_term->term_id, $language, (string) $source_term->taxonomy );
+		if ( empty( $existing_result['success'] ) ) { return 0; }
+		$existing_id = absint( $existing_result['term_id'] ?? 0 );
 		if ( $existing_id ) {
 			if ( empty( $term_data['slug'] ) ) {
 				$term_data['slug'] = sanitize_title( $language . '-' . (string) $source_term->slug );
@@ -371,12 +377,15 @@ trait Devenia_Workflow_Translation_Taxonomy_Localization {
 			$args['description'] = (string) $term_data['description'];
 		}
 		if ( 'category' === $source_term->taxonomy && $source_term->parent ) {
-			$translated_parent = self::find_translated_term_id( (int) $source_term->parent, $language, (string) $source_term->taxonomy );
+			$parent_result = self::find_translated_term_result( (int) $source_term->parent, $language, (string) $source_term->taxonomy );
+			if ( empty( $parent_result['success'] ) ) { return 0; }
+			$translated_parent = absint( $parent_result['term_id'] ?? 0 );
 			if ( $translated_parent ) {
 				$args['parent'] = $translated_parent;
 			}
 		}
 
+		$created_new = false;
 		$created = wp_insert_term( $name, (string) $source_term->taxonomy, $args );
 		if ( is_wp_error( $created ) && 'term_exists' === $created->get_error_code() ) {
 			$term_exists_data = $created->get_error_data();
@@ -390,6 +399,7 @@ trait Devenia_Workflow_Translation_Taxonomy_Localization {
 			return 0;
 		} else {
 			$term_id = absint( $created['term_id'] ?? 0 );
+			$created_new = true;
 		}
 
 		if ( $term_id === (int) $source_term->term_id ) {
@@ -399,6 +409,9 @@ trait Devenia_Workflow_Translation_Taxonomy_Localization {
 		if ( $term_id ) {
 			update_term_meta( $term_id, self::TERM_META_SOURCE_ID, (int) $source_term->term_id );
 			update_term_meta( $term_id, self::TERM_META_LANGUAGE, sanitize_key( $language ) );
+			if ( $created_new && '' !== $publication_attempt_id ) {
+				update_term_meta( $term_id, self::TERM_META_PUBLICATION_ATTEMPT, sanitize_text_field( $publication_attempt_id ) );
+			}
 			self::update_translated_term_details( $term_id, $source_term, $term_data );
 		}
 
@@ -714,11 +727,17 @@ trait Devenia_Workflow_Translation_Taxonomy_Localization {
 	 * Find one translated term by source term/language/taxonomy.
 	 */
 	private static function find_translated_term_id( int $source_term_id, string $language, string $taxonomy ): int {
+		$result = self::find_translated_term_result( $source_term_id, $language, $taxonomy );
+		return ! empty( $result['success'] ) ? absint( $result['term_id'] ?? 0 ) : 0;
+	}
+
+	/** Fail-closed translated-term lookup for mutation and Quality paths. */
+	private static function find_translated_term_result( int $source_term_id, string $language, string $taxonomy ): array {
 		$terms = get_terms(
 			array(
 				'taxonomy'   => $taxonomy,
 				'hide_empty' => false,
-				'number'     => 1,
+				'number'     => 2,
 				'fields'     => 'ids',
 				'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Narrow operator workflow lookup for term translations.
 					'relation' => 'AND',
@@ -734,10 +753,12 @@ trait Devenia_Workflow_Translation_Taxonomy_Localization {
 			)
 		);
 
-		if ( is_wp_error( $terms ) || empty( $terms ) ) {
-			return 0;
+		if ( is_wp_error( $terms ) ) {
+			return array( 'success' => false, 'code' => 'localized_taxonomy_term_lookup_failed', 'message' => $terms->get_error_message(), 'taxonomy' => $taxonomy, 'source_term_id' => $source_term_id, 'language' => sanitize_key( $language ) );
 		}
-
-		return absint( $terms[0] );
+		if ( count( (array) $terms ) > 1 ) {
+			return array( 'success' => false, 'code' => 'duplicate_localized_taxonomy_term_identity', 'message' => 'More than one translated term has the same source/language identity.', 'taxonomy' => $taxonomy, 'source_term_id' => $source_term_id, 'language' => sanitize_key( $language ) );
+		}
+		return array( 'success' => true, 'term_id' => empty( $terms ) ? 0 : absint( $terms[0] ) );
 	}
 }

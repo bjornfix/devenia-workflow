@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.607
+ * Version: 0.1.608
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -59,7 +59,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.607';
+	const VERSION = '0.1.608';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -161,6 +161,7 @@ final class Devenia_Workflow {
 	const META_AUTHORED_INTAKE_ERROR = '_devenia_translation_authored_intake_error';
 	const TERM_META_SOURCE_ID = '_devenia_translation_source_term_id';
 	const TERM_META_LANGUAGE  = '_devenia_translation_language';
+	const TERM_META_PUBLICATION_ATTEMPT = '_devenia_workflow_publication_attempt_id';
 	const MENU_ITEM_META_SOURCE_ITEM_ID = '_devenia_translation_source_menu_item_id';
 	const MENU_ITEM_META_SOURCE_OBJECT_ID = '_devenia_translation_source_menu_object_id';
 	const MENU_ITEM_META_LANGUAGE = '_devenia_translation_menu_language';
@@ -10830,27 +10831,10 @@ final class Devenia_Workflow {
 				: ( isset( $input['localized_parent_path'] ) ? self::normalize_localized_parent_path( (string) $input['localized_parent_path'], $language ) : '' );
 		}
 		if ( 'page' === $target_post_type ) {
-			$source_parent_result = self::authoritative_source_parent_for_translation( $source, $language, $parent_id, $localized_parent_path );
-			if ( ! $source_parent_result['success'] ) {
-				return $source_parent_result;
-			}
-			if ( ! empty( $source_parent_result['parent_id'] ) ) {
-				$parent_id = (int) $source_parent_result['parent_id'];
-			}
-		}
-		if ( 'page' === $target_post_type && ! $parent_id && '' !== $localized_parent_path ) {
-			$parent_path_issue = self::validate_localized_parent_path( $localized_parent_path, $language, $source, $allow_source_slug_in_url, $source_slug_reason );
-			if ( $parent_path_issue ) {
-				return $parent_path_issue;
-			}
-			$parent_status = self::sanitize_post_status( (string) ( $input['parent_status'] ?? 'draft' ), 'draft' );
-			$parent_result = self::ensure_parent_path( $language, $localized_parent_path, $parent_status );
-			if ( ! $parent_result['success'] ) {
-				return $parent_result;
-			}
-			$parent_id = (int) $parent_result['parent_id'];
-		} elseif ( 'page' === $target_post_type && ! $parent_id ) {
-			$parent_id = self::default_translation_parent_id( $source, $language );
+			$parent_result = self::translation_job_resolve_localized_parent( $source, $language, $parent_id, $localized_parent_path, $allow_source_slug_in_url, $source_slug_reason );
+			if ( empty( $parent_result['success'] ) ) { return $parent_result; }
+			$parent_id = absint( $parent_result['parent_id'] ?? 0 );
+			$localized_parent_path = (string) ( $parent_result['parent_path'] ?? $localized_parent_path );
 		}
 
 		$source_design = array();
@@ -11000,12 +10984,16 @@ final class Devenia_Workflow {
 		if ( 'post' === $target_post_type && '' !== $localized_path ) {
 			update_post_meta( $translation_id, self::META_LOCALIZED_PATH, $localized_path );
 		}
+		$publication_attempt_id = sanitize_text_field( (string) ( $input['publication_attempt_id'] ?? '' ) );
+		if ( '' !== $publication_attempt_id ) {
+			update_post_meta( $translation_id, '_devenia_workflow_publication_attempt_id', $publication_attempt_id );
+		}
 		if ( $saved_post && 'publish' === $saved_post->post_status ) {
 			self::store_translation_canonical_route( $saved_post, $language );
 		}
 		self::store_translation_source_slug_exception( $translation_id, $allow_source_slug_in_url, $slug, $source_slug_reason );
 		if ( 'post' === $target_post_type ) {
-			$term_result = self::sync_translated_post_terms( $translation_id, $source, $language, $input['taxonomies'] ?? array() );
+			$term_result = self::sync_translated_post_terms( $translation_id, $source, $language, $input['taxonomies'] ?? array(), $publication_attempt_id );
 			if ( empty( $term_result['success'] ) ) {
 				return self::rollback_new_translation_after_upsert_failure( $translation_id, $creating_translation, $term_result );
 			}
@@ -11584,6 +11572,11 @@ final class Devenia_Workflow {
 	 * @return array<int,array<string,mixed>>
 	 */
 	private static function translation_slug_conflicts( string $slug, string $post_type, int $parent_id, int $exclude_id ): array {
+		$slug = sanitize_title( $slug );
+		if ( '' === $slug ) {
+			return array();
+		}
+
 		$query = new WP_Query(
 			array(
 				'name'              => $slug,
@@ -11761,6 +11754,32 @@ final class Devenia_Workflow {
 		}
 
 		return array( 'success' => true, 'parent_id' => $translated_parent_id );
+	}
+
+	/** Resolve one existing, language-correct parent without creating placeholders. */
+	private static function translation_job_resolve_localized_parent( WP_Post $source, string $language, int $requested_parent_id, string $requested_parent_path, bool $allow_source_slug = false, string $source_slug_reason = '' ): array {
+		if ( 'page' !== (string) $source->post_type ) { return array( 'success' => true, 'parent_id' => 0, 'parent_path' => '' ); }
+		$parent_path = self::normalize_localized_parent_path( $requested_parent_path, $language );
+		$result = self::authoritative_source_parent_for_translation( $source, $language, $requested_parent_id, $parent_path );
+		if ( empty( $result['success'] ) ) { return $result; }
+		$parent_id = absint( $result['parent_id'] ?? $requested_parent_id );
+		if ( ! $parent_id && '' !== $parent_path ) {
+			$path_issue = self::validate_localized_parent_path( $parent_path, $language, $source, $allow_source_slug, $source_slug_reason );
+			if ( $path_issue ) { return $path_issue; }
+			$result = self::ensure_parent_path( $language, $parent_path, 'draft' );
+			if ( empty( $result['success'] ) ) { return $result; }
+			$parent_id = absint( $result['parent_id'] ?? 0 );
+		} elseif ( ! $parent_id ) {
+			$parent_id = self::default_translation_parent_id( $source, $language );
+		}
+		if ( $parent_id ) {
+			$parent = get_post( $parent_id );
+			$parent_language = sanitize_key( (string) get_post_meta( $parent_id, self::META_LANGUAGE, true ) );
+			if ( ! $parent instanceof WP_Post || 'page' !== (string) $parent->post_type || $parent_language !== sanitize_key( $language ) ) {
+				return array( 'success' => false, 'code' => 'localized_parent_language_mismatch', 'message' => 'Localized parent must be an existing translated page in the target language.', 'parent_id' => $parent_id, 'language' => sanitize_key( $language ) );
+			}
+		}
+		return array( 'success' => true, 'parent_id' => $parent_id, 'parent_path' => $parent_path );
 	}
 
 	/**
@@ -13432,9 +13451,10 @@ final class Devenia_Workflow {
 	/**
 	 * Apply the publish transition and its side effects in one place.
 	 */
-	private static function apply_translation_publish_transition( int $translation_id, string $language, int $source_id ): array {
+	private static function apply_translation_publish_transition( int $translation_id, string $language, int $source_id, array $rollback_term_scope = array() ): array {
 		$source = $source_id ? get_post( $source_id ) : null;
 		$translation = get_post( $translation_id );
+		$before_mutation_revision = self::translation_job_rollback_cas_revision( $translation_id, $rollback_term_scope );
 		$previous_modified = $translation instanceof WP_Post ? (string) $translation->post_modified : '';
 		$previous_modified_gmt = $translation instanceof WP_Post ? (string) $translation->post_modified_gmt : '';
 		$postarr = array(
@@ -13478,7 +13498,8 @@ final class Devenia_Workflow {
 			}
 		}
 		if ( is_wp_error( $result ) ) {
-			return self::error( $result->get_error_message() );
+			$after_mutation_revision = self::translation_job_rollback_cas_revision( $translation_id, $rollback_term_scope );
+			return array( 'success' => false, 'message' => $result->get_error_message(), 'mutation_started' => '' !== $after_mutation_revision && ! hash_equals( $before_mutation_revision, $after_mutation_revision ), 'mutation_cas_revision' => $after_mutation_revision );
 		}
 
 		if ( $source ) {
@@ -13498,13 +13519,14 @@ final class Devenia_Workflow {
 					'success'         => false,
 					'message'         => 'Translation route integrity failed after publish transition.',
 					'route_integrity' => $route_integrity,
+					'mutation_started' => true,
+					'mutation_cas_revision' => self::translation_job_rollback_cas_revision( $translation_id, $rollback_term_scope ),
 				);
 			}
-			$link_repair = self::repair_internal_links(
-				array(
-					'languages' => array( $language ),
-				)
-			);
+			// Publication recovery owns one translation surface. Broad cross-post
+			// link repair is a separate maintenance transaction and must not create
+			// unrelated public mutations which this snapshot cannot roll back.
+			$link_repair = array( 'success' => true, 'changed' => array(), 'deferred' => true );
 		} else {
 			update_post_meta( $translation_id, self::META_STATUS, 'published' );
 			update_post_meta( $translation_id, self::META_REVIEWED_AT, gmdate( 'c' ) );
@@ -13554,6 +13576,8 @@ final class Devenia_Workflow {
 			'success'     => true,
 			'purge_urls'  => $purge_urls,
 			'link_repair' => $link_repair,
+			'mutation_started' => true,
+			'mutation_cas_revision' => self::translation_job_rollback_cas_revision( $translation_id, $rollback_term_scope ),
 		);
 	}
 
@@ -17407,6 +17431,7 @@ final class Devenia_Workflow {
 
 		$previous_menu_id = self::localized_menu_id( $language );
 		$previous_menu    = $previous_menu_id > 0 ? wp_get_nav_menu_object( $previous_menu_id ) : null;
+		$previous_menu_surface_revision = $previous_menu_id > 0 ? self::localized_menu_projection_revision( $previous_menu_id ) : '';
 		$staging_name     = sprintf( '%s [Workflow %s %s]', $target_menu_name, $language, wp_generate_password( 8, false, false ) );
 		$target_menu_id   = wp_create_nav_menu( $staging_name );
 		if ( is_wp_error( $target_menu_id ) ) {
@@ -17554,7 +17579,8 @@ final class Devenia_Workflow {
 				'previous_menu_id' => $previous_menu_id,
 			);
 		}
-		if ( ! self::activate_localized_menu_id( $language, (int) $target_menu->term_id, $target_menu_name, $previous_menu_id ) ) {
+		$menu_activation = self::activate_localized_menu_id( $language, (int) $target_menu->term_id, $target_menu_name, $previous_menu_id );
+		if ( empty( $menu_activation['success'] ) ) {
 			wp_delete_nav_menu( (int) $target_menu->term_id );
 			return array(
 				'success'          => false,
@@ -17564,8 +17590,10 @@ final class Devenia_Workflow {
 			);
 		}
 
-		$should_retire_previous = (bool) apply_filters( 'devenia_workflow_retire_previous_localized_menu_projection', true, $previous_menu_id, (int) $target_menu->term_id, $language );
-		$retired_previous = $should_retire_previous ? self::retire_managed_localized_menu( $previous_menu_id, (int) $target_menu->term_id ) : false;
+		$should_retire_previous = array_key_exists( 'retire_previous', $input )
+			? (bool) $input['retire_previous']
+			: (bool) apply_filters( 'devenia_workflow_retire_previous_localized_menu_projection', true, $previous_menu_id, (int) $target_menu->term_id, $language );
+		$retired_previous = $should_retire_previous ? self::retire_managed_localized_menu( $previous_menu_id, (int) $target_menu->term_id, $previous_menu_surface_revision ) : false;
 
 		return array(
 			'success'         => true,
@@ -17578,7 +17606,9 @@ final class Devenia_Workflow {
 			'skipped_count'   => count( $skipped ),
 			'validation'      => $validation,
 			'previous_menu_id'=> $previous_menu_id,
+			'previous_menu_surface_revision' => $previous_menu_surface_revision,
 			'retired_previous'=> $retired_previous,
+			'menu_identity_activation' => $menu_activation,
 		);
 	}
 

@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.607
+**Stable tag:** 0.1.608
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.608
+
+- Makes staged publication recovery idempotent when an approved surface was fully applied before a gateway interruption, and restores failed existing candidates inside the guarded rollback boundary.
 
 ### 0.1.607
 

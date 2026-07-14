@@ -40,4 +40,39 @@ trait Devenia_Workflow_Atomic_Option_Store {
 		wp_cache_delete( 'notoptions', 'options' );
 		return 1 === $inserted;
 	}
+
+	/** Replace one option only when its complete serialized value still matches. */
+	private static function atomic_replace_option_value( string $key, $expected, $replacement ): bool {
+		$key = trim( $key );
+		if ( '' === $key ) { return false; }
+		global $wpdb;
+		$updated = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Lease takeover/renewal needs compare-and-swap semantics unavailable in Options API.
+			$wpdb->prepare(
+				"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND BINARY option_value = BINARY %s",
+				maybe_serialize( $replacement ),
+				$key,
+				maybe_serialize( $expected )
+			)
+		);
+		wp_cache_delete( $key, 'options' );
+		return 1 === $updated;
+	}
+
+	/** Delete one option only when its complete serialized value still matches. */
+	private static function atomic_delete_option_value( string $key, $expected ): bool {
+		$key = trim( $key );
+		if ( '' === $key ) { return false; }
+		global $wpdb;
+		$deleted = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Lease release must not delete a successor lease after an ownership race.
+			$wpdb->prepare(
+				"DELETE FROM {$wpdb->options} WHERE option_name = %s AND BINARY option_value = BINARY %s",
+				$key,
+				maybe_serialize( $expected )
+			)
+		);
+		wp_cache_delete( $key, 'options' );
+		wp_cache_delete( 'alloptions', 'options' );
+		wp_cache_delete( 'notoptions', 'options' );
+		return 1 === $deleted;
+	}
 }

@@ -6,8 +6,10 @@ import {
 	issueBrowserRenderReceipt,
 	issueQualityEvidenceReceipt,
 	issueRunPrincipal,
+	exactAppliedSurfaceMatches,
 	qualityAuthorityPolicy,
 	recordMeasuredUsage,
+	recoverFailedPublication,
 	stageArtifact,
 	submitReviewerAttestation,
 	submitQualityDecision,
@@ -184,5 +186,21 @@ pass(() => assert.equal(submitQualityDecision({
 	reviewer_attestations: reviewerAttestations,
 	reviewer_observations: "Natural Norwegian and the complete surface were checked by bound receipts.",
 }).decision, "pass"));
+
+const recoverySnapshot = {
+	post: { author: 2, date: "2026-01-01", modified: "2026-01-02", content: "before" },
+	seo: { title: "Before" },
+	taxonomy: { category: [{ source_term_id: 7, name: "Før" }] },
+	route: { localized_path: "nb/for", canonical_route: { path: "nb/for" } },
+	media: { alt: "" },
+};
+const mutatedSurface = { ...structuredClone(recoverySnapshot), post: { ...recoverySnapshot.post, content: "approved" } };
+pass(() => assert.equal(exactAppliedSurfaceMatches(mutatedSurface, structuredClone(mutatedSurface)), true));
+pass(() => assert.equal(exactAppliedSurfaceMatches(mutatedSurface, { ...structuredClone(mutatedSurface), route: { ...mutatedSurface.route, canonical_route: { path: "nb/drift" } } }), false));
+pass(() => assert.equal(exactAppliedSurfaceMatches(mutatedSurface, { ...structuredClone(mutatedSurface), media: { alt: "stale" } }), false));
+pass(() => assert.deepEqual(recoverFailedPublication({ snapshot: recoverySnapshot, currentSurface: mutatedSurface, expectedMutationSurface: mutatedSurface, mutationStarted: false }).surface, mutatedSurface));
+pass(() => assert.equal(recoverFailedPublication({ snapshot: recoverySnapshot, currentSurface: { ...mutatedSurface, seo: { title: "Concurrent" } }, expectedMutationSurface: mutatedSurface, mutationStarted: true }).action, "rollback_conflict"));
+pass(() => assert.deepEqual(recoverFailedPublication({ snapshot: recoverySnapshot, currentSurface: mutatedSurface, expectedMutationSurface: mutatedSurface, mutationStarted: true }).surface, recoverySnapshot));
+pass(() => assert.equal(recoverFailedPublication({ snapshot: recoverySnapshot, currentSurface: mutatedSurface, expectedMutationSurface: mutatedSurface, mutationStarted: true, restoreFailures: ["meta_verification"] }).success, false));
 
 console.log(JSON.stringify({ success: true, cases, receipts: receipts.length }));
