@@ -636,6 +636,29 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	}
 
 	/**
+	 * Normalize presentation fragments to their exact logical storage identity.
+	 *
+	 * Translator artifacts may express plain-text fragments with a `text` field,
+	 * while the durable WordPress representation always uses `html`. Sorting the
+	 * normalized key/value records also makes verification independent of storage
+	 * merge order without weakening source-design coverage or its exact hash.
+	 *
+	 * @param mixed $fragments Raw manifest or stored fragment rows.
+	 * @return array<int,array{key:string,html:string}>
+	 */
+	private static function translation_job_normalized_presentation_fragments( $fragments ): array {
+		$records = self::localized_fragment_records_for_storage( $fragments );
+		usort(
+			$records,
+			static function ( array $left, array $right ): int {
+				return strcmp( (string) ( $left['key'] ?? '' ), (string) ( $right['key'] ?? '' ) );
+			}
+		);
+
+		return $records;
+	}
+
+	/**
 	 * Build and validate the complete staged reader surface without writing it.
 	 *
 	 * @return array<string,mixed>
@@ -749,7 +772,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			),
 			'presentation'    => array(
 				'source_design_hash' => (string) ( self::source_design_contract( $source )['design_hash'] ?? '' ),
-				'localized_fragments' => self::translation_job_canonicalize( (array) ( $artifact['localized_fragments'] ?? array() ) ),
+				'localized_fragments' => self::translation_job_normalized_presentation_fragments( $artifact['localized_fragments'] ?? array() ),
 			),
 		);
 		$surface_revision = self::translation_job_surface_revision( $manifest );
@@ -1289,7 +1312,9 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		if ( array_key_exists( 'featured_image_alt', $media ) && (string) $media['featured_image_alt'] !== (string) get_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT, true ) ) { $failed[] = 'media_alt'; }
 		$presentation = (array) ( $manifest['presentation'] ?? array() );
 		$stored_presentation = self::stored_localized_source_design_fragments( $translation_id );
-		if ( (string) ( $presentation['source_design_hash'] ?? '' ) !== (string) get_post_meta( $translation_id, self::META_SOURCE_DESIGN_HASH, true ) || self::translation_job_canonicalize( (array) ( $presentation['localized_fragments'] ?? array() ) ) !== self::translation_job_canonicalize( (array) ( $stored_presentation['fragments'] ?? array() ) ) ) { $failed[] = 'presentation'; }
+		$expected_presentation_fragments = self::translation_job_normalized_presentation_fragments( $presentation['localized_fragments'] ?? array() );
+		$actual_presentation_fragments = self::translation_job_normalized_presentation_fragments( $stored_presentation['fragments'] ?? array() );
+		if ( (string) ( $presentation['source_design_hash'] ?? '' ) !== (string) get_post_meta( $translation_id, self::META_SOURCE_DESIGN_HASH, true ) || self::translation_job_canonicalize( $expected_presentation_fragments ) !== self::translation_job_canonicalize( $actual_presentation_fragments ) ) { $failed[] = 'presentation'; }
 		if ( 'post' === $source->post_type ) {
 			$expected_taxonomies = absint( $manifest['schema_version'] ?? 1 ) >= 2
 				? (array) ( $manifest['taxonomies'] ?? array() )
