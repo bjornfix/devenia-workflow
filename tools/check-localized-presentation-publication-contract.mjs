@@ -210,22 +210,47 @@ const productionHeaderStateContractPasses = (source) => {
 	const end = source.indexOf("$before =", start);
 	if (start < 0 || end <= start) return false;
 	const helper = source.slice(start, end);
-	return /\$missing = '__devenia_workflow_option_missing__';/.test(helper)
-		&& /'manifest'\s*=> get_option\( 'devenia_workflow_public_header_manifest', \$missing \)/.test(helper)
-		&& /'pending'\s*=> get_option\( 'devenia_workflow_pending_public_header_manifest', \$missing \)/.test(helper)
-		&& /'identities'\s*=> get_option\( 'devenia_workflow_localized_menu_identities', \$missing \)/.test(helper)
-		&& /'enrollment'\s*=> get_option\( 'devenia_workflow_public_header_enrollment', \$missing \)/.test(helper)
-		&& !/__workflow_missing__/.test(helper);
+	const assignments = source.match(/\$production_header_state\s*=/g) || [];
+	return assignments.length === 1
+		&& !/\bunset\s*\(\s*\$production_header_state\b/.test(source)
+		&& /^\s*\$production_header_state = static function \(\): array \{\s*\$missing = '__devenia_workflow_option_missing__';\s*return array\(\s*'manifest'\s*=> get_option\( 'devenia_workflow_public_header_manifest', \$missing \),\s*'identities'\s*=> get_option\( 'devenia_workflow_localized_menu_identities', \$missing \),\s*'pending'\s*=> get_option\( 'devenia_workflow_pending_public_header_manifest', \$missing \),\s*'enrollment'\s*=> get_option\( 'devenia_workflow_public_header_enrollment', \$missing \),\s*\);\s*\};\s*$/.test(helper);
 };
-assert.equal(productionHeaderStateContractPasses(publicHeaderRuntime), true, "the bounded reconciliation-state reader must use the production missing-option sentinel for every Public Header slot");
+assert.equal(productionHeaderStateContractPasses(publicHeaderRuntime), true, "the bounded reconciliation-state reader must use the production missing-option sentinel and exact production key order for every Public Header slot");
 assert.equal(productionHeaderStateContractPasses(publicHeaderRuntime.replace("$missing = '__devenia_workflow_option_missing__';", "$missing = '__workflow_missing__';")), false, "the state-reader gate must reject a harness sentinel substituted for production authority");
 assert.equal(productionHeaderStateContractPasses(publicHeaderRuntime.replace("get_option( 'devenia_workflow_pending_public_header_manifest', $missing )", "get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' )")), false, "the state-reader gate must reject a pending-only sentinel substitution");
+const swappedProductionStateOrder = publicHeaderRuntime.replace(
+	"\t\t'identities' => get_option( 'devenia_workflow_localized_menu_identities', $missing ),\n\t\t'pending'    => get_option( 'devenia_workflow_pending_public_header_manifest', $missing ),",
+	"\t\t'pending'    => get_option( 'devenia_workflow_pending_public_header_manifest', $missing ),\n\t\t'identities' => get_option( 'devenia_workflow_localized_menu_identities', $missing ),",
+);
+assert.equal(productionHeaderStateContractPasses(swappedProductionStateOrder), false, "the state-reader gate must reject identities/pending key-order drift that invalidates strict raw evidence");
+const reversedProductionState = publicHeaderRuntime
+	.replace("\treturn array(\n\t\t'manifest'", "\treturn array_reverse( array(\n\t\t'manifest'")
+	.replace("\t\t'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', $missing ),\n\t);\n};\n$before =", "\t\t'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', $missing ),\n\t), true );\n};\n$before =");
+assert.notEqual(reversedProductionState, publicHeaderRuntime, "the helper reversal mutation fixture must alter the source");
+assert.equal(productionHeaderStateContractPasses(reversedProductionState), false, "the state-reader gate must reject a post-construction key-order transform");
+const extraProductionStateKey = publicHeaderRuntime.replace("\t\t'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', $missing ),\n\t);\n};\n$before =", "\t\t'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', $missing ),\n\t\t'extra'      => true,\n\t);\n};\n$before =");
+assert.notEqual(extraProductionStateKey, publicHeaderRuntime, "the helper extra-key mutation fixture must alter the source");
+assert.equal(productionHeaderStateContractPasses(extraProductionStateKey), false, "the state-reader gate must reject any fifth state key");
+assert.equal(productionHeaderStateContractPasses(`${publicHeaderRuntime}\n$production_header_state = static function (): array { return array(); };`), false, "the state-reader gate must reject any later helper replacement outside the bounded definition slice");
 
 const boundedSource = (source, startMarker, endMarker) => {
 	const start = source.indexOf(startMarker);
 	const end = source.indexOf(endMarker, start + startMarker.length);
 	return start >= 0 && end > start ? source.slice(start, end) : "";
 };
+// This static layer proves exact capture provenance and rejects direct write
+// drift. It deliberately does not pretend to model PHP's open-ended by-ref
+// function semantics; the real WordPress runtime's strict raw comparisons are
+// the semantic oracle for every effect after capture.
+const protectedSnapshotsHaveExactCapture = (source, variableNames) => variableNames.every((name) => {
+	const exactAssignment = `$${name} = $production_header_state();`;
+	if (source.split(exactAssignment).length - 1 !== 1) return false;
+	const remainder = source.replace(exactAssignment, "");
+	const assignment = new RegExp(`\\$${name}\\s*(?:\\[[^\\]]*\\]\\s*)*(?:=(?!=)|\\+=|-=|\\.=|\\*=|\\/=|%=|&=|\\|=|\\^=|<<=|>>=|\\?\\?=)`);
+	const unset = new RegExp(`\\bunset\\s*\\(\\s*\\$${name}(?:\\s*\\[|\\s*\\))`);
+	const increment = new RegExp(`(?:\\+\\+|--)\\s*\\$${name}\\b|\\$${name}\\s*(?:\\[[^\\]]*\\]\\s*)*(?:\\+\\+|--)`);
+	return !assignment.test(remainder) && !unset.test(remainder) && !increment.test(remainder);
+});
 const stagedProjectionEvidenceContractPasses = (source) => {
 	const helper = boundedSource(source, "$staged_projection_set_evidence =", "$inventory_term_ids =");
 	return /static function \( array \$attempt, string \$expected_manifest_revision \)/.test(helper)
@@ -246,6 +271,9 @@ const pendingRaceRuntimeContractPasses = (source) => {
 		&& /\$staged_projection_set_evidence\( \$pending_race, \(string\) \( \$pending_race_before\['pending'\]\['revision'\]/.test(assertion)
 		&& /empty\( \$pending_projection_evidence\['exact'\] \)[\s\S]*count\( \$pending_projection_ids \) !== count\( \$languages \)[\s\S]*\$pending_expected_staged_ids !== \$pending_inventory_delta[\s\S]*\$expected_managed_with_staged[\s\S]*\$pending_race_raw_menus_before !== \$raw_fixture_menu_surface\(\)[\s\S]*\$pending_race_relations_before !== \$raw_relation_post_surface/.test(assertion)
 		&& /array_key_exists\( 'cache_invalidation', \$pending_race \)[\s\S]*array_key_exists\( 'verification', \$pending_race \)[\s\S]*array_key_exists\( 'retirement', \$pending_race \)/.test(assertion)
+		&& protectedSnapshotsHaveExactCapture(assertion, ["pending_race_before", "pending_race_after", "pending_race_restored", "state_after_identity_race", "pending_state_after_cleanup"])
+		&& /\$pending_race_before = \$production_header_state\(\);[\s\S]*\$pending_race_after = \$production_header_state\(\);[\s\S]*\$pending_race_restored = \$production_header_state\(\);[\s\S]*\$state_after_identity_race = \$production_header_state\(\);[\s\S]*\$pending_state_after_cleanup = \$production_header_state\(\);/.test(assertion)
+		&& /__devenia_workflow_option_missing__[\s\S]*\$pending_cleanup_authority[\s\S]*__devenia_workflow_option_missing__/.test(assertion)
 		&& /\$pending_race_before !== \$pending_race_restored[\s\S]*\$pending_race_before !== \$state_after_identity_race[\s\S]*\$pending_race_before !== \$pending_state_after_cleanup/.test(assertion);
 };
 assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime), true, "the bounded pending-race oracle must require the exact foreign raw owner, receipt-specific evidence, denied cleanup, and every intact staged projection");
@@ -253,6 +281,10 @@ assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("'publ
 assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("$pending_race_foreign_state !== ( $pending_race_after['pending'] ?? null )", "false")), false, "the pending-race gate must reject removal of exact foreign pending preservation");
 assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("empty( $pending_projection_evidence['exact'] )", "false")), false, "the pending-race gate must reject removal of exact staged-projection evidence");
 assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("$pending_race_before !== $pending_race_restored", "false")), false, "the pending-race gate must reject removal of strict four-slot fixture restoration");
+assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("$pending_race_after = $production_header_state();", "$pending_race_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment' ) );")), false, "the pending-race gate must reject a hand-assembled snapshot that can drift from production key order");
+assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("$pending_race_after = $production_header_state();", "$pending_race_after = $production_header_state(); $pending_race_after = array_reverse( $pending_race_after, true );")), false, "the pending-race gate must reject any post-helper snapshot override");
+assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("$pending_race_after = $production_header_state();", "$pending_race_after = $production_header_state(); $pending_race_after['pending']['revision'] = 'tampered';")), false, "the pending-race gate must reject nested snapshot writes");
+assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("$pending_race_after = $production_header_state();", "$pending_race_after = $production_header_state(); ++$pending_race_after['pending']['revision'];")), false, "the pending-race gate must reject nested snapshot increments");
 
 const enrollmentRaceRuntimeContractPasses = (source) => {
 	const injection = boundedSource(source, "if ( 'enrollment_state_race' === $failure_mode )", "if ( 'pending_key_reorder' === $failure_mode )");
@@ -264,7 +296,10 @@ const enrollmentRaceRuntimeContractPasses = (source) => {
 		&& /staged_projection_cleanup_not_authorized[\s\S]*empty\( \$enrollment_projection_evidence\['exact'\] \)[\s\S]*count\( \$enrollment_projection_ids \) !== count\( \$languages \)[\s\S]*\$enrollment_expected_staged_ids !== \$enrollment_inventory_delta[\s\S]*\$enrollment_state_race_raw_menus_before !== \$raw_fixture_menu_surface\(\)[\s\S]*\$enrollment_state_race_relations_before !== \$raw_relation_post_surface/.test(assertion)
 		&& /\$staged_projection_set_evidence\( \$enrollment_state_race, \(string\) \( \$enrollment_state_race_before\['pending'\]\['revision'\]/.test(assertion)
 		&& /array_key_exists\( 'cache_invalidation', \$enrollment_state_race \)[\s\S]*array_key_exists\( 'verification', \$enrollment_state_race \)[\s\S]*array_key_exists\( 'retirement', \$enrollment_state_race \)/.test(assertion)
-		&& /\$enrollment_state_race_before !== \$enrollment_state_restored[\s\S]*delete_staged_public_header_projections[\s\S]*\$enrollment_state_race_inventory_before !== \$raw_nav_menu_inventory\(\)/.test(assertion);
+		&& protectedSnapshotsHaveExactCapture(assertion, ["enrollment_state_race_before", "enrollment_state_race_after", "enrollment_state_restored", "enrollment_state_after_cleanup"])
+		&& /\$enrollment_state_race_before = \$production_header_state\(\);[\s\S]*\$enrollment_state_race_after = \$production_header_state\(\);[\s\S]*\$enrollment_state_restored = \$production_header_state\(\);[\s\S]*\$enrollment_state_after_cleanup = \$production_header_state\(\);/.test(assertion)
+		&& /__devenia_workflow_option_missing__[\s\S]*\$enrollment_state_cleanup_authority[\s\S]*__devenia_workflow_option_missing__/.test(assertion)
+		&& /\$enrollment_state_race_before !== \$enrollment_state_restored[\s\S]*delete_staged_public_header_projections[\s\S]*\$enrollment_state_race_before !== \$enrollment_state_after_cleanup[\s\S]*\$enrollment_state_race_inventory_before !== \$raw_nav_menu_inventory\(\)/.test(assertion);
 };
 assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime), true, "a separate bounded non-pending locked race must keep the generic state-CAS rejection real and prove exact fixture restoration");
 assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("'public_header_state_changed' !== (string) ( $enrollment_state_race['activation']['code'] ?? '' )", "'public_header_activation_receipt_mismatch' !== (string) ( $enrollment_state_race['activation']['code'] ?? '' )")), false, "the enrollment-race gate must reject substitution of pending-only receipt evidence");
@@ -274,6 +309,8 @@ assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("em
 assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("! empty( $enrollment_state_race['cleanup_authority']['allowed'] )", "false")), false, "the enrollment-race gate must reject removal of cleanup denial");
 assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("false !== ( $enrollment_state_race['cleanup_authority']['before_exact'] ?? null )", "false")), false, "the enrollment-race gate must reject removal of foreign-state cleanup classification");
 assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("array_key_exists( 'cache_invalidation', $enrollment_state_race )", "false")), false, "the enrollment-race gate must reject removal of the pre-cache-invalidation phase boundary");
+assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("$enrollment_state_race_after = $production_header_state();", "$enrollment_state_race_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment' ) );")), false, "the enrollment-race gate must reject a hand-assembled snapshot that can drift from production key order");
+assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("$enrollment_state_race_after = $production_header_state();", "$enrollment_state_race_after = $production_header_state(); $enrollment_state_race_after = array_reverse( $enrollment_state_race_after, true );")), false, "the enrollment-race gate must reject any post-helper snapshot override");
 
 const syncStart = plugin.indexOf("private static function sync_language_menu");
 const syncEnd = plugin.indexOf("private static function existing_menu_label_map", syncStart);
