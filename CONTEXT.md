@@ -147,7 +147,11 @@ does not read CI state, invoke workflows, or treat a GitHub run or artifact as
 runtime publication authority; release and updater metadata remain distribution
 mechanisms, not runtime dependencies. Production Workflow never shells out or
 requires an external executable; process-based release and CI tooling remains
-outside WordPress runtime. The
+outside WordPress runtime. The canonical database acceptance suite is a
+repository-owned local tool which defaults to the MariaDB 10.11 production
+baseline. MySQL 8.4 is optional compatibility evidence only, and a GitHub
+workflow is merely one replaceable Adapter that may invoke that mode. Local
+contract checks never read workflow files as authority. The
 Translation Index Adapter is a fail-closed read-model cross-check only: it never
 selects a candidate, and unavailable, missing, stale, or disagreeing rows reject
 publication. Internal custom links bind canonical source and target post IDs,

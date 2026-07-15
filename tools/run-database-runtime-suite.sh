@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+plugin_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+wp_path="${1:-${WP_PATH:-}}"
+wp_cli_bin="${WP_CLI_BIN:-wp}"
+php_bin="${PHP_BIN:-php}"
+database_expectation="${DATABASE_EXPECTATION:-mariadb}"
+
+if [[ -z "$wp_path" ]]; then
+	printf '%s\n' 'Usage: tools/run-database-runtime-suite.sh /path/to/wordpress' >&2
+	exit 2
+fi
+if [[ ! -d "$wp_path" ]]; then
+	printf 'WordPress path does not exist: %s\n' "$wp_path" >&2
+	exit 2
+fi
+if ! command -v "$wp_cli_bin" >/dev/null 2>&1; then
+	printf 'WP-CLI executable is unavailable: %s\n' "$wp_cli_bin" >&2
+	exit 2
+fi
+if ! command -v "$php_bin" >/dev/null 2>&1; then
+	printf 'PHP executable is unavailable: %s\n' "$php_bin" >&2
+	exit 2
+fi
+
+if "$wp_cli_bin" option get devenia_workflow_version --path="$wp_path" --skip-plugins --skip-themes >/dev/null 2>&1; then
+	"$wp_cli_bin" option delete devenia_workflow_version --path="$wp_path" --skip-plugins --skip-themes >/dev/null
+fi
+
+bootstrap_result="$("$wp_cli_bin" eval-file \
+	"$plugin_root/tools/check-wp-cli-upgrade-bootstrap-runtime.php" \
+	--path="$wp_path" \
+	--skip-themes)"
+printf '%s\n' "$bootstrap_result"
+if [[ "$bootstrap_result" != '{"success":true,"context":"wp-cli","fresh_upgrade":true}' ]]; then
+	printf '%s\n' 'Fresh WP-CLI upgrade bootstrap did not return the exact success proof.' >&2
+	exit 1
+fi
+
+database_version="$("$wp_cli_bin" eval 'global $wpdb; echo $wpdb->get_var( "SELECT VERSION()" );' --path="$wp_path" --skip-themes)"
+case "$database_expectation" in
+	mariadb)
+		if [[ ! "$database_version" =~ ^10\.11\..*MariaDB ]]; then
+			printf 'Expected the MariaDB 10.11 production baseline, got: %s\n' "$database_version" >&2
+			exit 1
+		fi
+		;;
+	mysql-8.4)
+		if [[ ! "$database_version" =~ ^8\.4\. ]]; then
+			printf 'Expected optional MySQL 8.4 compatibility, got: %s\n' "$database_version" >&2
+			exit 1
+		fi
+		;;
+	*)
+		printf 'Unsupported database expectation: %s\n' "$database_expectation" >&2
+		exit 2
+		;;
+esac
+
+recovery_result="$("$wp_cli_bin" eval-file \
+	"$plugin_root/tools/check-recovery-transaction-portability-runtime.php" \
+	--path="$wp_path" \
+	--skip-themes)"
+printf '%s\n' "$recovery_result"
+if [[ "$recovery_result" != '{"success":true,"scenarios":22}' ]]; then
+	printf '%s\n' 'Recovery runtime did not return the exact 22-scenario success proof.' >&2
+	exit 1
+fi
+
+header_result="$("$wp_cli_bin" eval-file \
+	"$plugin_root/tools/check-public-header-projection-wordpress-runtime.php" \
+	--path="$wp_path" \
+	--skip-themes)"
+printf '%s\n' "$header_result"
+RESULT="$header_result" "$php_bin" -r '
+	$result = json_decode((string) getenv("RESULT"), true);
+	$required = [
+		"success",
+		"activation_receipt_binds_exact_pending_manifest",
+		"missing_activation_receipt_failed_without_mutation",
+		"stale_activation_receipt_rejected",
+		"concurrent_pending_replacement_rejected_before_staging",
+		"raw_normalization_equivalent_pending_rejected_before_staging",
+		"raw_key_reorder_pending_rejected_before_staging",
+		"raw_key_reorder_pending_rejected_at_locked_boundary",
+		"exact_activation_receipt_activated",
+		"ordinary_publication_rejected_raw_pending_owners",
+		"ordinary_publication_rejected_independent_pending_without_mutation",
+		"ordinary_publication_self_staged_exact_activation",
+		"missing_target_translation_rejected_before_pending_mutation",
+		"missing_relation_receipts_failed_without_raw_state_mutation",
+		"internal_custom_route_drift_rolled_back_exactly",
+		"separate_connection_post_lock_blocked_writer",
+		"separate_connection_meta_predicate_lock_blocked_writer",
+		"relation_receipts_not_persisted_in_active_manifest",
+	];
+	foreach ($required as $key) {
+		if (!is_array($result) || true !== ($result[$key] ?? null)) {
+			fwrite(STDERR, "Public Header relation runtime missing exact proof: {$key}\n");
+			exit(1);
+		}
+	}
+'
+
+job_result="$("$wp_cli_bin" eval-file \
+	"$plugin_root/tools/check-translation-job-runtime.php" \
+	--path="$wp_path" \
+	--skip-themes)"
+printf '%s\n' "$job_result"
+RESULT="$job_result" "$php_bin" -r '
+	$result = json_decode((string) getenv("RESULT"), true);
+	if (!is_array($result) || true !== ($result["success"] ?? null) || true !== ($result["ordinary_translation_job_wrong_index_preserved_raw_authority"] ?? null)) {
+		fwrite(STDERR, "Translation Job runtime did not prove wrong-index fail-closed raw authority.\n");
+		exit(1);
+	}
+'
+
+DATABASE_FAMILY="$database_expectation" DATABASE_VERSION="$database_version" "$php_bin" -r '
+	echo json_encode(
+		array(
+			"success" => true,
+			"database" => (string) getenv("DATABASE_FAMILY"),
+			"database_version" => (string) getenv("DATABASE_VERSION"),
+			"runtime_suite" => "repository-owned",
+		),
+		JSON_UNESCAPED_SLASHES
+	), PHP_EOL;
+'

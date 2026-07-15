@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 const root = new URL("../", import.meta.url);
 const plugin = readFileSync(new URL("devenia-workflow.php", root), "utf8");
-const workflow = readFileSync(new URL(".github/workflows/recovery-transaction-mysql84.yml", root), "utf8");
+const runtimeSuite = readFileSync(new URL("tools/run-database-runtime-suite.sh", root), "utf8");
 const runtime = readFileSync(new URL("tools/check-wp-cli-upgrade-bootstrap-runtime.php", root), "utf8");
 
 const loaderStart = plugin.indexOf("private static function load_wordpress_language_pack_dependencies");
@@ -21,12 +21,14 @@ assert.ok(
 	"the File API must be available before the language-pack upgrader API"
 );
 
-assert.match(workflow, /wp option delete devenia_workflow_version[\s\S]*?check-wp-cli-upgrade-bootstrap-runtime\.php/);
-assert.match(workflow, /\{"success":true,"context":"wp-cli","fresh_upgrade":true\}/);
+assert.match(runtimeSuite, /option delete devenia_workflow_version[\s\S]*?check-wp-cli-upgrade-bootstrap-runtime\.php/);
+assert.match(runtimeSuite, /\{"success":true,"context":"wp-cli","fresh_upgrade":true\}/);
 assert.ok(
-	workflow.indexOf("check-wp-cli-upgrade-bootstrap-runtime.php", workflow.indexOf("wp option delete devenia_workflow_version")) < workflow.lastIndexOf("check-recovery-transaction-portability-runtime.php"),
+	runtimeSuite.indexOf("check-wp-cli-upgrade-bootstrap-runtime.php", runtimeSuite.indexOf("option delete devenia_workflow_version")) < runtimeSuite.lastIndexOf("check-recovery-transaction-portability-runtime.php"),
 	"fresh bootstrap proof must run before the recovery runtime"
 );
+assert.doesNotMatch(runtimeSuite, /GITHUB_|\.github\/workflows|github\.com|workflow_(?:dispatch|run)|repository_dispatch/i, "the fresh-bootstrap proof must be owned by the local runtime suite, not GitHub Actions");
+assert.match(runtimeSuite, /DATABASE_EXPECTATION:-mariadb[\s\S]*mariadb\)[\s\S]*10\\\.11\\\.[\s\S]*mysql-8\.4\)[\s\S]*8\\\.4\\\./, "the local suite must default to the MariaDB production baseline and keep MySQL 8.4 optional");
 
 for (const functionName of [
 	"request_filesystem_credentials",

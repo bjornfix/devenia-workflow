@@ -9,6 +9,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 $source_id = 0;
 $linked_source_id = 0;
+$localized_link_source_id = 0;
+$localized_link_target_id = 0;
 $translation_id = 0;
 $nested_route_translation_id = 0;
 $nested_route_parent_ids = array();
@@ -63,11 +65,7 @@ $cache_adapter = static function ( $default_result, array $urls, array $context 
 	}
 	return array( 'success' => true, 'purged_urls' => $urls, 'adapter' => 'translation-job-runtime' );
 };
-$keep_previous_menu = static function (): bool {
-	return false;
-};
 add_filter( 'devenia_workflow_frontend_cache_invalidation_result', $cache_adapter, 10, 3 );
-add_filter( 'devenia_workflow_retire_previous_localized_menu_projection', $keep_previous_menu, 10, 4 );
 
 $call = static function ( string $method, ...$arguments ) {
 	$reflection = new ReflectionMethod( Devenia_Workflow::class, $method );
@@ -159,6 +157,21 @@ $quality_payload = static function ( array $claim, string $artifact_revision, st
 };
 
 try {
+	$query_identity_unknown_id = 2147483000;
+	$query_identity_root_target = home_url( '/runtime-query-identity-must-not-match/' );
+	$query_identity_root_path = (string) $call( 'normalized_url_path', home_url( '/' ) );
+	$query_identity_root_map = array();
+	foreach ( array_filter( array_unique( array( home_url( '/' ), '/', '//', $query_identity_root_path, trailingslashit( $query_identity_root_path ), untrailingslashit( $query_identity_root_path ) ) ) ) as $root_candidate ) {
+		$query_identity_root_map[ (string) $root_candidate ] = $query_identity_root_target;
+	}
+	foreach ( array( 'page_id', 'p', 'post_id' ) as $query_identity_var ) {
+		foreach ( array( home_url( '/?' . $query_identity_var . '=' . $query_identity_unknown_id . '#runtime-query-identity' ), '/?' . $query_identity_var . '=' . $query_identity_unknown_id . '#runtime-query-identity' ) as $query_identity_url ) {
+			if ( null !== $call( 'localized_internal_link_target', $query_identity_url, $query_identity_root_map ) ) {
+				throw new RuntimeException( 'Unknown WordPress query-ID link fell through to root-path localized authority.' );
+			}
+		}
+	}
+
 	$replace_fragment = new ReflectionMethod( Devenia_Workflow::class, 'replace_source_design_text_html' );
 	$replace_fragment->setAccessible( true );
 	$projected_heading = (string) $replace_fragment->invoke(
@@ -230,6 +243,69 @@ try {
 	$language = isset( $languages['nb'] ) ? 'nb' : ( isset( $language_keys[0] ) ? (string) $language_keys[0] : '' );
 	if ( '' === $language ) {
 		throw new RuntimeException( 'No target language is configured.' );
+	}
+	$localized_link_source_insert = wp_insert_post(
+		array(
+			'post_type' => 'page',
+			'post_status' => 'publish',
+			'post_title' => 'Translation Job published link source fixture',
+			'post_content' => '<!-- wp:paragraph --><p>A published source with one exact localized destination.</p><!-- /wp:paragraph -->',
+			'post_name' => 'runtime-link-source-' . strtolower( wp_generate_password( 6, false, false ) ),
+		),
+		true
+	);
+	if ( is_wp_error( $localized_link_source_insert ) || $localized_link_source_insert < 1 ) {
+		throw new RuntimeException( 'Could not create the published localized-link source fixture.' );
+	}
+	$localized_link_source_id = (int) $localized_link_source_insert;
+	$localized_link_target_slug = 'runtime-link-target-' . strtolower( wp_generate_password( 6, false, false ) );
+	$localized_link_target_insert = wp_insert_post(
+		array(
+			'post_type' => 'page',
+			'post_status' => 'publish',
+			'post_title' => 'Translation Job published link target fixture',
+			'post_content' => '<!-- wp:paragraph --><p>The exact published localized destination.</p><!-- /wp:paragraph -->',
+			'post_name' => $localized_link_target_slug,
+		),
+		true
+	);
+	if ( is_wp_error( $localized_link_target_insert ) || $localized_link_target_insert < 1 ) {
+		throw new RuntimeException( 'Could not create the published localized-link target fixture.' );
+	}
+	$localized_link_target_id = (int) $localized_link_target_insert;
+	update_post_meta( $localized_link_target_id, '_devenia_translation_source_id', $localized_link_source_id );
+	update_post_meta( $localized_link_target_id, '_devenia_translation_language', $language );
+	update_post_meta( $localized_link_target_id, '_devenia_translation_status', 'published' );
+	update_post_meta( $localized_link_target_id, '_devenia_translation_localized_path', trim( $language . '/' . $localized_link_target_slug, '/' ) );
+	clean_post_cache( $localized_link_target_id );
+	if ( ! $call( 'sync_translation_index_row', $localized_link_target_id ) ) {
+		throw new RuntimeException( 'Could not index the published localized-link target fixture.' );
+	}
+	$localized_link_source_url = (string) get_permalink( $localized_link_source_id );
+	$localized_link_target_url = (string) get_permalink( $localized_link_target_id );
+	if ( '' === $localized_link_source_url || '' === $localized_link_target_url || $call( 'normalized_comparable_url', $localized_link_source_url ) === $call( 'normalized_comparable_url', $localized_link_target_url ) ) {
+		throw new RuntimeException( 'Published localized-link fixture did not establish distinct source and target URLs.' );
+	}
+	$source_post_for_links = get_post( $source_id );
+	$localized_link_content = $source_post_for_links instanceof WP_Post
+		? str_replace(
+			', then <a href="mailto:',
+			', read <a href="' . esc_url( $localized_link_source_url ) . '">the published localized source</a>, then <a href="mailto:',
+			(string) $source_post_for_links->post_content
+		)
+		: '';
+	if ( '' === $localized_link_content || $source_post_for_links->post_content === $localized_link_content || $source_id !== wp_update_post( wp_slash( array( 'ID' => $source_id, 'post_content' => $localized_link_content ) ) ) ) {
+		throw new RuntimeException( 'Could not add both untranslated and published-localized links to the source packet fixture.' );
+	}
+	clean_post_cache( $source_id );
+	$localized_query_identity_map = $call( 'localized_internal_link_map', $language, true );
+	foreach ( array( 'page_id', 'p', 'post_id' ) as $localized_query_var ) {
+		foreach ( array( $localized_link_source_id, $localized_link_target_id ) as $localized_query_post_id ) {
+			$localized_query_target = $call( 'localized_internal_link_target', home_url( '/?' . $localized_query_var . '=' . $localized_query_post_id ), $localized_query_identity_map );
+			if ( $call( 'normalized_comparable_url', (string) $localized_query_target ) !== $call( 'normalized_comparable_url', $localized_link_target_url ) ) {
+				throw new RuntimeException( 'Known WordPress query-ID link did not resolve by exact source/translation identity.' );
+			}
+		}
 	}
 	// Hierarchical translations can legitimately have nested localized routes.
 	// Prove the parity resolver accepts an observed/stored WordPress hierarchy
@@ -586,16 +662,32 @@ try {
 	$submission_contract = $packet['packet']['submission_contract'] ?? array();
 	$artifact_schema_properties = $submission_contract['input_schema']['properties']['artifact']['properties'] ?? array();
 	$fragment_schema_properties = $artifact_schema_properties['localized_fragments']['items']['properties'] ?? array();
-	$expected_packet_link_url = isset( $links[0]['target_url'] ) ? (string) $links[0]['target_url'] : '';
+	$untranslated_packet_link_rows = array_values( array_filter( (array) $links, static function ( $row ) use ( $linked_source_id ): bool { return is_array( $row ) && $linked_source_id === absint( $row['source_post_id'] ?? 0 ); } ) );
+	$localized_packet_link_rows = array_values( array_filter( (array) $links, static function ( $row ) use ( $localized_link_source_id ): bool { return is_array( $row ) && $localized_link_source_id === absint( $row['source_post_id'] ?? 0 ); } ) );
+	$untranslated_packet_link = 1 === count( $untranslated_packet_link_rows ) ? (array) $untranslated_packet_link_rows[0] : array();
+	$localized_packet_link = 1 === count( $localized_packet_link_rows ) ? (array) $localized_packet_link_rows[0] : array();
+	$expected_packet_link_url = (string) ( $untranslated_packet_link['target_url'] ?? '' );
+	$expected_localized_packet_link_url = (string) ( $localized_packet_link['target_url'] ?? '' );
 	if (
 		empty( $packet['success'] )
 		|| $translation_id !== absint( $packet['packet']['route']['existing']['translation_id'] ?? 0 )
 		|| $runtime_localized_path !== (string) ( $packet['packet']['route']['existing']['localized_path'] ?? '' )
 		|| 1 !== count( $fragments )
 		|| false === stripos( (string) $fragments[0]['source_html'], '<strong>' )
-		|| 1 !== count( $links )
+		|| 2 !== count( $links )
+		|| 1 !== count( $untranslated_packet_link_rows )
+		|| 1 !== count( $localized_packet_link_rows )
 		|| '' === $expected_packet_link_url
-		|| ! in_array( (string) ( $links[0]['policy'] ?? '' ), array( 'retain_source_url_until_localized_target_is_published', 'use_published_localized_target' ), true )
+		|| '' === $expected_localized_packet_link_url
+		|| $linked_source_id !== absint( $untranslated_packet_link['target_post_id'] ?? 0 )
+		|| false !== ( $untranslated_packet_link['published_target_available'] ?? null )
+		|| 'retain_source_url_until_localized_target_is_published' !== (string) ( $untranslated_packet_link['policy'] ?? '' )
+		|| $localized_link_target_id !== absint( $localized_packet_link['target_post_id'] ?? 0 )
+		|| true !== ( $localized_packet_link['published_target_available'] ?? null )
+		|| 'use_published_localized_target' !== (string) ( $localized_packet_link['policy'] ?? '' )
+		|| $call( 'normalized_comparable_url', $expected_packet_link_url ) !== $call( 'normalized_comparable_url', $linked_source_url )
+		|| $call( 'normalized_comparable_url', $expected_localized_packet_link_url ) !== $call( 'normalized_comparable_url', $localized_link_target_url )
+		|| $call( 'normalized_comparable_url', (string) ( $localized_packet_link['source_url'] ?? '' ) ) === $call( 'normalized_comparable_url', $expected_localized_packet_link_url )
 		|| ! in_array( 'Google Search Console', (array) ( $language_profile['source_qa_preserve_terms'] ?? array() ), true )
 		|| 'devenia-workflow/translation-job-submit-artifact' !== (string) ( $submission_contract['ability'] ?? '' )
 		|| ! in_array( 'usage', (array) ( $submission_contract['input_schema']['required'] ?? array() ), true )
@@ -607,9 +699,13 @@ try {
 		throw new RuntimeException( 'Bounded packet failed: ' . wp_json_encode( $packet ) );
 	}
 
+	$packet_link_markup = array();
+	foreach ( (array) $links as $link ) {
+		$packet_link_markup[] = '<a href="' . esc_url( (string) ( $link['target_url'] ?? '' ) ) . '">den lenkede kilden</a>';
+	}
 	$localized = array();
 	foreach ( $fragments as $fragment ) {
-		$localized[] = array( 'key' => (string) $fragment['key'], 'html' => '<strong>Nyttig innhold</strong><br>Les <a href="' . esc_url( $expected_packet_link_url ) . '">den lenkede kilden</a>, og <a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.' );
+		$localized[] = array( 'key' => (string) $fragment['key'], 'html' => '<strong>Nyttig innhold</strong><br>Les ' . implode( ' og ', $packet_link_markup ) . ', og <a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.' );
 	}
 	$artifact = array(
 		'title' => 'Oversatt testside',
@@ -1287,9 +1383,11 @@ try {
 	}
 
 	// Ordinary Translation Job publication must mint fresh all-language relation
-	// receipts before it writes pending header state. Remove one exact read-model
-	// row while canonical posts/meta remain valid and prove the real publish
-	// Interface fails before any durable Job/content/header/menu/inventory change.
+	// receipts before it writes pending header state. Let pre-publication reader
+	// verification observe the intact active relation, then remove one exact
+	// read-model row only after the real content COMMIT and before manifest
+	// staging. This models concurrent Index loss without making the stronger
+	// frontend-integrity gate pre-empt the publication-boundary oracle.
 	$wrong_index_job_key = 'devenia_workflow_translation_job_' . $job_id;
 	$wrong_index_artifact_key = 'devenia_workflow_translation_artifact_' . (string) $third_artifact['artifact_revision'];
 	$wrong_index_quality_revision = (string) ( $third_quality['quality_decision']['quality_revision'] ?? '' );
@@ -1313,34 +1411,98 @@ try {
 	global $wpdb;
 	$wrong_index_rows_before = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d ORDER BY source_post_id ASC, language ASC, translation_post_id ASC', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact fixture row is restored byte-for-byte below.
 	if ( ! $wrong_index_target_post instanceof WP_Post || '' === $wrong_index_target_language || 1 !== count( (array) $wrong_index_rows_before ) ) { throw new RuntimeException( 'Could not establish the exact ordinary-publication wrong-index fixture.' ); }
-	$call( 'delete_translation_index_for_post', $wrong_index_target_id, $wrong_index_target_post );
-	$wrong_index_rows_missing = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct raw proof that the read-model row is absent before publication.
-	if ( ! empty( $wrong_index_rows_missing ) ) { throw new RuntimeException( 'Could not remove the exact ordinary-publication Translation Index row.' ); }
-	$wrong_index_publish = array(); $wrong_index_restore_success = true;
+	$wrong_index_publish = array(); $wrong_index_restore_success = true; $wrong_index_injected = false; $wrong_index_commit_calls = 0; $wrong_index_commit_receipt = array(); $wrong_index_rows_missing = array();
+	$wrong_index_commit_adapter = static function ( $default, int $committed_translation_id, string $before_revision, string $replacement_revision ) use ( $call, $translation_id, $wrong_index_target_id, $wrong_index_target_post, $wrong_index_table, $wpdb, &$wrong_index_injected, &$wrong_index_commit_calls, &$wrong_index_commit_receipt, &$wrong_index_rows_missing ) {
+		unset( $default );
+		++$wrong_index_commit_calls;
+		if ( 1 !== $wrong_index_commit_calls ) { throw new RuntimeException( 'Wrong-index COMMIT Adapter was invoked more than once.' ); }
+		if ( $translation_id !== $committed_translation_id || '' === $before_revision || '' === $replacement_revision || hash_equals( $before_revision, $replacement_revision ) ) { throw new RuntimeException( 'Wrong-index COMMIT Adapter received an invalid publication ownership receipt.' ); }
+		$actual = $call( 'translation_job_commit_recovery_transaction' );
+		if ( empty( $actual['success'] ) || ! array_key_exists( 'committed', $actual ) || true !== $actual['committed'] ) { throw new RuntimeException( 'Wrong-index fixture could not establish the real content COMMIT.' ); }
+		$call( 'delete_translation_index_for_post', $wrong_index_target_id, $wrong_index_target_post );
+		$wrong_index_rows_missing = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact post-COMMIT proof before ordinary publication stages fresh relation receipts.
+		if ( ! empty( $wrong_index_rows_missing ) ) { throw new RuntimeException( 'Could not remove the exact post-COMMIT Translation Index row.' ); }
+		$wrong_index_commit_receipt = $actual;
+		$wrong_index_injected = true;
+		return $actual;
+	};
+	add_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $wrong_index_commit_adapter, 10, 4 );
 	try {
 		$wrong_index_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
 	} finally {
+		remove_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $wrong_index_commit_adapter, 10 );
 		$wpdb->delete( $wrong_index_table, array( 'translation_post_id' => $wrong_index_target_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Deterministic fixture cleanup before exact row restoration.
 		foreach ( (array) $wrong_index_rows_before as $wrong_index_row ) {
 			if ( false === $wpdb->insert( $wrong_index_table, $wrong_index_row ) ) { $wrong_index_restore_success = false; } // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Restore every original persisted column exactly, including original timestamps.
 		}
 	}
 	$wrong_index_rows_after = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d ORDER BY source_post_id ASC, language ASC, translation_post_id ASC', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact cleanup oracle.
-	$wrong_index_nested_failure = (array) ( $wrong_index_publish['menu']['manifest_staging'] ?? array() );
+	$wrong_index_content_after = $raw_translation_content_surface( $translation_id );
+	$wrong_index_meta_without_ids = static function ( array $rows ): array {
+		$normalized = array();
+		foreach ( $rows as $row ) { unset( $row['meta_id'] ); $normalized[] = $row; }
+		usort( $normalized, static function ( array $left, array $right ): int { return strcmp( maybe_serialize( $left ), maybe_serialize( $right ) ); } );
+		return $normalized;
+	};
+	$wrong_index_content_authority_exact = (array) ( $wrong_index_content_before['post'] ?? array() ) === (array) ( $wrong_index_content_after['post'] ?? array() )
+		&& $wrong_index_meta_without_ids( (array) ( $wrong_index_content_before['postmeta'] ?? array() ) ) === $wrong_index_meta_without_ids( (array) ( $wrong_index_content_after['postmeta'] ?? array() ) )
+		&& (array) ( $wrong_index_content_before['terms'] ?? array() ) === (array) ( $wrong_index_content_after['terms'] ?? array() );
+	$wrong_index_nested_failure = (array) ( $wrong_index_publish['menu'] ?? array() );
 	if (
-		! empty( $wrong_index_publish['success'] )
+		! $wrong_index_injected
+		|| 1 !== $wrong_index_commit_calls
+		|| empty( $wrong_index_commit_receipt['success'] )
+		|| true !== ( $wrong_index_commit_receipt['committed'] ?? null )
+		|| ! empty( $wrong_index_rows_missing )
+		|| ! empty( $wrong_index_publish['success'] )
 		|| 'public_header_projection_publication_failed' !== (string) ( $wrong_index_publish['code'] ?? '' )
+		|| true !== ( $wrong_index_publish['forward_publication_applied'] ?? null )
+		|| false !== ( $wrong_index_publish['published'] ?? null )
+		|| empty( $wrong_index_publish['rollback']['success'] )
+		|| empty( $wrong_index_publish['rollback']['commit_reconciliation']['restored_exact'] )
+		|| 'restored_verified' !== (string) ( $wrong_index_publish['final_reader_state']['state'] ?? '' )
 		|| 'public_header_relation_receipt_build_failed' !== (string) ( $wrong_index_nested_failure['code'] ?? '' )
 		|| false === strpos( wp_json_encode( $wrong_index_nested_failure ), 'public_header_page_relation_index_mismatch' )
 		|| ! $wrong_index_restore_success
 		|| $wrong_index_rows_before !== $wrong_index_rows_after
 		|| $wrong_index_authority_options !== $raw_option_records( array( $wrong_index_job_key, $wrong_index_artifact_key, $wrong_index_quality_key, $wrong_index_evidence_key ) )
-		|| $wrong_index_content_before !== $raw_translation_content_surface( $translation_id )
+		|| ! $wrong_index_content_authority_exact
 		|| $wrong_index_header_before !== $raw_option_records( $wrong_index_header_options )
 		|| $wrong_index_menu_before !== $raw_nav_menu_surface( $wrong_index_menu_ids )
 		|| $wrong_index_menu_inventory_before !== $raw_nav_menu_inventory()
 		|| $wrong_index_inventory_before !== $raw_option_records( $wrong_index_inventory_options )
-	) { throw new RuntimeException( 'Ordinary translation_job_publish did not fail closed on a wrong Translation Index row with byte-identical authoritative state: ' . wp_json_encode( $wrong_index_publish ) ); }
+	) {
+		$wrong_index_post_changed_fields = array();
+		foreach ( array_unique( array_merge( array_keys( (array) ( $wrong_index_content_before['post'] ?? array() ) ), array_keys( (array) ( $wrong_index_content_after['post'] ?? array() ) ) ) ) as $wrong_index_post_field ) {
+			if ( ( $wrong_index_content_before['post'][ $wrong_index_post_field ] ?? null ) !== ( $wrong_index_content_after['post'][ $wrong_index_post_field ] ?? null ) ) { $wrong_index_post_changed_fields[] = $wrong_index_post_field; }
+		}
+		$wrong_index_evidence = array(
+			'injected'                 => $wrong_index_injected,
+			'commit_calls_exact'        => 1 === $wrong_index_commit_calls,
+			'commit_receipt_valid'      => ! empty( $wrong_index_commit_receipt['success'] ) && true === ( $wrong_index_commit_receipt['committed'] ?? null ),
+			'row_absent_after_commit'   => empty( $wrong_index_rows_missing ),
+			'publish_code_exact'        => 'public_header_projection_publication_failed' === (string) ( $wrong_index_publish['code'] ?? '' ),
+			'nested_code_exact'         => 'public_header_relation_receipt_build_failed' === (string) ( $wrong_index_nested_failure['code'] ?? '' ),
+			'index_mismatch_present'    => false !== strpos( wp_json_encode( $wrong_index_nested_failure ), 'public_header_page_relation_index_mismatch' ),
+			'row_restore_success'       => $wrong_index_restore_success,
+			'rows_restored_exact'       => $wrong_index_rows_before === $wrong_index_rows_after,
+			'authority_options_exact'   => $wrong_index_authority_options === $raw_option_records( array( $wrong_index_job_key, $wrong_index_artifact_key, $wrong_index_quality_key, $wrong_index_evidence_key ) ),
+			'content_authority_exact'   => $wrong_index_content_authority_exact,
+			'content_post_drift_fields' => $wrong_index_post_changed_fields,
+			'content_meta_exact'        => (array) ( $wrong_index_content_before['postmeta'] ?? array() ) === (array) ( $wrong_index_content_after['postmeta'] ?? array() ),
+			'content_meta_values_exact' => $wrong_index_meta_without_ids( (array) ( $wrong_index_content_before['postmeta'] ?? array() ) ) === $wrong_index_meta_without_ids( (array) ( $wrong_index_content_after['postmeta'] ?? array() ) ),
+			'content_terms_exact'       => (array) ( $wrong_index_content_before['terms'] ?? array() ) === (array) ( $wrong_index_content_after['terms'] ?? array() ),
+			'forward_applied_exact'     => true === ( $wrong_index_publish['forward_publication_applied'] ?? null ),
+			'published_false_exact'     => false === ( $wrong_index_publish['published'] ?? null ),
+			'rollback_restored_exact'   => ! empty( $wrong_index_publish['rollback']['success'] ) && ! empty( $wrong_index_publish['rollback']['commit_reconciliation']['restored_exact'] ),
+			'final_reader_restored'     => 'restored_verified' === (string) ( $wrong_index_publish['final_reader_state']['state'] ?? '' ),
+			'header_options_exact'      => $wrong_index_header_before === $raw_option_records( $wrong_index_header_options ),
+			'menu_surface_exact'        => $wrong_index_menu_before === $raw_nav_menu_surface( $wrong_index_menu_ids ),
+			'menu_inventory_exact'      => $wrong_index_menu_inventory_before === $raw_nav_menu_inventory(),
+			'source_inventory_exact'    => $wrong_index_inventory_before === $raw_option_records( $wrong_index_inventory_options ),
+		);
+		throw new RuntimeException( 'Ordinary translation_job_publish did not fail closed on a post-COMMIT wrong Translation Index row with exact reader and authority restoration: ' . wp_json_encode( array( 'evidence' => $wrong_index_evidence, 'result' => $wrong_index_publish ) ) );
+	}
 	$attempt_limit_job_key = 'devenia_workflow_translation_job_' . $job_id;
 	$attempt_limit_job = get_option( $attempt_limit_job_key );
 	$attempt_limit_job['status'] = 'quality_pending';
@@ -1477,12 +1639,108 @@ try {
 	) {
 		throw new RuntimeException( 'Refreshed translator packet could not recover the previous approved artifact: ' . wp_json_encode( $refresh_writer_packet ) );
 	}
+	$refresh_link_rows = array_values(
+		array_filter(
+			(array) ( $refresh_writer_packet['packet']['links'] ?? array() ),
+			static function ( $row ) use ( $linked_source_id ): bool {
+				return is_array( $row ) && $linked_source_id === absint( $row['source_post_id'] ?? 0 );
+			}
+		)
+	);
+	$refresh_link_row = 1 === count( $refresh_link_rows ) ? (array) $refresh_link_rows[0] : array();
+	$refresh_link_source_url = (string) get_permalink( $linked_source_id );
+	if (
+		1 !== count( $refresh_link_rows )
+		|| $linked_source_id !== absint( $refresh_link_row['target_post_id'] ?? 0 )
+		|| false !== ( $refresh_link_row['published_target_available'] ?? null )
+		|| 'retain_source_url_until_localized_target_is_published' !== (string) ( $refresh_link_row['policy'] ?? '' )
+		|| $call( 'normalized_comparable_url', $refresh_link_source_url ) !== $call( 'normalized_comparable_url', (string) ( $refresh_link_row['target_url'] ?? '' ) )
+	) {
+		throw new RuntimeException( 'Untranslated query-ID source link was aliased to unrelated localized route authority: ' . wp_json_encode( array( 'linked_source_id' => $linked_source_id, 'linked_source_url' => $refresh_link_source_url, 'link_rows' => $refresh_link_rows ) ) );
+	}
+	$build_runtime_refresh_artifact = static function ( array $fresh_packet, array $prototype_artifact ) use ( $call ): array {
+		$packet = (array) ( $fresh_packet['packet'] ?? array() );
+		$packet_fragments = array_values( (array) ( $packet['fragments'] ?? array() ) );
+		$packet_links = array_values( (array) ( $packet['links'] ?? array() ) );
+		$expected_targets = array();
+		$link_markup = array();
+		$link_issues = array();
+		foreach ( $packet_links as $link_index => $link ) {
+			$source_url = (string) ( $link['source_url'] ?? '' );
+			$target_url = (string) ( $link['target_url'] ?? '' );
+			$policy = (string) ( $link['policy'] ?? '' );
+			$target_key = '' !== $target_url ? (string) $call( 'normalized_comparable_url', $target_url ) : '';
+			if (
+				'' === $source_url
+				|| '' === $target_url
+				|| '' === $target_key
+				|| ! in_array( $policy, array( 'retain_source_url_until_localized_target_is_published', 'use_published_localized_target' ), true )
+			) {
+				$link_issues[] = array( 'index' => $link_index, 'source_url' => $source_url, 'target_url' => $target_url, 'policy' => $policy );
+				continue;
+			}
+			$expected_targets[ $target_key ] = $target_url;
+			$link_markup[] = '<a href="' . esc_url( $target_url ) . '">den lenkede kilden</a>';
+		}
+
+		$localized_fragments = array();
+		$fragment_keys = array();
+		foreach ( $packet_fragments as $fragment_index => $fragment ) {
+			$key = (string) ( $fragment['key'] ?? '' );
+			if ( '' === $key || isset( $fragment_keys[ $key ] ) ) {
+				return array( 'success' => false, 'code' => 'runtime_refresh_packet_fragment_invalid', 'fragment_index' => $fragment_index, 'fragment_key' => $key );
+			}
+			$fragment_keys[ $key ] = true;
+			$localized_fragments[] = array(
+				'key' => $key,
+				'html' => '<strong>Nyttig innhold</strong><br>'
+					. ( $link_markup ? 'Les ' . implode( ' og ', $link_markup ) . ', og ' : '' )
+					. '<a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.',
+			);
+		}
+
+		$refreshed_artifact = $prototype_artifact;
+		$refreshed_artifact['localized_fragments'] = $localized_fragments;
+		$consumed_targets = array();
+		foreach ( $localized_fragments as $fragment ) {
+			foreach ( $call( 'translation_job_anchor_hrefs', (string) $fragment['html'] ) as $href ) {
+				$absolute = (string) $call( 'translation_job_absolute_internal_url', (string) $href );
+				$key = '' !== $absolute ? (string) $call( 'normalized_comparable_url', $absolute ) : '';
+				if ( '' !== $key && isset( $expected_targets[ $key ] ) ) {
+					$consumed_targets[ $key ] = $expected_targets[ $key ];
+				}
+			}
+		}
+		$missing_targets = array_values( array_diff_key( $expected_targets, $consumed_targets ) );
+
+		return array(
+			'success' => empty( $link_issues ) && ! empty( $packet_fragments ) && empty( $missing_targets ),
+			'code' => empty( $link_issues ) ? ( $packet_fragments ? ( $missing_targets ? 'runtime_refresh_packet_targets_missing' : 'runtime_refresh_artifact_built' ) : 'runtime_refresh_packet_fragments_missing' ) : 'runtime_refresh_packet_links_invalid',
+			'artifact' => $refreshed_artifact,
+			'packet_link_count' => count( $packet_links ),
+			'expected_target_urls' => array_values( $expected_targets ),
+			'consumed_target_urls' => array_values( $consumed_targets ),
+			'missing_target_urls' => $missing_targets,
+			'link_issues' => $link_issues,
+		);
+	};
+	$refresh_previous_artifact = (array) $refresh_writer_packet['packet']['correction_context']['previous_artifact']['artifact'];
+	$refresh_artifact_build = $build_runtime_refresh_artifact( $refresh_writer_packet, $refresh_previous_artifact );
+	$refresh_generation_two_excerpt = 'Runtime generation-two packet-owned correction.';
+	$refresh_artifact_build['artifact']['excerpt'] = $refresh_generation_two_excerpt;
+	if (
+		empty( $refresh_artifact_build['success'] )
+		|| empty( $refresh_artifact_build['artifact'] )
+		|| (array) ( $refresh_artifact_build['expected_target_urls'] ?? array() ) !== (array) ( $refresh_artifact_build['consumed_target_urls'] ?? array() )
+	) {
+		throw new RuntimeException( 'Refreshed translator artifact did not consume the fresh packet authority exactly: ' . wp_json_encode( $refresh_artifact_build ) );
+	}
 	delete_post_meta( $translation_id, '_thumbnail_id' );
 	add_post_meta( $translation_id, '_thumbnail_id', $linked_source_id );
 	add_post_meta( $translation_id, '_thumbnail_id', $source_thumbnail_id );
 	$refresh_artifact = $call(
 		'translation_job_submit_artifact',
-		array( 'job_id' => $job_id, 'run_id' => (string) $refresh_writer_claim['run']['run_id'], 'claim_token' => (string) $refresh_writer_claim['claim_token'], 'artifact' => $artifact, 'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ) )
+		array( 'job_id' => $job_id, 'run_id' => (string) $refresh_writer_claim['run']['run_id'], 'claim_token' => (string) $refresh_writer_claim['claim_token'], 'artifact' => $refresh_artifact_build['artifact'], 'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ) )
 	);
 	$refresh_artifact_revision = (string) ( $refresh_artifact['artifact_revision'] ?? '' );
 	$option_keys[] = 'devenia_workflow_translation_artifact_' . $refresh_artifact_revision;
@@ -1495,7 +1753,7 @@ try {
 		|| empty( $refresh_artifact_record['baseline_surface_revision'] )
 		|| (string) ( $refresh_artifact_record['writer_principal']['principal_id'] ?? '' ) === (string) ( $prior_artifact_record['writer_principal']['principal_id'] ?? '' )
 	) {
-		throw new RuntimeException( 'Identical refreshed payload did not create a new immutable generation/baseline/writer artifact: ' . wp_json_encode( $refresh_artifact ) );
+		throw new RuntimeException( 'Packet-coherent refreshed payload did not create a new immutable generation/baseline/writer artifact: ' . wp_json_encode( $refresh_artifact ) );
 	}
 	$fresh_quality_required = $call( 'translation_job_publish', array( 'job_id' => $job_id ) );
 	if ( 'job_not_ready_to_publish' !== (string) ( $fresh_quality_required['code'] ?? '' ) ) {
@@ -1542,19 +1800,40 @@ try {
 	) {
 		throw new RuntimeException( 'Generation-three packet could not recover the latest immutable generation-two artifact: ' . wp_json_encode( $generation_three_packet ) );
 	}
+	$generation_three_previous_artifact = (array) $generation_three_packet['packet']['correction_context']['previous_artifact']['artifact'];
+	$generation_three_artifact_build = $build_runtime_refresh_artifact( $generation_three_packet, $generation_three_previous_artifact );
+	$generation_three_previous_non_fragments = $generation_three_previous_artifact;
+	$generation_three_built_non_fragments = (array) ( $generation_three_artifact_build['artifact'] ?? array() );
+	unset( $generation_three_previous_non_fragments['localized_fragments'], $generation_three_built_non_fragments['localized_fragments'] );
+	if (
+		empty( $generation_three_artifact_build['success'] )
+		|| empty( $generation_three_artifact_build['artifact'] )
+		|| (array) ( $generation_three_artifact_build['expected_target_urls'] ?? array() ) !== (array) ( $generation_three_artifact_build['consumed_target_urls'] ?? array() )
+		|| $refresh_generation_two_excerpt !== (string) ( $generation_three_previous_artifact['excerpt'] ?? '' )
+		|| $generation_three_previous_non_fragments !== $generation_three_built_non_fragments
+	) {
+		throw new RuntimeException( 'Generation-three artifact did not consume the fresh packet authority exactly: ' . wp_json_encode( $generation_three_artifact_build ) );
+	}
 	$generation_three_artifact = $call(
 		'translation_job_submit_artifact',
-		array( 'job_id' => $job_id, 'run_id' => (string) $generation_three_writer['run']['run_id'], 'claim_token' => (string) $generation_three_writer['claim_token'], 'artifact' => $artifact, 'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ) )
+		array( 'job_id' => $job_id, 'run_id' => (string) $generation_three_writer['run']['run_id'], 'claim_token' => (string) $generation_three_writer['claim_token'], 'artifact' => $generation_three_artifact_build['artifact'], 'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ) )
 	);
-	$option_keys[] = 'devenia_workflow_translation_artifact_' . (string) $generation_three_artifact['artifact_revision'];
+	$generation_three_artifact_revision = (string) ( $generation_three_artifact['artifact_revision'] ?? '' );
+	if ( empty( $generation_three_artifact['success'] ) || '' === $generation_three_artifact_revision ) {
+		throw new RuntimeException( 'Generation-three packet-coherent artifact submission failed: ' . wp_json_encode( $generation_three_artifact ) );
+	}
+	$option_keys[] = 'devenia_workflow_translation_artifact_' . $generation_three_artifact_revision;
 	$generation_three_quality_claim = $call(
 		'translation_job_claim',
 		array( 'job_id' => $job_id, 'run_id' => 'runtime-refresh-quality-three-' . wp_generate_password( 8, false, false ), 'coordinator_id' => 'runtime-observability-only', 'role' => 'quality', 'ttl_seconds' => 600 )
 	);
+	if ( empty( $generation_three_quality_claim['success'] ) || empty( $generation_three_quality_claim['run']['run_id'] ) || empty( $generation_three_quality_claim['claim_token'] ) ) {
+		throw new RuntimeException( 'Generation-three Quality claim failed: ' . wp_json_encode( $generation_three_quality_claim ) );
+	}
 	$option_keys[] = 'devenia_workflow_translation_run_' . (string) $generation_three_quality_claim['run']['run_id'];
 	$generation_three_quality = $call(
 		'translation_job_submit_quality_decision',
-		$quality_payload( $generation_three_quality_claim, (string) $generation_three_artifact['artifact_revision'], 'pass', 'A fresh generation-three Quality principal reviewed the exact immutable artifact after both baseline refreshes.', array() )
+		$quality_payload( $generation_three_quality_claim, $generation_three_artifact_revision, 'pass', 'A fresh generation-three Quality principal reviewed the exact immutable artifact after both baseline refreshes.', array() )
 	);
 	$track_quality_result( $generation_three_quality );
 	if (
@@ -2747,7 +3026,7 @@ try {
 		return new WP_Error( 'runtime_projection_failure', 'Runtime projection failure fixture.' );
 	};
 	add_filter( 'devenia_workflow_localized_menu_projection_write_result', $fail_projection_write, 10, 5 );
-	$failed_projection = $call( 'sync_language_menu', array( 'language' => $language, 'include_untranslated' => false, 'include_custom_links' => true ) );
+	$failed_projection = $call( 'sync_language_menu', array( 'language' => $language, 'include_untranslated' => false, 'include_custom_links' => true, 'manifest' => $runtime_pending_manifest ) );
 	remove_filter( 'devenia_workflow_localized_menu_projection_write_result', $fail_projection_write, 10 );
 	$identity_after_failure = get_option( 'devenia_workflow_localized_menu_identities', array() );
 	if ( ! empty( $failed_projection['success'] ) || 'menu_projection_write_failed' !== (string) ( $failed_projection['code'] ?? '' ) || $runtime_active_menu_id !== absint( $identity_after_failure[ $language ]['menu_id'] ?? 0 ) ) {
@@ -3184,7 +3463,7 @@ try {
 			'claim_winner_forced_publish_reread_before_mutation' => true,
 			'claim_lifecycle_lease_released_before_run_lifetime' => true,
 			'surface_refresh_history_preserved_immutable_records' => true,
-			'refreshed_identical_payload_created_new_generation_artifact' => true,
+			'refreshed_packet_coherent_payload_created_new_generation_artifact' => true,
 			'refreshed_translator_abandon_restored_changes_requested' => true,
 			'quality_path_defensively_reopened_drifted_baseline' => true,
 			'ready_to_publish_claim_defensively_reopened' => true,
@@ -3210,7 +3489,6 @@ try {
 		remove_filter( 'page_link', $runtime_page_link, 10 );
 	}
 	remove_filter( 'devenia_workflow_frontend_cache_invalidation_result', $cache_adapter, 10 );
-	remove_filter( 'devenia_workflow_retire_previous_localized_menu_projection', $keep_previous_menu, 10 );
 	wp_set_current_user( $original_user_id );
 	update_option( 'devenia_workflow_language_registry', $languages_option_before, false );
 	update_option( 'devenia_workflow_runtime_mutation_provenance', $runtime_provenance_before, false );
@@ -3294,6 +3572,12 @@ try {
 	}
 	if ( $linked_source_id > 0 ) {
 		wp_delete_post( $linked_source_id, true );
+	}
+	if ( $localized_link_target_id > 0 ) {
+		wp_delete_post( $localized_link_target_id, true );
+	}
+	if ( $localized_link_source_id > 0 ) {
+		wp_delete_post( $localized_link_source_id, true );
 	}
 	if ( $source_thumbnail_id > 0 ) {
 		wp_delete_attachment( $source_thumbnail_id, true );

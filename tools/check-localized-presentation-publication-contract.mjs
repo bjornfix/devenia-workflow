@@ -196,11 +196,12 @@ assert.deepEqual(productionRuntimeCouplings, [], "production PHP must not read G
 const plugin = readFileSync(new URL("../devenia-workflow.php", import.meta.url), "utf8");
 const publication = readFileSync(new URL("../includes/trait-localized-presentation-publication.php", import.meta.url), "utf8");
 const relationAuthority = readFileSync(new URL("../includes/trait-public-header-relation-authority.php", import.meta.url), "utf8");
+const indexReadModel = readFileSync(new URL("../includes/trait-translation-index-read-model.php", import.meta.url), "utf8");
 const jobs = readFileSync(new URL("../includes/trait-translation-job.php", import.meta.url), "utf8");
 const runtime = readFileSync(new URL("./check-translation-job-runtime.php", import.meta.url), "utf8");
 const publicHeaderRuntime = readFileSync(new URL("./check-public-header-projection-wordpress-runtime.php", import.meta.url), "utf8");
 const lockWorker = readFileSync(new URL("./public-header-relation-lock-worker.php", import.meta.url), "utf8");
-const mysqlWorkflow = readFileSync(new URL("../.github/workflows/recovery-transaction-mysql84.yml", import.meta.url), "utf8");
+const databaseRuntimeSuite = readFileSync(new URL("./run-database-runtime-suite.sh", import.meta.url), "utf8");
 const activationInputStart = publicHeaderRuntime.indexOf("$activation_input = static function");
 const activationInputEnd = publicHeaderRuntime.indexOf("$option_keys =", activationInputStart);
 assert.ok(activationInputStart > 0 && activationInputEnd > activationInputStart, "the runtime activation-input helper must remain bounded");
@@ -462,12 +463,89 @@ assert.doesNotMatch(lockWorker, /UPDATE %i SET meta_value/, "an existing-row met
 assert.match(lockWorker, /information_schema\.TABLES[\s\S]*'INNODB'/, "the worker must fail closed unless the exact written surface is InnoDB");
 assert.match(lockWorker, /'after' === \$phase[\s\S]*restore[\s\S]*\$write_applied[\s\S]*finally[\s\S]*restore/, "unexpected success and after-phase recovery must remain fail-closed and cleanup-aware");
 assert.match(lockWorker, /'success'[\s\S]*'phase'[\s\S]*'errno'[\s\S]*'connection_id'[\s\S]*'engine'/, "worker output must stay limited to the five allowlisted receipt fields");
-assert.match(runtime, /translation_job_publish[\s\S]*delete_translation_index_for_post[\s\S]*public_header_page_relation_index_mismatch[\s\S]*wrong_index_rows_before !== \$wrong_index_rows_after/, "ordinary Translation Job publication must fail closed on a missing Index row and restore the exact row");
+const wrongIndexRuntime = boundedSource(runtime, "$wrong_index_job_key =", "$attempt_limit_job_key =");
+const wrongIndexRuntimeContractPasses = (source) => {
+	const adapterStart = source.indexOf("$wrong_index_commit_adapter =");
+	const realCommit = "$actual = $call( 'translation_job_commit_recovery_transaction' );";
+	const indexDelete = "$call( 'delete_translation_index_for_post', $wrong_index_target_id, $wrong_index_target_post );";
+	return adapterStart > 0
+		&& !source.slice(0, adapterStart).includes("delete_translation_index_for_post")
+		&& source.split(realCommit).length - 1 === 1
+		&& source.split(indexDelete).length - 1 === 1
+		&& (source.match(/\$actual\s*=/g) || []).length === 1
+		&& source.indexOf(realCommit, adapterStart) < source.indexOf(indexDelete, adapterStart)
+		&& /\$wrong_index_rows_before[\s\S]*1 !== count\( \(array\) \$wrong_index_rows_before \)/.test(source)
+		&& /\$wrong_index_commit_adapter = static function[\s\S]*\+\+\$wrong_index_commit_calls;[\s\S]*if \( 1 !== \$wrong_index_commit_calls \) \{ throw new RuntimeException\( 'Wrong-index COMMIT Adapter was invoked more than once\.' \); \}[\s\S]*translation_job_commit_recovery_transaction[\s\S]*true !== \$actual\['committed'\][\s\S]*delete_translation_index_for_post[\s\S]*\$wrong_index_rows_missing[\s\S]*\$wrong_index_commit_receipt = \$actual;[\s\S]*\$wrong_index_injected = true;[\s\S]*return \$actual;/.test(source)
+		&& /add_filter\( 'devenia_workflow_localized_presentation_commit_adapter_result', \$wrong_index_commit_adapter, 10, 4 \)[\s\S]*translation_job_publish[\s\S]*remove_filter\( 'devenia_workflow_localized_presentation_commit_adapter_result', \$wrong_index_commit_adapter, 10 \)/.test(source)
+		&& /\$wrong_index_content_authority_exact[\s\S]*wrong_index_meta_without_ids[\s\S]*! \$wrong_index_injected[\s\S]*1 !== \$wrong_index_commit_calls[\s\S]*\$wrong_index_commit_receipt\['success'\][\s\S]*! empty\( \$wrong_index_rows_missing \)[\s\S]*forward_publication_applied[\s\S]*published[\s\S]*rollback'\]\['success[\s\S]*restored_exact[\s\S]*restored_verified[\s\S]*public_header_page_relation_index_mismatch[\s\S]*\$wrong_index_rows_before !== \$wrong_index_rows_after[\s\S]*! \$wrong_index_content_authority_exact/.test(source);
+};
+assert.equal(wrongIndexRuntimeContractPasses(wrongIndexRuntime), true, "ordinary Translation Job publication must pass intact reader preflight, remove one exact Index row only after real content COMMIT, fail fresh relation staging, and restore the exact row");
+assert.equal(wrongIndexRuntimeContractPasses(wrongIndexRuntime.replace("$actual = $call( 'translation_job_commit_recovery_transaction' );", "$actual = array( 'success' => true, 'committed' => true );")), false, "the wrong-Index gate must reject a fabricated COMMIT receipt");
+assert.equal(wrongIndexRuntimeContractPasses(wrongIndexRuntime.replace("$call( 'delete_translation_index_for_post', $wrong_index_target_id, $wrong_index_target_post );", "$call( 'sync_translation_index_row', $wrong_index_target_id );")), false, "the wrong-Index gate must require the real post-COMMIT row loss");
+assert.equal(wrongIndexRuntimeContractPasses(wrongIndexRuntime.replace("$actual = $call( 'translation_job_commit_recovery_transaction' );", "$call( 'delete_translation_index_for_post', $wrong_index_target_id, $wrong_index_target_post ); $actual = $call( 'translation_job_commit_recovery_transaction' );")), false, "the wrong-Index gate must reject Index loss before the real content COMMIT");
+assert.equal(wrongIndexRuntimeContractPasses(wrongIndexRuntime.replace("if ( 1 !== $wrong_index_commit_calls ) { throw new RuntimeException( 'Wrong-index COMMIT Adapter was invoked more than once.' ); }", "if ( 1 !== $wrong_index_commit_calls ) { return null; }")), false, "the wrong-Index gate must make every unexpected second Adapter invocation a hard RED");
+assert.equal(wrongIndexRuntimeContractPasses(wrongIndexRuntime.replace("add_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $wrong_index_commit_adapter, 10, 4 );", "add_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $wrong_index_commit_adapter, 10, 4 );")), false, "the wrong-Index gate must bind the race to the content-COMMIT boundary after reader preflight");
+assert.equal(wrongIndexRuntimeContractPasses(wrongIndexRuntime.replace("return $actual;", "return $default;")), false, "the wrong-Index gate must return the real COMMIT receipt to production reconciliation");
+assert.doesNotMatch(runtime, /devenia_workflow_retire_previous_localized_menu_projection/, "the Translation Job runtime must not register the retired no-op menu-retirement hook");
 assert.match(runtime, /wrong_index_menu_inventory_before[\s\S]*raw_nav_menu_inventory[\s\S]*ordinary_translation_job_wrong_index_preserved_raw_authority/, "wrong-Index publication must preserve the complete raw nav_menu inventory as well as content and authority rows");
-assert.match(mysqlWorkflow, /tools\/public-header-relation-lock-worker\.php[\s\S]*check-public-header-projection-wordpress-runtime\.php[\s\S]*separate_connection_post_lock_blocked_writer[\s\S]*separate_connection_meta_predicate_lock_blocked_writer[\s\S]*check-translation-job-runtime\.php[\s\S]*ordinary_translation_job_wrong_index_preserved_raw_authority/, "MySQL 8.4 CI must execute and require every real relation-authority runtime proof");
+const failedProjectionStart = runtime.indexOf("$fail_projection_write =");
+const failedProjectionEnd = runtime.indexOf("if ( $source_thumbnail_id !==", failedProjectionStart);
+assert.ok(failedProjectionStart > 0 && failedProjectionEnd > failedProjectionStart, "missing bounded atomic projection failure fixture");
+const failedProjectionContractPasses = (source) => {
+	const start = source.indexOf("$fail_projection_write =");
+	const end = source.indexOf("if ( $source_thumbnail_id !==", start);
+	if (start < 0 || end <= start) return false;
+	const bounded = source.slice(start, end);
+	return /sync_language_menu', array\([\s\S]*'language' => \$language[\s\S]*'manifest' => \$runtime_pending_manifest/.test(bounded)
+		&& /menu_projection_write_failed[\s\S]*\$runtime_active_menu_id !== absint\( \$identity_after_failure\[ \$language \]\['menu_id'\]/.test(bounded);
+};
+assert.equal(failedProjectionContractPasses(runtime), true, "the atomic projection write-failure oracle must cross a current receipt-bound manifest before testing writer cleanup and active identity preservation");
+assert.equal(failedProjectionContractPasses(runtime.replace(", 'manifest' => $runtime_pending_manifest", "")), false, "the projection failure gate must reject a direct call without current relation receipts");
+assert.match(databaseRuntimeSuite, /DATABASE_EXPECTATION:-mariadb[\s\S]*mariadb\)[\s\S]*10\\\.11\\\.[\s\S]*mysql-8\.4\)[\s\S]*8\\\.4\\\.[\s\S]*check-recovery-transaction-portability-runtime\.php[\s\S]*scenarios[\s\S]*22[\s\S]*check-public-header-projection-wordpress-runtime\.php[\s\S]*separate_connection_post_lock_blocked_writer[\s\S]*separate_connection_meta_predicate_lock_blocked_writer[\s\S]*check-translation-job-runtime\.php[\s\S]*ordinary_translation_job_wrong_index_preserved_raw_authority/, "the repository-owned database suite must default to MariaDB and require every real relation-authority runtime proof while retaining optional MySQL compatibility");
+assert.doesNotMatch(databaseRuntimeSuite, /GITHUB_|\.github\/workflows|github\.com|workflow_(?:dispatch|run)|repository_dispatch/i, "the canonical database runtime suite must run without GitHub or GitHub Actions");
 assert.match(publication, /activate_public_header_projection_set[\s\S]*unset\( \$active_manifest\['authority_receipts'\] \)[\s\S]*unset\( \$active_manifest\['relation_receipts'\] \)/, "ephemeral intake and relation receipts must never persist as active reader authority");
 assert.match(migrationInterface, /devenia_workflow_public_header_migration_before_final_authority_revalidation[\s\S]*public_header_manifest\(\)[\s\S]*validate_public_header_authority_receipts/, "schema-1 migration must revalidate exact active and intake authority before staging");
 assert.match(plugin, /localized_link_expected_target_map[\s\S]*source_language_code\(\) === \$language/, "localized link relation logic must use configured source-language authority");
+const queryIdentityLinkAuthorityPasses = (pluginSource, readModelSource, runtimeSource) => {
+	const map = boundedSource(pluginSource, "private static function localized_link_expected_target_map", "private static function frontend_row_target_link_variants");
+	const indexedMapEnd = map.indexOf("$cache[ $language ] = $map;");
+	const indexedMap = indexedMapEnd > 0 ? map.slice(0, indexedMapEnd) : "";
+	const shortlinks = boundedSource(pluginSource, "private static function content_shortlink_variants", "private static function frontend_row_legacy_source_slug_link_variants");
+	const target = boundedSource(pluginSource, "private static function localized_internal_link_target", "private static function wordpress_content_query_id_from_parts");
+	const queryBranchStart = target.indexOf("if ( $content_query_id )");
+	const queryBranchEnd = target.indexOf("} else {", queryBranchStart);
+	const queryBranch = queryBranchStart >= 0 && queryBranchEnd > queryBranchStart ? target.slice(queryBranchStart, queryBranchEnd) : "";
+	const frontendRows = boundedSource(readModelSource, "private static function frontend_rows_from_index_rows", "\n}");
+	const refreshRuntime = boundedSource(runtimeSource, "$refresh_writer_packet =", "$build_runtime_refresh_artifact =");
+	const unknownQueryRuntime = boundedSource(runtimeSource, "try {", "$replace_fragment =");
+	const packetRuntime = boundedSource(runtimeSource, "$packet = $call( 'translation_job_fetch_packet'", "$pre_submit_surface_revision =");
+	return /array_merge\([\s\S]*\$source_variants\[ \$source_id \][\s\S]*content_shortlink_variants\( \(int\) \$source_id \)/.test(indexedMap)
+		&& /frontend_row_target_link_variants\( \$row, false \)[\s\S]*content_shortlink_variants\( \$translation_id, \$lang \)/.test(indexedMap)
+		&& /if \( ! \$post_id \)[\s\S]*foreach \( array\( 'page_id', 'p', 'post_id' \)/.test(shortlinks)
+		&& !/get_post\(/.test(shortlinks)
+		&& (target.match(/\$candidates\s*=/g) || []).length === 2
+		&& !/\$candidates\s*\[|array_(?:push|unshift)\(\s*\$candidates|array_merge\(\s*\$candidates/.test(target)
+		&& /\$candidates = self::content_shortlink_variants\( \$content_query_id \)/.test(queryBranch)
+		&& !/\$path|trailingslashit|untrailingslashit/.test(queryBranch)
+		&& /} else \{[\s\S]*\$path[\s\S]*trailingslashit\( \$path \)/.test(target)
+		&& /\$source_url\s*= '';[\s\S]*get_permalink\( \$source_id \)[\s\S]*\( '' === \$source_url && '' === \$source_path \)[\s\S]*'' !== \$source_url \? \$source_url : home_url/.test(frontendRows)
+		&& /\$query_identity_root_map[\s\S]*array\( 'page_id', 'p', 'post_id' \)[\s\S]*home_url\([\s\S]*'\/\?'[\s\S]*null !== \$call\( 'localized_internal_link_target'[\s\S]*Unknown WordPress query-ID link fell through/.test(unknownQueryRuntime)
+		&& /\$untranslated_packet_link_rows[\s\S]*\$localized_packet_link_rows[\s\S]*2 !== count\( \$links \)[\s\S]*false !== \( \$untranslated_packet_link\['published_target_available'\][\s\S]*retain_source_url_until_localized_target_is_published[\s\S]*true !== \( \$localized_packet_link\['published_target_available'\][\s\S]*use_published_localized_target[\s\S]*\$localized_packet_link\['source_url'\][\s\S]*=== \$call\( 'normalized_comparable_url', \$expected_localized_packet_link_url \)/.test(packetRuntime)
+		&& /\$refresh_link_rows[\s\S]*\$linked_source_id === absint\( \$row\['source_post_id'\][\s\S]*\$linked_source_id !== absint\( \$refresh_link_row\['target_post_id'\][\s\S]*published_target_available[\s\S]*retain_source_url_until_localized_target_is_published[\s\S]*Untranslated query-ID source link was aliased/.test(refreshRuntime);
+};
+assert.equal(queryIdentityLinkAuthorityPasses(plugin, indexReadModel, runtime), true, "query-ID links must resolve only through their exact content identity, never a generic path candidate, and the real packet must retain an untranslated source");
+const missingIndexedSourceShortlinks = plugin.replace("self::content_shortlink_variants( (int) $source_id )", "array()");
+assert.notEqual(missingIndexedSourceShortlinks, plugin, "the indexed-source-shortlink mutation fixture must alter production source");
+assert.equal(queryIdentityLinkAuthorityPasses(missingIndexedSourceShortlinks, indexReadModel, runtime), false, "the query-ID gate must reject removal of indexed source shortlink identities");
+const missingIndexedTargetShortlinks = plugin.replace("self::content_shortlink_variants( $translation_id, $lang )", "array()");
+assert.notEqual(missingIndexedTargetShortlinks, plugin, "the indexed-target-shortlink mutation fixture must alter production source");
+assert.equal(queryIdentityLinkAuthorityPasses(missingIndexedTargetShortlinks, indexReadModel, runtime), false, "the query-ID gate must reject removal of indexed translated-target shortlink identities");
+assert.equal(queryIdentityLinkAuthorityPasses(plugin.replace("$candidates = self::content_shortlink_variants( $content_query_id );", "$candidates = array( $path );"), indexReadModel, runtime), false, "the query-ID gate must reject generic path fallback for an explicit WordPress content ID");
+const appendedQueryPathFallback = plugin.replace("\t\t}\n\n\t\tforeach ( $candidates as $candidate ) {", "\t\t}\n\t\tif ( $content_query_id ) { $candidates[] = $path; }\n\n\t\tforeach ( $candidates as $candidate ) {");
+assert.notEqual(appendedQueryPathFallback, plugin, "the post-branch path-fallback mutation fixture must alter production source");
+assert.equal(queryIdentityLinkAuthorityPasses(appendedQueryPathFallback, indexReadModel, runtime), false, "the query-ID gate must reject a generic path candidate appended after the protected query branch");
+assert.equal(queryIdentityLinkAuthorityPasses(plugin, indexReadModel.replace("$row['source_url'] = '' !== $source_url ? $source_url : home_url( '/' . trim( $source_path, '/' ) . '/' );", "$row['source_url'] = home_url( '/' . trim( $source_path, '/' ) . '/' );"), runtime), false, "the query-ID gate must reject collapsing a query permalink into root-path authority");
+assert.equal(queryIdentityLinkAuthorityPasses(plugin, indexReadModel, runtime.replace("$linked_source_id !== absint( $refresh_link_row['target_post_id'] ?? 0 )", "$linked_source_id < 1")), false, "the runtime oracle must bind the packet target to the exact untranslated source identity");
 assert.match(publication, /intake_state_restore/);
 assert.match(enrollmentInterface, /stage_first_public_header_enrollment_transaction[\s\S]*lock_public_header_relation_authority_surface[\s\S]*theme_mods_[\s\S]*FOR UPDATE[\s\S]*devenia_workflow_public_header_enrollment_before_locked_stage_revalidation/);
 assert.match(publication, /reconcile_first_public_header_enrollment_commit_outcome[\s\S]*! \$pre_state_proven && \$applied_state_proven[\s\S]*foreign_state_observed[\s\S]*public_header_enrollment_commit_reconciliation_conflict[\s\S]*public_header_enrollment_commit_outcome_unknown_conflict[\s\S]*public_header_enrollment_commit_reconciliation_failed/, "reconciliation may restore only this operation's exact expected-after state and must preserve foreign state");

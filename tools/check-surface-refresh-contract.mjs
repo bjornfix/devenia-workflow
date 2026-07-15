@@ -63,7 +63,7 @@ assert.match(runtimeSource, /\} finally \{[\s\S]*\$baseline_original_featured_al
 for (const proof of [
 	"Snapshot-to-lock Surface Refresh did not prove same-call zero mutation, rollback, and an exact Job reopen",
 	"Surface Refresh changed an immutable prior artifact, Quality, or evidence record",
-	"Identical refreshed payload did not create a new immutable generation/baseline/writer artifact",
+	"Packet-coherent refreshed payload did not create a new immutable generation/baseline/writer artifact",
 	"Quality defensive Surface Refresh path failed",
 	"Generation-three packet could not recover the latest immutable generation-two artifact",
 	"Surface Refresh did not fail closed at the finite generation ceiling",
@@ -83,6 +83,32 @@ for (const proof of [
 ]) {
 	assert.ok(runtimeSource.includes(proof), `missing runtime proof: ${proof}`);
 }
+
+const refreshArtifactStart = runtimeSource.indexOf("$build_runtime_refresh_artifact =");
+const refreshArtifactEnd = runtimeSource.indexOf("// Staged Translation Artifact application owns the first public mutation.", refreshArtifactStart);
+assert.ok(refreshArtifactStart > 0 && refreshArtifactEnd > refreshArtifactStart, "missing bounded refreshed-generation artifact fixture");
+const refreshedGenerationContractPasses = (source) => {
+	const start = source.indexOf("$build_runtime_refresh_artifact =");
+	const end = source.indexOf("// Staged Translation Artifact application owns the first public mutation.", start);
+	if (start < 0 || end <= start) return false;
+	const bounded = source.slice(start, end);
+	return /\$build_runtime_refresh_artifact = static function[\s\S]*\$packet\['fragments'\][\s\S]*\$packet\['links'\][\s\S]*\$link\['target_url'\][\s\S]*translation_job_anchor_hrefs[\s\S]*expected_target_urls[\s\S]*consumed_target_urls/.test(bounded)
+		&& (bounded.match(/\$target_url\s*=/g) || []).length === 1
+		&& /\$target_url = \(string\) \( \$link\['target_url'\][\s\S]*\$expected_targets\[ \$target_key \] = \$target_url;[\s\S]*esc_url\( \$target_url \)/.test(bounded)
+		&& !/\$target_url\s*=\s*\$source_url/.test(bounded)
+		&& /\$refresh_previous_artifact = \(array\) \$refresh_writer_packet\['packet'\]\['correction_context'\]\['previous_artifact'\]\['artifact'\][\s\S]*\$refresh_artifact_build = \$build_runtime_refresh_artifact\( \$refresh_writer_packet, \$refresh_previous_artifact \)[\s\S]*\$refresh_generation_two_excerpt[\s\S]*expected_target_urls[\s\S]*consumed_target_urls[\s\S]*'artifact' => \$refresh_artifact_build\['artifact'\]/.test(bounded)
+		&& /\$generation_three_previous_artifact = \(array\) \$generation_three_packet\['packet'\]\['correction_context'\]\['previous_artifact'\]\['artifact'\][\s\S]*\$generation_three_artifact_build = \$build_runtime_refresh_artifact\( \$generation_three_packet, \$generation_three_previous_artifact \)[\s\S]*\$refresh_generation_two_excerpt !==[\s\S]*\$generation_three_previous_non_fragments !== \$generation_three_built_non_fragments[\s\S]*'artifact' => \$generation_three_artifact_build\['artifact'\]/.test(bounded)
+		&& !/'artifact'\s*=>\s*\$artifact\b/.test(bounded)
+		&& /Generation-three packet-coherent artifact submission failed/.test(bounded)
+		&& /Generation-three Quality claim failed/.test(bounded);
+};
+assert.equal(refreshedGenerationContractPasses(runtimeSource), true, "every refreshed generation must submit an artifact derived from its own fresh bounded packet and fail before a missing receipt is dereferenced");
+assert.equal(refreshedGenerationContractPasses(runtimeSource.replace("'artifact' => $refresh_artifact_build['artifact']", "'artifact' => $artifact")), false, "the refresh gate must reject reuse of the original generation-one artifact");
+assert.equal(refreshedGenerationContractPasses(runtimeSource.replace("'artifact' => $generation_three_artifact_build['artifact']", "'artifact' => $artifact")), false, "the refresh gate must reject reuse of a generation-one artifact after the second baseline refresh");
+assert.equal(refreshedGenerationContractPasses(runtimeSource.replace("$refresh_artifact_build = $build_runtime_refresh_artifact( $refresh_writer_packet, $refresh_previous_artifact );", "$refresh_artifact_build = $build_runtime_refresh_artifact( $refresh_writer_packet, $artifact );")), false, "the refresh gate must derive generation two from the packet-owned previous artifact, not ambient generation-one state");
+assert.equal(refreshedGenerationContractPasses(runtimeSource.replace("$generation_three_artifact_build = $build_runtime_refresh_artifact( $generation_three_packet, $generation_three_previous_artifact );", "$generation_three_artifact_build = $build_runtime_refresh_artifact( $refresh_writer_packet, $generation_three_previous_artifact );")), false, "the refresh gate must bind generation three to its own newly fetched packet");
+assert.equal(refreshedGenerationContractPasses(runtimeSource.replace("$generation_three_artifact_build = $build_runtime_refresh_artifact( $generation_three_packet, $generation_three_previous_artifact );", "$generation_three_artifact_build = $build_runtime_refresh_artifact( $generation_three_packet, $artifact );")), false, "the refresh gate must derive generation three from its packet-owned previous artifact");
+assert.equal(refreshedGenerationContractPasses(runtimeSource.replace("$target_url = (string) ( $link['target_url'] ?? '' );", "$target_url = (string) ( $link['target_url'] ?? '' ); $target_url = $source_url;")), false, "the refresh gate must reject reading target authority but rendering the source URL");
 
 const invalidStagedReceipt = runtimeSource.match(/return array\( ([^\n]*'runtime_staged_commit_missing_committed'[^\n]*) \);/);
 assert.ok(invalidStagedReceipt, "missing malformed staged COMMIT Adapter receipt fixture");

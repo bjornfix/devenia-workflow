@@ -17079,10 +17079,11 @@ final class Devenia_Workflow {
 			$published_by_source = array();
 			$source_variants = array();
 			foreach ( $indexed_rows as $row ) {
-				$source_id = absint( $row['source_id'] ?? 0 );
-				$lang      = (string) ( $row['language'] ?? '' );
-				$url       = (string) ( $row['target_url'] ?? '' );
-				if ( ! $source_id || '' === $lang || ! $url ) {
+				$source_id      = absint( $row['source_id'] ?? 0 );
+				$translation_id = absint( $row['id'] ?? $row['translation_post_id'] ?? 0 );
+				$lang           = (string) ( $row['language'] ?? '' );
+				$url            = (string) ( $row['target_url'] ?? '' );
+				if ( ! $source_id || ! $translation_id || '' === $lang || ! $url ) {
 					continue;
 				}
 
@@ -17101,7 +17102,10 @@ final class Devenia_Workflow {
 
 				$by_source[ $source_id ][ $lang ] = array(
 					'target_url' => (string) $url,
-					'variants'   => self::frontend_row_target_link_variants( $row, false ),
+					'variants'   => array_merge(
+						self::frontend_row_target_link_variants( $row, false ),
+						self::content_shortlink_variants( $translation_id, $lang )
+					),
 				);
 				if ( 'publish' === (string) ( $row['post_status'] ?? $row['status'] ?? '' ) ) {
 					$published_by_source[ $source_id ][ $lang ] = $by_source[ $source_id ][ $lang ];
@@ -17121,7 +17125,10 @@ final class Devenia_Workflow {
 					continue;
 				}
 
-				$variants = array_values( $source_variants[ $source_id ] ?? array( $source_url ) );
+				$variants = array_merge(
+					array_values( $source_variants[ $source_id ] ?? array( $source_url ) ),
+					self::content_shortlink_variants( (int) $source_id )
+				);
 				foreach ( $translations as $translation ) {
 					$variants = array_merge( $variants, (array) ( $translation['variants'] ?? array() ) );
 				}
@@ -17269,7 +17276,7 @@ final class Devenia_Workflow {
 	 * @return array<int,string>
 	 */
 	private static function content_shortlink_variants( int $post_id, string $language = '' ): array {
-		if ( ! $post_id || ! get_post( $post_id ) ) {
+		if ( ! $post_id ) {
 			return array();
 		}
 
@@ -17426,18 +17433,22 @@ final class Devenia_Workflow {
 		$fragment = isset( $parts['fragment'] ) ? '#' . $parts['fragment'] : '';
 		$content_query_id = self::wordpress_content_query_id_from_parts( $parts );
 
-		$candidates = array_filter(
-			array_unique(
-				array(
-					$url,
-					trailingslashit( $url ),
-					untrailingslashit( $url ),
-					$path,
-					trailingslashit( $path ),
-					untrailingslashit( $path ),
+		if ( $content_query_id ) {
+			$candidates = self::content_shortlink_variants( $content_query_id );
+		} else {
+			$candidates = array_filter(
+				array_unique(
+					array(
+						$url,
+						trailingslashit( $url ),
+						untrailingslashit( $url ),
+						$path,
+						trailingslashit( $path ),
+						untrailingslashit( $path ),
+					)
 				)
-			)
-		);
+			);
+		}
 
 		foreach ( $candidates as $candidate ) {
 			if ( ! isset( $map[ $candidate ] ) ) {

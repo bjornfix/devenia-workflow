@@ -23,7 +23,9 @@ function home_url( string $path = '' ): string {
 
 function get_permalink( int $post_id ): string {
 	$permalinks = array(
+		12 => 'https://example.test/?page_id=12',
 		20 => 'https://example.test/nb/om-oss/tjenester/',
+		22 => 'https://example.test/nb/query-source/',
 	);
 	return $permalinks[ $post_id ] ?? 'https://example.test/post-' . $post_id . '/';
 }
@@ -82,6 +84,17 @@ $raw_rows = array(
 		'language' => 'nb',
 		'post_status' => 'draft',
 	),
+	array(
+		'source_post_id' => 12,
+		'translation_post_id' => 22,
+		'language' => 'nb',
+		'localized_path' => 'nb/query-source',
+		'source_path' => '',
+		'target_path' => 'nb/query-source',
+		'target_url' => 'https://example.test/nb/query-source/',
+		'translation_status' => 'published',
+		'post_status' => 'publish',
+	),
 );
 
 $normalized = invoke_index_read_model_method( 'normalize_translation_index_rows', array( $raw_rows, array( 'publish' ) ) );
@@ -89,7 +102,7 @@ $GLOBALS['index_contract_route'] = array();
 $frontend = invoke_index_read_model_method( 'frontend_rows_from_index_rows', array( $normalized ) );
 $failures = array();
 
-if ( 1 !== count( $normalized ) || 20 !== (int) ( $normalized[0]['id'] ?? 0 ) ) {
+if ( 2 !== count( $normalized ) || 20 !== (int) ( $normalized[0]['id'] ?? 0 ) || 22 !== (int) ( $normalized[1]['id'] ?? 0 ) ) {
 	$failures[] = 'publish status filtering or row identity changed';
 }
 
@@ -105,7 +118,7 @@ if ( 'nb/om-oss' !== ( $contract_row['target_path'] ?? '' ) || empty( $contract_
 if ( 'nb/om-oss/tjenester' !== ( $contract_row['observed_target_path'] ?? '' ) ) {
 	$failures[] = 'observed drift route was not retained as separate evidence';
 }
-if ( 1 !== count( $frontend ) ) {
+if ( 2 !== count( $frontend ) ) {
 	$failures[] = 'frontend row count changed';
 } else {
 	$row = $frontend[0];
@@ -126,6 +139,10 @@ if ( 1 !== count( $frontend ) ) {
 	}
 	if ( 'https://example.test/services/' !== ( $row['source_url'] ?? '' ) ) {
 		$failures[] = 'source URL shaping changed';
+	}
+	$query_row = $frontend[1] ?? array();
+	if ( 'https://example.test/?page_id=12' !== ( $query_row['source_url'] ?? '' ) || '' !== ( $query_row['source_path'] ?? '' ) ) {
+		$failures[] = 'query-ID source URL was collapsed into unrelated root-path authority';
 	}
 }
 

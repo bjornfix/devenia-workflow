@@ -135,6 +135,11 @@ authority or dependency. Production PHP neither reads CI environment state nor
 invokes or fetches workflow runs; updater and release metadata remain outside the
 publication authority model. Production Workflow never shells out or requires an
 external executable; process-based release and CI tooling remains outside runtime.
+The canonical database acceptance suite is repository-owned and defaults to the
+MariaDB 10.11 production baseline. MySQL 8.4 is optional compatibility evidence
+only. GitHub Actions is a replaceable Adapter which may invoke that mode; neither
+the suite nor its local contract checks read a workflow file as their source of
+truth.
 The Translation Index may cross-check that
 canonical relation, but it cannot choose the candidate; an unavailable Index,
 index-only source identity, missing row, stale status, or different target is a
