@@ -9,6 +9,9 @@ on:
       - includes/**
       - tools/check-recovery-transaction-portability-runtime.php
       - tools/check-wp-cli-upgrade-bootstrap-runtime.php
+      - tools/check-public-header-projection-wordpress-runtime.php
+      - tools/check-translation-job-runtime.php
+      - tools/public-header-relation-lock-worker.php
   pull_request:
     paths:
       - .github/workflows/recovery-transaction-mysql84.yml
@@ -16,6 +19,9 @@ on:
       - includes/**
       - tools/check-recovery-transaction-portability-runtime.php
       - tools/check-wp-cli-upgrade-bootstrap-runtime.php
+      - tools/check-public-header-projection-wordpress-runtime.php
+      - tools/check-translation-job-runtime.php
+      - tools/public-header-relation-lock-worker.php
 
 permissions:
   contents: read
@@ -23,7 +29,7 @@ permissions:
 jobs:
   portability-runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     services:
       mysql:
@@ -131,3 +137,45 @@ jobs:
             echo "Recovery runtime did not return the exact 22-scenario success proof." >&2
             exit 1
           fi
+
+      - name: Prove ephemeral Public Header relation authority on MySQL 8.4
+        shell: bash
+        env:
+          WP_PATH: ${{ runner.temp }}/wordpress
+        run: |
+          set -euo pipefail
+          header_result="$(wp eval-file \
+            "$GITHUB_WORKSPACE/tools/check-public-header-projection-wordpress-runtime.php" \
+            --path="$WP_PATH" \
+            --skip-themes)"
+          printf '%s\n' "$header_result"
+          RESULT="$header_result" php -r '
+            $result = json_decode((string) getenv("RESULT"), true);
+            $required = [
+              "success",
+              "missing_relation_receipts_failed_without_raw_state_mutation",
+              "internal_custom_route_drift_rolled_back_exactly",
+              "separate_connection_post_lock_blocked_writer",
+              "separate_connection_meta_predicate_lock_blocked_writer",
+              "relation_receipts_not_persisted_in_active_manifest",
+            ];
+            foreach ($required as $key) {
+              if (!is_array($result) || true !== ($result[$key] ?? null)) {
+                fwrite(STDERR, "Public Header relation runtime missing exact proof: {$key}\n");
+                exit(1);
+              }
+            }
+          '
+
+          job_result="$(wp eval-file \
+            "$GITHUB_WORKSPACE/tools/check-translation-job-runtime.php" \
+            --path="$WP_PATH" \
+            --skip-themes)"
+          printf '%s\n' "$job_result"
+          RESULT="$job_result" php -r '
+            $result = json_decode((string) getenv("RESULT"), true);
+            if (!is_array($result) || true !== ($result["success"] ?? null) || true !== ($result["ordinary_translation_job_wrong_index_preserved_raw_authority"] ?? null)) {
+              fwrite(STDERR, "Translation Job runtime did not prove wrong-index fail-closed raw authority.\n");
+              exit(1);
+            }
+          '

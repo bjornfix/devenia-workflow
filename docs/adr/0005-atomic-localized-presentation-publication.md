@@ -105,16 +105,35 @@ candidates agree.
 Page Relation Authority remains in canonical WordPress posts and postmeta. A
 source page is valid only while it is published and has no source or language
 translation identity. A target relation is valid only when exactly one
-published page has exactly one source-meta row and one requested-language row.
-The Translation Index may cross-check that canonical relation, but it cannot
-choose the candidate; an index-only source identity, missing index row, stale
-status, or different target is a fail-closed disagreement. The final activation
-transaction explicitly locks every receipt candidate menu, every canonical
-source and target post row, and the complete source/language metadata-key range
-before revalidation. These core-table predicate locks, under the already-proven
-serializable InnoDB recovery boundary, prevent a meta-only relation from being
-inserted between the final authority read and COMMIT without depending on the
-custom index table's storage engine.
+published object of the canonical source type has exactly one source-meta row
+and one requested-language row. Source type/status and absence of translation
+identity are validated even while resolving target-language candidates. Every
+pending projection revision receives a fresh all-language ephemeral Relation
+Authority receipt, including ordinary Translation Job publication and operator
+restaging; a receipt-free active reader manifest is never mutation authority.
+Missing or malformed receipts reject before staging, and activation removes the
+ephemeral receipts from active state. The Translation Index may cross-check that
+canonical relation, but it cannot choose the candidate; an unavailable Index,
+index-only source identity, missing row, stale status, or different target is a
+fail-closed disagreement.
+
+Internal custom links are canonical content relations rather than mutable URL
+strings. Their receipt binds source and target post IDs, fresh source and target
+permalinks, the exact normalized target URL staged into `_menu_item_url`, all
+route-bearing ancestor post rows, canonical route metadata, and one route
+revision. External custom links remain URL-only. The final activation transaction
+sorts and locks authority/current/staged menus, canonical source/target/route post
+rows, the complete source/language metadata-key range, and route metadata
+predicates before the last receipt revalidation. Separate-process WordPress
+workers with distinct database connection IDs prove InnoDB blocks both a post
+writer and metadata-predicate writers with exact lock-wait timeout 1205 while
+the owned transaction is open. The metadata writers exercise real absent-row
+inserts for both canonical source-ID and language keys, then delete only the
+exact inserted row; an update of an existing row is not predicate-lock evidence.
+Each write succeeds and restores before the lock, then succeeds and restores
+twice after rollback so cleanup is proven idempotent. These behavioral oracles
+make the lock contract independent of implementation flags or the custom Index
+table's storage engine.
 The complete schema-2 draft then enters the same atomic activation Interface.
 Any failed first activation restores and verifies the exact four-option state
 captured before intake, leaving no orphan pending manifest.

@@ -117,14 +117,29 @@ set is mandatory; invalid or managed members cannot be silently omitted.
 The Public Header Relation Authority Module chooses page relations only from
 canonical WordPress post and postmeta rows. A source page must be published and
 have no source/language translation identity. A target relation requires exactly
-one published page with exactly one matching source row and one matching
-language row. The Translation Index Adapter is an optional read-model
-cross-check only: it never selects a candidate, and any source classification or
-target mapping disagreement fails closed. At final activation, every authority
-candidate menu, canonical source/target post row, and the complete
-source/language metadata predicate are locked and revalidated inside the owned
-serializable transaction, so a new meta-only candidate cannot appear between
-the final authority read and COMMIT.
+one published object of the same canonical type with exactly one matching source
+row and one matching language row; the source type, status, and absence of
+translation identity are re-read for source and target projections alike. Every
+pending projection, including ordinary Translation Job publication and operator
+restaging of an active manifest, carries a new complete all-language ephemeral
+relation receipt. Missing or malformed receipts stop before staging, and both
+intake and relation receipts are stripped from the active reader manifest. The
+Translation Index Adapter is a fail-closed read-model cross-check only: it never
+selects a candidate, and unavailable, missing, stale, or disagreeing rows reject
+publication. Internal custom links bind canonical source and target post IDs,
+source URL, target URL, normalized staged URL, every route-bearing ancestor row,
+canonical route metadata, and a route revision; external links remain URL-only.
+At final activation, authority/current/staged menus, canonical source/target and
+route post rows, the complete source/language metadata predicate, and route-meta
+predicates are sorted, locked, and revalidated inside the owned serializable
+transaction. Separate-process InnoDB runtime oracles use distinct database
+connections and exact before/under/after writes to prove both the route post row
+and translation-identity predicate return lock-wait timeout 1205 while the owner
+transaction is open. The identity proof performs a real absent-row insert and
+exact compare-and-delete restoration for both the canonical source-ID and
+language keys; it never substitutes an update of an existing metadata row.
+Every surface restores byte-exact state twice afterward to prove cleanup is
+idempotent. Request-local flags are never accepted as lock evidence.
 Activation enters the ordinary atomic all-language Interface, and any failed
 attempt restores the exact four-option pre-intake state so enrollment is safely
 retryable.

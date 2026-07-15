@@ -36,6 +36,7 @@ require_once __DIR__ . '/includes/trait-frontend-read-model.php';
 require_once __DIR__ . '/includes/trait-canonical-seo-surface.php';
 require_once __DIR__ . '/includes/trait-social-sharing-runtime-presentation-control.php';
 require_once __DIR__ . '/includes/trait-recovery-commit-reconciliation.php';
+require_once __DIR__ . '/includes/trait-public-header-relation-authority.php';
 require_once __DIR__ . '/includes/trait-localized-presentation-publication.php';
 require_once __DIR__ . '/includes/trait-translation-job-quality-authority.php';
 require_once __DIR__ . '/includes/trait-translation-job.php';
@@ -59,6 +60,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Canonical_SEO_Surface;
 	use Devenia_Workflow_Social_Sharing_Runtime_Presentation_Control;
 	use Devenia_Workflow_Recovery_Commit_Reconciliation;
+	use Devenia_Workflow_Public_Header_Relation_Authority;
 	use Devenia_Workflow_Localized_Presentation_Publication;
 	use Devenia_Workflow_Translation_Job_Quality_Authority;
 	use Devenia_Workflow_Source_Editor_Adapter;
@@ -17574,7 +17576,7 @@ final class Devenia_Workflow {
 		if ( '' === $target_menu_name ) {
 			return array( 'success' => false, 'code' => 'menu_projection_configuration_missing', 'message' => 'The language menu identity must be configured.' );
 		}
-		$plan = self::public_header_projection_plan( $language, $include_missing, $include_custom, $manifest );
+		$plan = self::public_header_projection_plan( $language, $include_missing, $include_custom, $manifest, true );
 		if ( empty( $plan['success'] ) ) {
 			return $plan;
 		}

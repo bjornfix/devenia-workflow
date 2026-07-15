@@ -22,8 +22,12 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$cleanup_state_authority = isset( $input['cleanup_state_authority'] ) && is_array( $input['cleanup_state_authority'] ) ? $input['cleanup_state_authority'] : array();
 		$pending = self::pending_public_header_manifest();
 		if ( empty( $pending ) ) {
-			return array( 'success' => false, 'code' => 'public_header_pending_manifest_missing', 'message' => 'Register a pending Public Header Projection manifest before activation.' );
+			$restage = self::stage_public_header_manifest_for_publication();
+			if ( empty( $restage['success'] ) ) { return $restage; }
+			$pending = (array) $restage['manifest'];
 		}
+		$relation_validation = self::validate_public_header_relation_receipts( $pending );
+		if ( empty( $relation_validation['success'] ) ) { return array_merge( $relation_validation, array( 'success' => false, 'message' => 'The pending Public Header relation authority is absent, malformed, or stale.' ) ); }
 		$authority_validation = self::validate_public_header_authority_receipts( $pending );
 		if ( empty( $authority_validation['success'] ) ) { return array_merge( $authority_validation, array( 'success' => false, 'message' => 'The pending Public Header authority snapshot changed before projection staging.' ) ); }
 		$languages = self::configured_public_header_languages();
@@ -47,6 +51,14 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 					: array( 'success' => false, 'code' => 'public_header_projection_staging_failed', 'message' => 'Every configured source and target projection must stage, validate, and produce a recovery receipt before activation.', 'failed_language' => $language, 'projection' => $projection, 'cleanup' => $cleanup );
 			}
 			$staged[ $language ] = $projection;
+		}
+		do_action( 'devenia_workflow_public_header_relation_before_final_revalidation', $pending, $staged );
+		$final_relation_validation = self::validate_public_header_relation_receipts( $pending );
+		if ( empty( $final_relation_validation['success'] ) ) {
+			$cleanup = self::delete_staged_public_header_projections( $staged, $cleanup_state_authority );
+			return empty( $cleanup['success'] )
+				? array( 'success' => false, 'code' => 'public_header_relation_changed_cleanup_failed', 'severity' => 'critical', 'relation_validation' => $final_relation_validation, 'projections' => $staged, 'cleanup' => $cleanup )
+				: array( 'success' => false, 'code' => 'public_header_relation_changed_before_activation', 'relation_validation' => $final_relation_validation, 'projections' => $staged, 'cleanup' => $cleanup );
 		}
 		if ( ! empty( $authority_validation['present'] ) ) {
 			do_action( 'devenia_workflow_public_header_authority_before_final_revalidation', $pending, $staged );
@@ -97,7 +109,8 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	private static function stage_public_header_manifest_for_publication(): array {
 		$pending = self::pending_public_header_manifest();
 		if ( ! empty( $pending ) ) {
-			return array( 'success' => true, 'manifest' => $pending, 'existing_pending' => true );
+			$validation = self::validate_public_header_relation_receipts( $pending );
+			return empty( $validation['success'] ) ? $validation : array( 'success' => true, 'manifest' => $pending, 'existing_pending' => true );
 		}
 		$active = self::public_header_manifest();
 		if ( empty( $active ) ) {
@@ -107,6 +120,13 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$before  = get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing );
 		$pending = $active;
 		$pending['updated_at'] = gmdate( 'c' );
+		$relation_receipts = self::public_header_relation_receipts_for_manifest( $pending );
+		if ( empty( $relation_receipts['success'] ) ) { return $relation_receipts; }
+		$pending['relation_receipts'] = (array) $relation_receipts['receipts'];
+		$validation = self::validate_public_header_relation_receipts( $pending );
+		if ( empty( $validation['success'] ) ) { return $validation; }
+		do_action( 'devenia_workflow_public_header_before_publication_pending_write', $pending, $active, $before );
+		if ( self::translation_job_canonicalize( self::public_header_manifest() ) !== self::translation_job_canonicalize( $active ) ) { return array( 'success' => false, 'code' => 'public_header_active_manifest_changed_before_pending_refresh' ); }
 		$written = $missing === $before
 			? self::atomic_create_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $pending )
 			: self::atomic_replace_option_value( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $before, $pending );
@@ -199,6 +219,8 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		if ( self::translation_job_canonicalize( $before['pending'] ) !== self::translation_job_canonicalize( $pending ) ) {
 			return array( 'success' => false, 'code' => 'pending_manifest_changed_before_activation' );
 		}
+		$relation_validation = self::validate_public_header_relation_receipts( $pending );
+		if ( empty( $relation_validation['success'] ) ) { return array_merge( $relation_validation, array( 'success' => false ) ); }
 		$authority_validation = self::validate_public_header_authority_receipts( $pending );
 		if ( empty( $authority_validation['success'] ) ) { return array_merge( $authority_validation, array( 'success' => false ) ); }
 		$identities = is_array( $before['identities'] ) ? $before['identities'] : array();
@@ -207,6 +229,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		}
 		$active_manifest = $pending;
 		unset( $active_manifest['authority_receipts'] );
+		unset( $active_manifest['relation_receipts'] );
 		$after = array(
 			'manifest'   => $active_manifest,
 			'identities' => $identities,
@@ -237,18 +260,20 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		try {
 			global $wpdb;
 			$pending_authority = isset( $expected['pending'] ) && is_array( $expected['pending'] ) ? $expected['pending'] : array();
-			$authority_lock = empty( $staged ) || empty( $pending_authority ) ? array( 'success' => true, 'present' => false ) : self::lock_public_header_authority_surface( $pending_authority );
-			if ( empty( $authority_lock['success'] ) ) { self::rollback_public_header_state_transaction(); return array( 'success' => false, 'code' => 'public_header_authority_lock_failed', 'authority_lock' => $authority_lock ); }
+			$forward_projection = ! empty( $staged ) && ! empty( $pending_authority['items'] );
+			$authority_lock = ! empty( $staged ) ? self::lock_public_header_relation_authority_surface( $pending_authority, $expected, $replacement, $staged ) : array( 'success' => true, 'present' => false );
+			if ( empty( $authority_lock['success'] ) ) { self::rollback_public_header_state_transaction(); return array( 'success' => false, 'code' => 'public_header_relation_authority_lock_failed', 'authority_lock' => $authority_lock ); }
 			if ( ! empty( $authority_lock['present'] ) ) { do_action( 'devenia_workflow_public_header_authority_after_locked_surface', $pending_authority, $authority_lock ); }
+			$relation_validation = $forward_projection ? self::validate_public_header_relation_receipts( $pending_authority ) : array( 'success' => true, 'present' => false );
+			if ( empty( $relation_validation['success'] ) ) { self::rollback_public_header_state_transaction(); return array( 'success' => false, 'code' => 'public_header_relation_changed_at_locked_boundary', 'relation_validation' => $relation_validation ); }
 			$authority_validation = empty( $staged ) || empty( $pending_authority ) ? array( 'success' => true, 'present' => false ) : self::validate_public_header_authority_receipts( $pending_authority );
 			if ( empty( $authority_validation['success'] ) ) { self::rollback_public_header_state_transaction(); return array( 'success' => false, 'code' => 'public_header_authority_changed_at_locked_boundary', 'authority_validation' => $authority_validation ); }
 			foreach ( $staged as $language => $projection ) {
 				$menu_id = absint( $projection['target_menu']['id'] ?? 0 );
 				$receipt = (string) ( $projection['menu_surface_revision'] ?? '' );
 				$manifest_revision = (string) ( $projection['manifest_revision'] ?? '' );
-				$locked = $menu_id > 0 ? self::lock_localized_menu_projection_surface( $menu_id ) : array();
 				$current = $menu_id > 0 ? self::localized_menu_projection_revision( $menu_id ) : '';
-				if ( empty( $locked['success'] ) || '' === $receipt || '' === $current || ! hash_equals( $receipt, $current ) || '1' !== (string) get_term_meta( $menu_id, self::TERM_META_MENU_MANAGED, true ) || sanitize_key( (string) $language ) !== sanitize_key( (string) get_term_meta( $menu_id, self::TERM_META_MENU_LANGUAGE, true ) ) || '' === $manifest_revision || ! hash_equals( $manifest_revision, (string) get_term_meta( $menu_id, self::TERM_META_PUBLIC_HEADER_MANIFEST_REVISION, true ) ) ) {
+				if ( $menu_id < 1 || '' === $receipt || '' === $current || ! hash_equals( $receipt, $current ) || '1' !== (string) get_term_meta( $menu_id, self::TERM_META_MENU_MANAGED, true ) || sanitize_key( (string) $language ) !== sanitize_key( (string) get_term_meta( $menu_id, self::TERM_META_MENU_LANGUAGE, true ) ) || '' === $manifest_revision || ! hash_equals( $manifest_revision, (string) get_term_meta( $menu_id, self::TERM_META_PUBLIC_HEADER_MANIFEST_REVISION, true ) ) ) {
 					self::rollback_public_header_state_transaction();
 					return array( 'success' => false, 'code' => 'public_header_staged_receipt_changed', 'language' => (string) $language );
 				}
@@ -1105,6 +1130,11 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$authority_receipts = self::public_header_authority_receipts( $authority, $draft_revision );
 		if ( count( $authority_receipts ) !== count( $languages ) ) { return array( 'success' => false, 'code' => 'public_header_enrollment_authority_receipt_invalid', 'authority' => $authority ); }
 		$draft = array( 'schema_version' => 2, 'source_language' => $source_language, 'revision' => $draft_revision, 'items' => (array) $normalized['items'], 'authority_receipts' => $authority_receipts );
+		$relation_receipts = self::public_header_relation_receipts_for_manifest( $draft );
+		if ( empty( $relation_receipts['success'] ) ) { return array_merge( $relation_receipts, array( 'authority' => $authority ) ); }
+		$draft['relation_receipts'] = (array) $relation_receipts['receipts'];
+		$relation_validation = self::validate_public_header_relation_receipts( $draft );
+		if ( empty( $relation_validation['success'] ) ) { return array_merge( $relation_validation, array( 'authority' => $authority ) ); }
 		$receipt_validation = self::validate_public_header_authority_receipts( $draft );
 		if ( empty( $receipt_validation['success'] ) ) { return array_merge( $receipt_validation, array( 'authority' => $authority ) ); }
 		$result = array( 'success' => true, 'activated' => false, 'draft' => $draft, 'authority' => $authority, 'recovery' => $recovery );
@@ -1162,16 +1192,15 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			global $wpdb;
 			$receipt_rows = array();
 			foreach ( $authority as $language => $snapshots ) { foreach ( $snapshots as $snapshot ) { $receipt_rows[] = array( 'language' => $language, 'menu_id' => absint( $snapshot['menu_id'] ?? 0 ), 'receipt' => (string) ( $snapshot['surface_revision'] ?? '' ) ); } }
-			foreach ( $receipt_rows as $row ) {
-				$locked = self::lock_localized_menu_projection_surface( (int) $row['menu_id'] );
-				$current = self::localized_menu_projection_revision( (int) $row['menu_id'] );
-				if ( empty( $locked['success'] ) || '' === $current || ! hash_equals( (string) $row['receipt'], $current ) ) { self::rollback_first_public_header_enrollment_transaction(); return array( 'success' => false, 'code' => 'public_header_enrollment_authority_changed_locked', 'language' => $row['language'], 'menu_id' => $row['menu_id'] ); }
-			}
+			$relation_lock = self::lock_public_header_relation_authority_surface( $draft, $before, $before, array() );
+			if ( empty( $relation_lock['success'] ) ) { self::rollback_first_public_header_enrollment_transaction(); return array( 'success' => false, 'code' => 'public_header_enrollment_relation_authority_lock_failed', 'relation_lock' => $relation_lock ); }
 			$theme_option = 'theme_mods_' . (string) get_option( 'stylesheet' );
 			$locked_options = $wpdb->query( $wpdb->prepare( "SELECT option_id FROM {$wpdb->options} WHERE option_name IN (%s, %s, %s, %s, %s) FOR UPDATE", self::OPTION_PUBLIC_HEADER_MANIFEST, self::OPTION_LOCALIZED_MENU_IDENTITIES, self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, self::OPTION_PUBLIC_HEADER_ENROLLMENT, $theme_option ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Enrollment needs one locked primary assignment plus four option rows.
 			if ( false === $locked_options ) { self::rollback_first_public_header_enrollment_transaction( $theme_option ); return array( 'success' => false, 'code' => 'public_header_enrollment_state_lock_failed' ); }
 			do_action( 'devenia_workflow_public_header_enrollment_before_locked_stage_revalidation', $draft, $authority );
 			wp_cache_delete( $theme_option, 'options' ); self::clear_public_header_state_option_cache();
+			$relation_validation = self::validate_public_header_relation_receipts( $draft );
+			if ( empty( $relation_validation['success'] ) ) { self::rollback_first_public_header_enrollment_transaction( $theme_option ); return array( 'success' => false, 'code' => 'public_header_enrollment_relation_changed_at_locked_boundary', 'relation_validation' => $relation_validation ); }
 			foreach ( $receipt_rows as $row ) {
 				$current = self::localized_menu_projection_revision( (int) $row['menu_id'] );
 				if ( '' === $current || ! hash_equals( (string) $row['receipt'], $current ) ) { self::rollback_first_public_header_enrollment_transaction( $theme_option ); return array( 'success' => false, 'code' => 'public_header_enrollment_authority_changed_at_locked_boundary', 'language' => $row['language'], 'menu_id' => $row['menu_id'] ); }
@@ -1403,8 +1432,13 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$authority_receipts = self::public_header_authority_receipts( $authority, $draft_revision );
 		if ( count( $authority_receipts ) !== count( $configured_languages ) ) { return array( 'success' => false, 'code' => 'public_header_label_authority_receipt_invalid', 'authority' => $authority, 'generated_label_drift' => $generated_drift ); }
 		$draft = array( 'schema_version' => 2, 'source_language' => $source_language, 'revision' => $draft_revision, 'items' => (array) $normalized['items'], 'authority_receipts' => $authority_receipts );
+		$relation_receipts = self::public_header_relation_receipts_for_manifest( $draft );
+		if ( empty( $relation_receipts['success'] ) ) { return array_merge( $relation_receipts, array( 'authority' => $authority, 'generated_label_drift' => $generated_drift ) ); }
+		$draft['relation_receipts'] = (array) $relation_receipts['receipts'];
 		do_action( 'devenia_workflow_public_header_migration_before_final_authority_revalidation', $draft, $active, $authority );
 		if ( self::translation_job_canonicalize( self::public_header_manifest() ) !== self::translation_job_canonicalize( $active ) ) { return array( 'success' => false, 'code' => 'public_header_label_authority_active_manifest_changed', 'authority' => $authority, 'generated_label_drift' => $generated_drift ); }
+		$relation_validation = self::validate_public_header_relation_receipts( $draft );
+		if ( empty( $relation_validation['success'] ) ) { return array_merge( $relation_validation, array( 'authority' => $authority, 'generated_label_drift' => $generated_drift ) ); }
 		$receipt_validation = self::validate_public_header_authority_receipts( $draft );
 		if ( empty( $receipt_validation['success'] ) ) { return array_merge( $receipt_validation, array( 'authority' => $authority, 'generated_label_drift' => $generated_drift ) ); }
 		$result = array( 'success' => true, 'staged' => false, 'draft' => $draft, 'authority' => $authority, 'generated_label_drift' => $generated_drift );
@@ -1415,215 +1449,6 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			$result['success'] = ! empty( $staged['success'] );
 		}
 		return $result;
-	}
-
-	/**
-	 * Resolve the exact page/custom relation consumed by one language projection
-	 * without consulting request-static translation caches.
-	 *
-	 * @param array<int,array<string,mixed>> $manifest_items Manifest rows.
-	 * @return array<string,mixed>
-	 */
-	private static function public_header_fresh_relation_snapshot( string $language, array $manifest_items ): array {
-		$language = sanitize_key( $language );
-		$is_source = self::source_language_code() === $language;
-		$relations = array();
-		$missing = array();
-		$requires_internal_link_map = false;
-		$site_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
-		foreach ( $manifest_items as $manifest_item ) {
-			if ( ! is_array( $manifest_item ) || 'custom' !== sanitize_key( (string) ( $manifest_item['type'] ?? '' ) ) ) { continue; }
-			$url = (string) ( $manifest_item['url'] ?? '' ); $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
-			if ( '' !== $url && ( '' === $host || $host === $site_host ) ) { $requires_internal_link_map = true; break; }
-		}
-		$fresh_link_map = ! $is_source && $requires_internal_link_map ? self::localized_internal_link_map( $language, true ) : array();
-		$page_source_ids = array();
-		foreach ( $manifest_items as $manifest_item ) { if ( is_array( $manifest_item ) && 'page' === sanitize_key( (string) ( $manifest_item['type'] ?? '' ) ) ) { $page_source_ids[] = absint( $manifest_item['object_id'] ?? 0 ); } }
-		$page_relation_snapshot = self::public_header_fresh_page_relations( $page_source_ids, $language, $is_source );
-		if ( empty( $page_relation_snapshot['success'] ) ) { return $page_relation_snapshot; }
-		foreach ( $manifest_items as $manifest_item ) {
-			$source_item_id = absint( is_array( $manifest_item ) ? ( $manifest_item['source_item_id'] ?? 0 ) : 0 );
-			$type = sanitize_key( (string) ( is_array( $manifest_item ) ? ( $manifest_item['type'] ?? '' ) : '' ) );
-			if ( $source_item_id < 1 ) {
-				$missing[] = array( 'source_item_id' => $source_item_id, 'reason' => 'relation_source_item_invalid' );
-				continue;
-			}
-			if ( 'page' === $type ) {
-				$source_object_id = absint( $manifest_item['object_id'] ?? 0 );
-				$object_id = absint( $page_relation_snapshot['relations'][ $source_object_id ] ?? 0 );
-				if ( $object_id < 1 ) {
-					$missing[] = array( 'source_item_id' => $source_item_id, 'reason' => 'page_relation_missing' );
-					continue;
-				}
-				$relations[ $source_item_id ] = array( 'type' => 'page', 'object_id' => $object_id );
-				continue;
-			}
-			if ( 'custom' === $type ) {
-				$url = (string) ( $manifest_item['url'] ?? '' );
-				if ( ! $is_source ) {
-					$localized = self::localized_internal_link_target( $url, $fresh_link_map );
-					$url = $localized ?: $url;
-				}
-				$url = self::normalize_primary_navigation_url( $url );
-				if ( '' === $url ) {
-					$missing[] = array( 'source_item_id' => $source_item_id, 'reason' => 'custom_relation_missing' );
-					continue;
-				}
-				$relations[ $source_item_id ] = array( 'type' => 'custom', 'url' => $url );
-				continue;
-			}
-			$missing[] = array( 'source_item_id' => $source_item_id, 'reason' => 'relation_type_unsupported' );
-		}
-		if ( ! empty( $missing ) || count( $relations ) !== count( $manifest_items ) ) {
-			return array( 'success' => false, 'code' => 'public_header_relation_authority_incomplete', 'missing' => $missing );
-		}
-		ksort( $relations, SORT_NUMERIC );
-		return array(
-			'success'   => true,
-			'relations' => $relations,
-			'revision'  => 'phrr_' . substr( hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $relations ) ) ?: '' ), 0, 40 ),
-		);
-	}
-
-	/** Resolve all source/translation page relations in one uncached persistent snapshot. */
-	private static function public_header_fresh_page_relations( array $source_ids, string $language, bool $is_source ): array {
-		$source_ids = array_values( array_unique( array_filter( array_map( 'absint', $source_ids ) ) ) );
-		if ( empty( $source_ids ) ) { return array( 'success' => true, 'relations' => array() ); }
-		global $wpdb;
-		$id_placeholders = implode( ', ', array_fill( 0, count( $source_ids ), '%d' ) );
-		$post_sql = "SELECT ID, post_type, post_status FROM {$wpdb->posts} WHERE ID IN ({$id_placeholders}) ORDER BY ID ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-		$post_rows = $wpdb->get_results( $wpdb->prepare( $post_sql, $source_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Canonical WordPress post rows are the relation authority.
-		$posts_by_id = array();
-		foreach ( is_array( $post_rows ) ? $post_rows : array() as $row ) { $posts_by_id[ absint( $row['ID'] ?? 0 ) ] = $row; }
-		if ( $is_source ) {
-			$meta_sql = "SELECT post_id, meta_key AS identity_key, meta_value AS identity_value FROM {$wpdb->postmeta} WHERE post_id IN ({$id_placeholders}) AND meta_key IN (%s, %s) ORDER BY post_id ASC, meta_id ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-			$meta_args = array_merge( $source_ids, array( self::META_SOURCE_ID, self::META_LANGUAGE ) );
-			$meta_rows = $wpdb->get_results( $wpdb->prepare( $meta_sql, $meta_args ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact source identity rows must be absent in canonical WordPress metadata.
-			$translation_identity = array();
-			foreach ( is_array( $meta_rows ) ? $meta_rows : array() as $row ) { $translation_identity[ absint( $row['post_id'] ?? 0 ) ][] = array( 'identity_key' => (string) ( $row['identity_key'] ?? '' ), 'identity_value' => (string) ( $row['identity_value'] ?? '' ) ); }
-			$relations = array(); $missing = array();
-			foreach ( $source_ids as $source_id ) {
-				$row = (array) ( $posts_by_id[ $source_id ] ?? array() );
-				if ( 'page' !== (string) ( $row['post_type'] ?? '' ) || 'publish' !== (string) ( $row['post_status'] ?? '' ) ) { $missing[] = array( 'source_id' => $source_id, 'reason' => 'page_relation_source_not_published' ); continue; }
-				if ( ! empty( $translation_identity[ $source_id ] ) ) { $missing[] = array( 'source_id' => $source_id, 'reason' => 'page_relation_source_translation_identity_present', 'identity' => $translation_identity[ $source_id ] ); continue; }
-				$relations[ $source_id ] = $source_id;
-			}
-			if ( ! empty( $missing ) ) { return array( 'success' => false, 'code' => 'public_header_page_relation_authority_incomplete', 'missing' => $missing ); }
-			$index_check = self::public_header_translation_index_relation_cross_check( $source_ids, $language, true, $relations );
-			return empty( $index_check['success'] ) ? $index_check : array( 'success' => true, 'relations' => $relations, 'index_cross_check' => $index_check );
-		}
-
-		$language = sanitize_key( $language );
-		$sql = "SELECT source_meta.meta_value AS source_post_id, p.ID AS translation_post_id FROM {$wpdb->posts} p INNER JOIN {$wpdb->postmeta} source_meta ON source_meta.post_id = p.ID AND source_meta.meta_key = %s INNER JOIN {$wpdb->postmeta} language_meta ON language_meta.post_id = p.ID AND language_meta.meta_key = %s AND language_meta.meta_value = %s WHERE CAST(source_meta.meta_value AS UNSIGNED) IN ({$id_placeholders}) AND p.post_type = %s AND p.post_status = %s ORDER BY source_meta.meta_value ASC, p.ID ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-		$args = array_merge( array( self::META_SOURCE_ID, self::META_LANGUAGE, $language ), $source_ids, array( 'page', 'publish' ) );
-		$relation_rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Canonical WordPress posts and exact source/language metadata are the only candidate authority.
-			$wpdb->prepare( $sql, $args ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- The dynamic statement contains only generated placeholders and all values are passed here.
-			ARRAY_A
-		);
-		$candidates = array(); $translation_ids = array();
-		foreach ( is_array( $relation_rows ) ? $relation_rows : array() as $row ) {
-			$source_id = absint( $row['source_post_id'] ?? 0 ); $translation_id = absint( $row['translation_post_id'] ?? 0 );
-			if ( in_array( $source_id, $source_ids, true ) && $translation_id > 0 ) { $candidates[ $source_id ][ $translation_id ] = true; $translation_ids[ $translation_id ] = true; }
-		}
-		$translation_ids = array_keys( $translation_ids );
-		$translation_query_ids = empty( $translation_ids ) ? array( 0 ) : array_values( array_map( 'absint', $translation_ids ) );
-		$translation_placeholders = implode( ', ', array_fill( 0, count( $translation_query_ids ), '%d' ) );
-		$translation_post_sql = "SELECT ID, post_type, post_status FROM {$wpdb->posts} WHERE ID IN ({$translation_placeholders}) ORDER BY ID ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-		$translation_post_rows = $wpdb->get_results( $wpdb->prepare( $translation_post_sql, $translation_query_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Every canonical relation candidate uses an integer placeholder.
-		$meta_sql = "SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ({$translation_placeholders}) AND meta_key IN (%s, %s) ORDER BY post_id ASC, meta_id ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-		$meta_args = array_merge( $translation_query_ids, array( self::META_SOURCE_ID, self::META_LANGUAGE ) );
-		$meta_rows = $wpdb->get_results( $wpdb->prepare( $meta_sql, $meta_args ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact identity row-count validation with prepared values.
-		$posts_by_id = array(); $meta_by_id = array();
-		foreach ( is_array( $translation_post_rows ) ? $translation_post_rows : array() as $row ) { $posts_by_id[ absint( $row['ID'] ?? 0 ) ] = $row; }
-		foreach ( is_array( $meta_rows ) ? $meta_rows : array() as $row ) { $meta_by_id[ absint( $row['post_id'] ?? 0 ) ][ (string) ( $row['meta_key'] ?? '' ) ][] = (string) ( $row['meta_value'] ?? '' ); }
-		$relations = array(); $missing = array();
-		foreach ( $source_ids as $source_id ) {
-			$ids = array_map( 'absint', array_keys( (array) ( $candidates[ $source_id ] ?? array() ) ) );
-			if ( 1 !== count( $ids ) ) { $missing[] = array( 'source_id' => $source_id, 'reason' => empty( $ids ) ? 'page_relation_translation_missing' : 'page_relation_translation_ambiguous' ); continue; }
-			$translation_id = (int) $ids[0]; $post_row = (array) ( $posts_by_id[ $translation_id ] ?? array() );
-			$source_rows = (array) ( $meta_by_id[ $translation_id ][ self::META_SOURCE_ID ] ?? array() ); $language_rows = (array) ( $meta_by_id[ $translation_id ][ self::META_LANGUAGE ] ?? array() );
-			if ( 'page' !== (string) ( $post_row['post_type'] ?? '' ) || 'publish' !== (string) ( $post_row['post_status'] ?? '' ) || 1 !== count( $source_rows ) || (string) $source_id !== (string) $source_rows[0] || 1 !== count( $language_rows ) || $language !== sanitize_key( (string) $language_rows[0] ) ) { $missing[] = array( 'source_id' => $source_id, 'reason' => 'page_relation_translation_identity_invalid' ); continue; }
-			$relations[ $source_id ] = $translation_id;
-		}
-		if ( ! empty( $missing ) ) { return array( 'success' => false, 'code' => 'public_header_page_relation_authority_incomplete', 'missing' => $missing ); }
-		$index_check = self::public_header_translation_index_relation_cross_check( $source_ids, $language, false, $relations );
-		return empty( $index_check['success'] ) ? $index_check : array( 'success' => true, 'relations' => $relations, 'index_cross_check' => $index_check );
-	}
-
-	/** Cross-check canonical WordPress page relations against the optional read model. */
-	private static function public_header_translation_index_relation_cross_check( array $source_ids, string $language, bool $is_source, array $canonical_relations ): array {
-		if ( ! self::translation_index_available() ) { return array( 'success' => true, 'present' => false ); }
-		global $wpdb;
-		$source_ids = array_values( array_unique( array_filter( array_map( 'absint', $source_ids ) ) ) );
-		$id_placeholders = implode( ', ', array_fill( 0, count( $source_ids ), '%d' ) );
-		if ( $is_source ) {
-			$sql = "SELECT source_post_id, translation_post_id, language, post_status FROM %i WHERE translation_post_id IN ({$id_placeholders}) ORDER BY translation_post_id ASC, source_post_id ASC, language ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-			$args = array_merge( array( self::translation_index_table() ), $source_ids );
-			$rows = $wpdb->get_results( $wpdb->prepare( $sql, $args ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The optional index is read only as a mismatch cross-check.
-			if ( ! is_array( $rows ) ) { return array( 'success' => false, 'code' => 'public_header_page_relation_index_unavailable' ); }
-			return empty( $rows )
-				? array( 'success' => true, 'present' => true )
-				: array( 'success' => false, 'code' => 'public_header_page_relation_index_mismatch', 'reason' => 'source_page_classified_as_translation', 'rows' => $rows );
-		}
-		$language = sanitize_key( $language );
-		$sql = "SELECT source_post_id, translation_post_id, language, post_status FROM %i WHERE source_post_id IN ({$id_placeholders}) AND language = %s ORDER BY source_post_id ASC, translation_post_id ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-		$args = array_merge( array( self::translation_index_table() ), $source_ids, array( $language ) );
-		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $args ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The optional index cannot select candidates; disagreement with canonical WordPress authority fails closed.
-		if ( ! is_array( $rows ) ) { return array( 'success' => false, 'code' => 'public_header_page_relation_index_unavailable' ); }
-		$by_source = array();
-		foreach ( is_array( $rows ) ? $rows : array() as $row ) { $by_source[ absint( $row['source_post_id'] ?? 0 ) ][] = $row; }
-		$mismatches = array();
-		foreach ( $source_ids as $source_id ) {
-			$indexed = (array) ( $by_source[ $source_id ] ?? array() );
-			$canonical_id = absint( $canonical_relations[ $source_id ] ?? 0 );
-			if ( 1 !== count( $indexed ) || $canonical_id < 1 || $canonical_id !== absint( $indexed[0]['translation_post_id'] ?? 0 ) || $language !== sanitize_key( (string) ( $indexed[0]['language'] ?? '' ) ) || 'publish' !== (string) ( $indexed[0]['post_status'] ?? '' ) ) {
-				$mismatches[] = array( 'source_id' => $source_id, 'canonical_translation_id' => $canonical_id, 'index_rows' => $indexed );
-			}
-		}
-		return empty( $mismatches )
-			? array( 'success' => true, 'present' => true )
-			: array( 'success' => false, 'code' => 'public_header_page_relation_index_mismatch', 'reason' => 'canonical_relation_disagrees_with_index', 'mismatches' => $mismatches );
-	}
-
-	/**
-	 * Lock every candidate menu and the complete canonical relation predicate.
-	 * The translation index is deliberately not locked: it is an optional read
-	 * model, never the authority which this serializable boundary protects.
-	 */
-	private static function lock_public_header_authority_surface( array $manifest ): array {
-		$receipts = isset( $manifest['authority_receipts'] ) && is_array( $manifest['authority_receipts'] ) ? $manifest['authority_receipts'] : array();
-		if ( empty( $receipts ) ) { return array( 'success' => true, 'present' => false ); }
-		$menu_ids = array(); $post_ids = array();
-		foreach ( (array) ( $manifest['items'] ?? array() ) as $item ) {
-			if ( is_array( $item ) && 'page' === sanitize_key( (string) ( $item['type'] ?? '' ) ) ) { $post_ids[ absint( $item['object_id'] ?? 0 ) ] = true; }
-		}
-		foreach ( $receipts as $receipt ) {
-			if ( ! is_array( $receipt ) ) { return array( 'success' => false, 'code' => 'public_header_authority_lock_receipt_invalid' ); }
-			foreach ( (array) ( $receipt['candidates'] ?? array() ) as $candidate ) { $menu_ids[ absint( is_array( $candidate ) ? ( $candidate['menu_id'] ?? 0 ) : 0 ) ] = true; }
-			foreach ( (array) ( $receipt['relations'] ?? array() ) as $relation ) {
-				if ( is_array( $relation ) && 'page' === sanitize_key( (string) ( $relation['type'] ?? '' ) ) ) { $post_ids[ absint( $relation['object_id'] ?? 0 ) ] = true; }
-			}
-		}
-		unset( $menu_ids[0], $post_ids[0] );
-		$menu_ids = array_keys( $menu_ids ); $post_ids = array_keys( $post_ids );
-		sort( $menu_ids, SORT_NUMERIC ); sort( $post_ids, SORT_NUMERIC );
-		foreach ( $menu_ids as $menu_id ) {
-			$locked = self::lock_localized_menu_projection_surface( (int) $menu_id );
-			if ( empty( $locked['success'] ) ) { return array( 'success' => false, 'code' => 'public_header_authority_menu_lock_failed', 'menu_id' => (int) $menu_id, 'lock' => $locked ); }
-		}
-		global $wpdb;
-		if ( ! empty( $post_ids ) ) {
-			$post_placeholders = implode( ', ', array_fill( 0, count( $post_ids ), '%d' ) );
-			$sql = "SELECT ID FROM {$wpdb->posts} WHERE ID IN ({$post_placeholders}) ORDER BY ID ASC FOR UPDATE"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-			if ( false === $wpdb->query( $wpdb->prepare( $sql, $post_ids ) ) ) { // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Canonical source and target status rows are locked inside the owned transaction.
-				return array( 'success' => false, 'code' => 'public_header_authority_post_lock_failed' );
-			}
-		}
-		$meta_lock = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Locking each complete identity-key range prevents a new meta-only candidate or source identity from appearing before COMMIT.
-			$wpdb->prepare( "SELECT meta_id FROM {$wpdb->postmeta} WHERE meta_key IN (%s, %s) ORDER BY meta_key ASC, meta_id ASC FOR UPDATE", self::META_SOURCE_ID, self::META_LANGUAGE )
-		);
-		if ( false === $meta_lock ) { return array( 'success' => false, 'code' => 'public_header_authority_meta_predicate_lock_failed' ); }
-		return array( 'success' => true, 'present' => true, 'menu_ids' => $menu_ids, 'post_ids' => $post_ids, 'canonical_meta_predicate_locked' => true );
 	}
 
 	/** Convert accepted menu snapshots into the temporary authority receipt carried by pending state. */
@@ -1664,7 +1489,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			$receipt_payload = $receipt; unset( $receipt_payload['receipt_revision'] );
 			$expected_receipt_revision = 'phar_' . substr( hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $receipt_payload ) ) ?: '' ), 0, 40 );
 			if ( $language !== sanitize_key( (string) ( $receipt['language'] ?? '' ) ) || '' === (string) ( $manifest['revision'] ?? '' ) || ! hash_equals( (string) $manifest['revision'], (string) ( $receipt['manifest_revision'] ?? '' ) ) || '' === $receipt_revision || ! hash_equals( $expected_receipt_revision, $receipt_revision ) ) { return array( 'success' => false, 'code' => 'public_header_authority_receipt_revision_invalid', 'language' => $language ); }
-			$fresh = self::public_header_fresh_relation_snapshot( $language, (array) $manifest['items'] );
+			$fresh = self::public_header_ephemeral_relation_snapshot( $language, (array) $manifest['items'] );
 			if ( empty( $fresh['success'] ) || self::translation_job_canonicalize( (array) ( $fresh['relations'] ?? array() ) ) !== self::translation_job_canonicalize( (array) ( $receipt['relations'] ?? array() ) ) || ! hash_equals( (string) ( $fresh['revision'] ?? '' ), (string) ( $receipt['relation_revision'] ?? '' ) ) ) {
 				return array( 'success' => false, 'code' => 'public_header_authority_relation_changed', 'language' => $language, 'fresh' => $fresh );
 			}
@@ -1684,7 +1509,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 					return array( 'success' => false, 'code' => 'public_header_authority_snapshot_changed', 'language' => $language, 'menu_id' => $menu_id );
 				}
 			}
-			$fresh_after = self::public_header_fresh_relation_snapshot( $language, (array) $manifest['items'] );
+			$fresh_after = self::public_header_ephemeral_relation_snapshot( $language, (array) $manifest['items'] );
 			if ( empty( $fresh_after['success'] ) || ! hash_equals( (string) $fresh['revision'], (string) ( $fresh_after['revision'] ?? '' ) ) || self::translation_job_canonicalize( (array) $fresh['relations'] ) !== self::translation_job_canonicalize( (array) ( $fresh_after['relations'] ?? array() ) ) ) { return array( 'success' => false, 'code' => 'public_header_authority_relation_changed', 'language' => $language, 'fresh' => $fresh_after ); }
 		}
 		return array( 'success' => true, 'present' => true );
@@ -1704,7 +1529,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$used = array();
 		$missing = array();
 		$is_source = self::source_language_code() === sanitize_key( $language );
-		$relation_snapshot = ! empty( $bound_relation_snapshot ) ? $bound_relation_snapshot : self::public_header_fresh_relation_snapshot( $language, $manifest_items );
+		$relation_snapshot = ! empty( $bound_relation_snapshot ) ? $bound_relation_snapshot : self::public_header_ephemeral_relation_snapshot( $language, $manifest_items );
 		if ( empty( $relation_snapshot['success'] ) ) { return $relation_snapshot; }
 		$manifest_source_item_ids = array();
 		foreach ( $manifest_items as $manifest_item ) { $manifest_source_item_id = absint( is_array( $manifest_item ) ? ( $manifest_item['source_item_id'] ?? 0 ) : 0 ); if ( $manifest_source_item_id > 0 ) { $manifest_source_item_ids[ $manifest_source_item_id ] = true; } }
@@ -1783,7 +1608,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		if ( ! empty( $missing ) ) { return array( 'success' => false, 'code' => 'public_header_label_authority_items_incomplete', 'missing' => $missing ); }
 		$labels = array();
 		foreach ( $matched as $source_item_id => $row ) { $labels[ (int) $source_item_id ] = (string) $row['label']; }
-		$relation_after = ! empty( $bound_relation_snapshot ) ? $bound_relation_snapshot : self::public_header_fresh_relation_snapshot( $language, $manifest_items );
+		$relation_after = ! empty( $bound_relation_snapshot ) ? $bound_relation_snapshot : self::public_header_ephemeral_relation_snapshot( $language, $manifest_items );
 		$surface_after = self::localized_menu_projection_revision( $menu_id );
 		if ( '' === $surface_before || '' === $surface_after || ! hash_equals( $surface_before, $surface_after ) || empty( $relation_after['success'] ) || ! hash_equals( (string) $relation_snapshot['revision'], (string) ( $relation_after['revision'] ?? '' ) ) || self::translation_job_canonicalize( (array) $relation_snapshot['relations'] ) !== self::translation_job_canonicalize( (array) ( $relation_after['relations'] ?? array() ) ) ) {
 			return array( 'success' => false, 'code' => 'public_header_authority_snapshot_unstable' );
@@ -1862,12 +1687,18 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			$authority_validation = self::validate_public_header_authority_receipts( $manifest );
 			if ( empty( $authority_validation['success'] ) ) { return $authority_validation; }
 		}
+		$relation_receipts = self::public_header_relation_receipts_for_manifest( $manifest );
+		if ( empty( $relation_receipts['success'] ) ) { return $relation_receipts; }
+		$manifest['relation_receipts'] = (array) $relation_receipts['receipts'];
+		$relation_validation = self::validate_public_header_relation_receipts( $manifest );
+		if ( empty( $relation_validation['success'] ) ) { return $relation_validation; }
 		$missing = '__devenia_workflow_option_missing__';
 		$before  = get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing );
 		$existing_pending = self::normalize_public_header_manifest( $before );
 		$existing_receipts = (array) ( $existing_pending['authority_receipts'] ?? array() );
 		$requested_receipts = (array) ( $manifest['authority_receipts'] ?? array() );
-		if ( '' !== (string) ( $existing_pending['revision'] ?? '' ) && hash_equals( (string) $existing_pending['revision'], $revision ) && self::translation_job_canonicalize( $existing_receipts ) === self::translation_job_canonicalize( $requested_receipts ) ) {
+		$existing_relation_receipts = (array) ( $existing_pending['relation_receipts'] ?? array() );
+		if ( '' !== (string) ( $existing_pending['revision'] ?? '' ) && hash_equals( (string) $existing_pending['revision'], $revision ) && self::translation_job_canonicalize( $existing_receipts ) === self::translation_job_canonicalize( $requested_receipts ) && self::translation_job_canonicalize( $existing_relation_receipts ) === self::translation_job_canonicalize( (array) $manifest['relation_receipts'] ) ) {
 			return array( 'success' => true, 'source_language' => self::source_language_code(), 'revision' => $revision, 'item_count' => count( $items ), 'pending' => true, 'unchanged' => true, 'message' => 'The pending Public Header Projection manifest is already current.' );
 		}
 		do_action( 'devenia_workflow_public_header_before_pending_authority_write', $manifest, $before );
@@ -1876,6 +1707,8 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			$authority_validation = self::validate_public_header_authority_receipts( $manifest );
 			if ( empty( $authority_validation['success'] ) ) { return $authority_validation; }
 		}
+		$relation_validation = self::validate_public_header_relation_receipts( $manifest );
+		if ( empty( $relation_validation['success'] ) ) { return $relation_validation; }
 		$written = $missing === $before
 			? self::atomic_create_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $manifest )
 			: self::atomic_replace_option_value( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $before, $manifest );
@@ -2046,7 +1879,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function public_header_projection_plan( string $language, bool $include_untranslated = false, bool $include_custom = true, array $manifest = array() ): array {
+	private static function public_header_projection_plan( string $language, bool $include_untranslated = false, bool $include_custom = true, array $manifest = array(), bool $require_relation_receipts = false ): array {
 		$language = sanitize_key( $language );
 		$languages = self::languages();
 		if ( '' === $language || ! isset( $languages[ $language ] ) ) {
@@ -2056,9 +1889,18 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		if ( empty( $manifest ) ) {
 			return array( 'success' => false, 'code' => 'public_header_manifest_missing', 'message' => 'No valid Public Header Projection manifest is registered.' );
 		}
-		$is_source = self::source_language_code() === $language;
-		$relation_authority_present = array_key_exists( 'authority_receipts', $manifest );
-		$relation_authority = $relation_authority_present && isset( $manifest['authority_receipts'][ $language ]['relations'] ) && is_array( $manifest['authority_receipts'][ $language ]['relations'] ) ? $manifest['authority_receipts'][ $language ]['relations'] : array();
+		$relation_authority_present = array_key_exists( 'relation_receipts', $manifest );
+		if ( $require_relation_receipts ) {
+			$receipt_validation = self::validate_public_header_relation_receipts( $manifest );
+			if ( empty( $receipt_validation['success'] ) ) { return $receipt_validation; }
+		}
+		if ( $relation_authority_present ) {
+			$relation_authority = isset( $manifest['relation_receipts'][ $language ]['relations'] ) && is_array( $manifest['relation_receipts'][ $language ]['relations'] ) ? $manifest['relation_receipts'][ $language ]['relations'] : array();
+		} else {
+			$fresh_relations = self::public_header_ephemeral_relation_snapshot( $language, (array) $manifest['items'] );
+			if ( empty( $fresh_relations['success'] ) ) { return $fresh_relations; }
+			$relation_authority = (array) $fresh_relations['relations'];
+		}
 		$rows      = array();
 		$skipped   = array();
 		foreach ( (array) $manifest['items'] as $item ) {
@@ -2080,14 +1922,11 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			$args = null;
 			if ( 'post_type' === $source_item->type ) {
 				$bound_relation = isset( $relation_authority[ (int) $source_item->ID ] ) && is_array( $relation_authority[ (int) $source_item->ID ] ) ? $relation_authority[ (int) $source_item->ID ] : array();
-				if ( $relation_authority_present && ( 'page' !== (string) ( $bound_relation['type'] ?? '' ) || absint( $bound_relation['object_id'] ?? 0 ) < 1 ) ) {
+				if ( 'page' !== (string) ( $bound_relation['type'] ?? '' ) || absint( $bound_relation['object_id'] ?? 0 ) < 1 ) {
 					$skipped[] = array( 'source_item_id' => (int) $source_item->ID, 'reason' => 'page_relation_authority_missing' );
 					continue;
 				}
-				$object_id = $relation_authority_present ? absint( $bound_relation['object_id'] ) : ( $is_source ? absint( $source_item->object_id ) : self::find_translation_id( absint( $source_item->object_id ), $language, array( 'publish' ) ) );
-				if ( ! $object_id && $include_untranslated ) {
-					$object_id = absint( $source_item->object_id );
-				}
+				$object_id = absint( $bound_relation['object_id'] );
 				if ( ! $object_id ) {
 					$skipped[] = array( 'source_item_id' => (int) $source_item->ID, 'source_page_id' => (int) $source_item->object_id, 'title' => (string) $source_item->title, 'reason' => 'missing_published_translation' );
 					continue;
@@ -2102,15 +1941,12 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				);
 			} elseif ( $include_custom ) {
 				$bound_relation = isset( $relation_authority[ (int) $source_item->ID ] ) && is_array( $relation_authority[ (int) $source_item->ID ] ) ? $relation_authority[ (int) $source_item->ID ] : array();
-				if ( $relation_authority_present && ( 'custom' !== (string) ( $bound_relation['type'] ?? '' ) || '' === (string) ( $bound_relation['url'] ?? '' ) ) ) {
+				if ( 'custom' !== (string) ( $bound_relation['type'] ?? '' ) || '' === (string) ( $bound_relation['url'] ?? '' ) ) {
 					$skipped[] = array( 'source_item_id' => (int) $source_item->ID, 'reason' => 'custom_relation_authority_missing' );
 					continue;
 				}
-				$url = $relation_authority_present ? (string) $bound_relation['url'] : (string) $source_item->url;
-				if ( ! $relation_authority_present && ! $is_source ) {
-					$localized_url = self::localized_internal_link_target( $url, self::localized_internal_link_map( $language ) );
-					$url = $localized_url ?: $url;
-				}
+				$url = 'internal' === sanitize_key( (string) ( $bound_relation['scope'] ?? '' ) ) ? (string) ( $bound_relation['target_url'] ?? '' ) : (string) $bound_relation['url'];
+				if ( '' === $url ) { $skipped[] = array( 'source_item_id' => (int) $source_item->ID, 'reason' => 'custom_relation_target_url_missing' ); continue; }
 				$args = array(
 					'menu-item-title'     => $label,
 					'menu-item-url'       => $url,
@@ -2137,7 +1973,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			return array( 'success' => false, 'code' => 'public_header_projection_incomplete', 'message' => 'Every manifest item must resolve for the configured language before projection activation.', 'language' => $language, 'manifest_revision' => (string) $manifest['revision'], 'rows' => $rows, 'skipped' => $skipped );
 		}
 
-		return array( 'success' => true, 'language' => $language, 'manifest_revision' => (string) $manifest['revision'], 'rows' => $rows, 'skipped' => array(), 'relation_authority_consumed' => $relation_authority_present, 'relation_authority_revision' => $relation_authority_present ? (string) ( $manifest['authority_receipts'][ $language ]['relation_revision'] ?? '' ) : '' );
+		return array( 'success' => true, 'language' => $language, 'manifest_revision' => (string) $manifest['revision'], 'rows' => $rows, 'skipped' => array(), 'relation_authority_consumed' => $relation_authority_present, 'relation_authority_revision' => $relation_authority_present ? (string) ( $manifest['relation_receipts'][ $language ]['relation_revision'] ?? '' ) : (string) ( $fresh_relations['revision'] ?? '' ) );
 	}
 
 	/** Return the public blog archive URL from WordPress route data. */

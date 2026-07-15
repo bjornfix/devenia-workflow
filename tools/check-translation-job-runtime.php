@@ -74,6 +74,46 @@ $call = static function ( string $method, ...$arguments ) {
 	$reflection->setAccessible( true );
 	return $reflection->invokeArgs( null, $arguments );
 };
+$raw_option_records = static function ( array $option_names ): array {
+	global $wpdb;
+	$option_names = array_values( array_unique( array_map( 'strval', $option_names ) ) );
+	if ( empty( $option_names ) ) { return array(); }
+	$placeholders = implode( ', ', array_fill( 0, count( $option_names ), '%s' ) );
+	return (array) $wpdb->get_results( $wpdb->prepare( "SELECT option_id, option_name, option_value, autoload FROM {$wpdb->options} WHERE option_name IN ({$placeholders}) ORDER BY option_name ASC, option_id ASC", $option_names ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated placeholders only; immutable runtime oracle bypasses option caches.
+};
+$raw_translation_content_surface = static function ( int $post_id ): array {
+	global $wpdb;
+	$post = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->posts} WHERE ID = %d", $post_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Raw publication oracle.
+	$postmeta = $wpdb->get_results( $wpdb->prepare( "SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_key ASC, meta_id ASC", $post_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Raw publication oracle.
+	$terms = $wpdb->get_results( $wpdb->prepare( "SELECT tr.object_id, tr.term_taxonomy_id, tr.term_order, tt.term_id, tt.taxonomy, tt.description, tt.parent, tt.count, t.name, t.slug, t.term_group FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id WHERE tr.object_id = %d ORDER BY tt.taxonomy ASC, tt.term_id ASC, tr.term_taxonomy_id ASC", $post_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Raw taxonomy surface is part of exact content state.
+	return array( 'post' => $post, 'postmeta' => $postmeta, 'terms' => $terms );
+};
+$raw_nav_menu_surface = static function ( array $menu_ids ): array {
+	global $wpdb;
+	$menu_ids = array_values( array_unique( array_filter( array_map( 'absint', $menu_ids ) ) ) );
+	sort( $menu_ids, SORT_NUMERIC );
+	if ( empty( $menu_ids ) ) { return array(); }
+	$menu_placeholders = implode( ', ', array_fill( 0, count( $menu_ids ), '%d' ) );
+	$terms = $wpdb->get_results( $wpdb->prepare( "SELECT t.*, tt.term_taxonomy_id, tt.taxonomy, tt.description, tt.parent, tt.count FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id WHERE t.term_id IN ({$menu_placeholders}) AND tt.taxonomy = %s ORDER BY t.term_id ASC, tt.term_taxonomy_id ASC", array_merge( $menu_ids, array( 'nav_menu' ) ) ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated placeholders only; raw menu authority.
+	$taxonomy_ids = array_values( array_unique( array_filter( array_map( 'absint', array_column( (array) $terms, 'term_taxonomy_id' ) ) ) ) );
+	$relationships = array(); $posts = array(); $postmeta = array();
+	if ( ! empty( $taxonomy_ids ) ) {
+		$taxonomy_placeholders = implode( ', ', array_fill( 0, count( $taxonomy_ids ), '%d' ) );
+		$relationships = $wpdb->get_results( $wpdb->prepare( "SELECT object_id, term_taxonomy_id, term_order FROM {$wpdb->term_relationships} WHERE term_taxonomy_id IN ({$taxonomy_placeholders}) ORDER BY term_taxonomy_id ASC, term_order ASC, object_id ASC", $taxonomy_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated placeholders only; raw menu relationships.
+		$post_ids = array_values( array_unique( array_filter( array_map( 'absint', array_column( (array) $relationships, 'object_id' ) ) ) ) );
+		if ( ! empty( $post_ids ) ) {
+			$post_placeholders = implode( ', ', array_fill( 0, count( $post_ids ), '%d' ) );
+			$posts = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->posts} WHERE ID IN ({$post_placeholders}) ORDER BY ID ASC", $post_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated placeholders only; raw menu-item posts.
+			$postmeta = $wpdb->get_results( $wpdb->prepare( "SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ({$post_placeholders}) ORDER BY post_id ASC, meta_key ASC, meta_id ASC", $post_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated placeholders only; raw menu-item metadata.
+		}
+	}
+	$termmeta = $wpdb->get_results( $wpdb->prepare( "SELECT meta_id, term_id, meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id IN ({$menu_placeholders}) ORDER BY term_id ASC, meta_key ASC, meta_id ASC", $menu_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated placeholders only; raw managed-menu metadata.
+	return array( 'terms' => $terms, 'relationships' => $relationships, 'posts' => $posts, 'postmeta' => $postmeta, 'termmeta' => $termmeta );
+};
+$raw_nav_menu_inventory = static function (): array {
+	global $wpdb;
+	return (array) $wpdb->get_results( $wpdb->prepare( "SELECT t.term_id, tt.term_taxonomy_id FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id WHERE tt.taxonomy = %s ORDER BY t.term_id ASC, tt.term_taxonomy_id ASC", 'nav_menu' ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact raw inventory detects an orphan staged menu outside the known authority IDs.
+};
 $workflow_reflection = new ReflectionClass( Devenia_Workflow::class );
 $runtime_meta_status_key = (string) $workflow_reflection->getConstant( 'META_STATUS' );
 $track_quality_result = static function ( array $result ) use ( &$option_keys ): void {
@@ -1239,6 +1279,62 @@ try {
 	if ( empty( $third_quality['success'] ) || 'ready_to_publish' !== (string) ( $third_quality['job']['status'] ?? '' ) ) {
 		throw new RuntimeException( 'Final Quality Decision failed: ' . wp_json_encode( $third_quality ) );
 	}
+
+	// Ordinary Translation Job publication must mint fresh all-language relation
+	// receipts before it writes pending header state. Remove one exact read-model
+	// row while canonical posts/meta remain valid and prove the real publish
+	// Interface fails before any durable Job/content/header/menu/inventory change.
+	$wrong_index_job_key = 'devenia_workflow_translation_job_' . $job_id;
+	$wrong_index_artifact_key = 'devenia_workflow_translation_artifact_' . (string) $third_artifact['artifact_revision'];
+	$wrong_index_quality_revision = (string) ( $third_quality['quality_decision']['quality_revision'] ?? '' );
+	$wrong_index_quality_key = 'devenia_workflow_translation_quality_' . $wrong_index_quality_revision;
+	$wrong_index_quality_record = get_option( $wrong_index_quality_key, array() );
+	$wrong_index_evidence_key = 'devenia_tj_quality_evidence_' . (string) ( $wrong_index_quality_record['evidence_revision'] ?? '' );
+	$wrong_index_header_options = array( 'devenia_workflow_public_header_manifest', 'devenia_workflow_pending_public_header_manifest', 'devenia_workflow_localized_menu_identities', 'devenia_workflow_public_header_enrollment' );
+	$wrong_index_inventory_options = array( 'devenia_workflow_source_inventory_schema', 'devenia_workflow_source_inventory_active', 'devenia_workflow_source_inventory_dirty' );
+	$wrong_index_menu_ids = array( $runtime_source_menu_id );
+	foreach ( (array) get_option( 'devenia_workflow_localized_menu_identities', array() ) as $wrong_index_identity ) { $wrong_index_menu_ids[] = absint( is_array( $wrong_index_identity ) ? ( $wrong_index_identity['menu_id'] ?? 0 ) : 0 ); }
+	$wrong_index_authority_options = $raw_option_records( array( $wrong_index_job_key, $wrong_index_artifact_key, $wrong_index_quality_key, $wrong_index_evidence_key ) );
+	$wrong_index_content_before = $raw_translation_content_surface( $translation_id );
+	$wrong_index_header_before = $raw_option_records( $wrong_index_header_options );
+	$wrong_index_menu_before = $raw_nav_menu_surface( $wrong_index_menu_ids );
+	$wrong_index_menu_inventory_before = $raw_nav_menu_inventory();
+	$wrong_index_inventory_before = $raw_option_records( $wrong_index_inventory_options );
+	$wrong_index_target_language = (string) array_key_first( $call( 'target_languages' ) );
+	$wrong_index_target_id = absint( $runtime_header_translation_ids_by_language[ $wrong_index_target_language ] ?? 0 );
+	$wrong_index_target_post = get_post( $wrong_index_target_id );
+	$wrong_index_table = (string) $call( 'translation_index_table' );
+	global $wpdb;
+	$wrong_index_rows_before = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d ORDER BY source_post_id ASC, language ASC, translation_post_id ASC', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact fixture row is restored byte-for-byte below.
+	if ( ! $wrong_index_target_post instanceof WP_Post || '' === $wrong_index_target_language || 1 !== count( (array) $wrong_index_rows_before ) ) { throw new RuntimeException( 'Could not establish the exact ordinary-publication wrong-index fixture.' ); }
+	$call( 'delete_translation_index_for_post', $wrong_index_target_id, $wrong_index_target_post );
+	$wrong_index_rows_missing = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct raw proof that the read-model row is absent before publication.
+	if ( ! empty( $wrong_index_rows_missing ) ) { throw new RuntimeException( 'Could not remove the exact ordinary-publication Translation Index row.' ); }
+	$wrong_index_publish = array(); $wrong_index_restore_success = true;
+	try {
+		$wrong_index_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
+	} finally {
+		$wpdb->delete( $wrong_index_table, array( 'translation_post_id' => $wrong_index_target_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Deterministic fixture cleanup before exact row restoration.
+		foreach ( (array) $wrong_index_rows_before as $wrong_index_row ) {
+			if ( false === $wpdb->insert( $wrong_index_table, $wrong_index_row ) ) { $wrong_index_restore_success = false; } // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Restore every original persisted column exactly, including original timestamps.
+		}
+	}
+	$wrong_index_rows_after = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d ORDER BY source_post_id ASC, language ASC, translation_post_id ASC', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact cleanup oracle.
+	$wrong_index_nested_failure = (array) ( $wrong_index_publish['menu']['manifest_staging'] ?? array() );
+	if (
+		! empty( $wrong_index_publish['success'] )
+		|| 'public_header_projection_publication_failed' !== (string) ( $wrong_index_publish['code'] ?? '' )
+		|| 'public_header_relation_receipt_build_failed' !== (string) ( $wrong_index_nested_failure['code'] ?? '' )
+		|| false === strpos( wp_json_encode( $wrong_index_nested_failure ), 'public_header_page_relation_index_mismatch' )
+		|| ! $wrong_index_restore_success
+		|| $wrong_index_rows_before !== $wrong_index_rows_after
+		|| $wrong_index_authority_options !== $raw_option_records( array( $wrong_index_job_key, $wrong_index_artifact_key, $wrong_index_quality_key, $wrong_index_evidence_key ) )
+		|| $wrong_index_content_before !== $raw_translation_content_surface( $translation_id )
+		|| $wrong_index_header_before !== $raw_option_records( $wrong_index_header_options )
+		|| $wrong_index_menu_before !== $raw_nav_menu_surface( $wrong_index_menu_ids )
+		|| $wrong_index_menu_inventory_before !== $raw_nav_menu_inventory()
+		|| $wrong_index_inventory_before !== $raw_option_records( $wrong_index_inventory_options )
+	) { throw new RuntimeException( 'Ordinary translation_job_publish did not fail closed on a wrong Translation Index row with byte-identical authoritative state: ' . wp_json_encode( $wrong_index_publish ) ); }
 	$attempt_limit_job_key = 'devenia_workflow_translation_job_' . $job_id;
 	$attempt_limit_job = get_option( $attempt_limit_job_key );
 	$attempt_limit_job['status'] = 'quality_pending';
@@ -3071,6 +3167,7 @@ try {
 			'translation_publish_preserved_seeded_menu_identity' => true,
 			'atomic_menu_failure_preserved_active_identity' => true,
 			'ordinary_identity_reader_failed_closed_without_migration' => true,
+			'ordinary_translation_job_wrong_index_preserved_raw_authority' => true,
 			'frontend_cache_invalidation_adapter_consumed' => true,
 			'canonical_english_menu_cache_rejected' => true,
 			'publish_surface_drift_reopened_after_zero_mutation_and_rollback' => true,

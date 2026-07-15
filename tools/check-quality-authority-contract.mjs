@@ -7,6 +7,7 @@ const jobSource = readFileSync(new URL("../includes/trait-translation-job.php", 
 const authorityUrl = new URL("../includes/trait-translation-job-quality-authority.php", import.meta.url);
 const authoritySource = existsSync(authorityUrl) ? readFileSync(authorityUrl, "utf8") : "";
 const publicationSource = readFileSync(new URL("../includes/trait-localized-presentation-publication.php", import.meta.url), "utf8");
+const relationAuthoritySource = readFileSync(new URL("../includes/trait-public-header-relation-authority.php", import.meta.url), "utf8");
 const commitReceiptUrl = new URL("../includes/trait-recovery-commit-reconciliation.php", import.meta.url);
 const commitReceiptSource = existsSync(commitReceiptUrl) ? readFileSync(commitReceiptUrl, "utf8") : "";
 const taxonomySource = readFileSync(new URL("../includes/trait-taxonomy-localization.php", import.meta.url), "utf8");
@@ -468,7 +469,7 @@ if (!/term_group/.test(source) || !/post_content_filtered/.test(publicationSourc
 if (/private static function (?:activate_localized_menu_id|retire_managed_localized_menu)\s*\(/.test(publicationSource) || /retire_previous|menu_identity_activation/.test(mainSource.slice(mainSource.indexOf("private static function sync_language_menu"), mainSource.indexOf("private static function existing_menu_label_map")))) {
 	failures.push("single-language projection must not bypass the atomic complete-set activation and logical retirement Interface");
 }
-if (!/previous_menu_surface_revision/.test(mainSource) || !/lock_localized_menu_projection_surface\( \$menu_id \)/.test(publicationSource)) {
+if (!/previous_menu_surface_revision/.test(mainSource) || !/lock_localized_menu_projection_surface\( (?:\(int\) )?(?:\$menu_id|\(int\) \$row\['menu_id'\]) \)/.test(`${publicationSource}\n${relationAuthoritySource}`)) {
 	failures.push("previous-menu retirement must lock every item row/meta/relationship and match the exact captured previous-menu receipt");
 }
 if (!/expected_previous_revision[\s\S]*current_previous_revision[\s\S]*hash_equals/.test(publicationSource)) {

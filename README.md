@@ -152,6 +152,7 @@ Back up WordPress before uninstalling if workflow history or audit evidence must
 - Bind accepted labels to fresh exact page/custom relations and candidate menu revisions in a temporary pending receipt, consume that receipt during staging, revalidate it through activation, and keep it out of the active reader manifest.
 - Make explicit first-enrollment and schema-1 migration authority sets all-or-nothing, including deterministic rejection of missing, managed, wrong-language, changed, or otherwise invalid members.
 - Choose Public Header page relations only from canonical WordPress posts and exact source/language metadata, use Translation Index only as a fail-closed cross-check, and lock candidate menus plus canonical relation predicates through the final transactional revalidation.
+- Mint a fresh complete all-language relation receipt for every ordinary Translation Job and operator restage, bind internal custom links to exact canonical source/target route revisions, strip ephemeral receipts from active reader state, and prove the final post-row and source/language absent-metadata-predicate InnoDB locks with separate before/under/after writers and exact rollback cleanup.
 
 ### 0.1.614
 

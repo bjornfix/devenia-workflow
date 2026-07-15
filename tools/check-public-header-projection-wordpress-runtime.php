@@ -41,6 +41,13 @@ $locked_authority_race_menu_id = 0;
 $locked_authority_race_extra_translation_id = 0;
 $locked_authority_race_source_id = 0;
 $locked_authority_race_language = '';
+$locked_route_target_id = 0;
+$locked_route_slug_before = '';
+$locked_route_slug_drift = '';
+$external_writer_mode = '';
+$external_writer_fixture = array();
+$external_writer_result = array();
+$external_writer_main_connection_id = 0;
 
 try {
 	$admins = get_users( array( 'role__in' => array( 'administrator' ), 'number' => 1, 'fields' => 'ids' ) );
@@ -54,9 +61,43 @@ try {
 	$targets = array_values( array_diff( array_keys( $languages ), array( $source_language ) ) );
 	if ( count( $targets ) < 2 ) { throw new RuntimeException( 'At least two target-language fixtures are required.' ); }
 	$token = strtolower( wp_generate_password( 8, false, false ) );
+	$run_external_writer = static function ( string $phase, array $fixture ): array {
+		$worker = realpath( __DIR__ . '/public-header-relation-lock-worker.php' );
+		$wp_load = realpath( ABSPATH . 'wp-load.php' );
+		if ( false === $worker || false === $wp_load || ! function_exists( 'proc_open' ) ) { throw new RuntimeException( 'Separate relation-lock worker prerequisites are unavailable.' ); }
+		$command = array(
+			PHP_BINARY,
+			$worker,
+			$wp_load,
+			$phase,
+			(string) ( $fixture['mode'] ?? '' ),
+			(string) absint( $fixture['post_id'] ?? 0 ),
+			(string) ( $fixture['fixture_slug'] ?? '' ),
+			(string) ( $fixture['field'] ?? '' ),
+			(string) ( $fixture['expected'] ?? '' ),
+			(string) ( $fixture['replacement'] ?? '' ),
+		);
+		$descriptors = array( 0 => array( 'pipe', 'r' ), 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) );
+		$pipes = array();
+		$process = proc_open( $command, $descriptors, $pipes, dirname( __DIR__ ), null, array( 'bypass_shell' => true, 'suppress_errors' => true ) );
+		if ( ! is_resource( $process ) || 3 !== count( $pipes ) ) { throw new RuntimeException( 'Separate relation-lock worker process could not start.' ); }
+		fclose( $pipes[0] );
+		$stdout = stream_get_contents( $pipes[1] );
+		$stderr = stream_get_contents( $pipes[2] );
+		fclose( $pipes[1] ); fclose( $pipes[2] );
+		$exit_code = proc_close( $process );
+		$decoded = is_string( $stdout ) ? json_decode( $stdout, true ) : null;
+		$expected_keys = array( 'success', 'phase', 'errno', 'connection_id', 'engine' );
+		$exact_json = is_array( $decoded ) ? json_encode( $decoded, JSON_UNESCAPED_SLASHES ) . PHP_EOL : '';
+		if ( '' !== (string) $stderr || ! is_array( $decoded ) || $expected_keys !== array_keys( $decoded ) || $exact_json !== $stdout || ( ! empty( $decoded['success'] ) ? 0 : 1 ) !== $exit_code || $phase !== (string) ( $decoded['phase'] ?? '' ) || absint( $decoded['connection_id'] ?? 0 ) < 1 || 'INNODB' !== (string) ( $decoded['engine'] ?? '' ) ) {
+			throw new RuntimeException( 'Separate relation-lock worker violated its exact process/JSON contract.' );
+		}
+		return $decoded;
+	};
 	$create_page = static function ( string $title, string $slug, int $parent_id = 0 ) use ( &$posts ): int { $id = wp_insert_post( array( 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => $title, 'post_name' => $slug, 'post_parent' => $parent_id, 'post_content' => '<!-- wp:paragraph --><p>Fixture</p><!-- /wp:paragraph -->' ), true ); if ( is_wp_error( $id ) ) { throw new RuntimeException( $id->get_error_message() ); } $posts[] = (int) $id; return (int) $id; };
 	$source_home = $create_page( 'Source home ' . $token, 'source-home-' . $token );
 	$source_blog = $create_page( 'Source blog ' . $token, 'source-blog-' . $token );
+	$source_docs = $create_page( 'Source docs ' . $token, 'source-docs-' . $token );
 	update_option( 'show_on_front', 'page' ); update_option( 'page_on_front', $source_home ); update_option( 'page_for_posts', $source_blog );
 	$translated = array();
 	foreach ( $targets as $language ) {
@@ -65,8 +106,9 @@ try {
 		$root = $existing_root instanceof WP_Post ? (int) $existing_root->ID : $create_page( 'Target root ' . $language . ' ' . $token, $language_prefix );
 		$home = $create_page( 'Target home ' . $language . ' ' . $token, 'target-home-' . $language . '-' . $token, $root );
 		$blog = $create_page( 'Target blog ' . $language . ' ' . $token, 'target-blog-' . $language . '-' . $token, $root );
-		foreach ( array( $home => $source_home, $blog => $source_blog ) as $target_id => $source_id ) { update_post_meta( $target_id, '_devenia_translation_source_id', $source_id ); update_post_meta( $target_id, '_devenia_translation_language', $language ); update_post_meta( $target_id, '_devenia_translation_status', 'published' ); $call( 'sync_translation_index_row', $target_id ); }
-		$translated[ $language ] = array( 'root' => $root, 'home' => $home, 'blog' => $blog );
+		$docs = $create_page( 'Target docs ' . $language . ' ' . $token, 'target-docs-' . $language . '-' . $token, $root );
+		foreach ( array( $home => $source_home, $blog => $source_blog, $docs => $source_docs ) as $target_id => $source_id ) { update_post_meta( $target_id, '_devenia_translation_source_id', $source_id ); update_post_meta( $target_id, '_devenia_translation_language', $language ); update_post_meta( $target_id, '_devenia_translation_status', 'published' ); $call( 'sync_translation_index_row', $target_id ); }
+		$translated[ $language ] = array( 'root' => $root, 'home' => $home, 'blog' => $blog, 'docs' => $docs );
 	}
 
 	// The same page may intentionally appear more than once in one menu at
@@ -223,12 +265,12 @@ try {
 		if ( ! empty( $items ) ) { wp_update_post( array( 'ID' => (int) $items[0]->ID, 'post_title' => 'Migration authority race mutation' ) ); }
 	};
 	add_action( 'devenia_workflow_public_header_migration_before_final_authority_revalidation', $migration_authority_boundary, 10, 0 ); $filters[] = array( 'devenia_workflow_public_header_migration_before_final_authority_revalidation', $migration_authority_boundary, 10 );
-	$authority_relation_boundary = static function ( array $pending, array $staged ) use ( &$authority_relation_race_mode, &$authority_relation_race_translation_id, &$staged_receipt_surface_exact, &$staged_receipt_surface_observations, $call ): void {
+	$authority_relation_boundary = static function ( array $pending, array $staged ) use ( &$authority_relation_race_mode, &$authority_relation_race_translation_id, &$staged_receipt_surface_exact, &$staged_receipt_surface_observations, $call, $source_language, $source_docs, $translated ): void {
 		if ( '' === $authority_relation_race_mode || $authority_relation_race_translation_id < 1 ) { return; }
 		$staged_receipt_surface_exact = true;
 		$staged_receipt_surface_observations = array();
 		foreach ( $staged as $language => $projection ) {
-			$receipt_relations = (array) ( $pending['authority_receipts'][ $language ]['relations'] ?? array() );
+			$receipt_relations = (array) ( $pending['relation_receipts'][ $language ]['relations'] ?? array() );
 			$menu_items = wp_get_nav_menu_items( absint( $projection['target_menu']['id'] ?? 0 ), array( 'orderby' => 'menu_order' ) ) ?: array();
 			$items_by_source = array();
 			foreach ( $menu_items as $menu_item ) { $items_by_source[ absint( get_post_meta( (int) $menu_item->ID, '_devenia_translation_source_menu_item_id', true ) ) ] = $menu_item; }
@@ -236,9 +278,23 @@ try {
 				$menu_item = $items_by_source[ absint( $source_item_id ) ] ?? null;
 				$type = sanitize_key( (string) ( is_array( $relation ) ? ( $relation['type'] ?? '' ) : '' ) );
 				$matches = $menu_item instanceof WP_Post;
-				$actual = array( 'type' => $menu_item instanceof WP_Post ? (string) $menu_item->type : '', 'object_id' => $menu_item instanceof WP_Post ? absint( $menu_item->object_id ?? 0 ) : 0, 'url' => $menu_item instanceof WP_Post ? $call( 'normalize_primary_navigation_url', (string) ( $menu_item->url ?? '' ) ) : '' );
+				$actual = array( 'type' => $menu_item instanceof WP_Post ? (string) $menu_item->type : '', 'object_id' => $menu_item instanceof WP_Post ? absint( $menu_item->object_id ?? 0 ) : 0, 'url' => $menu_item instanceof WP_Post ? $call( 'normalize_primary_navigation_url', (string) get_post_meta( (int) $menu_item->ID, '_menu_item_url', true ) ) : '' );
 				if ( 'page' === $type ) { $matches = $matches && 'post_type' === $actual['type'] && absint( $relation['object_id'] ?? 0 ) === $actual['object_id']; }
-				elseif ( 'custom' === $type ) { $matches = $matches && 'custom' === $actual['type'] && $call( 'normalize_primary_navigation_url', (string) ( $relation['url'] ?? '' ) ) === $actual['url']; }
+				elseif ( 'custom' === $type ) {
+					$matches = $matches && 'custom' === $actual['type'] && $call( 'normalize_primary_navigation_url', (string) ( $relation['url'] ?? '' ) ) === $actual['url'];
+					if ( 'internal' === sanitize_key( (string) ( $relation['scope'] ?? '' ) ) ) {
+						$expected_source_url = $call( 'normalize_primary_navigation_url', (string) get_permalink( $source_docs ) );
+						$expected_target_id = $source_language === (string) $language ? $source_docs : absint( $translated[ $language ]['docs'] ?? 0 );
+						$expected_target_url = $call( 'normalize_primary_navigation_url', (string) get_permalink( $expected_target_id ) );
+						$matches = $matches
+							&& $source_docs === absint( $relation['source_post_id'] ?? 0 )
+							&& $expected_target_id === absint( $relation['target_post_id'] ?? 0 )
+							&& $expected_source_url === (string) ( $relation['source_url'] ?? '' )
+							&& $expected_target_url === (string) ( $relation['target_url'] ?? '' )
+							&& $expected_target_url === (string) ( $relation['url'] ?? '' )
+							&& '' !== (string) ( $relation['route_revision'] ?? '' );
+					}
+				}
 				else { $matches = false; }
 				$staged_receipt_surface_exact = $staged_receipt_surface_exact && $matches;
 				$staged_receipt_surface_observations[ $language ][ (int) $source_item_id ] = array( 'matches' => $matches, 'expected' => $relation, 'actual' => $actual );
@@ -249,8 +305,19 @@ try {
 		wp_update_post( array( 'ID' => $authority_relation_race_translation_id, 'post_status' => 'draft' ) );
 		$call( 'sync_translation_index_row', $authority_relation_race_translation_id );
 	};
-	add_action( 'devenia_workflow_public_header_authority_before_final_revalidation', $authority_relation_boundary, 10, 2 ); $filters[] = array( 'devenia_workflow_public_header_authority_before_final_revalidation', $authority_relation_boundary, 10 );
-	$locked_authority_boundary = static function ( array $pending, array $authority_lock ) use ( &$locked_authority_race_mode, &$locked_authority_race_injected, &$locked_authority_race_menu_id, &$locked_authority_race_extra_translation_id, &$locked_authority_race_source_id, &$locked_authority_race_language ): void {
+	add_action( 'devenia_workflow_public_header_relation_before_final_revalidation', $authority_relation_boundary, 10, 2 ); $filters[] = array( 'devenia_workflow_public_header_relation_before_final_revalidation', $authority_relation_boundary, 10 );
+	$locked_authority_boundary = static function ( array $pending, array $authority_lock ) use ( &$locked_authority_race_mode, &$locked_authority_race_injected, &$locked_authority_race_menu_id, &$locked_authority_race_extra_translation_id, &$locked_authority_race_source_id, &$locked_authority_race_language, &$locked_route_target_id, &$locked_route_slug_drift, &$external_writer_mode, &$external_writer_fixture, &$external_writer_result, $run_external_writer ): void {
+		if ( '' !== $external_writer_mode ) {
+			$external_post_id = absint( $external_writer_fixture['post_id'] ?? 0 );
+			$post_locked = $external_post_id > 0 && in_array( $external_post_id, array_map( 'intval', (array) ( $authority_lock['post_ids'] ?? array() ) ), true );
+			$complete_lock = 'post_slug' === $external_writer_mode
+				? $post_locked && ! empty( $authority_lock['canonical_route_predicate_locked'] ) && in_array( $external_post_id, array_map( 'intval', (array) ( $authority_lock['route_post_ids'] ?? array() ) ), true )
+				: $post_locked && 'identity_meta' === $external_writer_mode && ! empty( $authority_lock['canonical_meta_predicate_locked'] );
+			if ( ! $complete_lock ) { throw new RuntimeException( 'Separate writer reached an incomplete relation-authority lock surface.' ); }
+			$external_writer_result = $run_external_writer( 'under', $external_writer_fixture );
+			if ( ! empty( $external_writer_result['success'] ) || 1205 !== absint( $external_writer_result['errno'] ?? 0 ) ) { throw new RuntimeException( 'Separate writer was not blocked by the owned InnoDB authority lock with the exact lock-wait timeout.' ); }
+			return;
+		}
 		if ( '' === $locked_authority_race_mode || $locked_authority_race_injected ) { return; }
 		if ( empty( $authority_lock['canonical_meta_predicate_locked'] ) ) { throw new RuntimeException( 'Final authority fixture reached the hook without the canonical metadata predicate lock.' ); }
 		if ( 'extra_meta_candidate' === $locked_authority_race_mode ) {
@@ -264,6 +331,15 @@ try {
 			if ( $locked_authority_race_menu_id < 1 || ! in_array( $locked_authority_race_menu_id, array_map( 'intval', (array) ( $authority_lock['menu_ids'] ?? array() ) ), true ) ) { throw new RuntimeException( 'Final menu-authority fixture did not receive its explicit candidate-menu lock.' ); }
 			$items = wp_get_nav_menu_items( $locked_authority_race_menu_id, array( 'orderby' => 'menu_order' ) ) ?: array();
 			if ( empty( $items ) || is_wp_error( wp_update_post( array( 'ID' => (int) $items[0]->ID, 'post_title' => 'Locked final authority mutation' ), true ) ) ) { throw new RuntimeException( 'Final menu-authority mutation failed.' ); }
+			$locked_authority_race_injected = true;
+			return;
+		}
+		if ( 'route_post' === $locked_authority_race_mode ) {
+			if ( $locked_route_target_id < 1 || '' === $locked_route_slug_drift || empty( $authority_lock['canonical_route_predicate_locked'] ) || ! in_array( $locked_route_target_id, array_map( 'intval', (array) ( $authority_lock['post_ids'] ?? array() ) ), true ) || ! in_array( $locked_route_target_id, array_map( 'intval', (array) ( $authority_lock['route_post_ids'] ?? array() ) ), true ) ) { throw new RuntimeException( 'Internal custom-link route fixture did not receive complete route authority locks.' ); }
+			global $wpdb;
+			$changed = $wpdb->update( $wpdb->posts, array( 'post_name' => $locked_route_slug_drift ), array( 'ID' => $locked_route_target_id ), array( '%s' ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Same-transaction drift proves final canonical route revalidation and rollback.
+			if ( false === $changed ) { throw new RuntimeException( 'Internal custom-link route drift injection failed.' ); }
+			clean_post_cache( $locked_route_target_id );
 			$locked_authority_race_injected = true;
 		}
 	};
@@ -327,10 +403,11 @@ try {
 		}
 		return $labels;
 	};
-	$manifest_items = static function ( string $prefix ) use ( $source_home, $source_blog, $editorial_labels ): array { return array(
+	$manifest_items = static function ( string $prefix ) use ( $source_home, $source_blog, $source_docs, $editorial_labels ): array { return array(
 		array( 'source_item_id' => 800001, 'type' => 'page', 'title' => $prefix . ' short home', 'labels' => $editorial_labels( $prefix, 'home' ), 'object_id' => $source_home, 'parent_source_item_id' => 0, 'position' => 1 ),
 		array( 'source_item_id' => 800003, 'type' => 'custom', 'title' => $prefix . ' short help', 'labels' => $editorial_labels( $prefix, 'help' ), 'url' => 'https://example.org/help/', 'parent_source_item_id' => 800001, 'position' => 2 ),
-		array( 'source_item_id' => 800002, 'type' => 'page', 'title' => $prefix . ' short blog', 'labels' => $editorial_labels( $prefix, 'blog' ), 'object_id' => $source_blog, 'parent_source_item_id' => 0, 'position' => 3 ),
+		array( 'source_item_id' => 800004, 'type' => 'custom', 'title' => $prefix . ' short docs', 'labels' => $editorial_labels( $prefix, 'docs' ), 'url' => (string) get_permalink( $source_docs ), 'parent_source_item_id' => 800001, 'position' => 3 ),
+		array( 'source_item_id' => 800002, 'type' => 'page', 'title' => $prefix . ' short blog', 'labels' => $editorial_labels( $prefix, 'blog' ), 'object_id' => $source_blog, 'parent_source_item_id' => 0, 'position' => 4 ),
 	); };
 
 	// Begin with the production-like 0.1.612 state: an enrolled schema-1
@@ -348,20 +425,23 @@ try {
 	foreach ( $all_languages as $language ) {
 		$labels_home = $editorial_labels( 'Active', 'home' );
 		$labels_help = $editorial_labels( 'Active', 'help' );
+		$labels_docs = $editorial_labels( 'Active', 'docs' );
 		$labels_blog = $editorial_labels( 'Active', 'blog' );
 		$object_home = $source_language === $language ? $source_home : (int) $translated[ $language ]['home'];
+		$object_docs = $source_language === $language ? $source_docs : (int) $translated[ $language ]['docs'];
 		$object_blog = $source_language === $language ? $source_blog : (int) $translated[ $language ]['blog'];
-		$create_legacy_menu = static function ( string $name, bool $managed ) use ( &$menus, $language, $labels_home, $labels_help, $labels_blog, $object_home, $object_blog, $legacy_revision ): int {
+		$create_legacy_menu = static function ( string $name, bool $managed ) use ( &$menus, $language, $labels_home, $labels_help, $labels_docs, $labels_blog, $object_home, $object_docs, $object_blog, $legacy_revision ): int {
 			$menu_id = wp_create_nav_menu( $name ); if ( is_wp_error( $menu_id ) ) { throw new RuntimeException( $menu_id->get_error_message() ); } $menus[] = (int) $menu_id;
 			$home_item = wp_update_nav_menu_item( (int) $menu_id, 0, array( 'menu-item-title' => $labels_home[ $language ], 'menu-item-object' => 'page', 'menu-item-object-id' => $object_home, 'menu-item-type' => 'post_type', 'menu-item-status' => 'publish', 'menu-item-position' => 1 ) );
 			$help_item = wp_update_nav_menu_item( (int) $menu_id, 0, array( 'menu-item-title' => $labels_help[ $language ], 'menu-item-url' => 'https://example.org/help/', 'menu-item-type' => 'custom', 'menu-item-status' => 'publish', 'menu-item-parent-id' => (int) $home_item, 'menu-item-position' => 2 ) );
-			$blog_item = wp_update_nav_menu_item( (int) $menu_id, 0, array( 'menu-item-title' => $labels_blog[ $language ], 'menu-item-object' => 'page', 'menu-item-object-id' => $object_blog, 'menu-item-type' => 'post_type', 'menu-item-status' => 'publish', 'menu-item-position' => 3 ) );
-			if ( is_wp_error( $home_item ) || is_wp_error( $help_item ) || is_wp_error( $blog_item ) ) { throw new RuntimeException( 'Could not build legacy editorial menu.' ); }
+			$docs_item = wp_update_nav_menu_item( (int) $menu_id, 0, array( 'menu-item-title' => $labels_docs[ $language ], 'menu-item-url' => (string) get_permalink( $object_docs ), 'menu-item-type' => 'custom', 'menu-item-status' => 'publish', 'menu-item-parent-id' => (int) $home_item, 'menu-item-position' => 3 ) );
+			$blog_item = wp_update_nav_menu_item( (int) $menu_id, 0, array( 'menu-item-title' => $labels_blog[ $language ], 'menu-item-object' => 'page', 'menu-item-object-id' => $object_blog, 'menu-item-type' => 'post_type', 'menu-item-status' => 'publish', 'menu-item-position' => 4 ) );
+			if ( is_wp_error( $home_item ) || is_wp_error( $help_item ) || is_wp_error( $docs_item ) || is_wp_error( $blog_item ) ) { throw new RuntimeException( 'Could not build legacy editorial menu.' ); }
 			if ( $managed ) {
 				update_term_meta( (int) $menu_id, '_devenia_workflow_localized_menu_managed', '1' );
 				update_term_meta( (int) $menu_id, '_devenia_workflow_localized_menu_language', $language );
 				update_term_meta( (int) $menu_id, '_devenia_workflow_public_header_manifest_revision', $legacy_revision );
-				foreach ( array( (int) $home_item => 800001, (int) $help_item => 800003, (int) $blog_item => 800002 ) as $item_id => $source_item_id ) { update_post_meta( $item_id, '_devenia_translation_source_menu_item_id', $source_item_id ); }
+				foreach ( array( (int) $home_item => 800001, (int) $help_item => 800003, (int) $docs_item => 800004, (int) $blog_item => 800002 ) as $item_id => $source_item_id ) { update_post_meta( $item_id, '_devenia_translation_source_menu_item_id', $source_item_id ); }
 			}
 			return (int) $menu_id;
 		};
@@ -383,6 +463,40 @@ try {
 		$ids = array();
 		foreach ( wp_get_nav_menus() as $menu ) { if ( is_object( $menu ) && false !== strpos( (string) $menu->name, $token ) && '1' === (string) get_term_meta( (int) $menu->term_id, '_devenia_workflow_localized_menu_managed', true ) ) { $ids[] = (int) $menu->term_id; } }
 		sort( $ids ); return $ids;
+	};
+	$raw_fixture_menu_surface = static function () use ( &$menus, $call ): array {
+		global $wpdb;
+		$menu_ids = array_values( array_unique( array_filter( array_map( 'absint', $menus ) ) ) );
+		sort( $menu_ids, SORT_NUMERIC );
+		if ( empty( $menu_ids ) ) { return array(); }
+		$menu_placeholders = implode( ', ', array_fill( 0, count( $menu_ids ), '%d' ) );
+		$terms = $wpdb->get_results( $wpdb->prepare( "SELECT t.*, tt.term_taxonomy_id, tt.taxonomy, tt.description, tt.parent, tt.count FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id WHERE t.term_id IN ({$menu_placeholders}) AND tt.taxonomy = %s ORDER BY t.term_id ASC, tt.term_taxonomy_id ASC", array_merge( $menu_ids, array( 'nav_menu' ) ) ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated integer placeholders only; explicit fixture inventory includes authority menus whose configured names do not contain the token.
+		$taxonomy_ids = array_map( 'absint', array_column( is_array( $terms ) ? $terms : array(), 'term_taxonomy_id' ) );
+		$relationships = array(); $posts = array(); $postmeta = array(); $termmeta = array();
+		if ( ! empty( $taxonomy_ids ) ) {
+			$placeholders = implode( ', ', array_fill( 0, count( $taxonomy_ids ), '%d' ) );
+			$relationships = $wpdb->get_results( $wpdb->prepare( "SELECT object_id, term_taxonomy_id, term_order FROM {$wpdb->term_relationships} WHERE term_taxonomy_id IN ({$placeholders}) ORDER BY term_taxonomy_id ASC, term_order ASC, object_id ASC", $taxonomy_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated integer placeholders only; raw exact oracle.
+			$post_ids = array_values( array_unique( array_map( 'absint', array_column( is_array( $relationships ) ? $relationships : array(), 'object_id' ) ) ) );
+			if ( ! empty( $post_ids ) ) {
+				$post_placeholders = implode( ', ', array_fill( 0, count( $post_ids ), '%d' ) );
+				$posts = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->posts} WHERE ID IN ({$post_placeholders}) ORDER BY ID ASC", $post_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated integer placeholders only; all persisted menu-item post columns are authority.
+				$postmeta = $wpdb->get_results( $wpdb->prepare( "SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ({$post_placeholders}) ORDER BY post_id ASC, meta_key ASC, meta_id ASC", $post_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated integer placeholders only; exact raw menu-item metadata oracle.
+			}
+		}
+		if ( ! empty( $menu_ids ) ) {
+			$termmeta = $wpdb->get_results( $wpdb->prepare( "SELECT meta_id, term_id, meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id IN ({$menu_placeholders}) ORDER BY term_id ASC, meta_key ASC, meta_id ASC", $menu_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated integer placeholders only; exact raw managed-menu authority.
+		}
+		return $call( 'translation_job_canonicalize', array( 'terms' => $terms, 'relationships' => $relationships, 'posts' => $posts, 'postmeta' => $postmeta, 'termmeta' => $termmeta ) );
+	};
+	$raw_nav_menu_inventory = static function (): array {
+		global $wpdb;
+		return (array) $wpdb->get_results( $wpdb->prepare( "SELECT t.term_id, tt.term_taxonomy_id FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id WHERE tt.taxonomy = %s ORDER BY t.term_id ASC, tt.term_taxonomy_id ASC", 'nav_menu' ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact raw inventory detects orphan staged menus outside the known fixture ID set.
+	};
+	$raw_relation_post_surface = static function ( int $post_id ) use ( $call ): array {
+		global $wpdb;
+		$post = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->posts} WHERE ID = %d", $post_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact raw post-row lock oracle.
+		$meta = $wpdb->get_results( $wpdb->prepare( "SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_key ASC, meta_id ASC", $post_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact raw predicate-lock oracle.
+		return $call( 'translation_job_canonicalize', array( 'post' => $post, 'meta' => $meta ) );
 	};
 	$legacy_pending = array( 'status' => 'activated', 'revision' => $legacy_revision, 'activated_at' => 'legacy-fixture' );
 	update_option( 'devenia_workflow_public_header_manifest', $legacy_manifest, false );
@@ -426,21 +540,34 @@ try {
 	$migration_stage_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__devenia_workflow_option_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__devenia_workflow_option_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__devenia_workflow_option_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__devenia_workflow_option_missing__' ) );
 	if ( empty( $migration_stage['staged'] ) ) { throw new RuntimeException( 'Schema-2 migration draft could not be staged: ' . wp_json_encode( array( 'migration_stage' => $migration_stage, 'migration_draft' => $migration_draft, 'state_before' => $migration_stage_state_before, 'state_after' => $migration_stage_state_after, 'retained_authority_menu_ids' => $retained_authority_menu_ids, 'conflicting_authority_menu_id' => $conflicting_authority_menu_id, 'conflicting_menu_exists_after_delete' => (bool) wp_get_nav_menu_object( $conflicting_authority_menu_id ) ) ) ); }
 	$migration_pending = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
+	$missing_relation_receipts_pending = $migration_pending;
+	unset( $missing_relation_receipts_pending['relation_receipts'] );
+	update_option( 'devenia_workflow_pending_public_header_manifest', $missing_relation_receipts_pending, false );
+	$missing_relation_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$missing_relation_menus_before = $managed_fixture_menu_ids();
+	$missing_relation_raw_menu_before = $raw_fixture_menu_surface();
+	$missing_relation_menu_inventory_before = $raw_nav_menu_inventory();
+	$missing_relation_attempt = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$missing_relation_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	if ( 'public_header_relation_receipts_missing' !== (string) ( $missing_relation_attempt['code'] ?? '' ) || array_key_exists( 'projection', $missing_relation_attempt ) || array_key_exists( 'projections', $missing_relation_attempt ) || array_key_exists( 'activation', $missing_relation_attempt ) || array_key_exists( 'cleanup', $missing_relation_attempt ) || $missing_relation_state_before !== $missing_relation_state_after || $missing_relation_menus_before !== $managed_fixture_menu_ids() || $missing_relation_raw_menu_before !== $raw_fixture_menu_surface() || $missing_relation_menu_inventory_before !== $raw_nav_menu_inventory() ) { throw new RuntimeException( 'Missing mandatory relation receipts did not stop full synchronization before staging with exact raw state: ' . wp_json_encode( $missing_relation_attempt ) ); }
+	update_option( 'devenia_workflow_pending_public_header_manifest', $migration_pending, false );
+	$missing_relation_restored = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
+	if ( $call( 'translation_job_canonicalize', $migration_pending ) !== $call( 'translation_job_canonicalize', $missing_relation_restored ) || empty( $call( 'validate_public_header_relation_receipts', $missing_relation_restored )['success'] ) ) { throw new RuntimeException( 'Missing-receipt fixture cleanup did not restore the exact valid pending manifest.' ); }
 	// Source WordPress identity must remain completely absent. Prove both the
 	// canonical source-meta negative and the index-only disagreement negative
 	// against the exact pending receipts before any activation attempt.
 	update_post_meta( $source_home, '_devenia_translation_source_id', $source_home );
 	update_post_meta( $source_home, '_devenia_translation_language', $source_language );
-	$source_meta_identity_validation = $call( 'validate_public_header_authority_receipts', $migration_pending );
-	if ( ! empty( $source_meta_identity_validation['success'] ) || false === strpos( wp_json_encode( $source_meta_identity_validation ), 'page_relation_source_translation_identity_present' ) ) { throw new RuntimeException( 'Canonical source translation metadata did not invalidate Public Header relation authority: ' . wp_json_encode( $source_meta_identity_validation ) ); }
+	$source_meta_identity_validation = $call( 'validate_public_header_relation_receipts', $migration_pending );
+	if ( ! empty( $source_meta_identity_validation['success'] ) || false === strpos( wp_json_encode( $source_meta_identity_validation ), 'relation_source_translation_identity_present' ) ) { throw new RuntimeException( 'Canonical source translation metadata did not invalidate Public Header relation authority: ' . wp_json_encode( $source_meta_identity_validation ) ); }
 	if ( ! $call( 'sync_translation_index_row', $source_home ) ) { throw new RuntimeException( 'Could not create the source-side index-only identity fixture.' ); }
 	delete_post_meta( $source_home, '_devenia_translation_source_id' );
 	delete_post_meta( $source_home, '_devenia_translation_language' );
 	clean_post_cache( $source_home );
-	$source_index_identity_validation = $call( 'validate_public_header_authority_receipts', $migration_pending );
-	if ( ! empty( $source_index_identity_validation['success'] ) || 'public_header_authority_relation_changed' !== (string) ( $source_index_identity_validation['code'] ?? '' ) || false === strpos( wp_json_encode( $source_index_identity_validation ), 'source_page_classified_as_translation' ) ) { throw new RuntimeException( 'An index-only source translation identity was not rejected as a read-model disagreement: ' . wp_json_encode( $source_index_identity_validation ) ); }
+	$source_index_identity_validation = $call( 'validate_public_header_relation_receipts', $migration_pending );
+	if ( ! empty( $source_index_identity_validation['success'] ) || 'public_header_relation_authority_changed' !== (string) ( $source_index_identity_validation['code'] ?? '' ) || false === strpos( wp_json_encode( $source_index_identity_validation ), 'source_page_classified_as_translation' ) ) { throw new RuntimeException( 'An index-only source translation identity was not rejected as a read-model disagreement: ' . wp_json_encode( $source_index_identity_validation ) ); }
 	$call( 'sync_translation_index_row', $source_home );
-	if ( empty( $call( 'validate_public_header_authority_receipts', $migration_pending )['success'] ) ) { throw new RuntimeException( 'Source identity fixture cleanup did not restore exact authority.' ); }
+	if ( empty( $call( 'validate_public_header_relation_receipts', $migration_pending )['success'] ) ) { throw new RuntimeException( 'Source identity fixture cleanup did not restore exact authority.' ); }
 
 	// Add an unindexed canonical relation only after the final relation predicate
 	// and candidate menus are locked. Same-transaction injection proves the final
@@ -452,8 +579,94 @@ try {
 	$locked_relation_race = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
 	$locked_authority_race_mode = ''; clean_post_cache( $locked_authority_extra_page );
 	$locked_relation_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
-	if ( ! $locked_authority_race_injected || 'public_header_projection_activation_failed' !== (string) ( $locked_relation_race['code'] ?? '' ) || 'public_header_authority_changed_at_locked_boundary' !== (string) ( $locked_relation_race['activation']['code'] ?? '' ) || false === strpos( wp_json_encode( $locked_relation_race['activation']['authority_validation'] ?? array() ), 'page_relation_translation_ambiguous' ) || empty( $locked_relation_race['cleanup']['success'] ) || '' !== (string) get_post_meta( $locked_authority_extra_page, '_devenia_translation_source_id', true ) || '' !== (string) get_post_meta( $locked_authority_extra_page, '_devenia_translation_language', true ) || $call( 'translation_job_canonicalize', $locked_relation_state_before ) !== $call( 'translation_job_canonicalize', $locked_relation_state_after ) || $locked_relation_menus_before !== $managed_fixture_menu_ids() ) { throw new RuntimeException( 'A meta-only canonical target relation escaped the final locked authority boundary or rollback: ' . wp_json_encode( $locked_relation_race ) ); }
+	if ( ! $locked_authority_race_injected || 'public_header_projection_activation_failed' !== (string) ( $locked_relation_race['code'] ?? '' ) || 'public_header_relation_changed_at_locked_boundary' !== (string) ( $locked_relation_race['activation']['code'] ?? '' ) || false === strpos( wp_json_encode( $locked_relation_race['activation']['relation_validation'] ?? array() ), 'relation_translation_ambiguous' ) || empty( $locked_relation_race['cleanup']['success'] ) || '' !== (string) get_post_meta( $locked_authority_extra_page, '_devenia_translation_source_id', true ) || '' !== (string) get_post_meta( $locked_authority_extra_page, '_devenia_translation_language', true ) || $call( 'translation_job_canonicalize', $locked_relation_state_before ) !== $call( 'translation_job_canonicalize', $locked_relation_state_after ) || $locked_relation_menus_before !== $managed_fixture_menu_ids() ) { throw new RuntimeException( 'A meta-only canonical target relation escaped the final locked authority boundary or rollback: ' . wp_json_encode( $locked_relation_race ) ); }
 	wp_delete_post( $locked_authority_extra_page, true );
+
+	// A real internal custom link binds source/target URLs and its complete route
+	// revision. Drift the locked target slug in the owned transaction; final
+	// relation revalidation must fail and transaction rollback must restore it.
+	$locked_route_target_id = (int) $translated[ $targets[0] ]['docs'];
+	$locked_route_slug_before = (string) get_post_field( 'post_name', $locked_route_target_id, 'raw' );
+	$locked_route_slug_drift = $locked_route_slug_before . '-drift';
+	$target_relation_rows = (array) ( $migration_pending['relation_receipts'][ $targets[0] ]['relations'] ?? array() );
+	$target_internal_relation = (array) ( $target_relation_rows[800004] ?? array() );
+	$expected_source_docs_url = $call( 'normalize_primary_navigation_url', (string) get_permalink( $source_docs ) );
+	$expected_target_docs_url = $call( 'normalize_primary_navigation_url', (string) get_permalink( $locked_route_target_id ) );
+	if ( 'internal' !== (string) ( $target_internal_relation['scope'] ?? '' ) || $source_docs !== absint( $target_internal_relation['source_post_id'] ?? 0 ) || $locked_route_target_id !== absint( $target_internal_relation['target_post_id'] ?? 0 ) || $expected_source_docs_url !== (string) ( $target_internal_relation['source_url'] ?? '' ) || $expected_target_docs_url !== (string) ( $target_internal_relation['target_url'] ?? '' ) || $expected_target_docs_url !== (string) ( $target_internal_relation['url'] ?? '' ) || '' === (string) ( $target_internal_relation['route_revision'] ?? '' ) ) { throw new RuntimeException( 'Internal custom-link receipt did not bind exact canonical source/target URL authority.' ); }
+	$locked_route_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$locked_route_menus_before = $managed_fixture_menu_ids();
+	$locked_route_raw_menu_before = $raw_fixture_menu_surface();
+	$locked_route_menu_inventory_before = $raw_nav_menu_inventory();
+	$locked_authority_race_mode = 'route_post'; $locked_authority_race_injected = false;
+	$locked_route_race = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$locked_authority_race_mode = ''; clean_post_cache( $locked_route_target_id );
+	$locked_route_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	if ( ! $locked_authority_race_injected || 'public_header_projection_activation_failed' !== (string) ( $locked_route_race['code'] ?? '' ) || 'public_header_relation_changed_at_locked_boundary' !== (string) ( $locked_route_race['activation']['code'] ?? '' ) || 'public_header_relation_authority_changed' !== (string) ( $locked_route_race['activation']['relation_validation']['code'] ?? '' ) || false === strpos( wp_json_encode( $locked_route_race['activation']['relation_validation'] ?? array() ), $locked_route_slug_drift ) || empty( $locked_route_race['cleanup']['success'] ) || $locked_route_slug_before !== (string) get_post_field( 'post_name', $locked_route_target_id, 'raw' ) || $locked_route_state_before !== $locked_route_state_after || $locked_route_menus_before !== $managed_fixture_menu_ids() || $locked_route_raw_menu_before !== $raw_fixture_menu_surface() || $locked_route_menu_inventory_before !== $raw_nav_menu_inventory() ) { throw new RuntimeException( 'Internal custom-link route drift did not fail at the locked boundary and roll back exact state: ' . wp_json_encode( $locked_route_race ) ); }
+
+	// Prove the real InnoDB locks from disposable PHP processes with their own
+	// database connections. Each writer succeeds and restores before the owned
+	// transaction, times out while the exact surface is locked, then succeeds
+	// and restores twice after rollback. The second after pass proves cleanup is
+	// idempotent rather than merely lucky.
+	$external_writer_proofs = array();
+	$source_docs_slug = (string) get_post_field( 'post_name', $source_docs, 'raw' );
+	$external_writer_fixtures = array(
+		'post_slug' => array( 'mode' => 'post_slug', 'post_id' => $locked_route_target_id, 'fixture_slug' => $locked_route_slug_before, 'field' => 'post_name', 'expected' => $locked_route_slug_before, 'replacement' => $locked_route_slug_before . '-writer' ),
+		'identity_meta_source' => array( 'mode' => 'identity_meta', 'post_id' => $source_docs, 'fixture_slug' => $source_docs_slug, 'field' => '_devenia_translation_source_id', 'expected' => 'absent', 'replacement' => (string) $source_docs ),
+		'identity_meta_language' => array( 'mode' => 'identity_meta', 'post_id' => $source_docs, 'fixture_slug' => $source_docs_slug, 'field' => '_devenia_translation_language', 'expected' => 'absent', 'replacement' => (string) $targets[0] ),
+	);
+	foreach ( $external_writer_fixtures as $writer_mode => $writer_fixture ) {
+		global $wpdb;
+		$external_writer_main_connection_id = (int) $wpdb->get_var( 'SELECT CONNECTION_ID()' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Distinct-connection behavioral lock proof.
+		if ( $external_writer_main_connection_id < 1 ) { throw new RuntimeException( 'Main relation-lock oracle connection ID is unavailable.' ); }
+		$writer_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$writer_menus_before = $managed_fixture_menu_ids();
+		$writer_raw_menus_before = $raw_fixture_menu_surface();
+		$writer_menu_inventory_before = $raw_nav_menu_inventory();
+		$writer_fixture_post_id = absint( $writer_fixture['post_id'] ?? 0 );
+		$writer_relation_surface_before = $raw_relation_post_surface( $writer_fixture_post_id );
+		$writer_before = $run_external_writer( 'before', $writer_fixture );
+		if ( empty( $writer_before['success'] ) || 0 !== (int) ( $writer_before['errno'] ?? -1 ) || $writer_relation_surface_before !== $raw_relation_post_surface( $writer_fixture_post_id ) ) { throw new RuntimeException( 'Separate writer could not prove its positive pre-lock write-and-restore path for ' . $writer_mode . '.' ); }
+
+		$external_writer_mode = (string) ( $writer_fixture['mode'] ?? '' );
+		$external_writer_fixture = $writer_fixture;
+		$external_writer_result = array();
+		$activation_commit_mode = 'rollback_confirmed';
+		$activation_commit_injected = false;
+		$writer_attempt = array();
+		try {
+			$writer_attempt = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+		} finally {
+			$external_writer_mode = '';
+			$external_writer_fixture = array();
+			$activation_commit_mode = '';
+			$writer_after = $run_external_writer( 'after', $writer_fixture );
+			$writer_cleanup_repeat = $run_external_writer( 'after', $writer_fixture );
+		}
+
+		$worker_connection_ids = array_map( 'intval', array( $writer_before['connection_id'] ?? 0, $external_writer_result['connection_id'] ?? 0, $writer_after['connection_id'] ?? 0, $writer_cleanup_repeat['connection_id'] ?? 0 ) );
+		$worker_connections_distinct = 4 === count( array_unique( $worker_connection_ids ) ) && empty( array_filter( $worker_connection_ids, static function ( int $connection_id ) use ( $external_writer_main_connection_id ): bool { return $connection_id < 1 || $connection_id === $external_writer_main_connection_id; } ) );
+		$writer_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		if (
+			! $activation_commit_injected
+			|| 'public_header_projection_activation_failed' !== (string) ( $writer_attempt['code'] ?? '' )
+			|| 'public_header_state_commit_rolled_back' !== (string) ( $writer_attempt['activation']['code'] ?? '' )
+			|| 'unapplied' !== (string) ( $writer_attempt['activation']['state_outcome'] ?? '' )
+			|| empty( $writer_attempt['cleanup']['success'] )
+			|| ! empty( $external_writer_result['success'] )
+			|| 1205 !== (int) ( $external_writer_result['errno'] ?? 0 )
+			|| empty( $writer_after['success'] )
+			|| empty( $writer_cleanup_repeat['success'] )
+			|| ! $worker_connections_distinct
+			|| $external_writer_main_connection_id !== (int) $wpdb->get_var( 'SELECT CONNECTION_ID()' ) // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Main connection must remain stable across the lock proof.
+			|| $writer_state_before !== $writer_state_after
+			|| $writer_menus_before !== $managed_fixture_menu_ids()
+			|| $writer_raw_menus_before !== $raw_fixture_menu_surface()
+			|| $writer_menu_inventory_before !== $raw_nav_menu_inventory()
+			|| $writer_relation_surface_before !== $raw_relation_post_surface( $writer_fixture_post_id )
+		) { throw new RuntimeException( 'Separate InnoDB writer lock oracle failed exact before/under/after state for ' . $writer_mode . ': ' . wp_json_encode( array( 'attempt' => $writer_attempt, 'before' => $writer_before, 'under' => $external_writer_result, 'after' => $writer_after, 'cleanup_repeat' => $writer_cleanup_repeat, 'main_connection_id' => $external_writer_main_connection_id ) ) ); }
+		$external_writer_proofs[ $writer_mode ] = true;
+	}
 
 	// Mutate one explicitly locked authority menu at the same final boundary.
 	// The validator must reject its receipt and the transaction must restore it.
@@ -475,8 +688,8 @@ try {
 	$authority_relation_race = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
 	wp_update_post( array( 'ID' => $authority_relation_race_translation_id, 'post_status' => 'publish' ) ); $call( 'sync_translation_index_row', $authority_relation_race_translation_id );
 	$bound_relation_consumed = count( (array) ( $authority_relation_race['projections'] ?? array() ) ) === count( $all_languages );
-	foreach ( (array) ( $authority_relation_race['projections'] ?? array() ) as $relation_language => $relation_projection ) { $bound_relation_consumed = $bound_relation_consumed && ! empty( $relation_projection['relation_authority_consumed'] ) && hash_equals( (string) ( $migration_pending['authority_receipts'][ $relation_language ]['relation_revision'] ?? '' ), (string) ( $relation_projection['relation_authority_revision'] ?? '' ) ); }
-	if ( 'public_header_authority_changed_before_activation' !== (string) ( $authority_relation_race['code'] ?? '' ) || empty( $authority_relation_race['cleanup']['success'] ) || ! $bound_relation_consumed || ! $staged_receipt_surface_exact || 1 !== (int) ( get_option( 'devenia_workflow_public_header_manifest', array() )['schema_version'] ?? 0 ) || $migration_pending !== get_option( 'devenia_workflow_pending_public_header_manifest', array() ) || $managed_before_relation_race !== $managed_fixture_menu_ids() ) { throw new RuntimeException( 'A translation relation changed after receipt-bound staging, or staged objects/URLs differed from their receipts: ' . wp_json_encode( array( 'attempt' => $authority_relation_race, 'staged_receipt_surface_observations' => $staged_receipt_surface_observations ) ) ); }
+	foreach ( (array) ( $authority_relation_race['projections'] ?? array() ) as $relation_language => $relation_projection ) { $bound_relation_consumed = $bound_relation_consumed && ! empty( $relation_projection['relation_authority_consumed'] ) && hash_equals( (string) ( $migration_pending['relation_receipts'][ $relation_language ]['relation_revision'] ?? '' ), (string) ( $relation_projection['relation_authority_revision'] ?? '' ) ); }
+	if ( 'public_header_relation_changed_before_activation' !== (string) ( $authority_relation_race['code'] ?? '' ) || empty( $authority_relation_race['cleanup']['success'] ) || ! $bound_relation_consumed || ! $staged_receipt_surface_exact || 1 !== (int) ( get_option( 'devenia_workflow_public_header_manifest', array() )['schema_version'] ?? 0 ) || $migration_pending !== get_option( 'devenia_workflow_pending_public_header_manifest', array() ) || $managed_before_relation_race !== $managed_fixture_menu_ids() ) { throw new RuntimeException( 'A translation relation changed after receipt-bound staging, or staged objects/URLs differed from their receipts: ' . wp_json_encode( array( 'attempt' => $authority_relation_race, 'staged_receipt_surface_observations' => $staged_receipt_surface_observations ) ) ); }
 	$failure_mode = 'verification_fail'; $verification_fault_remaining = 1; $verification_fault_revision = (string) ( $migration_pending['revision'] ?? '' ); $verification_rollback_observations = array();
 	$migration_rollback = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
 	$rollback_observation_count = count( $all_languages ) * 4;
@@ -495,7 +708,7 @@ try {
 	$migration_stage = $call( 'migrate_public_header_label_authority', array( 'stage' => true ) );
 	$migration_success = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
 	$migration_active_manifest = get_option( 'devenia_workflow_public_header_manifest', array() );
-	if ( empty( $migration_stage['staged'] ) || empty( $migration_success['success'] ) || 2 !== (int) ( $migration_active_manifest['schema_version'] ?? 0 ) || array_key_exists( 'authority_receipts', $migration_active_manifest ) ) { throw new RuntimeException( 'Schema-1 editorial labels were not repaired through successful schema-2 activation without leaking intake authority into active reader state.' ); }
+	if ( empty( $migration_stage['staged'] ) || empty( $migration_success['success'] ) || 2 !== (int) ( $migration_active_manifest['schema_version'] ?? 0 ) || array_key_exists( 'authority_receipts', $migration_active_manifest ) || array_key_exists( 'relation_receipts', $migration_active_manifest ) ) { throw new RuntimeException( 'Schema-1 editorial labels were not repaired through successful schema-2 activation without leaking ephemeral authority into active reader state.' ); }
 
 	// Reset the fixture and retain the existing exhaustive clean-install tests.
 	delete_option( 'devenia_workflow_public_header_manifest' ); delete_option( 'devenia_workflow_pending_public_header_manifest' ); delete_option( 'devenia_workflow_localized_menu_identities' ); delete_option( 'devenia_workflow_public_header_enrollment' );
@@ -534,6 +747,7 @@ try {
 	$expected_raw_navigation = array(
 		array( 'title' => 'Active short home', 'url' => $call( 'normalize_primary_navigation_url', (string) get_permalink( $source_home ) ) ),
 		array( 'title' => 'Active short help', 'url' => $call( 'normalize_primary_navigation_url', 'https://example.org/help/' ) ),
+		array( 'title' => 'Active short docs', 'url' => $call( 'normalize_primary_navigation_url', (string) get_permalink( $source_docs ) ) ),
 		array( 'title' => 'Active short blog', 'url' => $call( 'normalize_primary_navigation_url', (string) get_permalink( $source_blog ) ) ),
 	);
 	foreach ( $all_languages as $oracle_language ) {
@@ -929,10 +1143,15 @@ try {
 	$result['unterminated_success_header_commit_receipt_rolled_back_failed_closed'] = true;
 	$result['source_translation_meta_identity_rejected'] = true;
 	$result['source_translation_index_identity_rejected'] = true;
+	$result['missing_relation_receipts_failed_without_raw_state_mutation'] = true;
 	$result['meta_only_target_relation_rejected_at_locked_boundary'] = true;
 	$result['staged_object_ids_and_custom_urls_equal_receipts'] = true;
+	$result['internal_custom_route_drift_rolled_back_exactly'] = true;
+	$result['relation_receipts_not_persisted_in_active_manifest'] = true;
 	$result['authority_menu_changed_at_locked_boundary_rejected'] = true;
 	$result['canonical_relation_predicate_locked_before_activation'] = true;
+	$result['separate_connection_post_lock_blocked_writer'] = true === ( $external_writer_proofs['post_slug'] ?? false );
+	$result['separate_connection_meta_predicate_lock_blocked_writer'] = true === ( $external_writer_proofs['identity_meta_source'] ?? false ) && true === ( $external_writer_proofs['identity_meta_language'] ?? false );
 } catch ( Throwable $caught ) { $error = $caught; }
 finally {
 	foreach ( array_reverse( $filters ) as $filter ) { remove_filter( $filter[0], $filter[1], $filter[2] ); }
