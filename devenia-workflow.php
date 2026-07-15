@@ -9435,8 +9435,10 @@ final class Devenia_Workflow {
 	private static function sync_menu_input_schema(): array {
 		return array(
 			'type'                 => 'object',
+			'required'             => array( 'activation_receipt' ),
 			'properties'           => array(
-				'timeout' => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
+				'activation_receipt' => array( 'type' => 'string', 'pattern' => '^phact_[a-f0-9]{48}$', 'description' => 'Opaque activation receipt returned by the exact pending-manifest staging operation.' ),
+				'timeout'            => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
 			),
 			'additionalProperties' => false,
 		);

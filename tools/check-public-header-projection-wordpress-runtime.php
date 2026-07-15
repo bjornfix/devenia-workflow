@@ -3,6 +3,9 @@
 if ( ! defined( 'ABSPATH' ) ) { exit( 1 ); }
 
 $call = static function ( string $method, ...$arguments ) { $r = new ReflectionMethod( Devenia_Workflow::class, $method ); $r->setAccessible( true ); return $r->invokeArgs( null, $arguments ); };
+$activation_input = static function ( array $input, string $activation_receipt ): array {
+	return array_merge( array( 'timeout' => 5, 'activation_receipt' => $activation_receipt ), $input );
+};
 $option_keys = array( 'devenia_workflow_language_registry', 'devenia_workflow_localized_menu_identities', 'devenia_workflow_public_header_manifest', 'devenia_workflow_pending_public_header_manifest', 'devenia_workflow_public_header_enrollment', 'show_on_front', 'page_on_front', 'page_for_posts' );
 $before = array(); foreach ( $option_keys as $key ) { $before[ $key ] = get_option( $key, '__workflow_missing__' ); }
 $locations_before = get_theme_mod( 'nav_menu_locations', array() );
@@ -48,6 +51,9 @@ $external_writer_mode = '';
 $external_writer_fixture = array();
 $external_writer_result = array();
 $external_writer_main_connection_id = 0;
+$activation_receipt_race_mode = '';
+$activation_receipt_race_result = array();
+$locked_pending_reorder_result = array();
 
 try {
 	$admins = get_users( array( 'role__in' => array( 'administrator' ), 'number' => 1, 'fields' => 'ids' ) );
@@ -213,7 +219,12 @@ try {
 		return $value;
 	};
 	add_filter( 'devenia_workflow_public_header_projection_receipt', $receipt, 10, 2 ); $filters[] = array( 'devenia_workflow_public_header_projection_receipt', $receipt, 10 );
-	$pending_boundary = static function () use ( &$failure_mode, &$failure_injected, &$staged_race_menu_id ): void {
+	$reorder_raw_pending = static function ( array $raw_pending ): array {
+		if ( count( $raw_pending ) < 2 || empty( $raw_pending['items'][0] ) || ! is_array( $raw_pending['items'][0] ) || count( $raw_pending['items'][0] ) < 2 ) { throw new RuntimeException( 'Raw pending key-order fixture requires top-level and nested associative authority.' ); }
+		$raw_pending['items'][0] = array_reverse( $raw_pending['items'][0], true );
+		return array_reverse( $raw_pending, true );
+	};
+	$pending_boundary = static function () use ( &$failure_mode, &$failure_injected, &$staged_race_menu_id, &$locked_pending_reorder_result, $reorder_raw_pending, $call ): void {
 		if ( $failure_injected ) { return; }
 		if ( 'staged_revision_change' === $failure_mode ) {
 			$items = $staged_race_menu_id > 0 ? ( wp_get_nav_menu_items( $staged_race_menu_id ) ?: array() ) : array();
@@ -225,6 +236,18 @@ try {
 			$race = array( 'race' => wp_generate_uuid4() );
 			update_option( 'devenia_workflow_pending_public_header_manifest', $race, false );
 			if ( $race !== get_option( 'devenia_workflow_pending_public_header_manifest', array() ) ) { throw new RuntimeException( 'Pending manifest race injection was not stored at the transaction boundary.' ); }
+			$failure_injected = true;
+			return;
+		}
+		if ( 'pending_key_reorder' === $failure_mode ) {
+			$raw_pending = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
+			if ( ! is_array( $raw_pending ) ) { throw new RuntimeException( 'Locked raw pending key-order fixture is not an array.' ); }
+			$reordered = $reorder_raw_pending( $raw_pending );
+			if ( maybe_serialize( $raw_pending ) === maybe_serialize( $reordered ) || $call( 'translation_job_canonicalize', $raw_pending ) !== $call( 'translation_job_canonicalize', $reordered ) ) { throw new RuntimeException( 'Locked raw pending key-order fixture was not serialization-distinct but canonically equal.' ); }
+			update_option( 'devenia_workflow_pending_public_header_manifest', $reordered, false );
+			$stored = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
+			if ( $stored !== $reordered ) { throw new RuntimeException( 'Locked raw pending key-order fixture was not stored exactly.' ); }
+			$locked_pending_reorder_result = array( 'success' => true, 'before' => $raw_pending, 'pending' => $reordered );
 			$failure_injected = true;
 		}
 	};
@@ -492,12 +515,49 @@ try {
 		global $wpdb;
 		return (array) $wpdb->get_results( $wpdb->prepare( "SELECT t.term_id, tt.term_taxonomy_id FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id WHERE tt.taxonomy = %s ORDER BY t.term_id ASC, tt.term_taxonomy_id ASC", 'nav_menu' ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact raw inventory detects orphan staged menus outside the known fixture ID set.
 	};
-	$raw_relation_post_surface = static function ( int $post_id ) use ( $call ): array {
+	$raw_relation_post_surface = static function ( $post_ids ) use ( $call ): array {
 		global $wpdb;
-		$post = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->posts} WHERE ID = %d", $post_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact raw post-row lock oracle.
-		$meta = $wpdb->get_results( $wpdb->prepare( "SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_key ASC, meta_id ASC", $post_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact raw predicate-lock oracle.
+		$post_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $post_ids ) ) ) );
+		sort( $post_ids, SORT_NUMERIC );
+		if ( empty( $post_ids ) ) { return array(); }
+		$placeholders = implode( ', ', array_fill( 0, count( $post_ids ), '%d' ) );
+		$post = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->posts} WHERE ID IN ({$placeholders}) ORDER BY ID ASC", $post_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated integer placeholders only; exact raw post-row lock oracle.
+		$meta = $wpdb->get_results( $wpdb->prepare( "SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ({$placeholders}) ORDER BY post_id ASC, meta_key ASC, meta_id ASC", $post_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated integer placeholders only; exact raw predicate-lock oracle.
 		return $call( 'translation_job_canonicalize', array( 'post' => $post, 'meta' => $meta ) );
 	};
+	$activation_receipt_race = static function ( string $receipt, array $pending ) use ( &$activation_receipt_race_mode, &$activation_receipt_race_result, $call, $manifest_items, $reorder_raw_pending ): void {
+		if ( ! in_array( $activation_receipt_race_mode, array( 'replace_pending', 'raw_normalization_equivalent', 'raw_key_reorder' ), true ) ) { return; }
+		if ( 'raw_key_reorder' === $activation_receipt_race_mode ) {
+			$activation_receipt_race_mode = '';
+			$raw_pending = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
+			if ( ! is_array( $raw_pending ) ) { throw new RuntimeException( 'Pre-staging raw pending key-order fixture is not an array.' ); }
+			$reordered = $reorder_raw_pending( $raw_pending );
+			if ( maybe_serialize( $raw_pending ) === maybe_serialize( $reordered ) || $call( 'translation_job_canonicalize', $raw_pending ) !== $call( 'translation_job_canonicalize', $reordered ) ) { throw new RuntimeException( 'Pre-staging raw pending key-order fixture was not serialization-distinct but canonically equal.' ); }
+			update_option( 'devenia_workflow_pending_public_header_manifest', $reordered, false );
+			$stored = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
+			if ( $stored !== $reordered ) { throw new RuntimeException( 'Pre-staging raw pending key-order fixture was not stored exactly.' ); }
+			$activation_receipt_race_result = array( 'success' => true, 'before' => $raw_pending, 'pending' => $reordered );
+			return;
+		}
+		if ( 'raw_normalization_equivalent' === $activation_receipt_race_mode ) {
+			$activation_receipt_race_mode = '';
+			$raw_pending = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
+			if ( ! is_array( $raw_pending ) || empty( $raw_pending['items'][0] ) || ! is_array( $raw_pending['items'][0] ) ) { throw new RuntimeException( 'Raw pending receipt-race fixture has no canonical first item.' ); }
+			$normalized_before = $call( 'normalize_public_header_manifest', $raw_pending );
+			$raw_pending['items'][0]['receipt_race_discarded_field'] = 'independent-raw-owner';
+			update_option( 'devenia_workflow_pending_public_header_manifest', $raw_pending, false );
+			$normalized_after = $call( 'normalize_public_header_manifest', $raw_pending );
+			if ( $call( 'translation_job_canonicalize', $normalized_before ) !== $call( 'translation_job_canonicalize', $normalized_after ) || $call( 'translation_job_canonicalize', $raw_pending ) === $call( 'translation_job_canonicalize', $normalized_after ) ) { throw new RuntimeException( 'Raw pending receipt-race fixture was not normalization-equivalent but byte-distinct.' ); }
+			$activation_receipt_race_result = array( 'success' => true, 'pending' => $raw_pending, 'normalized' => $normalized_after );
+			return;
+		}
+		$activation_receipt_race_mode = '';
+		$activation_receipt_race_result = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Concurrent receipt owner' ) ) );
+		if ( empty( $activation_receipt_race_result['success'] ) || empty( $activation_receipt_race_result['pending'] ) || '' === (string) ( $activation_receipt_race_result['activation_receipt'] ?? '' ) ) {
+			throw new RuntimeException( 'Concurrent pending replacement fixture could not stage its independently owned manifest.' );
+		}
+	};
+	add_action( 'devenia_workflow_public_header_before_activation_receipt_revalidation', $activation_receipt_race, 10, 2 ); $filters[] = array( 'devenia_workflow_public_header_before_activation_receipt_revalidation', $activation_receipt_race, 10 );
 	$legacy_pending = array( 'status' => 'activated', 'revision' => $legacy_revision, 'activated_at' => 'legacy-fixture' );
 	update_option( 'devenia_workflow_public_header_manifest', $legacy_manifest, false );
 	update_option( 'devenia_workflow_localized_menu_identities', $legacy_identities, false );
@@ -538,7 +598,8 @@ try {
 	$migration_stage_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__devenia_workflow_option_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__devenia_workflow_option_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__devenia_workflow_option_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__devenia_workflow_option_missing__' ) );
 	$migration_stage = $call( 'migrate_public_header_label_authority', array( 'stage' => true ) );
 	$migration_stage_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__devenia_workflow_option_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__devenia_workflow_option_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__devenia_workflow_option_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__devenia_workflow_option_missing__' ) );
-	if ( empty( $migration_stage['staged'] ) ) { throw new RuntimeException( 'Schema-2 migration draft could not be staged: ' . wp_json_encode( array( 'migration_stage' => $migration_stage, 'migration_draft' => $migration_draft, 'state_before' => $migration_stage_state_before, 'state_after' => $migration_stage_state_after, 'retained_authority_menu_ids' => $retained_authority_menu_ids, 'conflicting_authority_menu_id' => $conflicting_authority_menu_id, 'conflicting_menu_exists_after_delete' => (bool) wp_get_nav_menu_object( $conflicting_authority_menu_id ) ) ) ); }
+	$migration_activation_receipt = (string) ( $migration_stage['stage_result']['activation_receipt'] ?? '' );
+	if ( empty( $migration_stage['staged'] ) || '' === $migration_activation_receipt ) { throw new RuntimeException( 'Schema-2 migration draft could not be staged with its exact activation receipt: ' . wp_json_encode( array( 'migration_stage' => $migration_stage, 'migration_draft' => $migration_draft, 'state_before' => $migration_stage_state_before, 'state_after' => $migration_stage_state_after, 'retained_authority_menu_ids' => $retained_authority_menu_ids, 'conflicting_authority_menu_id' => $conflicting_authority_menu_id, 'conflicting_menu_exists_after_delete' => (bool) wp_get_nav_menu_object( $conflicting_authority_menu_id ) ) ) ); }
 	$migration_pending = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
 	$missing_relation_receipts_pending = $migration_pending;
 	unset( $missing_relation_receipts_pending['relation_receipts'] );
@@ -547,7 +608,7 @@ try {
 	$missing_relation_menus_before = $managed_fixture_menu_ids();
 	$missing_relation_raw_menu_before = $raw_fixture_menu_surface();
 	$missing_relation_menu_inventory_before = $raw_nav_menu_inventory();
-	$missing_relation_attempt = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$missing_relation_attempt = $call( 'validate_public_header_relation_receipts', $missing_relation_receipts_pending );
 	$missing_relation_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
 	if ( 'public_header_relation_receipts_missing' !== (string) ( $missing_relation_attempt['code'] ?? '' ) || array_key_exists( 'projection', $missing_relation_attempt ) || array_key_exists( 'projections', $missing_relation_attempt ) || array_key_exists( 'activation', $missing_relation_attempt ) || array_key_exists( 'cleanup', $missing_relation_attempt ) || $missing_relation_state_before !== $missing_relation_state_after || $missing_relation_menus_before !== $managed_fixture_menu_ids() || $missing_relation_raw_menu_before !== $raw_fixture_menu_surface() || $missing_relation_menu_inventory_before !== $raw_nav_menu_inventory() ) { throw new RuntimeException( 'Missing mandatory relation receipts did not stop full synchronization before staging with exact raw state: ' . wp_json_encode( $missing_relation_attempt ) ); }
 	update_option( 'devenia_workflow_pending_public_header_manifest', $migration_pending, false );
@@ -576,7 +637,7 @@ try {
 	$locked_relation_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
 	$locked_relation_menus_before = $managed_fixture_menu_ids();
 	$locked_authority_race_mode = 'extra_meta_candidate'; $locked_authority_race_injected = false; $locked_authority_race_extra_translation_id = $locked_authority_extra_page; $locked_authority_race_source_id = $source_home; $locked_authority_race_language = (string) $targets[0];
-	$locked_relation_race = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$locked_relation_race = $call( 'sync_public_header_projection', $activation_input( array(), $migration_activation_receipt ) );
 	$locked_authority_race_mode = ''; clean_post_cache( $locked_authority_extra_page );
 	$locked_relation_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
 	if ( ! $locked_authority_race_injected || 'public_header_projection_activation_failed' !== (string) ( $locked_relation_race['code'] ?? '' ) || 'public_header_relation_changed_at_locked_boundary' !== (string) ( $locked_relation_race['activation']['code'] ?? '' ) || false === strpos( wp_json_encode( $locked_relation_race['activation']['relation_validation'] ?? array() ), 'relation_translation_ambiguous' ) || empty( $locked_relation_race['cleanup']['success'] ) || '' !== (string) get_post_meta( $locked_authority_extra_page, '_devenia_translation_source_id', true ) || '' !== (string) get_post_meta( $locked_authority_extra_page, '_devenia_translation_language', true ) || $call( 'translation_job_canonicalize', $locked_relation_state_before ) !== $call( 'translation_job_canonicalize', $locked_relation_state_after ) || $locked_relation_menus_before !== $managed_fixture_menu_ids() ) { throw new RuntimeException( 'A meta-only canonical target relation escaped the final locked authority boundary or rollback: ' . wp_json_encode( $locked_relation_race ) ); }
@@ -598,7 +659,7 @@ try {
 	$locked_route_raw_menu_before = $raw_fixture_menu_surface();
 	$locked_route_menu_inventory_before = $raw_nav_menu_inventory();
 	$locked_authority_race_mode = 'route_post'; $locked_authority_race_injected = false;
-	$locked_route_race = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$locked_route_race = $call( 'sync_public_header_projection', $activation_input( array(), $migration_activation_receipt ) );
 	$locked_authority_race_mode = ''; clean_post_cache( $locked_route_target_id );
 	$locked_route_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
 	if ( ! $locked_authority_race_injected || 'public_header_projection_activation_failed' !== (string) ( $locked_route_race['code'] ?? '' ) || 'public_header_relation_changed_at_locked_boundary' !== (string) ( $locked_route_race['activation']['code'] ?? '' ) || 'public_header_relation_authority_changed' !== (string) ( $locked_route_race['activation']['relation_validation']['code'] ?? '' ) || false === strpos( wp_json_encode( $locked_route_race['activation']['relation_validation'] ?? array() ), $locked_route_slug_drift ) || empty( $locked_route_race['cleanup']['success'] ) || $locked_route_slug_before !== (string) get_post_field( 'post_name', $locked_route_target_id, 'raw' ) || $locked_route_state_before !== $locked_route_state_after || $locked_route_menus_before !== $managed_fixture_menu_ids() || $locked_route_raw_menu_before !== $raw_fixture_menu_surface() || $locked_route_menu_inventory_before !== $raw_nav_menu_inventory() ) { throw new RuntimeException( 'Internal custom-link route drift did not fail at the locked boundary and roll back exact state: ' . wp_json_encode( $locked_route_race ) ); }
@@ -635,7 +696,7 @@ try {
 		$activation_commit_injected = false;
 		$writer_attempt = array();
 		try {
-			$writer_attempt = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+			$writer_attempt = $call( 'sync_public_header_projection', $activation_input( array(), $migration_activation_receipt ) );
 		} finally {
 			$external_writer_mode = '';
 			$external_writer_fixture = array();
@@ -677,7 +738,7 @@ try {
 	$locked_menu_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
 	$locked_menu_menus_before = $managed_fixture_menu_ids();
 	$locked_authority_race_mode = 'authority_menu'; $locked_authority_race_injected = false;
-	$locked_menu_race = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$locked_menu_race = $call( 'sync_public_header_projection', $activation_input( array(), $migration_activation_receipt ) );
 	$locked_authority_race_mode = ''; clean_post_cache( $locked_authority_menu_item_id );
 	$locked_menu_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
 	if ( ! $locked_authority_race_injected || 'public_header_projection_activation_failed' !== (string) ( $locked_menu_race['code'] ?? '' ) || 'public_header_authority_changed_at_locked_boundary' !== (string) ( $locked_menu_race['activation']['code'] ?? '' ) || ! in_array( (string) ( $locked_menu_race['activation']['authority_validation']['code'] ?? '' ), array( 'public_header_authority_menu_changed', 'public_header_authority_snapshot_changed' ), true ) || empty( $locked_menu_race['cleanup']['success'] ) || $locked_authority_menu_title_before !== (string) get_post_field( 'post_title', $locked_authority_menu_item_id, 'raw' ) || $call( 'translation_job_canonicalize', $locked_menu_state_before ) !== $call( 'translation_job_canonicalize', $locked_menu_state_after ) || $locked_menu_menus_before !== $managed_fixture_menu_ids() ) { throw new RuntimeException( 'A final-boundary authority-menu change was not rejected and rolled back under its explicit lock: ' . wp_json_encode( $locked_menu_race ) ); }
@@ -685,13 +746,13 @@ try {
 	$managed_before_relation_race = $managed_fixture_menu_ids();
 	$authority_relation_race_translation_id = (int) $translated[ $targets[0] ]['home'];
 	$authority_relation_race_mode = 'translation_status';
-	$authority_relation_race = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$authority_relation_race = $call( 'sync_public_header_projection', $activation_input( array(), $migration_activation_receipt ) );
 	wp_update_post( array( 'ID' => $authority_relation_race_translation_id, 'post_status' => 'publish' ) ); $call( 'sync_translation_index_row', $authority_relation_race_translation_id );
 	$bound_relation_consumed = count( (array) ( $authority_relation_race['projections'] ?? array() ) ) === count( $all_languages );
 	foreach ( (array) ( $authority_relation_race['projections'] ?? array() ) as $relation_language => $relation_projection ) { $bound_relation_consumed = $bound_relation_consumed && ! empty( $relation_projection['relation_authority_consumed'] ) && hash_equals( (string) ( $migration_pending['relation_receipts'][ $relation_language ]['relation_revision'] ?? '' ), (string) ( $relation_projection['relation_authority_revision'] ?? '' ) ); }
 	if ( 'public_header_relation_changed_before_activation' !== (string) ( $authority_relation_race['code'] ?? '' ) || empty( $authority_relation_race['cleanup']['success'] ) || ! $bound_relation_consumed || ! $staged_receipt_surface_exact || 1 !== (int) ( get_option( 'devenia_workflow_public_header_manifest', array() )['schema_version'] ?? 0 ) || $migration_pending !== get_option( 'devenia_workflow_pending_public_header_manifest', array() ) || $managed_before_relation_race !== $managed_fixture_menu_ids() ) { throw new RuntimeException( 'A translation relation changed after receipt-bound staging, or staged objects/URLs differed from their receipts: ' . wp_json_encode( array( 'attempt' => $authority_relation_race, 'staged_receipt_surface_observations' => $staged_receipt_surface_observations ) ) ); }
 	$failure_mode = 'verification_fail'; $verification_fault_remaining = 1; $verification_fault_revision = (string) ( $migration_pending['revision'] ?? '' ); $verification_rollback_observations = array();
-	$migration_rollback = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$migration_rollback = $call( 'sync_public_header_projection', $activation_input( array(), $migration_activation_receipt ) );
 	$rollback_observation_count = count( $all_languages ) * 4;
 	$rollback_observations_exact = $rollback_observation_count === count( $verification_rollback_observations ) && empty( array_filter( $verification_rollback_observations, static function ( array $observation ) use ( $legacy_revision ): bool { return 1 !== (int) $observation['schema_version'] || ! hash_equals( $legacy_revision, (string) $observation['manifest_revision'] ) || ! hash_equals( $legacy_revision, (string) $observation['identity_revision'] ); } ) );
 	$schema1_rollback_assertions = array(
@@ -706,7 +767,8 @@ try {
 	if ( in_array( false, $schema1_rollback_assertions, true ) ) { throw new RuntimeException( 'Schema-2 failure did not restore and verify the exact schema-1 reader surface: ' . wp_json_encode( $schema1_rollback_assertions ) ); }
 	$failure_mode = '';
 	$migration_stage = $call( 'migrate_public_header_label_authority', array( 'stage' => true ) );
-	$migration_success = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$migration_activation_receipt = (string) ( $migration_stage['stage_result']['activation_receipt'] ?? '' );
+	$migration_success = $call( 'sync_public_header_projection', $activation_input( array(), $migration_activation_receipt ) );
 	$migration_active_manifest = get_option( 'devenia_workflow_public_header_manifest', array() );
 	if ( empty( $migration_stage['staged'] ) || empty( $migration_success['success'] ) || 2 !== (int) ( $migration_active_manifest['schema_version'] ?? 0 ) || array_key_exists( 'authority_receipts', $migration_active_manifest ) || array_key_exists( 'relation_receipts', $migration_active_manifest ) ) { throw new RuntimeException( 'Schema-1 editorial labels were not repaired through successful schema-2 activation without leaking ephemeral authority into active reader state.' ); }
 
@@ -925,6 +987,52 @@ try {
 	$first_enrollment = $call( 'enroll_public_header_from_existing_menus', array( 'source_menu_id' => $first_enrollment_source_menu_id, 'activate' => true, 'timeout' => 5 ) );
 	if ( empty( $first_enrollment['success'] ) || empty( $first_enrollment['activated'] ) || empty( $first_enrollment['activation']['verification']['passed'] ) || 2 !== (int) ( get_option( 'devenia_workflow_public_header_manifest', array() )['schema_version'] ?? 0 ) ) { throw new RuntimeException( 'First enrollment did not activate the exact complete schema-2 projection: ' . wp_json_encode( $first_enrollment ) ); }
 	foreach ( (array) ( $first_enrollment['activation']['projections'] ?? array() ) as $projection ) { $menus[] = absint( $projection['target_menu']['id'] ?? 0 ); }
+
+	// An operator-owned pending manifest is not ordinary publication authority.
+	// Prove that the publication Interface sees the raw occupied slot before
+	// normalization, returns a structured ownership conflict, and creates no
+	// projection while preserving every persisted authority surface exactly.
+	$canonical_relation_post_ids = array( $source_home, $source_blog, $source_docs );
+	foreach ( $targets as $language ) { $canonical_relation_post_ids[] = (int) $translated[ $language ]['home']; $canonical_relation_post_ids[] = (int) $translated[ $language ]['blog']; $canonical_relation_post_ids[] = (int) $translated[ $language ]['docs']; }
+	foreach ( array( 'empty' => array(), 'malformed' => 'raw-pending-owner-' . $token ) as $raw_pending_case => $raw_pending_value ) {
+		update_option( 'devenia_workflow_pending_public_header_manifest', $raw_pending_value, false );
+		$raw_pending_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$raw_pending_menus_before = $raw_fixture_menu_surface();
+		$raw_pending_inventory_before = $raw_nav_menu_inventory();
+		$raw_pending_relations_before = $raw_relation_post_surface( $canonical_relation_post_ids );
+		$raw_pending_conflict = $call( 'refresh_public_header_projection_for_publication', 5 );
+		$raw_pending_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		if ( 'public_header_pending_manifest_ownership_conflict' !== (string) ( $raw_pending_conflict['code'] ?? '' ) || array_key_exists( 'projections', $raw_pending_conflict ) || $raw_pending_state_before !== $raw_pending_state_after || $raw_pending_menus_before !== $raw_fixture_menu_surface() || $raw_pending_inventory_before !== $raw_nav_menu_inventory() || $raw_pending_relations_before !== $raw_relation_post_surface( $canonical_relation_post_ids ) ) { throw new RuntimeException( 'Ordinary publication did not preserve the raw ' . $raw_pending_case . ' pending owner exactly: ' . wp_json_encode( $raw_pending_conflict ) ); }
+		delete_option( 'devenia_workflow_pending_public_header_manifest' );
+	}
+	$active_before_publication_ownership = get_option( 'devenia_workflow_public_header_manifest', array() );
+	$independent_pending_items = (array) ( $active_before_publication_ownership['items'] ?? array() );
+	foreach ( $independent_pending_items as &$independent_pending_item ) {
+		foreach ( (array) ( $independent_pending_item['labels'] ?? array() ) as $language => $label ) {
+			$independent_pending_item['labels'][ $language ] = 'Independent pending owner ' . (string) $label;
+		}
+		$independent_pending_item['title'] = (string) ( $independent_pending_item['labels'][ $source_language ] ?? '' );
+	}
+	unset( $independent_pending_item );
+	$independent_pending_stage = $call( 'update_public_header_manifest', array( 'items' => $independent_pending_items ) );
+	if ( empty( $independent_pending_stage['success'] ) || empty( $independent_pending_stage['pending'] ) || '' === (string) ( $independent_pending_stage['activation_receipt'] ?? '' ) ) { throw new RuntimeException( 'Could not stage the independently owned pending manifest: ' . wp_json_encode( $independent_pending_stage ) ); }
+	$publication_ownership_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$publication_ownership_managed_before = $managed_fixture_menu_ids();
+	$publication_ownership_raw_menus_before = $raw_fixture_menu_surface();
+	$publication_ownership_inventory_before = $raw_nav_menu_inventory();
+	$publication_ownership_relations_before = $raw_relation_post_surface( $canonical_relation_post_ids );
+	$publication_ownership_conflict = $call( 'refresh_public_header_projection_for_publication', 5 );
+	$publication_ownership_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	if ( 'public_header_pending_manifest_ownership_conflict' !== (string) ( $publication_ownership_conflict['code'] ?? '' ) || array_key_exists( 'projection', $publication_ownership_conflict ) || array_key_exists( 'projections', $publication_ownership_conflict ) || array_key_exists( 'activation', $publication_ownership_conflict ) || $publication_ownership_state_before !== $publication_ownership_state_after || $publication_ownership_managed_before !== $managed_fixture_menu_ids() || $publication_ownership_raw_menus_before !== $raw_fixture_menu_surface() || $publication_ownership_inventory_before !== $raw_nav_menu_inventory() || $publication_ownership_relations_before !== $raw_relation_post_surface( $canonical_relation_post_ids ) ) { throw new RuntimeException( 'Ordinary publication adopted or mutated an independently owned pending manifest: ' . wp_json_encode( $publication_ownership_conflict ) ); }
+
+	// Cancel the independent operator revision through the explicit operator
+	// Interface, then prove ordinary publication can claim the now-missing slot,
+	// issue its own receipt, and activate only that exact self-staged refresh.
+	$cancel_independent_pending = $call( 'update_public_header_manifest', array( 'items' => (array) $active_before_publication_ownership['items'] ) );
+	if ( empty( $cancel_independent_pending['success'] ) || empty( $cancel_independent_pending['unchanged'] ) || empty( $cancel_independent_pending['cancelled_pending'] ) || false !== get_option( 'devenia_workflow_pending_public_header_manifest', false ) ) { throw new RuntimeException( 'Explicit operator cancellation did not release the independently owned pending slot.' ); }
+	$publication_self_stage = $call( 'refresh_public_header_projection_for_publication', 5 );
+	if ( empty( $publication_self_stage['success'] ) || empty( $publication_self_stage['manifest_staging']['success'] ) || '' === (string) ( $publication_self_stage['manifest_staging']['activation_receipt'] ?? '' ) || empty( $publication_self_stage['verification']['passed'] ) || false !== get_option( 'devenia_workflow_pending_public_header_manifest', false ) ) { throw new RuntimeException( 'Ordinary publication could not self-stage and activate its exact owned refresh: ' . wp_json_encode( $publication_self_stage ) ); }
+	foreach ( (array) ( $publication_self_stage['projections'] ?? array() ) as $projection ) { $menus[] = absint( $projection['target_menu']['id'] ?? 0 ); }
 	$content_translation_id = (int) $translated[ $targets[0] ]['home']; $content_original = get_post( $content_translation_id ); $content_original_status_meta = get_post_meta( $content_translation_id, '_devenia_translation_status', true );
 	foreach ( array( 'rollback_confirmed', 'invalid_applied', 'applied_error', 'unknown_applied', 'applied_foreign', 'unknown_foreign' ) as $content_mode ) {
 		wp_update_post( array( 'ID' => $content_translation_id, 'post_status' => 'draft', 'post_excerpt' => 'Content commit baseline ' . $content_mode ) ); update_post_meta( $content_translation_id, '_devenia_translation_status', 'draft' ); clean_post_cache( $content_translation_id );
@@ -963,7 +1071,7 @@ try {
 				) { throw new RuntimeException( 'Malformed localized-content COMMIT receipt did not preserve the exact applied surface while denying success, rollback authority, and header continuation: ' . wp_json_encode( $content_attempt ) ); }
 			} elseif ( in_array( $content_mode, array( 'applied_foreign', 'unknown_foreign' ), true ) ) {
 				if ( ! array_key_exists( 'published', $content_attempt ) || null !== $content_attempt['published'] || 'critical' !== (string) ( $content_attempt['severity'] ?? '' ) || 'publication_transaction_commit_reconciliation_conflict' !== (string) ( $content_attempt['code'] ?? '' ) || $content_commit_foreign_revision !== $content_observed_revision || $content_observed_revision !== (string) ( $content_attempt['observed_mutation_cas_revision'] ?? '' ) || '' !== (string) ( $content_attempt['mutation_cas_revision'] ?? '' ) || false !== ( $content_attempt['rollback_authorized'] ?? null ) || 'foreign' !== (string) ( $content_attempt['commit_reconciliation']['state_outcome'] ?? '' ) || $content_header_before !== $content_header_after ) { throw new RuntimeException( 'Foreign content commit state was overwritten, promoted to rollback authority, misreported, or allowed to mutate the header: ' . wp_json_encode( $content_attempt ) ); }
-		} elseif ( true !== ( $content_attempt['published'] ?? false ) || $content_observed_revision !== (string) ( $content_attempt['mutation_cas_revision'] ?? '' ) || true !== ( $content_attempt['rollback_authorized'] ?? null ) || $content_observed_revision !== (string) ( $content_attempt['rollback_expected_surface_revision'] ?? '' ) || 'applied' !== (string) ( $content_attempt['commit_reconciliation']['state_outcome'] ?? '' ) || empty( $content_attempt['menu']['success'] ) || empty( $content_attempt['menu']['manifest_staging']['success'] ) || empty( $content_attempt['menu']['verification']['passed'] ) || (string) ( $content_header_before['manifest']['revision'] ?? '' ) !== (string) ( $content_header_after['manifest']['revision'] ?? '' ) || (string) ( $content_header_after['manifest']['revision'] ?? '' ) !== (string) ( $content_header_after['pending']['revision'] ?? '' ) ) { throw new RuntimeException( 'Applied content commit did not refresh and verify the stable header set with its owned mutation receipt for ' . $content_mode . ': ' . wp_json_encode( array( 'code' => $content_attempt['code'] ?? '', 'published' => $content_attempt['published'] ?? null, 'menu_success' => $content_attempt['menu']['success'] ?? null, 'manifest_staging_success' => $content_attempt['menu']['manifest_staging']['success'] ?? null, 'verification_passed' => $content_attempt['menu']['verification']['passed'] ?? null, 'observed_receipt' => $content_observed_revision, 'rollback_authorized' => $content_attempt['rollback_authorized'] ?? null, 'rollback_receipt' => $content_attempt['rollback_expected_surface_revision'] ?? '', 'before_manifest_revision' => $content_header_before['manifest']['revision'] ?? '', 'after_manifest_revision' => $content_header_after['manifest']['revision'] ?? '', 'after_pending_revision' => $content_header_after['pending']['revision'] ?? '' ) ) ); }
+		} elseif ( true !== ( $content_attempt['published'] ?? false ) || $content_observed_revision !== (string) ( $content_attempt['mutation_cas_revision'] ?? '' ) || true !== ( $content_attempt['rollback_authorized'] ?? null ) || $content_observed_revision !== (string) ( $content_attempt['rollback_expected_surface_revision'] ?? '' ) || 'applied' !== (string) ( $content_attempt['commit_reconciliation']['state_outcome'] ?? '' ) || empty( $content_attempt['menu']['success'] ) || empty( $content_attempt['menu']['manifest_staging']['success'] ) || empty( $content_attempt['menu']['verification']['passed'] ) || (string) ( $content_header_before['manifest']['revision'] ?? '' ) !== (string) ( $content_header_after['manifest']['revision'] ?? '' ) || '__workflow_missing__' !== ( $content_header_after['pending'] ?? null ) ) { throw new RuntimeException( 'Applied content commit did not refresh and verify the stable header set with its owned mutation receipt for ' . $content_mode . ': ' . wp_json_encode( array( 'code' => $content_attempt['code'] ?? '', 'published' => $content_attempt['published'] ?? null, 'menu_success' => $content_attempt['menu']['success'] ?? null, 'manifest_staging_success' => $content_attempt['menu']['manifest_staging']['success'] ?? null, 'verification_passed' => $content_attempt['menu']['verification']['passed'] ?? null, 'observed_receipt' => $content_observed_revision, 'rollback_authorized' => $content_attempt['rollback_authorized'] ?? null, 'rollback_receipt' => $content_attempt['rollback_expected_surface_revision'] ?? '', 'before_manifest_revision' => $content_header_before['manifest']['revision'] ?? '', 'after_manifest_revision' => $content_header_after['manifest']['revision'] ?? '', 'after_pending_state' => $content_header_after['pending'] ?? null ) ) ); }
 		if ( $content_sync_menu ) { foreach ( (array) ( $content_attempt['menu']['projections'] ?? array() ) as $projection ) { $menus[] = absint( $projection['target_menu']['id'] ?? 0 ); } }
 	}
 	if ( $content_original instanceof WP_Post ) { wp_update_post( array( 'ID' => $content_translation_id, 'post_status' => $content_original->post_status, 'post_excerpt' => $content_original->post_excerpt ) ); } update_post_meta( $content_translation_id, '_devenia_translation_status', $content_original_status_meta ); clean_post_cache( $content_translation_id ); $call( 'sync_translation_index_row', $content_translation_id );
@@ -976,7 +1084,17 @@ try {
 	$missing_label_authority = $call( 'update_public_header_manifest', array( 'items' => $missing_label_items ) );
 	if ( 'public_header_label_authority_missing' !== (string) ( $missing_label_authority['code'] ?? '' ) || $pending_before_missing_label !== get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ) ) { throw new RuntimeException( 'Missing editorial label authority did not preserve pending state byte-exact.' ); }
 	$stage_a = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Active' ) ) );
-	$activate_a = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$missing_activation_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$missing_activation_raw_menus_before = $raw_fixture_menu_surface();
+	$missing_activation_inventory_before = $raw_nav_menu_inventory();
+	$missing_activation_relation_before = $raw_relation_post_surface( $source_docs );
+	$missing_activation_receipt = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$missing_activation_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	if ( 'public_header_activation_receipt_missing' !== (string) ( $missing_activation_receipt['code'] ?? '' ) || array_key_exists( 'projection', $missing_activation_receipt ) || array_key_exists( 'projections', $missing_activation_receipt ) || array_key_exists( 'activation', $missing_activation_receipt ) || $missing_activation_state_before !== $missing_activation_state_after || $missing_activation_raw_menus_before !== $raw_fixture_menu_surface() || $missing_activation_inventory_before !== $raw_nav_menu_inventory() || $missing_activation_relation_before !== $raw_relation_post_surface( $source_docs ) ) { throw new RuntimeException( 'Missing activation receipt did not stop before every Public Header mutation: ' . wp_json_encode( $missing_activation_receipt ) ); }
+	$stage_a_receipt = (string) ( $stage_a['activation_receipt'] ?? '' );
+	$stage_a_receipt_validation = $call( 'validate_public_header_activation_receipt', $stage_a_receipt );
+	if ( '' === $stage_a_receipt || empty( $stage_a_receipt_validation['success'] ) || $call( 'translation_job_canonicalize', (array) ( $stage_a_receipt_validation['manifest'] ?? array() ) ) !== $call( 'translation_job_canonicalize', (array) $missing_activation_state_before['pending'] ) ) { throw new RuntimeException( 'Manifest staging did not return the opaque receipt for its entire exact pending authority.' ); }
+	$activate_a = $call( 'sync_public_header_projection', $activation_input( array(), $stage_a_receipt ) );
 	if ( empty( $stage_a['pending'] ) || empty( $activate_a['success'] ) ) { throw new RuntimeException( 'Initial complete-set activation failed: ' . wp_json_encode( $activate_a ) ); }
 	foreach ( (array) $activate_a['projections'] as $projection ) { $menus[] = absint( $projection['target_menu']['id'] ?? 0 ); }
 	$active_a = get_option( 'devenia_workflow_public_header_manifest', array() ); $active_a_revision = (string) ( $active_a['revision'] ?? '' );
@@ -1029,22 +1147,124 @@ try {
 	$cancel_b = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Active' ) ) );
 	if ( empty( $cancel_b['cancelled_pending'] ) || false !== get_option( 'devenia_workflow_pending_public_header_manifest', false ) ) { throw new RuntimeException( 'Restaging active revision did not cancel the different pending revision.' ); }
 	$stage_b = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Pending' ) ) );
-	if ( empty( $stage_b['pending'] ) ) { throw new RuntimeException( 'Could not restage the pending manifest after cancellation proof.' ); }
+	$stage_b_activation_receipt = (string) ( $stage_b['activation_receipt'] ?? '' );
+	if ( empty( $stage_b['pending'] ) || '' === $stage_b_activation_receipt ) { throw new RuntimeException( 'Could not restage the pending manifest with its exact receipt after cancellation proof.' ); }
 	$pending_source_args = apply_filters( 'wp_nav_menu_args', array( 'theme_location' => 'primary' ) );
 	if ( absint( $pending_source_args['menu'] ?? 0 ) !== absint( $source_args['menu'] ?? 0 ) ) { throw new RuntimeException( 'Pending manifest displaced the old active source projection.' ); }
 	$missing_source_page = $create_page( 'Untranslated manifest page ' . $token, 'untranslated-manifest-' . $token );
 	$incomplete_items = $manifest_items( 'Incomplete' );
-	$incomplete_items[] = array( 'source_item_id' => 800004, 'type' => 'page', 'title' => 'Missing short target', 'labels' => $editorial_labels( 'Missing', 'target' ), 'object_id' => $missing_source_page, 'parent_source_item_id' => 0, 'position' => 4 );
-	$call( 'update_public_header_manifest', array( 'items' => $incomplete_items ) );
-	$incomplete = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
-	if ( 'public_header_projection_staging_failed' !== (string) ( $incomplete['code'] ?? '' ) || 'public_header_projection_incomplete' !== (string) ( $incomplete['projection']['code'] ?? '' ) || $active_a_revision !== (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' ) ) { throw new RuntimeException( 'Missing target translation did not fail the complete projection closed.' ); }
+	$existing_source_item_ids = array_values( array_filter( array_map( 'absint', array_column( $incomplete_items, 'source_item_id' ) ) ) );
+	$existing_positions = array_values( array_filter( array_map( 'absint', array_column( $incomplete_items, 'position' ) ) ) );
+	$missing_source_item_id = ( empty( $existing_source_item_ids ) ? 0 : max( $existing_source_item_ids ) ) + 1;
+	$missing_position = ( empty( $existing_positions ) ? 0 : max( $existing_positions ) ) + 1;
+	$incomplete_items[] = array( 'source_item_id' => $missing_source_item_id, 'type' => 'page', 'title' => 'Missing short target', 'labels' => $editorial_labels( 'Missing', 'target' ), 'object_id' => $missing_source_page, 'parent_source_item_id' => 0, 'position' => $missing_position );
+	$missing_target_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$missing_target_menus_before = $managed_fixture_menu_ids();
+	$missing_target_raw_menus_before = $raw_fixture_menu_surface();
+	$missing_target_menu_inventory_before = $raw_nav_menu_inventory();
+	$missing_target_relation_surface_before = $raw_relation_post_surface( $missing_source_page );
+	$incomplete = $call( 'update_public_header_manifest', array( 'items' => $incomplete_items ) );
+	$incomplete_relation = isset( $incomplete['fresh'] ) && is_array( $incomplete['fresh'] ) ? $incomplete['fresh'] : array();
+	$incomplete_missing = array_values(
+		array_filter(
+			(array) ( $incomplete_relation['missing'] ?? array() ),
+			static function ( $row ) use ( $missing_source_page ): bool {
+				return is_array( $row ) && $missing_source_page === absint( $row['source_id'] ?? 0 ) && 'relation_translation_missing' === (string) ( $row['reason'] ?? '' );
+			}
+		)
+	);
+	$missing_target_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	if (
+		! empty( $incomplete['success'] )
+		|| 'public_header_relation_receipt_build_failed' !== (string) ( $incomplete['code'] ?? '' )
+		|| ! in_array( (string) ( $incomplete['language'] ?? '' ), $targets, true )
+		|| 'public_header_page_relation_authority_incomplete' !== (string) ( $incomplete_relation['code'] ?? '' )
+		|| 1 !== count( $incomplete_missing )
+		|| $missing_target_state_before !== $missing_target_state_after
+		|| $missing_target_menus_before !== $managed_fixture_menu_ids()
+		|| $missing_target_raw_menus_before !== $raw_fixture_menu_surface()
+		|| $missing_target_menu_inventory_before !== $raw_nav_menu_inventory()
+		|| $missing_target_relation_surface_before !== $raw_relation_post_surface( $missing_source_page )
+		|| $active_a_revision !== (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' )
+	) { throw new RuntimeException( 'Missing target translation did not fail before pending projection mutation: ' . wp_json_encode( $incomplete ) ); }
+	$stale_activation_receipt = (string) ( $stage_b['activation_receipt'] ?? '' );
+	$replacement_stage = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Independent receipt owner' ) ) );
+	$stale_receipt_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$stale_receipt_raw_menus_before = $raw_fixture_menu_surface();
+	$stale_receipt_inventory_before = $raw_nav_menu_inventory();
+	$stale_receipt_relation_before = $raw_relation_post_surface( $source_docs );
+	$stale_receipt_attempt = $call( 'sync_public_header_projection', $activation_input( array(), $stale_activation_receipt ) );
+	$stale_receipt_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	if ( empty( $replacement_stage['success'] ) || '' === $stale_activation_receipt || $stale_activation_receipt === (string) ( $replacement_stage['activation_receipt'] ?? '' ) || 'public_header_activation_receipt_mismatch' !== (string) ( $stale_receipt_attempt['code'] ?? '' ) || array_key_exists( 'projections', $stale_receipt_attempt ) || $stale_receipt_state_before !== $stale_receipt_state_after || $stale_receipt_raw_menus_before !== $raw_fixture_menu_surface() || $stale_receipt_inventory_before !== $raw_nav_menu_inventory() || $stale_receipt_relation_before !== $raw_relation_post_surface( $source_docs ) ) { throw new RuntimeException( 'A stale staging owner activated or mutated the independently replaced pending manifest: ' . wp_json_encode( $stale_receipt_attempt ) ); }
 	$stage_b = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Pending' ) ) );
+	$concurrent_receipt_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$concurrent_receipt_raw_menus_before = $raw_fixture_menu_surface();
+	$concurrent_receipt_inventory_before = $raw_nav_menu_inventory();
+	$concurrent_receipt_relation_before = $raw_relation_post_surface( $source_docs );
+	$activation_receipt_race_mode = 'replace_pending'; $activation_receipt_race_result = array();
+	$concurrent_receipt_attempt = $call( 'sync_public_header_projection', $activation_input( array(), (string) ( $stage_b['activation_receipt'] ?? '' ) ) );
+	$concurrent_receipt_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$concurrent_pending = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
+	$concurrent_owner_validation = $call( 'validate_public_header_activation_receipt', (string) ( $activation_receipt_race_result['activation_receipt'] ?? '' ) );
+	if ( 'public_header_activation_receipt_mismatch' !== (string) ( $concurrent_receipt_attempt['code'] ?? '' ) || array_key_exists( 'projection', $concurrent_receipt_attempt ) || array_key_exists( 'projections', $concurrent_receipt_attempt ) || empty( $activation_receipt_race_result['success'] ) || empty( $concurrent_owner_validation['success'] ) || $call( 'translation_job_canonicalize', (array) ( $concurrent_owner_validation['manifest'] ?? array() ) ) !== $call( 'translation_job_canonicalize', is_array( $concurrent_pending ) ? $concurrent_pending : array() ) || $concurrent_receipt_state_before !== $concurrent_receipt_state_after || $concurrent_receipt_raw_menus_before !== $raw_fixture_menu_surface() || $concurrent_receipt_inventory_before !== $raw_nav_menu_inventory() || $concurrent_receipt_relation_before !== $raw_relation_post_surface( $source_docs ) ) { throw new RuntimeException( 'A concurrent pending owner was not preserved and rejected before projection staging: ' . wp_json_encode( $concurrent_receipt_attempt ) ); }
+	$stage_b = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Pending' ) ) );
+	$stage_b_activation_receipt = (string) ( $stage_b['activation_receipt'] ?? '' );
+	if ( '' === $stage_b_activation_receipt ) { throw new RuntimeException( 'Could not restore the pending owner receipt after the concurrent replacement proof.' ); }
+	$raw_equivalent_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$raw_equivalent_pending_before = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
+	$raw_equivalent_normalized_before = $call( 'normalize_public_header_manifest', $raw_equivalent_pending_before );
+	$raw_equivalent_managed_before = $managed_fixture_menu_ids();
+	$raw_equivalent_raw_menus_before = $raw_fixture_menu_surface();
+	$raw_equivalent_inventory_before = $raw_nav_menu_inventory();
+	$raw_equivalent_relations_before = $raw_relation_post_surface( $canonical_relation_post_ids );
+	$activation_receipt_race_mode = 'raw_normalization_equivalent'; $activation_receipt_race_result = array();
+	$raw_equivalent_attempt = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) );
+	$raw_equivalent_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$raw_equivalent_pending_after = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
+	$raw_equivalent_normalized_after = $call( 'normalize_public_header_manifest', $raw_equivalent_pending_after );
+	if ( 'public_header_activation_receipt_mismatch' !== (string) ( $raw_equivalent_attempt['code'] ?? '' ) || array_key_exists( 'projection', $raw_equivalent_attempt ) || array_key_exists( 'projections', $raw_equivalent_attempt ) || array_key_exists( 'activation', $raw_equivalent_attempt ) || empty( $activation_receipt_race_result['success'] ) || $raw_equivalent_pending_after !== ( $activation_receipt_race_result['pending'] ?? null ) || $call( 'translation_job_canonicalize', $raw_equivalent_normalized_before ) !== $call( 'translation_job_canonicalize', $raw_equivalent_normalized_after ) || $call( 'translation_job_canonicalize', $raw_equivalent_pending_after ) === $call( 'translation_job_canonicalize', $raw_equivalent_normalized_after ) || $raw_equivalent_state_before !== $raw_equivalent_state_after || $raw_equivalent_managed_before !== $managed_fixture_menu_ids() || $raw_equivalent_raw_menus_before !== $raw_fixture_menu_surface() || $raw_equivalent_inventory_before !== $raw_nav_menu_inventory() || $raw_equivalent_relations_before !== $raw_relation_post_surface( $canonical_relation_post_ids ) ) { throw new RuntimeException( 'A normalization-equivalent raw pending replacement retained stale activation authority or mutated projection state: ' . wp_json_encode( $raw_equivalent_attempt ) ); }
+	$stage_b = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Pending' ) ) );
+	$stage_b_activation_receipt = (string) ( $stage_b['activation_receipt'] ?? '' );
+	$restored_raw_pending = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
+	$restored_normalized_pending = $call( 'normalize_public_header_manifest', $restored_raw_pending );
+	if ( '' === $stage_b_activation_receipt || ! is_array( $restored_raw_pending ) || $call( 'translation_job_canonicalize', $restored_raw_pending ) !== $call( 'translation_job_canonicalize', $restored_normalized_pending ) || isset( $restored_raw_pending['items'][0]['receipt_race_discarded_field'] ) ) { throw new RuntimeException( 'Explicit operator restaging did not replace the normalization-equivalent foreign raw pending value with a fresh canonical receipt.' ); }
+	$key_reorder_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$key_reorder_pending_before = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
+	$key_reorder_managed_before = $managed_fixture_menu_ids();
+	$key_reorder_raw_menus_before = $raw_fixture_menu_surface();
+	$key_reorder_inventory_before = $raw_nav_menu_inventory();
+	$key_reorder_relations_before = $raw_relation_post_surface( $canonical_relation_post_ids );
+	$activation_receipt_race_mode = 'raw_key_reorder'; $activation_receipt_race_result = array();
+	$key_reorder_attempt = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) );
+	$key_reorder_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$key_reorder_pending_after = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
+	if ( 'public_header_activation_receipt_mismatch' !== (string) ( $key_reorder_attempt['code'] ?? '' ) || array_key_exists( 'projection', $key_reorder_attempt ) || array_key_exists( 'projections', $key_reorder_attempt ) || array_key_exists( 'activation', $key_reorder_attempt ) || empty( $activation_receipt_race_result['success'] ) || $key_reorder_pending_after !== ( $activation_receipt_race_result['pending'] ?? null ) || maybe_serialize( $key_reorder_pending_before ) === maybe_serialize( $key_reorder_pending_after ) || $call( 'translation_job_canonicalize', $key_reorder_pending_before ) !== $call( 'translation_job_canonicalize', $key_reorder_pending_after ) || $key_reorder_state_before !== $key_reorder_state_after || $key_reorder_managed_before !== $managed_fixture_menu_ids() || $key_reorder_raw_menus_before !== $raw_fixture_menu_surface() || $key_reorder_inventory_before !== $raw_nav_menu_inventory() || $key_reorder_relations_before !== $raw_relation_post_surface( $canonical_relation_post_ids ) ) { throw new RuntimeException( 'A pre-staging top-level and nested raw key reorder retained the old exact activation receipt or mutated projection state: ' . wp_json_encode( $key_reorder_attempt ) ); }
+	$stage_b = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Pending' ) ) );
+	$stage_b_activation_receipt = (string) ( $stage_b['activation_receipt'] ?? '' );
+	$prelocked_restored_pending = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
+	if ( '' === $stage_b_activation_receipt || ! is_array( $prelocked_restored_pending ) || $prelocked_restored_pending !== $call( 'normalize_public_header_manifest', $prelocked_restored_pending ) ) { throw new RuntimeException( 'Operator restaging did not replace the pre-staging reordered raw pending value exactly.' ); }
+	$locked_reorder_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$locked_reorder_pending_before = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
+	$locked_reorder_managed_before = $managed_fixture_menu_ids();
+	$locked_reorder_raw_menus_before = $raw_fixture_menu_surface();
+	$locked_reorder_inventory_before = $raw_nav_menu_inventory();
+	$locked_reorder_relations_before = $raw_relation_post_surface( $canonical_relation_post_ids );
+	$failure_mode = 'pending_key_reorder'; $failure_injected = false; $locked_pending_reorder_result = array();
+	$locked_reorder_attempt = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) );
+	$failure_mode = '';
+	$locked_reorder_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$locked_reorder_pending_after = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
+	if ( ! $failure_injected || empty( $locked_pending_reorder_result['success'] ) || 'public_header_projection_activation_failed' !== (string) ( $locked_reorder_attempt['code'] ?? '' ) || 'public_header_activation_receipt_mismatch' !== (string) ( $locked_reorder_attempt['activation']['code'] ?? '' ) || 'pending' !== (string) ( $locked_reorder_attempt['activation']['slot'] ?? '' ) || array_key_exists( 'projection', $locked_reorder_attempt ) || array_key_exists( 'projections', $locked_reorder_attempt ) || empty( $locked_reorder_attempt['cleanup']['success'] ) || $locked_reorder_pending_after !== ( $locked_pending_reorder_result['pending'] ?? null ) || maybe_serialize( $locked_reorder_pending_before ) === maybe_serialize( $locked_reorder_pending_after ) || $call( 'translation_job_canonicalize', $locked_reorder_pending_before ) !== $call( 'translation_job_canonicalize', $locked_reorder_pending_after ) || $locked_reorder_state_before !== $locked_reorder_state_after || $locked_reorder_managed_before !== $managed_fixture_menu_ids() || $locked_reorder_raw_menus_before !== $raw_fixture_menu_surface() || $locked_reorder_inventory_before !== $raw_nav_menu_inventory() || $locked_reorder_relations_before !== $raw_relation_post_surface( $canonical_relation_post_ids ) ) { throw new RuntimeException( 'A locked-boundary top-level and nested raw key reorder retained the old exact activation receipt, left a projection, or changed foreign authority: ' . wp_json_encode( $locked_reorder_attempt ) ); }
+	$stage_b = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Pending' ) ) );
+	$stage_b_activation_receipt = (string) ( $stage_b['activation_receipt'] ?? '' );
+	$locked_restored_pending = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
+	if ( '' === $stage_b_activation_receipt || ! is_array( $locked_restored_pending ) || $locked_restored_pending !== $call( 'normalize_public_header_manifest', $locked_restored_pending ) ) { throw new RuntimeException( 'Operator restaging did not replace the locked-boundary reordered raw pending value exactly.' ); }
 	foreach ( array( 'non_array', 'unterminated_success' ) as $unterminated_mode ) {
 		$unterminated_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
 		$managed_before_unterminated_receipt = $managed_fixture_menu_ids();
 		$activation_commit_mode = $unterminated_mode;
 		$activation_commit_injected = false;
-		$unterminated_attempt = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+		$unterminated_attempt = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) );
 		$activation_commit_mode = '';
 		$unterminated_activation = (array) ( $unterminated_attempt['activation'] ?? array() );
 		$unterminated_validation = (array) ( $unterminated_activation['receipt_validation'] ?? array() );
@@ -1089,12 +1309,12 @@ try {
 	}
 
 	$assert_rolled_back = static function ( array $attempt, string $expected_code ) use ( $active_a_revision ): void { if ( $expected_code !== (string) ( $attempt['code'] ?? '' ) || $active_a_revision !== (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' ) || empty( $attempt['rollback_cache_invalidation']['success'] ) || empty( $attempt['rollback_verification']['passed'] ) ) { throw new RuntimeException( 'Cache-safe rollback assertion failed: ' . wp_json_encode( $attempt ) ); } };
-	$failure_mode = 'receipt_fail'; $receipt_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$failure_mode = 'receipt_fail'; $receipt_fail = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) );
 	if ( 'public_header_projection_staging_failed' !== (string) ( $receipt_fail['code'] ?? '' ) || $active_a_revision !== (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' ) ) { throw new RuntimeException( 'Receipt failure activated state.' ); }
-	$failure_mode = 'staged_revision_change'; $failure_injected = false; $staged_race_menu_id = 0; $staged_race = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$failure_mode = 'staged_revision_change'; $failure_injected = false; $staged_race_menu_id = 0; $staged_race = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) );
 	if ( ! $failure_injected || 'public_header_projection_activation_cleanup_failed' !== (string) ( $staged_race['code'] ?? '' ) || 'critical' !== (string) ( $staged_race['severity'] ?? '' ) || 'public_header_staged_receipt_changed' !== (string) ( $staged_race['activation']['code'] ?? '' ) || 'staged_projection_cleanup_incomplete' !== (string) ( $staged_race['cleanup']['code'] ?? '' ) || false === strpos( wp_json_encode( $staged_race['cleanup']['results'] ?? array() ), 'staged_menu_receipt_mismatch' ) || $active_a_revision !== (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' ) ) { throw new RuntimeException( 'Changed staged term revision did not become a structured critical cleanup failure.' ); }
 	$pending_race_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) ); $managed_before_pending_race = $managed_fixture_menu_ids();
-	$failure_mode = 'pending_race'; $failure_injected = false; $pending_race = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$failure_mode = 'pending_race'; $failure_injected = false; $pending_race = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) );
 	$pending_race_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) ); $pending_projection_ids = array(); $pending_projection_set_preserved = true; foreach ( (array) ( $pending_race['projections'] ?? array() ) as $projection ) { $menu_id = absint( $projection['target_menu']['id'] ?? 0 ); if ( $menu_id < 1 || ! wp_get_nav_menu_object( $menu_id ) ) { $pending_projection_set_preserved = false; } else { $pending_projection_ids[] = $menu_id; } }
 	if ( ! $failure_injected || 'public_header_projection_activation_state_unresolved' !== (string) ( $pending_race['code'] ?? '' ) || 'critical' !== (string) ( $pending_race['severity'] ?? '' ) || 'public_header_state_changed' !== (string) ( $pending_race['activation']['code'] ?? '' ) || 'pending' !== (string) ( $pending_race['activation']['slot'] ?? '' ) || ! empty( $pending_race['cleanup_authority']['allowed'] ) || $pending_race_before === $pending_race_after || empty( $pending_projection_ids ) || ! $pending_projection_set_preserved || $active_a_revision !== (string) ( $pending_race_after['manifest']['revision'] ?? '' ) ) { throw new RuntimeException( 'Pending manifest race was not preserved as a foreign critical state with its staged projections intact: ' . wp_json_encode( $pending_race ) ); }
 	foreach ( array( 'manifest' => 'devenia_workflow_public_header_manifest', 'pending' => 'devenia_workflow_pending_public_header_manifest', 'identities' => 'devenia_workflow_localized_menu_identities', 'enrollment' => 'devenia_workflow_public_header_enrollment' ) as $slot => $option_key ) { '__workflow_missing__' === $pending_race_before[ $slot ] ? delete_option( $option_key ) : update_option( $option_key, $pending_race_before[ $slot ], false ); }
@@ -1107,25 +1327,39 @@ try {
 	if ( ! $cleanup_race_injected || $cleanup_race_menu_id < 1 || 'staged_projection_cleanup_identity_changed' !== (string) ( $identity_race_cleanup['code'] ?? '' ) || 'critical' !== (string) ( $identity_race_cleanup['severity'] ?? '' ) || ! $identity_race_menus_preserved || $call( 'translation_job_canonicalize', $pending_race_before ) !== $call( 'translation_job_canonicalize', $state_after_identity_race ) || empty( $identity_race_cleanup['transaction_rollback']['success'] ) ) { throw new RuntimeException( 'Concurrent identity-reference acquisition did not roll back before any staged-menu deletion: ' . wp_json_encode( array( 'cleanup' => $identity_race_cleanup, 'state_after' => $state_after_identity_race, 'menu_ids' => $pending_projection_ids ) ) ); }
 	$pending_race_fixture_cleanup = $call( 'delete_staged_public_header_projections', (array) ( $pending_race['projections'] ?? array() ), $pending_cleanup_authority );
 	if ( empty( $pending_race_fixture_cleanup['success'] ) || $managed_before_pending_race !== $managed_fixture_menu_ids() ) { throw new RuntimeException( 'Pending race fixture could not restore its expected state and receipt-delete its now-unreferenced projections: ' . wp_json_encode( $pending_race_fixture_cleanup ) ); }
-	$failure_mode = ''; $failure_injected = false; $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Pending' ) ) );
-	$failure_mode = 'invalidation_fail'; $invalidation_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) ); $assert_rolled_back( $invalidation_fail, 'public_header_cache_invalidation_failed' );
-	$failure_mode = 'verification_fail'; $verification_fault_remaining = 1; $verification_fault_revision = (string) ( get_option( 'devenia_workflow_pending_public_header_manifest', array() )['revision'] ?? '' ); $verification_rollback_observations = array(); $verification_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) ); $assert_rolled_back( $verification_fail, 'public_header_projection_verification_failed' );
-	$failure_mode = 'verification_extra_anchor'; $verification_fault_remaining = 1; $verification_fault_revision = (string) ( get_option( 'devenia_workflow_pending_public_header_manifest', array() )['revision'] ?? '' ); $extra_anchor_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) ); $assert_rolled_back( $extra_anchor_fail, 'public_header_projection_verification_failed' );
-	$failure_mode = 'retirement_fail'; $retirement_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) ); $assert_rolled_back( $retirement_fail, 'public_header_projection_retirement_failed' );
-	$failure_mode = 'rollback_cache_fail'; $rollback_cache_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$failure_mode = ''; $failure_injected = false; $stage_b = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Pending' ) ) ); $stage_b_activation_receipt = (string) ( $stage_b['activation_receipt'] ?? '' );
+	if ( '' === $stage_b_activation_receipt ) { throw new RuntimeException( 'Could not retain the exact pending owner receipt for rollback oracles.' ); }
+	$failure_mode = 'invalidation_fail'; $invalidation_fail = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) ); $assert_rolled_back( $invalidation_fail, 'public_header_cache_invalidation_failed' );
+	$failure_mode = 'verification_fail'; $verification_fault_remaining = 1; $verification_fault_revision = (string) ( get_option( 'devenia_workflow_pending_public_header_manifest', array() )['revision'] ?? '' ); $verification_rollback_observations = array(); $verification_fail = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) ); $assert_rolled_back( $verification_fail, 'public_header_projection_verification_failed' );
+	$failure_mode = 'verification_extra_anchor'; $verification_fault_remaining = 1; $verification_fault_revision = (string) ( get_option( 'devenia_workflow_pending_public_header_manifest', array() )['revision'] ?? '' ); $extra_anchor_fail = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) ); $assert_rolled_back( $extra_anchor_fail, 'public_header_projection_verification_failed' );
+	$failure_mode = 'retirement_fail'; $retirement_fail = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) ); $assert_rolled_back( $retirement_fail, 'public_header_projection_retirement_failed' );
+	$failure_mode = 'rollback_cache_fail'; $rollback_cache_fail = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) );
 	if ( 'public_header_projection_severe_rollback_failure' !== (string) ( $rollback_cache_fail['code'] ?? '' ) || 'critical' !== (string) ( $rollback_cache_fail['severity'] ?? '' ) ) { throw new RuntimeException( 'Rollback cache failure was not a structured critical state.' ); }
 	// Restore the authoritative pending manifest after the deliberately unproven rollback path.
-	$failure_mode = ''; $success_b = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$failure_mode = ''; $success_b = $call( 'sync_public_header_projection', $activation_input( array(), $stage_b_activation_receipt ) );
 	if ( empty( $success_b['success'] ) ) { throw new RuntimeException( 'Final complete-set activation failed: ' . wp_json_encode( $success_b ) ); }
 	foreach ( (array) $success_b['projections'] as $projection ) { $menus[] = absint( $projection['target_menu']['id'] ?? 0 ); }
 	foreach ( (array) $success_b['verification']['items'] as $surface_set ) { foreach ( array( 'homepage', 'blog_archive' ) as $surface ) { if ( empty( $surface_set[ $surface ]['passed'] ) || ! isset( $surface_set[ $surface ]['cache_responses']['origin'], $surface_set[ $surface ]['cache_responses']['canonical'] ) ) { throw new RuntimeException( 'Origin/canonical surface evidence missing.' ); } } }
 	$active_b_revision = (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' );
-	$call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Receipt guard' ) ) );
-	$failure_mode = 'old_receipt_changed'; $failure_injected = false; $old_receipt_fail = $call( 'sync_public_header_projection', array( 'timeout' => 5 ) );
+	$receipt_guard_stage = $call( 'update_public_header_manifest', array( 'items' => $manifest_items( 'Receipt guard' ) ) );
+	$receipt_guard_activation_receipt = (string) ( $receipt_guard_stage['activation_receipt'] ?? '' );
+	if ( '' === $receipt_guard_activation_receipt ) { throw new RuntimeException( 'Could not stage the old-receipt guard with its issued activation receipt.' ); }
+	$failure_mode = 'old_receipt_changed'; $failure_injected = false; $old_receipt_fail = $call( 'sync_public_header_projection', $activation_input( array(), $receipt_guard_activation_receipt ) );
 	$current_after_old_receipt = (string) ( get_option( 'devenia_workflow_public_header_manifest', array() )['revision'] ?? '' );
 	if ( 'public_header_projection_severe_rollback_failure' !== (string) ( $old_receipt_fail['code'] ?? '' ) || 'public_header_staged_receipt_changed' !== (string) ( $old_receipt_fail['rollback']['code'] ?? '' ) || $active_b_revision === $current_after_old_receipt ) { throw new RuntimeException( 'Changed prior receipt was reactivated instead of leaving the verified new set active in a critical state: ' . wp_json_encode( array( 'attempt' => $old_receipt_fail, 'active_b_revision' => $active_b_revision, 'current_revision' => $current_after_old_receipt, 'failure_injected' => $failure_injected ) ) ); }
 
-	$result = array( 'success' => true, 'duplicate_source_page_references_disambiguated_by_item_identity' => true, 'duplicate_target_page_references_disambiguated_by_stable_identity' => true, 'wrong_language_stable_identity_rejected' => true, 'duplicate_exact_stable_identity_ambiguous' => true, 'duplicate_stable_identity_rows_rejected' => true, 'foreign_stable_identity_cannot_fallback' => true, 'mixed_foreign_identity_cannot_hide_behind_legacy_fallback' => true, 'absent_stable_identity_legacy_relation_fallback_verified' => true, 'single_explicit_authority_not_auto_supplemented' => true, 'explicit_authority_sets_all_or_nothing' => true, 'complete_explicit_authority_isolated_from_retained_conflicts' => true, 'unenrolled_commit_outcomes_reconciled' => true, 'unenrolled_unknown_commit_outcome_structured_critical' => true, 'unenrolled_authority_draft_mutation_free' => true, 'unenrolled_unrelated_menus_ignored' => true, 'unenrolled_locked_primary_source_authority_races_rejected' => true, 'unenrolled_all_post_activation_failure_phases_recovered' => true, 'unenrolled_failure_restored_exact_option_state' => true, 'unenrolled_schema2_atomic_activation_verified' => true, 'schema1_managed_label_runtime_override_bypassed' => true, 'schema1_label_authority_conflict_failed_closed' => true, 'schema1_explicit_authority_sets_all_or_nothing' => true, 'schema1_authority_revision_race_rejected' => true, 'schema1_to_schema2_migration_draft_created' => true, 'schema1_relation_receipt_race_rejected_before_activation' => true, 'relation_authority_consumed_by_staging' => true, 'authority_receipts_not_persisted_in_active_manifest' => true, 'schema1_post_activation_rollback_verified' => true, 'schema1_to_schema2_repair_activated' => true, 'identity_migration_interface_capability_gated' => true, 'real_theme_location_pre_enrollment_preserved' => true, 'real_theme_location_managed_source_exercised' => true, 'wp_nav_menu_args_managed_source_exercised' => true, 'editorial_labels_bound_by_source_item_identity' => true, 'source_short_label_not_page_title' => true, 'target_editorial_label_not_translated_page_title' => true, 'custom_child_label_and_parent_preserved' => true, 'missing_label_authority_preserved_old_active_set' => true, 'managed_identity_missing_failed_closed' => true, 'managed_identity_corrupt_failed_closed' => true, 'managed_identity_missing_verification_failed_without_mutation' => true, 'managed_identity_corrupt_verification_failed_without_mutation' => true, 'missing_active_manifest_durable_enrollment_failed_closed' => true, 'pending_manifest_preserved_old_active_set' => true, 'active_restage_cancelled_stale_pending' => true, 'missing_target_projection_failed_closed' => true, 'all_language_atomic_activation_exercised' => true, 'pre_activation_receipt_failure_rejected' => true, 'staged_revision_race_rejected' => true, 'pending_manifest_race_rejected' => true, 'invalidation_failure_cache_safe_rollback' => true, 'idempotent_enrollment_transition_exercised' => true, 'verification_failure_cache_safe_rollback' => true, 'extra_anchor_verification_failed_closed' => true, 'retirement_failure_cache_safe_rollback' => true, 'rollback_cache_failure_structured_critical' => true, 'changed_old_receipt_never_reactivated' => true, 'source_and_targets_home_blog_origin_canonical_verified' => true );
+	$result = array( 'success' => true, 'duplicate_source_page_references_disambiguated_by_item_identity' => true, 'duplicate_target_page_references_disambiguated_by_stable_identity' => true, 'wrong_language_stable_identity_rejected' => true, 'duplicate_exact_stable_identity_ambiguous' => true, 'duplicate_stable_identity_rows_rejected' => true, 'foreign_stable_identity_cannot_fallback' => true, 'mixed_foreign_identity_cannot_hide_behind_legacy_fallback' => true, 'absent_stable_identity_legacy_relation_fallback_verified' => true, 'single_explicit_authority_not_auto_supplemented' => true, 'explicit_authority_sets_all_or_nothing' => true, 'complete_explicit_authority_isolated_from_retained_conflicts' => true, 'unenrolled_commit_outcomes_reconciled' => true, 'unenrolled_unknown_commit_outcome_structured_critical' => true, 'unenrolled_authority_draft_mutation_free' => true, 'unenrolled_unrelated_menus_ignored' => true, 'unenrolled_locked_primary_source_authority_races_rejected' => true, 'unenrolled_all_post_activation_failure_phases_recovered' => true, 'unenrolled_failure_restored_exact_option_state' => true, 'unenrolled_schema2_atomic_activation_verified' => true, 'schema1_managed_label_runtime_override_bypassed' => true, 'schema1_label_authority_conflict_failed_closed' => true, 'schema1_explicit_authority_sets_all_or_nothing' => true, 'schema1_authority_revision_race_rejected' => true, 'schema1_to_schema2_migration_draft_created' => true, 'schema1_relation_receipt_race_rejected_before_activation' => true, 'relation_authority_consumed_by_staging' => true, 'authority_receipts_not_persisted_in_active_manifest' => true, 'schema1_post_activation_rollback_verified' => true, 'schema1_to_schema2_repair_activated' => true, 'identity_migration_interface_capability_gated' => true, 'real_theme_location_pre_enrollment_preserved' => true, 'real_theme_location_managed_source_exercised' => true, 'wp_nav_menu_args_managed_source_exercised' => true, 'editorial_labels_bound_by_source_item_identity' => true, 'source_short_label_not_page_title' => true, 'target_editorial_label_not_translated_page_title' => true, 'custom_child_label_and_parent_preserved' => true, 'missing_label_authority_preserved_old_active_set' => true, 'managed_identity_missing_failed_closed' => true, 'managed_identity_corrupt_failed_closed' => true, 'managed_identity_missing_verification_failed_without_mutation' => true, 'managed_identity_corrupt_verification_failed_without_mutation' => true, 'missing_active_manifest_durable_enrollment_failed_closed' => true, 'pending_manifest_preserved_old_active_set' => true, 'active_restage_cancelled_stale_pending' => true, 'missing_target_projection_failed_closed' => true, 'missing_target_translation_rejected_before_pending_mutation' => true, 'all_language_atomic_activation_exercised' => true, 'pre_activation_receipt_failure_rejected' => true, 'staged_revision_race_rejected' => true, 'pending_manifest_race_rejected' => true, 'invalidation_failure_cache_safe_rollback' => true, 'idempotent_enrollment_transition_exercised' => true, 'verification_failure_cache_safe_rollback' => true, 'extra_anchor_verification_failed_closed' => true, 'retirement_failure_cache_safe_rollback' => true, 'rollback_cache_failure_structured_critical' => true, 'changed_old_receipt_never_reactivated' => true, 'source_and_targets_home_blog_origin_canonical_verified' => true );
+	$result['activation_receipt_binds_exact_pending_manifest'] = true;
+	$result['missing_activation_receipt_failed_without_mutation'] = true;
+	$result['stale_activation_receipt_rejected'] = true;
+	$result['concurrent_pending_replacement_rejected_before_staging'] = true;
+	$result['raw_normalization_equivalent_pending_rejected_before_staging'] = true;
+	$result['raw_key_reorder_pending_rejected_before_staging'] = true;
+	$result['raw_key_reorder_pending_rejected_at_locked_boundary'] = true;
+	$result['exact_activation_receipt_activated'] = true;
+	$result['ordinary_publication_rejected_raw_pending_owners'] = true;
+	$result['ordinary_publication_rejected_independent_pending_without_mutation'] = true;
+	$result['ordinary_publication_self_staged_exact_activation'] = true;
 	$result['unenrolled_raw_navigation_oracle_exact'] = true;
 	$result['unenrolled_foreign_commit_state_preserved'] = true;
 	$result['unenrolled_post_activation_foreign_state_preserved'] = true;

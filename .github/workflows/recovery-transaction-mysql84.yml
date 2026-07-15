@@ -153,6 +153,18 @@ jobs:
             $result = json_decode((string) getenv("RESULT"), true);
             $required = [
               "success",
+              "activation_receipt_binds_exact_pending_manifest",
+              "missing_activation_receipt_failed_without_mutation",
+              "stale_activation_receipt_rejected",
+              "concurrent_pending_replacement_rejected_before_staging",
+              "raw_normalization_equivalent_pending_rejected_before_staging",
+              "raw_key_reorder_pending_rejected_before_staging",
+              "raw_key_reorder_pending_rejected_at_locked_boundary",
+              "exact_activation_receipt_activated",
+              "ordinary_publication_rejected_raw_pending_owners",
+              "ordinary_publication_rejected_independent_pending_without_mutation",
+              "ordinary_publication_self_staged_exact_activation",
+              "missing_target_translation_rejected_before_pending_mutation",
               "missing_relation_receipts_failed_without_raw_state_mutation",
               "internal_custom_route_drift_rolled_back_exactly",
               "separate_connection_post_lock_blocked_writer",

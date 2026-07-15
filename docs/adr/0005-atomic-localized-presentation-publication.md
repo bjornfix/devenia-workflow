@@ -111,8 +111,31 @@ identity are validated even while resolving target-language candidates. Every
 pending projection revision receives a fresh all-language ephemeral Relation
 Authority receipt, including ordinary Translation Job publication and operator
 restaging; a receipt-free active reader manifest is never mutation authority.
-Missing or malformed receipts reject before staging, and activation removes the
-ephemeral receipts from active state. The Translation Index may cross-check that
+An unresolved target relation rejects the proposed revision before any pending
+option or menu mutation and preserves the exact pre-existing pending authority.
+Missing or malformed receipts also reject before staging, and activation removes
+the ephemeral receipts from active state. Each successful staging operation issues
+an opaque Activation Receipt over the exact raw stored pending option, including
+both authority-receipt sets. Normalization validates the domain manifest separately
+and cannot preserve authority for a different raw value. The receipt hashes exact
+PHP serialization, including top-level and nested key order, and the locked pending
+row revalidates that raw receipt before deletion. The activation Interface requires and revalidates that
+exact receipt before creating a menu; it cannot restage or select another global
+pending manifest. Missing, stale, concurrently displaced, and normalization-equivalent
+raw replacement receipts therefore
+fail before projection staging while an independent replacement remains exact.
+Ordinary Translation Job publication treats every occupied raw pending option as
+another operation's authority, including malformed values and values that normalize
+to empty. It can issue a receipt only after a missing-to-created atomic claim for
+its own active-manifest refresh, and successful activation removes that claim in
+the same state transaction. It never mints new authority for an existing pending
+value.
+GitHub Actions is CI and distribution evidence only, never a production runtime
+authority or dependency. Production PHP neither reads CI environment state nor
+invokes or fetches workflow runs; updater and release metadata remain outside the
+publication authority model. Production Workflow never shells out or requires an
+external executable; process-based release and CI tooling remains outside runtime.
+The Translation Index may cross-check that
 canonical relation, but it cannot choose the candidate; an unavailable Index,
 index-only source identity, missing row, stale status, or different target is a
 fail-closed disagreement.

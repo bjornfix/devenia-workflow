@@ -11,6 +11,44 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 trait Devenia_Workflow_Localized_Presentation_Publication {
 	/**
+	 * Issue one opaque activation capability for the exact raw stored pending
+	 * manifest. Callers cannot substitute an item revision because the
+	 * receipt also binds every ephemeral authority and relation receipt.
+	 */
+	private static function public_header_activation_receipt( array $manifest ): string {
+		$payload = maybe_serialize( $manifest );
+		if ( '' === $payload ) { return ''; }
+		return 'phact_' . substr( hash_hmac( 'sha256', $payload, wp_salt( 'auth' ) ), 0, 48 );
+	}
+
+	/** Validate one caller-owned receipt against the current exact pending state. */
+	private static function validate_public_header_activation_receipt( string $activation_receipt ): array {
+		if ( '' === $activation_receipt ) {
+			return array( 'success' => false, 'code' => 'public_header_activation_receipt_missing', 'message' => 'Activation requires the receipt returned by the exact pending Public Header staging operation.' );
+		}
+		if ( 1 !== preg_match( '/^phact_[a-f0-9]{48}$/', $activation_receipt ) ) {
+			return array( 'success' => false, 'code' => 'public_header_activation_receipt_invalid', 'message' => 'The Public Header activation receipt is malformed.' );
+		}
+		$missing = '__devenia_workflow_option_missing__';
+		$raw_pending = get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing );
+		if ( $missing === $raw_pending ) {
+			return array( 'success' => false, 'code' => 'public_header_pending_manifest_missing', 'message' => 'The receipt has no current pending Public Header manifest to activate.' );
+		}
+		$pending = self::normalize_public_header_manifest( $raw_pending );
+		if ( empty( $pending ) ) {
+			return array( 'success' => false, 'code' => 'public_header_pending_manifest_invalid', 'message' => 'The current raw Public Header pending value is not a complete canonical manifest.' );
+		}
+		$expected = is_array( $raw_pending ) ? self::public_header_activation_receipt( $raw_pending ) : '';
+		if ( '' === $expected || ! hash_equals( $expected, $activation_receipt ) ) {
+			return array( 'success' => false, 'code' => 'public_header_activation_receipt_mismatch', 'message' => 'The receipt does not own the current exact pending Public Header manifest.' );
+		}
+		if ( $raw_pending !== $pending ) {
+			return array( 'success' => false, 'code' => 'public_header_pending_manifest_not_canonical', 'message' => 'The receipt-bound raw Public Header pending value is not stored in canonical form.' );
+		}
+		return array( 'success' => true, 'code' => 'public_header_activation_receipt_valid', 'manifest' => $pending, 'raw_manifest' => $raw_pending );
+	}
+
+	/**
 	 * Stage, validate, activate, invalidate, and verify one Public Header
 	 * Projection. This is the operator-facing deep Interface; callers never
 	 * coordinate raw menu writes or cache ordering themselves.
@@ -20,16 +58,20 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	 */
 	private static function sync_public_header_projection( array $input ): array {
 		$cleanup_state_authority = isset( $input['cleanup_state_authority'] ) && is_array( $input['cleanup_state_authority'] ) ? $input['cleanup_state_authority'] : array();
-		$pending = self::pending_public_header_manifest();
-		if ( empty( $pending ) ) {
-			$restage = self::stage_public_header_manifest_for_publication();
-			if ( empty( $restage['success'] ) ) { return $restage; }
-			$pending = (array) $restage['manifest'];
-		}
+		$activation_receipt = sanitize_text_field( (string) ( $input['activation_receipt'] ?? '' ) );
+		$receipt_validation = self::validate_public_header_activation_receipt( $activation_receipt );
+		if ( empty( $receipt_validation['success'] ) ) { return $receipt_validation; }
+		$pending = (array) $receipt_validation['manifest'];
 		$relation_validation = self::validate_public_header_relation_receipts( $pending );
 		if ( empty( $relation_validation['success'] ) ) { return array_merge( $relation_validation, array( 'success' => false, 'message' => 'The pending Public Header relation authority is absent, malformed, or stale.' ) ); }
 		$authority_validation = self::validate_public_header_authority_receipts( $pending );
 		if ( empty( $authority_validation['success'] ) ) { return array_merge( $authority_validation, array( 'success' => false, 'message' => 'The pending Public Header authority snapshot changed before projection staging.' ) ); }
+		do_action( 'devenia_workflow_public_header_before_activation_receipt_revalidation', $activation_receipt, $pending );
+		$receipt_revalidation = self::validate_public_header_activation_receipt( $activation_receipt );
+		if ( empty( $receipt_revalidation['success'] ) ) { return array_merge( $receipt_revalidation, array( 'success' => false, 'message' => 'The pending Public Header manifest changed before projection staging.' ) ); }
+		if ( $pending !== (array) $receipt_revalidation['manifest'] ) {
+			return array( 'success' => false, 'code' => 'public_header_activation_receipt_manifest_changed', 'message' => 'The pending Public Header manifest changed before projection staging.' );
+		}
 		$languages = self::configured_public_header_languages();
 		if ( empty( $languages ) ) {
 			return array( 'success' => false, 'code' => 'public_header_source_language_invalid', 'message' => 'Exactly one configured source language is required before Public Header Projection can run.' );
@@ -71,7 +113,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			}
 		}
 
-		$activation = self::activate_public_header_projection_set( $pending, $staged );
+		$activation = self::activate_public_header_projection_set( $pending, $staged, $activation_receipt );
 		if ( empty( $activation['success'] ) ) {
 			$cleanup_authority = self::public_header_activation_cleanup_authority( $activation, $staged );
 			$cleanup = ! empty( $cleanup_authority['allowed'] ) ? self::delete_staged_public_header_projections( $staged, (array) ( $cleanup_authority['state_authority'] ?? array() ) ) : array( 'success' => false, 'code' => 'staged_projection_cleanup_not_authorized', 'results' => array() );
@@ -103,21 +145,20 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 
 	/**
 	 * Ensure normal Translation Job publication enters the same pending-manifest
-	 * Interface as the operator Ability. An intentional pending revision wins;
-	 * otherwise the active manifest is copied to pending for a complete refresh.
+	 * Interface as the operator Ability. Ordinary publication may stage only its
+	 * own active-manifest refresh; every pre-existing raw pending value belongs
+	 * to another operation and fails closed without being normalized or adopted.
 	 */
 	private static function stage_public_header_manifest_for_publication(): array {
-		$pending = self::pending_public_header_manifest();
-		if ( ! empty( $pending ) ) {
-			$validation = self::validate_public_header_relation_receipts( $pending );
-			return empty( $validation['success'] ) ? $validation : array( 'success' => true, 'manifest' => $pending, 'existing_pending' => true );
+		$missing = '__devenia_workflow_option_missing__';
+		$before  = get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing );
+		if ( $missing !== $before ) {
+			return array( 'success' => false, 'code' => 'public_header_pending_manifest_ownership_conflict', 'message' => 'Translation publication cannot adopt or replace a Public Header manifest staged by another operation.' );
 		}
 		$active = self::public_header_manifest();
 		if ( empty( $active ) ) {
 			return array( 'success' => false, 'code' => 'public_header_active_manifest_missing', 'message' => 'Translation publication requires an enrolled active Public Header Projection manifest.' );
 		}
-		$missing = '__devenia_workflow_option_missing__';
-		$before  = get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing );
 		$pending = $active;
 		$pending['updated_at'] = gmdate( 'c' );
 		$relation_receipts = self::public_header_relation_receipts_for_manifest( $pending );
@@ -127,14 +168,18 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		if ( empty( $validation['success'] ) ) { return $validation; }
 		do_action( 'devenia_workflow_public_header_before_publication_pending_write', $pending, $active, $before );
 		if ( self::translation_job_canonicalize( self::public_header_manifest() ) !== self::translation_job_canonicalize( $active ) ) { return array( 'success' => false, 'code' => 'public_header_active_manifest_changed_before_pending_refresh' ); }
-		$written = $missing === $before
-			? self::atomic_create_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $pending )
-			: self::atomic_replace_option_value( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $before, $pending );
+		if ( $missing !== get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing ) ) {
+			return array( 'success' => false, 'code' => 'public_header_pending_manifest_ownership_conflict', 'message' => 'Another operation staged a Public Header manifest before translation publication could claim the missing pending slot.' );
+		}
+		$written = self::atomic_create_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $pending );
 		$stored = get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing );
-		if ( ! $written || self::translation_job_canonicalize( $stored ) !== self::translation_job_canonicalize( $pending ) ) {
+		if ( ! $written && $missing !== $stored ) {
+			return array( 'success' => false, 'code' => 'public_header_pending_manifest_ownership_conflict', 'message' => 'Another operation owns the Public Header pending slot.' );
+		}
+		if ( ! $written || $stored !== $pending ) {
 			return array( 'success' => false, 'code' => 'public_header_pending_manifest_refresh_failed', 'message' => 'The active Public Header Projection manifest could not be staged for complete publication refresh.' );
 		}
-		return array( 'success' => true, 'manifest' => $pending, 'existing_pending' => false );
+		return array( 'success' => true, 'manifest' => $pending, 'activation_receipt' => self::public_header_activation_receipt( (array) $stored ) );
 	}
 
 	/** Run the one deep all-language header Interface during content publication. */
@@ -143,7 +188,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		if ( empty( $staging['success'] ) ) {
 			return $staging;
 		}
-		$result = self::sync_public_header_projection( array( 'timeout' => max( 3, min( 30, $timeout ) ) ) );
+		$result = self::sync_public_header_projection( array( 'timeout' => max( 3, min( 30, $timeout ) ), 'activation_receipt' => (string) $staging['activation_receipt'] ) );
 		$result['manifest_staging'] = $staging;
 		return $result;
 	}
@@ -208,7 +253,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	 * @param array<string,mixed> $pending Pending manifest.
 	 * @param array<string,array<string,mixed>> $staged Staged projections.
 	 */
-	private static function activate_public_header_projection_set( array $pending, array $staged ): array {
+	private static function activate_public_header_projection_set( array $pending, array $staged, string $activation_receipt = '' ): array {
 		$missing = '__devenia_workflow_option_missing__';
 		$before = array(
 			'manifest'   => get_option( self::OPTION_PUBLIC_HEADER_MANIFEST, $missing ),
@@ -216,7 +261,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			'pending'    => get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing ),
 			'enrollment' => get_option( self::OPTION_PUBLIC_HEADER_ENROLLMENT, $missing ),
 		);
-		if ( self::translation_job_canonicalize( $before['pending'] ) !== self::translation_job_canonicalize( $pending ) ) {
+		if ( $before['pending'] !== $pending ) {
 			return array( 'success' => false, 'code' => 'pending_manifest_changed_before_activation' );
 		}
 		$relation_validation = self::validate_public_header_relation_receipts( $pending );
@@ -233,11 +278,11 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$after = array(
 			'manifest'   => $active_manifest,
 			'identities' => $identities,
-			'pending'    => array( 'status' => 'activated', 'revision' => (string) $pending['revision'], 'activated_at' => gmdate( 'c' ) ),
+			'pending'    => $missing,
 			'enrollment' => '1',
 		);
 		do_action( 'devenia_workflow_public_header_before_locked_state_transition', $pending, $before );
-		$result = self::replace_public_header_state_transaction( $before, $after, $staged );
+		$result = self::replace_public_header_state_transaction( $before, $after, $staged, $activation_receipt );
 		return array_merge( $result, array( 'before' => $before, 'after' => $after ) );
 	}
 
@@ -255,7 +300,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	}
 
 	/** Atomically replace active manifest, all identities, and pending state. */
-	private static function replace_public_header_state_transaction( array $expected, array $replacement, array $staged = array() ): array {
+	private static function replace_public_header_state_transaction( array $expected, array $replacement, array $staged = array(), string $activation_receipt = '' ): array {
 		if ( ! self::translation_job_begin_recovery_transaction() ) { return array( 'success' => false, 'code' => 'public_header_transaction_unavailable' ); }
 		try {
 			global $wpdb;
@@ -292,8 +337,14 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				$current = get_option( $key, '__devenia_workflow_option_missing__' );
 				$expected_value = $expected[ $slot ] ?? '__devenia_workflow_option_missing__';
 				$replacement_value = $replacement[ $slot ] ?? '__devenia_workflow_option_missing__';
-				if ( self::translation_job_canonicalize( $current ) !== self::translation_job_canonicalize( $expected_value ) ) { self::rollback_public_header_state_transaction(); return array( 'success' => false, 'code' => 'public_header_state_changed', 'slot' => $slot ); }
-				if ( self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $replacement_value ) ) {
+				if ( 'pending' === $slot && '' !== $activation_receipt ) {
+					$current_receipt = is_array( $current ) ? self::public_header_activation_receipt( $current ) : '';
+					if ( '' === $current_receipt || ! hash_equals( $activation_receipt, $current_receipt ) ) { self::rollback_public_header_state_transaction(); return array( 'success' => false, 'code' => 'public_header_activation_receipt_mismatch', 'slot' => $slot ); }
+				}
+				$expected_exact = 'pending' === $slot ? $current === $expected_value : self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $expected_value );
+				$replacement_exact = 'pending' === $slot ? $current === $replacement_value : self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $replacement_value );
+				if ( ! $expected_exact ) { self::rollback_public_header_state_transaction(); return array( 'success' => false, 'code' => 'public_header_state_changed', 'slot' => $slot ); }
+				if ( $replacement_exact ) {
 					$written = true;
 				} elseif ( '__devenia_workflow_option_missing__' === $expected_value ) {
 					$written = self::atomic_create_option( $key, $replacement_value );
@@ -1145,6 +1196,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			$activation = self::sync_public_header_projection(
 				array(
 					'timeout'                    => absint( $input['timeout'] ?? 15 ),
+					'activation_receipt'         => (string) $stage['activation_receipt'],
 					'pre_enrollment_recovery'    => $recovery,
 					'cleanup_state_authority'    => self::public_header_staged_cleanup_state_authority( (array) $stage['expected_state'], '__devenia_workflow_option_missing__' === ( $stage['expected_state']['identities'] ?? null ) ),
 				)
@@ -1217,7 +1269,9 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			self::clear_first_public_header_enrollment_option_cache( $theme_option );
 			$expected_state = $before; $expected_state['pending'] = $pending;
 			$reconciled = self::reconcile_first_public_header_enrollment_commit_outcome( $before, $pending, $commit );
-			return array_merge( $reconciled, array( 'pending' => ! empty( $reconciled['success'] ), 'revision' => (string) $draft['revision'], 'authority_receipts' => $receipt_rows, 'expected_state' => $expected_state, 'expected_state_revision' => hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $expected_state ) ) ?: '' ) ) );
+			$stored_pending = ! empty( $reconciled['success'] ) ? get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, array() ) : array();
+			$activation_receipt = is_array( $stored_pending ) && $stored_pending === $pending ? self::public_header_activation_receipt( $stored_pending ) : '';
+			return array_merge( $reconciled, array( 'pending' => ! empty( $reconciled['success'] ), 'revision' => (string) $draft['revision'], 'activation_receipt' => $activation_receipt, 'authority_receipts' => $receipt_rows, 'expected_state' => $expected_state, 'expected_state_revision' => hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $expected_state ) ) ?: '' ) ) );
 		} catch ( Throwable $error ) { self::rollback_first_public_header_enrollment_transaction(); return array( 'success' => false, 'code' => 'public_header_enrollment_transaction_exception' ); }
 	}
 
@@ -1695,11 +1749,12 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$missing = '__devenia_workflow_option_missing__';
 		$before  = get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing );
 		$existing_pending = self::normalize_public_header_manifest( $before );
+		$existing_pending_is_canonical = is_array( $before ) && $before === $existing_pending;
 		$existing_receipts = (array) ( $existing_pending['authority_receipts'] ?? array() );
 		$requested_receipts = (array) ( $manifest['authority_receipts'] ?? array() );
 		$existing_relation_receipts = (array) ( $existing_pending['relation_receipts'] ?? array() );
-		if ( '' !== (string) ( $existing_pending['revision'] ?? '' ) && hash_equals( (string) $existing_pending['revision'], $revision ) && self::translation_job_canonicalize( $existing_receipts ) === self::translation_job_canonicalize( $requested_receipts ) && self::translation_job_canonicalize( $existing_relation_receipts ) === self::translation_job_canonicalize( (array) $manifest['relation_receipts'] ) ) {
-			return array( 'success' => true, 'source_language' => self::source_language_code(), 'revision' => $revision, 'item_count' => count( $items ), 'pending' => true, 'unchanged' => true, 'message' => 'The pending Public Header Projection manifest is already current.' );
+		if ( $existing_pending_is_canonical && '' !== (string) ( $existing_pending['revision'] ?? '' ) && hash_equals( (string) $existing_pending['revision'], $revision ) && self::translation_job_canonicalize( $existing_receipts ) === self::translation_job_canonicalize( $requested_receipts ) && self::translation_job_canonicalize( $existing_relation_receipts ) === self::translation_job_canonicalize( (array) $manifest['relation_receipts'] ) ) {
+			return array( 'success' => true, 'source_language' => self::source_language_code(), 'revision' => $revision, 'activation_receipt' => self::public_header_activation_receipt( $before ), 'item_count' => count( $items ), 'pending' => true, 'unchanged' => true, 'message' => 'The pending Public Header Projection manifest is already current.' );
 		}
 		do_action( 'devenia_workflow_public_header_before_pending_authority_write', $manifest, $before );
 		if ( isset( $input['expected_active_manifest'] ) && is_array( $input['expected_active_manifest'] ) && self::translation_job_canonicalize( self::public_header_manifest() ) !== self::translation_job_canonicalize( $input['expected_active_manifest'] ) ) { return array( 'success' => false, 'code' => 'public_header_label_authority_active_manifest_changed' ); }
@@ -1713,7 +1768,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			? self::atomic_create_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $manifest )
 			: self::atomic_replace_option_value( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $before, $manifest );
 		$stored = get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing );
-		if ( ! $written || self::translation_job_canonicalize( $stored ) !== self::translation_job_canonicalize( $manifest ) ) {
+		if ( ! $written || $stored !== $manifest ) {
 			return array( 'success' => false, 'code' => 'public_header_pending_manifest_write_failed', 'message' => 'The pending Public Header Projection manifest could not be stored.' );
 		}
 
@@ -1721,6 +1776,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			'success'         => true,
 			'source_language' => self::source_language_code(),
 			'revision'        => $revision,
+			'activation_receipt' => self::public_header_activation_receipt( (array) $stored ),
 			'item_count'      => count( $items ),
 			'pending'         => true,
 			'message'         => 'Pending Public Header Projection manifest registered. The active manifest and projections are unchanged until complete-set activation passes.',

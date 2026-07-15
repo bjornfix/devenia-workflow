@@ -910,7 +910,7 @@ try {
 			),
 		)
 	);
-	if ( empty( $runtime_manifest['success'] ) ) {
+	if ( empty( $runtime_manifest['success'] ) || empty( $runtime_manifest['activation_receipt'] ) ) {
 		throw new RuntimeException( 'Could not register the runtime Public Header Projection manifest: ' . wp_json_encode( $runtime_manifest ) );
 	}
 	$runtime_pending_manifest = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
@@ -993,7 +993,13 @@ try {
 
 	// Establish the same complete managed reader surface production requires.
 	// One-language menu staging is not activation authority.
-	$runtime_header_activation = $call( 'sync_public_header_projection', array( 'timeout' => 3 ) );
+	$runtime_header_activation = $call(
+		'sync_public_header_projection',
+		array(
+			'timeout'            => 3,
+			'activation_receipt' => (string) $runtime_manifest['activation_receipt'],
+		)
+	);
 	$runtime_header_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
 	// Record every fixture-owned projection before interpreting the result. A
 	// real activation followed by a verification RED must still leave finally
@@ -3076,7 +3082,7 @@ try {
 	$post_publish_matrix_thumbnail_rows = array_values( array_map( 'absint', (array) get_post_meta( $translation_id, '_thumbnail_id', false ) ) );
 	$post_publish_matrix_header = array(
 		'manifest' => get_option( 'devenia_workflow_public_header_manifest', array() ),
-		'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', array() ),
+		'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ),
 		'identities' => get_option( 'devenia_workflow_localized_menu_identities', array() ),
 		'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '' ),
 	);
@@ -3098,8 +3104,7 @@ try {
 		|| ! $post_publish_matrix_header_complete
 		|| '1' !== (string) $post_publish_matrix_header['enrollment']
 		|| (string) ( $runtime_manifest['revision'] ?? '' ) !== (string) ( $post_publish_matrix_header['manifest']['revision'] ?? '' )
-		|| 'activated' !== (string) ( $post_publish_matrix_header['pending']['status'] ?? '' )
-		|| (string) ( $runtime_manifest['revision'] ?? '' ) !== (string) ( $post_publish_matrix_header['pending']['revision'] ?? '' )
+		|| '__workflow_missing__' !== $post_publish_matrix_header['pending']
 	) {
 		throw new RuntimeException( 'Commit reconciliation matrix did not receive a fresh separately reviewed artifact with one exact valid media authority and complete active Public Header: ' . wp_json_encode( array( 'quality' => $post_publish_final_quality, 'job' => $post_publish_matrix_job, 'thumbnail_rows' => $post_publish_matrix_thumbnail_rows, 'header' => $post_publish_matrix_header ) ) );
 	}

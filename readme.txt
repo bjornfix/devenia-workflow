@@ -103,6 +103,7 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 * Make explicit first-enrollment and schema-1 migration authority sets all-or-nothing, including deterministic rejection of missing, managed, wrong-language, changed, or otherwise invalid members.
 * Choose Public Header page relations only from canonical WordPress posts and exact source/language metadata, use Translation Index only as a fail-closed cross-check, and lock candidate menus plus canonical relation predicates through the final transactional revalidation.
 * Mint a fresh complete all-language relation receipt for every ordinary Translation Job and operator restage, bind internal custom links to exact canonical source/target route revisions, strip ephemeral receipts from active reader state, and prove the final post-row and source/language absent-metadata-predicate InnoDB locks with separate before/under/after writers and exact rollback cleanup.
+* Bind activation to the exact raw stored pending option, so even normalization-equivalent raw replacement invalidates the prior receipt before staging; ordinary publication rejects every occupied raw pending slot, issues authority only after its own missing-slot create succeeds, and releases that slot atomically on activation.
 
 = 0.1.614 =
 

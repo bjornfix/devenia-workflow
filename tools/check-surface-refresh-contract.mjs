@@ -51,7 +51,7 @@ assert.match(moduleSource, /'required' => array\( 'job_id' \)/);
 assert.doesNotMatch(moduleSource, /! \$is_quality_authority_v3 && \$coordinator_id/);
 assert.match(moduleSource, /Coordinator labels grant no authority/);
 assert.match(authoritySource, /\$submission_generation[\s\S]*'submission_generation' => \$submission_generation/);
-assert.match(runtimeSource, /\$runtime_header_activation = \$call\( 'sync_public_header_projection'/);
+assert.match(runtimeSource, /\$runtime_header_activation = \$call\([\s\S]*?'sync_public_header_projection'[\s\S]*?'activation_receipt' => \(string\) \$runtime_manifest\['activation_receipt'\]/);
 assert.match(runtimeSource, /Could not activate the complete runtime Public Header Projection/);
 assert.match(runtimeSource, /\$runtime_header_activation\['verification'\]\['passed'\]/);
 assert.doesNotMatch(runtimeSource, /Could not seed the runtime localized primary-menu identity/);

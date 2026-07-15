@@ -1,6 +1,197 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const pluginRoot = fileURLToPath(new URL("../", import.meta.url));
+
+const productionPhpFiles = (path) => {
+	if (statSync(path).isFile()) {
+		return path.endsWith(".php") ? [path] : [];
+	}
+	return readdirSync(path).flatMap((entry) => productionPhpFiles(join(path, entry)));
+};
+
+const forbiddenExternalRuntimeCouplings = [
+	["GitHub Actions or dispatch endpoint", /https?:\/\/(?:api\.)?github\.com\/[^\s"'<>]*(?:\/actions(?:[\/?#]|$)|\/dispatches(?:[\/?#]|$))/i],
+	["GitHub Checks or commit-status endpoint", /https?:\/\/(?:api\.)?github\.com\/[^\s"'<>]*(?:\/check-(?:runs|suites)|\/checks(?:[\/?#]|$)|\/statuses(?:[\/?#]|$)|\/commits\/[^\s"'<>/]+\/status(?:[\/?#]|$))/i],
+	["GitHub Actions artifact host", /https?:\/\/(?:[^\s"'<>]+\.)?actions\.githubusercontent\.com(?:[\/?#]|$)/i],
+	["GitHub Actions workflow path", /(?:^|[^A-Za-z0-9_.-])\.github\/workflows(?:[\/?#]|$)/i],
+	["GitHub Actions dispatch identifier", /(?:^|[^A-Za-z0-9_])(?:workflow_dispatch|repository_dispatch|workflow_run)(?:[^A-Za-z0-9_]|$)/],
+	["CI environment read", /\b(?:getenv|defined|constant)\s*\(\s*["'](?:CI|CONTINUOUS_INTEGRATION|(?:GITHUB|ACTIONS|RUNNER)_[A-Z0-9_]+)["']/],
+	["CI environment superglobal read", /\$_(?:ENV|SERVER)\s*\[\s*["'](?:CI|CONTINUOUS_INTEGRATION|(?:GITHUB|ACTIONS|RUNNER)_[A-Z0-9_]+)["']\s*\]/],
+];
+
+const externalRuntimeCouplingFindings = (source) => {
+	const foldedAdjacentPhpStrings = source.replace(/(["'])\s*\.\s*(["'])/g, "");
+	return forbiddenExternalRuntimeCouplings
+	.filter(([, pattern]) => pattern.test(source) || pattern.test(foldedAdjacentPhpStrings))
+	.map(([name]) => name);
+};
+
+const hasPhpBacktickOperator = (source) => {
+	let index = 0;
+	let state = source.includes("<?") ? "outside" : "code";
+	let quote = "";
+	let heredocLabel = "";
+	while (index < source.length) {
+		if (state === "outside") {
+			const phpOpen = source.indexOf("<?", index);
+			if (phpOpen < 0) return false;
+			index = phpOpen + 2;
+			state = "code";
+			continue;
+		}
+		if (state === "line-comment") {
+			if (source[index] === "\n") state = "code";
+			index += 1;
+			continue;
+		}
+		if (state === "block-comment") {
+			if (source[index] === "*" && source[index + 1] === "/") {
+				state = "code";
+				index += 2;
+			} else {
+				index += 1;
+			}
+			continue;
+		}
+		if (state === "quoted") {
+			if (source[index] === "\\") {
+				index += 2;
+			} else if (source[index] === quote) {
+				state = "code";
+				index += 1;
+			} else {
+				index += 1;
+			}
+			continue;
+		}
+		if (state === "heredoc") {
+			const lineEnd = source.indexOf("\n", index);
+			const end = lineEnd < 0 ? source.length : lineEnd;
+			const line = source.slice(index, end);
+			const terminator = line.match(new RegExp(`^[\\t ]*${heredocLabel}(?![A-Za-z0-9_])`));
+			if (terminator) {
+				state = "code";
+				index += terminator[0].length;
+			} else {
+				index = lineEnd < 0 ? source.length : lineEnd + 1;
+			}
+			continue;
+		}
+
+		if (source[index] === "?" && source[index + 1] === ">") {
+			state = "outside";
+			index += 2;
+			continue;
+		}
+		if (source[index] === "/" && source[index + 1] === "/") {
+			state = "line-comment";
+			index += 2;
+			continue;
+		}
+		if (source[index] === "#" && source[index + 1] !== "[") {
+			state = "line-comment";
+			index += 1;
+			continue;
+		}
+		if (source[index] === "/" && source[index + 1] === "*") {
+			state = "block-comment";
+			index += 2;
+			continue;
+		}
+		if (source[index] === "'" || source[index] === '"') {
+			quote = source[index];
+			state = "quoted";
+			index += 1;
+			continue;
+		}
+		if (source.startsWith("<<<", index)) {
+			const lineEnd = source.indexOf("\n", index);
+			const headerEnd = lineEnd < 0 ? source.length : lineEnd;
+			const header = source.slice(index + 3, headerEnd).trim();
+			const match = header.match(/^(["']?)([A-Za-z_][A-Za-z0-9_]*)\1$/);
+			if (match) {
+				heredocLabel = match[2];
+				state = "heredoc";
+				index = lineEnd < 0 ? source.length : lineEnd + 1;
+				continue;
+			}
+		}
+		if (source.charCodeAt(index) === 96) return true;
+		index += 1;
+	}
+	return false;
+};
+
+const productionExternalRuntimeCouplingFindings = (source) => [
+	...externalRuntimeCouplingFindings(source),
+	...(/github/i.test(source) ? ["GitHub host or identifier in production PHP"] : []),
+	...(/\b(?:GH_TOKEN|GH_ENTERPRISE_TOKEN)\b/i.test(source) ? ["GitHub token identifier in production PHP"] : []),
+	...(/\b(?:shell_exec|exec|system|passthru|popen|proc_open|pcntl_exec)\s*\(/i.test(source) ? ["external process API in production PHP"] : []),
+	...(hasPhpBacktickOperator(source) ? ["PHP backtick execution operator in production PHP"] : []),
+];
+
+for (const fixture of [
+	"Plugin URI: https://github.com/bjornfix/devenia-workflow",
+	"Update URI: https://downloads.devenia.com/devenia-workflow/",
+	"https://github.com/bjornfix/devenia-workflow/releases/download/v0.1.615/devenia-workflow.zip",
+]) {
+	assert.deepEqual(externalRuntimeCouplingFindings(fixture), [], "release and updater distribution metadata must not be mistaken for CI runtime authority");
+}
+for (const fixture of [
+	"$host = 'https://api.github.com'; $path = '/repos/o/r/actions/runs'; wp_remote_get( $host . $path );",
+	"wp_remote_get( 'https://api.github.com/repos/o/r/' /* stable */ . 'actions/runs' );",
+	"shell_exec( 'gh api repos/o/r/actions/runs' );",
+	"shell_exec( '/usr/bin/gh api repos/o/r/actions/runs' );",
+	"exec( '/usr/bin/gh version' ); system( 'gh status' ); passthru( 'gh auth' ); popen( 'gh release', 'r' ); proc_open( 'gh repo', $descriptor_spec, $pipes );",
+	"proc_open( ['/usr/bin/gh', 'api', 'repos/o/r/actions/runs'], $descriptor_spec, $pipes );",
+	"pcntl_exec( '/usr/bin/gh', ['api', 'repos/o/r/actions/runs'] ); $output = `gh api repos/o/r/actions/runs`;",
+	"<?php $items = array(<<<TXT\nsafe\nTXT,\n); $output = `id`; ?>",
+	"<?php consume(<<<TXT\nsafe\nTXT); $output = `id`; ?>",
+	"getenv('GH_TOKEN')",
+]) {
+	assert.notDeepEqual(productionExternalRuntimeCouplingFindings(fixture), [], "production PHP must reject GitHub runtime hosts and token identifiers even when endpoint fragments are separated");
+}
+for (const fixture of [
+	"$path = '/statuses/';",
+	"https://devenia.com/actions/runs",
+	"$actions = array();",
+	"$frequency = '10ghz'; $height = 20;",
+	"$country_code = 'GH'; $tld = '.gh';",
+	"https://example.gh/status",
+	"<?php $sql = 'SELECT * FROM `table`'; /** `documented identifier` */ $text = \"literal `content`\"; ?>",
+	"<?php $text = <<<TXT\nliteral `content`\nTXT; ?>",
+]) {
+	assert.deepEqual(productionExternalRuntimeCouplingFindings(fixture), [], "generic words and non-GitHub routes must not be mistaken for external CI runtime coupling");
+}
+for (const fixture of [
+	"https://api.github.com/repos/bjornfix/devenia-workflow/actions/runs",
+	"'https://api.github.com/repos/bjornfix/devenia-workflow/' . 'actions/runs'",
+	"'https://api.github.com/repos/' . $repository . '/actions/workflows'",
+	"$host = 'https://api.github.com'; /* separated on purpose */ $path = '/repos/o/r/actions/runs'; wp_remote_get( $host . $path );",
+	"https://github.com/bjornfix/devenia-workflow/actions/workflows/recovery.yml",
+	"https://api.github.com/repos/bjornfix/devenia-workflow/commits/main/check-runs",
+	"'https://api.github.com/repos/' . $repository . '/commits/main/check-runs'",
+	".github/workflows/recovery-transaction-mysql84.yml",
+	"workflow_dispatch",
+	"getenv('GITHUB_RUN_ID')",
+	"getenv('GITHUB_RUN_NUMBER')",
+	"getenv('ACTIONS_RESULTS_URL')",
+	"$_ENV['CI']",
+]) {
+	assert.notDeepEqual(productionExternalRuntimeCouplingFindings(fixture), [], "the production negative gate must detect each explicit GitHub Actions or CI runtime-coupling class");
+}
+
+const productionRuntimeFiles = [
+	...productionPhpFiles(join(pluginRoot, "devenia-workflow.php")),
+	...productionPhpFiles(join(pluginRoot, "includes")),
+	...productionPhpFiles(join(pluginRoot, "addons")),
+];
+const productionRuntimeCouplings = productionRuntimeFiles.flatMap((path) => productionExternalRuntimeCouplingFindings(readFileSync(path, "utf8")).map((coupling) => `${relative(pluginRoot, path)}: ${coupling}`));
+assert.deepEqual(productionRuntimeCouplings, [], "production PHP must not read GitHub Actions or CI state, dispatch workflows, or fetch Actions runtime evidence");
 
 const plugin = readFileSync(new URL("../devenia-workflow.php", import.meta.url), "utf8");
 const publication = readFileSync(new URL("../includes/trait-localized-presentation-publication.php", import.meta.url), "utf8");
@@ -10,6 +201,10 @@ const runtime = readFileSync(new URL("./check-translation-job-runtime.php", impo
 const publicHeaderRuntime = readFileSync(new URL("./check-public-header-projection-wordpress-runtime.php", import.meta.url), "utf8");
 const lockWorker = readFileSync(new URL("./public-header-relation-lock-worker.php", import.meta.url), "utf8");
 const mysqlWorkflow = readFileSync(new URL("../.github/workflows/recovery-transaction-mysql84.yml", import.meta.url), "utf8");
+const activationInputStart = publicHeaderRuntime.indexOf("$activation_input = static function");
+const activationInputEnd = publicHeaderRuntime.indexOf("$option_keys =", activationInputStart);
+assert.ok(activationInputStart > 0 && activationInputEnd > activationInputStart, "the runtime activation-input helper must remain bounded");
+const activationInput = publicHeaderRuntime.slice(activationInputStart, activationInputEnd);
 
 const syncStart = plugin.indexOf("private static function sync_language_menu");
 const syncEnd = plugin.indexOf("private static function existing_menu_label_map", syncStart);
@@ -38,6 +233,20 @@ const authorityLock = relationAuthority.slice(routeAuthorityEnd);
 const stateReplaceStart = publication.indexOf("private static function replace_public_header_state_transaction");
 const stateReplaceEnd = publication.indexOf("private static function reconcile_public_header_state_commit_outcome", stateReplaceStart);
 const stateReplace = publication.slice(stateReplaceStart, stateReplaceEnd);
+const publicHeaderSyncStart = publication.indexOf("private static function sync_public_header_projection");
+const publicHeaderSyncEnd = publication.indexOf("private static function stage_public_header_manifest_for_publication", publicHeaderSyncStart);
+assert.ok(publicHeaderSyncStart > 0 && publicHeaderSyncEnd > publicHeaderSyncStart, "Public Header activation must remain a bounded deep Interface");
+const publicHeaderSync = publication.slice(publicHeaderSyncStart, publicHeaderSyncEnd);
+const activationReceiptValidationStart = publication.indexOf("private static function validate_public_header_activation_receipt");
+assert.ok(activationReceiptValidationStart > 0 && publicHeaderSyncStart > activationReceiptValidationStart, "activation receipt validation must remain independently inspectable");
+const activationReceiptIssueStart = publication.indexOf("private static function public_header_activation_receipt");
+assert.ok(activationReceiptIssueStart > 0 && activationReceiptValidationStart > activationReceiptIssueStart, "activation receipt issuance must remain independently inspectable");
+const activationReceiptIssue = publication.slice(activationReceiptIssueStart, activationReceiptValidationStart);
+const activationReceiptValidation = publication.slice(activationReceiptValidationStart, publicHeaderSyncStart);
+const publicationStageStart = publicHeaderSyncEnd;
+const publicationStageEnd = publication.indexOf("private static function refresh_public_header_projection_for_publication", publicationStageStart);
+assert.ok(publicationStageStart > 0 && publicationStageEnd > publicationStageStart, "ordinary publication staging must remain a bounded ownership Interface");
+const publicationStage = publication.slice(publicationStageStart, publicationStageEnd);
 
 assert.match(publication, /publish_localized_presentation[\s\S]*apply_translation_publish_transition[\s\S]*refresh_public_header_projection_for_publication[\s\S]*devenia_workflow_frontend_cache_invalidation_result[\s\S]*verify_live_translation/);
 assert.doesNotMatch(publication.slice(publication.indexOf("private static function publish_localized_presentation"), publication.indexOf("private static function rollback_localized_menu_projection")), /sync_language_menu\s*\(/, "normal publication must not activate one language directly");
@@ -65,16 +274,31 @@ assert.match(publication, /OPTION_PUBLIC_HEADER_MANIFEST/);
 assert.match(publication, /OPTION_PENDING_PUBLIC_HEADER_MANIFEST/);
 assert.match(publication, /public_header_projection_plan/);
 assert.match(sync, /public_header_projection_plan\( \$language/);
-assert.match(publication, /sync_public_header_projection[\s\S]*pending_public_header_manifest[\s\S]*configured_public_header_languages[\s\S]*sync_language_menu[\s\S]*activate_public_header_projection_set/);
+assert.match(publicHeaderSync, /validate_public_header_activation_receipt\( \$activation_receipt \)[\s\S]*validate_public_header_relation_receipts[\s\S]*validate_public_header_authority_receipts[\s\S]*devenia_workflow_public_header_before_activation_receipt_revalidation[\s\S]*validate_public_header_activation_receipt\( \$activation_receipt \)[\s\S]*configured_public_header_languages[\s\S]*sync_language_menu[\s\S]*activate_public_header_projection_set/, "the exact caller-owned pending receipt must be validated and race-revalidated before any projection is staged");
+assert.doesNotMatch(publicHeaderSync, /stage_public_header_manifest_for_publication|if \( empty\( \$pending \) \)/, "activation must never restage or select whichever global pending manifest happens to exist");
+assert.match(activationReceiptIssue, /maybe_serialize\( \$manifest \)[\s\S]*hash_hmac\( 'sha256'[\s\S]*wp_salt\( 'auth' \)/, "one opaque receipt must bind the exact PHP-serialized raw pending array, including key order and ephemeral authority fields");
+assert.doesNotMatch(activationReceiptIssue, /translation_job_canonicalize|ksort|wp_json_encode/, "receipt issuance must never sort or normalize raw pending authority before hashing it");
+assert.match(activationReceiptValidation, /public_header_activation_receipt_missing[\s\S]*get_option\( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, \$missing \)[\s\S]*public_header_pending_manifest_missing[\s\S]*normalize_public_header_manifest\( \$raw_pending \)[\s\S]*public_header_activation_receipt\( \$raw_pending \)[\s\S]*public_header_activation_receipt_mismatch[\s\S]*\$raw_pending !== \$pending[\s\S]*public_header_pending_manifest_not_canonical/, "activation must HMAC-bind the exact raw stored pending serialization before accepting its separately normalized strict canonical domain manifest");
+assert.match(activationInput, /string \$activation_receipt[\s\S]*'activation_receipt' => \$activation_receipt/, "runtime activation attempts must consume an issued staging receipt explicitly");
+assert.doesNotMatch(activationInput, /get_option|public_header_activation_receipt|ReflectionMethod/, "the runtime helper must never derive or forge authority from global pending state");
+assert.match(publication, /stage_public_header_manifest_for_publication[\s\S]*'activation_receipt' => self::public_header_activation_receipt\( \(array\) \$stored \)[\s\S]*refresh_public_header_projection_for_publication[\s\S]*'activation_receipt' => \(string\) \$staging\['activation_receipt'\]/, "ordinary publication must carry the receipt for its exact verified stored value directly into activation");
+assert.match(publicationStage, /get_option\( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, \$missing \)[\s\S]*\$missing !== \$before[\s\S]*public_header_pending_manifest_ownership_conflict[\s\S]*public_header_manifest\(\)[\s\S]*public_header_relation_receipts_for_manifest[\s\S]*\$missing !== get_option\( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, \$missing \)[\s\S]*atomic_create_option\( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, \$pending \)[\s\S]*\$stored = get_option[\s\S]*public_header_activation_receipt\( \(array\) \$stored \)/, "ordinary publication must reject every occupied raw pending slot before normalization and issue a receipt only over its exact verified missing-to-created stored value");
+assert.doesNotMatch(publicationStage, /pending_public_header_manifest\(|atomic_replace_option_value|existing_pending/, "ordinary publication must never normalize, adopt, or replace another pending owner");
+assert.match(publication, /activate_public_header_projection_set[\s\S]*'pending'\s*=> \$missing[\s\S]*replace_public_header_state_transaction/, "successful activation must atomically release the pending ownership slot");
+assert.match(enrollmentInterface, /stage_first_public_header_enrollment_transaction[\s\S]*'activation_receipt'\s*=> \(string\) \$stage\['activation_receipt'\]/, "first enrollment must carry its transaction-owned pending receipt into activation");
+assert.match(publication, /update_public_header_manifest[\s\S]*\$existing_pending_is_canonical[\s\S]*'activation_receipt' => self::public_header_activation_receipt\( \$before \)[\s\S]*\$stored = get_option[\s\S]*'activation_receipt' => self::public_header_activation_receipt\( \(array\) \$stored \)/, "operator and migration staging responses must reject noncanonical adoption and return receipts only for exact verified stored pending values");
+assert.match(publication, /\$stored_pending === \$pending[\s\S]*public_header_activation_receipt\( \$stored_pending \)[\s\S]*\$before === \$existing_pending[\s\S]*\$stored !== \$manifest/, "first enrollment and operator staging must issue authority only for strict raw stored identity, never canonicalized equality");
+assert.match(plugin, /sync_menu_input_schema[\s\S]*'required'\s*=> array\( 'activation_receipt' \)[\s\S]*\^phact_\[a-f0-9\]\{48\}\$/, "the public sync-menu Interface must require the opaque activation receipt");
 assert.doesNotMatch(publication, /private static function rollback_localized_menu_projection\s*\(/, "the dead standalone menu rollback transaction must not reintroduce a raw COMMIT path");
 assert.doesNotMatch(publication, /private static function (?:activate_localized_menu_id|retire_managed_localized_menu)\s*\(/, "complete-set Public Header Projection must remain the only activation and retirement Interface");
 assert.match(publication, /activate_public_header_projection_set[\s\S]*replace_public_header_state_transaction/);
 assert.match(publication, /devenia_workflow_public_header_before_locked_state_transition[\s\S]*replace_public_header_state_transaction/, "the runtime fixture needs an exact snapshot-to-lock transaction boundary");
 assert.match(stateReplace, /lock_public_header_relation_authority_surface[\s\S]*public_header_staged_receipt_changed/);
+assert.match(stateReplace, /FOR UPDATE[\s\S]*'pending' === \$slot[\s\S]*public_header_activation_receipt\( \$current \)[\s\S]*public_header_activation_receipt_mismatch[\s\S]*'pending' === \$slot \? \$current === \$expected_value/, "the locked pending row must revalidate the exact raw receipt and strict serialized identity before deletion");
 assert.match(publication, /replace_public_header_state_transaction[\s\S]*OPTION_PUBLIC_HEADER_MANIFEST[\s\S]*OPTION_LOCALIZED_MENU_IDENTITIES[\s\S]*OPTION_PENDING_PUBLIC_HEADER_MANIFEST/);
 assert.match(publication, /translation_job_canonicalize\( \$current \) === self::translation_job_canonicalize\( \$replacement_value \)[\s\S]*\$written = true/, "an already-equal locked option value must be an idempotent successful write");
 assert.match(publication, /rollback_public_header_state_transaction[\s\S]*translation_job_rollback_recovery_transaction[\s\S]*clear_public_header_state_option_cache/);
-assert.match(publication, /translation_job_canonicalize\( \$current \) !== self::translation_job_canonicalize\( \$expected_value \)[\s\S]*rollback_public_header_state_transaction\(\)[\s\S]*public_header_state_changed/, "a rejected partial option transaction must discard uncommitted cache values");
+assert.match(stateReplace, /\$expected_exact =[\s\S]*if \( ! \$expected_exact \)[\s\S]*rollback_public_header_state_transaction\(\)[\s\S]*public_header_state_changed/, "a rejected partial option transaction must discard uncommitted cache values");
 assert.match(publication, /OPTION_PUBLIC_HEADER_ENROLLMENT/);
 assert.match(publication, /public_header_rollback_projection_receipts[\s\S]*previous_menu_surface_revision/);
 assert.match(publication, /public_header_rollback_projection_receipts[\s\S]*public_header_navigation_snapshot_from_menu[\s\S]*expected_navigation/);
@@ -122,6 +346,9 @@ assert.match(publicHeaderRuntime, /identity_meta_source[\s\S]*_devenia_translati
 assert.match(publicHeaderRuntime, /\$run_external_writer\( 'before'[\s\S]*\$run_external_writer\( 'after'[\s\S]*\$run_external_writer\( 'after'/, "worker phases need positive before/after writes and a second idempotent cleanup pass");
 assert.match(publicHeaderRuntime, /SELECT CONNECTION_ID\(\)[\s\S]*worker_connections_distinct[\s\S]*\$connection_id === \$external_writer_main_connection_id/, "every worker phase must use a distinct connection from the stable owning transaction connection");
 assert.match(publicHeaderRuntime, /writer_state_before[\s\S]*writer_raw_menus_before[\s\S]*writer_menu_inventory_before[\s\S]*writer_relation_surface_before[\s\S]*writer_state_after/, "separate writer proofs must compare exact options, menus, global inventory, post rows, and metadata after rollback and cleanup");
+assert.match(publicHeaderRuntime, /existing_source_item_ids[\s\S]*max\( \$existing_source_item_ids \)[\s\S]*missing_target_state_before[\s\S]*update_public_header_manifest[\s\S]*relation_translation_missing[\s\S]*missing_target_state_after[\s\S]*public_header_relation_receipt_build_failed[\s\S]*public_header_page_relation_authority_incomplete/, "a missing target translation must use a collision-free fixture and assert the exact nested relation-authority error chain before any state mutation");
+assert.match(publicHeaderRuntime, /missing_target_raw_menus_before[\s\S]*missing_target_menu_inventory_before[\s\S]*missing_target_relation_surface_before[\s\S]*missing_target_raw_menus_before !== \$raw_fixture_menu_surface\(\)[\s\S]*missing_target_menu_inventory_before !== \$raw_nav_menu_inventory\(\)[\s\S]*missing_target_relation_surface_before !== \$raw_relation_post_surface/, "the missing-target oracle must preserve raw fixture menus, the global nav-menu inventory, and the canonical post/meta surface");
+assert.doesNotMatch(publicHeaderRuntime, /source_item_id' => 800004[^\n]*Missing short target/, "the missing-target fixture must never collide with a real manifest source-item identity");
 assert.match(lockWorker, /identity_meta\|post_slug[\s\S]*reconnect_retries[\s\S]*new wpdb[\s\S]*innodb_lock_wait_timeout = 1/, "the worker must create a disposable non-reconnecting database connection for two allowlisted lock surfaces");
 assert.match(lockWorker, /INSERT INTO %i \(post_id, meta_key, meta_value\)[\s\S]*WHERE NOT EXISTS[\s\S]*DELETE FROM %i WHERE meta_id[\s\S]*UPDATE %i SET post_name/, "the worker must test an absent metadata predicate with exact INSERT/delete restoration and the post row with a CAS UPDATE");
 assert.match(lockWorker, /'identity_meta' === \$surface_mode[\s\S]*_devenia_translation_source_id[\s\S]*_devenia_translation_language[\s\S]*'absent' !== \$expected/, "identity-predicate worker input must require an absent pre-state and allow only the two canonical identity keys");
@@ -275,7 +502,19 @@ for (const evidence of [
 	"missing_active_manifest_durable_enrollment_failed_closed",
 	"pending_manifest_preserved_old_active_set",
 	"active_restage_cancelled_stale_pending",
+	"activation_receipt_binds_exact_pending_manifest",
+	"missing_activation_receipt_failed_without_mutation",
+	"stale_activation_receipt_rejected",
+	"concurrent_pending_replacement_rejected_before_staging",
+	"raw_normalization_equivalent_pending_rejected_before_staging",
+	"raw_key_reorder_pending_rejected_before_staging",
+	"raw_key_reorder_pending_rejected_at_locked_boundary",
+	"exact_activation_receipt_activated",
+	"ordinary_publication_rejected_raw_pending_owners",
+	"ordinary_publication_rejected_independent_pending_without_mutation",
+	"ordinary_publication_self_staged_exact_activation",
 	"missing_target_projection_failed_closed",
+	"missing_target_translation_rejected_before_pending_mutation",
 	"all_language_atomic_activation_exercised",
 	"pre_activation_receipt_failure_rejected",
 	"staged_revision_race_rejected",
@@ -291,6 +530,16 @@ for (const evidence of [
 ]) {
 	assert.match(publicHeaderRuntime, new RegExp(evidence));
 }
+assert.match(publicHeaderRuntime, /missing_activation_state_before[\s\S]*sync_public_header_projection', array\( 'timeout' => 5 \)[\s\S]*public_header_activation_receipt_missing[\s\S]*missing_activation_state_after[\s\S]*missing_activation_raw_menus_before[\s\S]*missing_activation_inventory_before[\s\S]*missing_activation_relation_before/, "missing activation ownership must preserve raw options, menu rows, global menu inventory, posts, and metadata before staging");
+assert.match(publicHeaderRuntime, /stale_activation_receipt[\s\S]*Independent receipt owner[\s\S]*public_header_activation_receipt_mismatch[\s\S]*stale_receipt_state_before[\s\S]*stale_receipt_state_after/, "a prior staging owner must not activate the current independently staged pending manifest");
+assert.match(publicHeaderRuntime, /\$activation_receipt_race = static function[\s\S]*replace_pending[\s\S]*Concurrent receipt owner[\s\S]*devenia_workflow_public_header_before_activation_receipt_revalidation[\s\S]*concurrent_receipt_attempt[\s\S]*public_header_activation_receipt_mismatch[\s\S]*array_key_exists\( 'projections', \$concurrent_receipt_attempt \)/, "a concurrent pending replacement must be rejected at the deterministic pre-staging receipt seam without creating projections");
+assert.match(publicHeaderRuntime, /raw_normalization_equivalent[\s\S]*receipt_race_discarded_field[\s\S]*raw_equivalent_state_before[\s\S]*raw_equivalent_raw_menus_before[\s\S]*raw_equivalent_inventory_before[\s\S]*raw_equivalent_relations_before[\s\S]*raw_equivalent_attempt[\s\S]*public_header_activation_receipt_mismatch[\s\S]*array_key_exists\( 'projections', \$raw_equivalent_attempt \)[\s\S]*raw_equivalent_pending_after !== \( \$activation_receipt_race_result\['pending'\][\s\S]*raw_equivalent_relations_before !== \$raw_relation_post_surface\( \$canonical_relation_post_ids \)[\s\S]*restored_raw_pending/, "a normalization-equivalent raw replacement must invalidate the old receipt before staging, preserve exact foreign raw and projection authority, and require explicit canonical operator restaging");
+assert.match(publicHeaderRuntime, /\$reorder_raw_pending = static function[\s\S]*array_reverse\( \$raw_pending\['items'\]\[0\], true \)[\s\S]*array_reverse\( \$raw_pending, true \)/, "the runtime key-order fixture must reorder both nested item authority and the top-level raw pending array");
+assert.match(publicHeaderRuntime, /raw_key_reorder[\s\S]*key_reorder_attempt[\s\S]*public_header_activation_receipt_mismatch[\s\S]*array_key_exists\( 'projections', \$key_reorder_attempt \)[\s\S]*key_reorder_pending_after !== \( \$activation_receipt_race_result\['pending'\][\s\S]*key_reorder_relations_before !== \$raw_relation_post_surface\( \$canonical_relation_post_ids \)/, "top-level and nested raw key reordering must invalidate the old receipt before staging with exact foreign raw and zero projection mutation");
+assert.match(publicHeaderRuntime, /pending_key_reorder[\s\S]*locked_reorder_state_before[\s\S]*locked_reorder_raw_menus_before[\s\S]*locked_reorder_inventory_before[\s\S]*locked_reorder_relations_before[\s\S]*locked_reorder_attempt[\s\S]*public_header_projection_activation_failed[\s\S]*public_header_activation_receipt_mismatch[\s\S]*array_key_exists\( 'projections', \$locked_reorder_attempt \)[\s\S]*locked_reorder_pending_after !== \( \$locked_pending_reorder_result\['pending'\][\s\S]*locked_reorder_relations_before !== \$raw_relation_post_surface\( \$canonical_relation_post_ids \)/, "the locked option row must reject a raw key reorder by receipt mismatch, delete every owned staged projection, and preserve exact foreign authority");
+assert.match(publicHeaderRuntime, /array\( 'empty' => array\(\), 'malformed' => 'raw-pending-owner-'[\s\S]*refresh_public_header_projection_for_publication'[\s\S]*public_header_pending_manifest_ownership_conflict[\s\S]*raw_pending_state_before !== \$raw_pending_state_after[\s\S]*raw_pending_menus_before !== \$raw_fixture_menu_surface\(\)[\s\S]*raw_pending_inventory_before !== \$raw_nav_menu_inventory\(\)[\s\S]*raw_pending_relations_before !== \$raw_relation_post_surface/, "empty-normalized and malformed raw pending owners must remain exact and mutation-free");
+assert.match(publicHeaderRuntime, /independent_pending_stage[\s\S]*publication_ownership_state_before[\s\S]*publication_ownership_raw_menus_before[\s\S]*publication_ownership_inventory_before[\s\S]*publication_ownership_relations_before[\s\S]*refresh_public_header_projection_for_publication'[\s\S]*public_header_pending_manifest_ownership_conflict[\s\S]*publication_ownership_state_before !== \$publication_ownership_state_after[\s\S]*publication_ownership_raw_menus_before !== \$raw_fixture_menu_surface\(\)[\s\S]*publication_ownership_inventory_before !== \$raw_nav_menu_inventory\(\)[\s\S]*publication_ownership_relations_before !== \$raw_relation_post_surface/, "ordinary publication must reject a valid independently staged pending owner before creating projections and preserve options, raw menus, global inventory, and canonical relation rows exactly");
+assert.match(publicHeaderRuntime, /cancel_independent_pending[\s\S]*publication_self_stage = \$call\( 'refresh_public_header_projection_for_publication'[\s\S]*manifest_staging'\]\['activation_receipt'[\s\S]*get_option\( 'devenia_workflow_pending_public_header_manifest', false \)/, "after explicit owner cancellation, ordinary publication must self-stage, carry its own receipt, activate, and release the pending slot");
 assert.match(publicHeaderRuntime, /public_header_enrollment_commit_receipt_invalid[\s\S]*missing_committed[\s\S]*public_header_state_commit_receipt_invalid[\s\S]*missing_committed[\s\S]*publication_transaction_commit_receipt_invalid[\s\S]*missing_committed/, "the real WordPress runtime must reject a committed transaction whose Adapter receipt omits committed at all three Public Header publication seams");
 assert.match(publicHeaderRuntime, /'non_array' === \$activation_commit_mode[\s\S]*return false;[\s\S]*'unterminated_success' === \$activation_commit_mode[\s\S]*'success' => true, 'committed' => true/, "the runtime must inject both a present non-array receipt and a structurally valid receipt that leaves the owned transaction open");
 assert.match(publicHeaderRuntime, /missing_committed[\s\S]*transaction_not_terminal[\s\S]*recovery_commit_adapter_receipt_not_array[\s\S]*adapter_receipt_type[\s\S]*transaction_rolled_back/, "non-terminal Adapter receipts must be normalized, rejected, and terminalized by owned rollback before any forward Public Header work");

@@ -595,7 +595,7 @@ trait Devenia_Workflow_Ability_Catalogue {
 			),
 			'devenia-workflow/sync-menu' => array(
 				'label'            => 'Activate Public Header Projections',
-				'description'      => 'Stages and validates the pending manifest for the configured source and every target language, atomically activates the complete set, then requires cache invalidation plus origin and canonical verification on every homepage and blog archive.',
+				'description'      => 'Requires the opaque receipt returned by the exact pending-manifest staging operation, stages and validates that owned manifest for every configured source and target language, atomically activates the complete set, then requires cache invalidation plus origin and canonical verification on every homepage and blog archive.',
 				'input_schema'     => self::sync_menu_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {

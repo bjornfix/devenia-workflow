@@ -122,8 +122,32 @@ row and one matching language row; the source type, status, and absence of
 translation identity are re-read for source and target projections alike. Every
 pending projection, including ordinary Translation Job publication and operator
 restaging of an active manifest, carries a new complete all-language ephemeral
-relation receipt. Missing or malformed receipts stop before staging, and both
-intake and relation receipts are stripped from the active reader manifest. The
+relation receipt. A missing target relation rejects the new revision before the
+pending option or any menu changes, preserving the exact active and pre-existing
+pending authority. Missing or malformed receipts likewise stop before staging,
+and both intake and relation receipts are stripped from the active reader manifest.
+Every successful pending write also returns an opaque Activation Receipt over the
+exact raw stored pending option, including its intake and Relation Authority
+receipts. Domain validation normalizes that value separately but never derives
+activation authority from the normalized projection. The receipt hashes the exact
+PHP-serialized array, so top-level or nested key reordering also changes authority.
+Activation requires that
+exact caller-owned receipt and revalidates it
+before creating any menu; it never restages or activates an unrelated global
+pending value. Even a raw replacement that normalizes to the same domain manifest
+invalidates the prior receipt before staging and again under the locked pending-row
+transition. A missing, stale, or concurrently displaced receipt is mutation-free
+apart from preserving the independent writer's exact replacement. Ordinary
+Translation Job publication never adopts, normalizes, or replaces an occupied raw
+pending slot, even when that value is malformed or normalizes to empty. It issues
+an Activation Receipt only after atomically creating its own active-manifest
+refresh in a missing slot; successful activation atomically removes that pending
+value. GitHub Actions supplies CI and distribution evidence only. Production PHP
+does not read CI state, invoke workflows, or treat a GitHub run or artifact as
+runtime publication authority; release and updater metadata remain distribution
+mechanisms, not runtime dependencies. Production Workflow never shells out or
+requires an external executable; process-based release and CI tooling remains
+outside WordPress runtime. The
 Translation Index Adapter is a fail-closed read-model cross-check only: it never
 selects a candidate, and unavailable, missing, stale, or disagreeing rows reject
 publication. Internal custom links bind canonical source and target post IDs,
