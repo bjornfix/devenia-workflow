@@ -6,6 +6,16 @@ const moduleSource = readFileSync(new URL("../includes/trait-translation-job.php
 const authoritySource = readFileSync(new URL("../includes/trait-translation-job-quality-authority.php", import.meta.url), "utf8");
 const runtimeSource = readFileSync(new URL("./check-translation-job-runtime.php", import.meta.url), "utf8");
 
+const currentSurfaceRevision = authoritySource.match(
+	/private static function translation_job_current_surface_revision\( int \$translation_id \): string \{([\s\S]*?)\n\t\}/,
+);
+assert.ok(currentSurfaceRevision, "missing current Translation Job surface revision reader");
+assert.match(
+	currentSurfaceRevision[1],
+	/'featured_image_alt'\s*=>\s*\(string\) get_post_meta\( \$translation_id, self::META_FEATURED_IMAGE_ALT, true \)/,
+	"localized featured-image alt meta must participate in the approved-artifact baseline CAS",
+);
+
 assert.match(moduleSource, /const TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS = 3;/);
 const publishAllowlist = moduleSource.match(/const TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES = array\(([\s\S]*?)\);/);
 assert.ok(publishAllowlist, "missing fixed publish Surface Refresh allowlist");
@@ -41,11 +51,15 @@ assert.match(moduleSource, /'required' => array\( 'job_id' \)/);
 assert.doesNotMatch(moduleSource, /! \$is_quality_authority_v3 && \$coordinator_id/);
 assert.match(moduleSource, /Coordinator labels grant no authority/);
 assert.match(authoritySource, /\$submission_generation[\s\S]*'submission_generation' => \$submission_generation/);
-assert.match(runtimeSource, /Could not seed the runtime localized primary-menu identity/);
+assert.match(runtimeSource, /\$runtime_header_activation = \$call\( 'sync_public_header_projection'/);
+assert.match(runtimeSource, /Could not activate the complete runtime Public Header Projection/);
+assert.match(runtimeSource, /\$runtime_header_activation\['verification'\]\['passed'\]/);
+assert.doesNotMatch(runtimeSource, /Could not seed the runtime localized primary-menu identity/);
 assert.match(runtimeSource, /catch \( Throwable \$error \) \{\s*\$runtime_error = \$error;\s*\} finally \{/);
 assert.match(runtimeSource, /\} finally \{[\s\S]*delete_option\( \$option_key \);[\s\S]*if \( \$runtime_error instanceof Throwable \) \{[\s\S]*exit\( 1 \);/);
-assert.match(runtimeSource, /\$baseline_drift_update = wp_update_post\([\s\S]*\$baseline_drift_surface_revision = \$call\( 'translation_job_current_surface_revision'[\s\S]*\$baseline_snapshot = \$call\( 'translation_job_capture_surface_snapshot'/);
-assert.match(runtimeSource, /\} finally \{[\s\S]*\$baseline_restore = wp_update_post\([\s\S]*'post_excerpt' => \$baseline_original_excerpt[\s\S]*\$baseline_restored_surface_revision = \$call\( 'translation_job_current_surface_revision'/);
+assert.match(runtimeSource, /\$baseline_drift_update = update_post_meta\( \$translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT, \$baseline_drift_featured_alt \)[\s\S]*\$baseline_drift_surface_revision = \$call\( 'translation_job_current_surface_revision'[\s\S]*\$baseline_snapshot = \$call\( 'translation_job_capture_surface_snapshot'/);
+assert.match(runtimeSource, /\$baseline_failure = \$call\( 'translation_job_apply_staged_artifact'[\s\S]*\$baseline_observed_featured_alt_after_failure = \(string\) get_post_meta\( \$translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT, true \)/);
+assert.match(runtimeSource, /\} finally \{[\s\S]*\$baseline_original_featured_alt_exists[\s\S]*Devenia_Workflow::META_FEATURED_IMAGE_ALT[\s\S]*\$baseline_restored_surface_revision = \$call\( 'translation_job_current_surface_revision'/);
 for (const proof of [
 	"Snapshot-to-lock Surface Refresh did not prove same-call zero mutation, rollback, and an exact Job reopen",
 	"Surface Refresh changed an immutable prior artifact, Quality, or evidence record",
@@ -54,20 +68,52 @@ for (const proof of [
 	"Generation-three packet could not recover the latest immutable generation-two artifact",
 	"Surface Refresh did not fail closed at the finite generation ceiling",
 	"Identity-race lower-level proof did not preserve zero mutation, rollback, immutable records, and exact CAS refresh",
-	"Baseline-drift lower-level proof did not preserve zero mutation, rollback, immutable records, and exact CAS refresh",
+	"Localized featured-image alt baseline-drift proof did not preserve the direct edit, zero publication mutation, rollback, immutable records, and exact CAS refresh",
 	"Published Translation Job media drift did not fail closed with immutable approved records and an explicit correction path",
 	"Published correction staging changed the live title, status, slug, or route before a fresh passing Quality Decision and publication",
 	"Published correction did not preserve the new title exclusively in its immutable staged artifact",
 	"Published correction did not retain explicit translator and Quality Run principal separation",
 	"Publish-held lifecycle lease did not reject a concurrent translator claim while preserving final Job CAS",
 	"Claim-winning lifecycle race did not make publish re-read fail before public mutation",
+	"Malformed staged COMMIT receipt was accepted, advanced, or granted rollback authority despite an exact applied replacement",
+	"Malformed restore COMMIT receipt was accepted as a successful rollback or mutated immutable authority despite the exact restored state",
+	"Present non-array or falsely terminal staged receipt selected default COMMIT, escaped owned terminalization, or advanced publication",
+	"A falsely terminal success receipt escaped owned rollback or exposed a usable publication snapshot",
+	"A falsely terminal success receipt escaped owned rollback or advanced an uncommitted surface restore",
 ]) {
 	assert.ok(runtimeSource.includes(proof), `missing runtime proof: ${proof}`);
 }
 
+const invalidStagedReceipt = runtimeSource.match(/return array\( ([^\n]*'runtime_staged_commit_missing_committed'[^\n]*) \);/);
+assert.ok(invalidStagedReceipt, "missing malformed staged COMMIT Adapter receipt fixture");
+assert.doesNotMatch(invalidStagedReceipt[1], /'committed'\s*=>/, "malformed staged receipt fixture must actually omit committed");
+assert.match(runtimeSource, /\$invalid_staged_commit_adapter[\s\S]*translation_job_commit_recovery_transaction[\s\S]*staged_publication_transaction_commit_receipt_invalid[\s\S]*false !== \( \$invalid_staged_publish\['rollback_authorized'\]/);
+assert.match(runtimeSource, /'malformed_staged_commit_receipt_rejected_after_exact_applied_replacement' => true/);
+
+const invalidRestoreReceipt = runtimeSource.match(/return array\( ([^\n]*'runtime_restore_commit_missing_committed'[^\n]*) \);/);
+assert.ok(invalidRestoreReceipt, "missing malformed restore COMMIT Adapter receipt fixture");
+assert.doesNotMatch(invalidRestoreReceipt[1], /'committed'\s*=>/, "malformed restore receipt fixture must actually omit committed");
+assert.match(runtimeSource, /\$invalid_restore_commit_adapter[\s\S]*translation_job_commit_recovery_transaction[\s\S]*recovery_transaction_commit_receipt_invalid[\s\S]*\$invalid_restore_job_bytes_before[\s\S]*\$invalid_restore_quality_bytes_before/);
+assert.match(runtimeSource, /'malformed_restore_commit_receipt_rejected_after_exact_restored_state' => true/);
+
+assert.match(runtimeSource, /'non_array' => array\([\s\S]*'receipt'\s*=>\s*'runtime-non-array-receipt-' \. wp_generate_uuid4\(\)[\s\S]*'expect_adapter_receipt_type' => 'string'/);
+assert.match(runtimeSource, /'claimed_commit_while_active' => array\([\s\S]*'success' => true, 'committed' => true, 'code' => 'runtime_claimed_commit_while_transaction_active'/);
+assert.match(runtimeSource, /\$staged_active_commit_adapter[\s\S]*return \$staged_active_receipt;[\s\S]*transaction_not_terminal[\s\S]*\$staged_active_terminalization\['rolled_back'\][\s\S]*staged_active_surface_before !== \$staged_active_surface_after/);
+assert.match(runtimeSource, /'present_non_array_commit_adapter_never_selected_default_commit' => true/);
+assert.match(runtimeSource, /'active_staged_transaction_claimed_commit_terminalized_without_publication' => true/);
+
+assert.match(runtimeSource, /\$active_snapshot_receipt = array\( 'success' => true, 'committed' => true, 'code' => 'runtime_snapshot_claimed_commit_while_transaction_active' \)/);
+assert.match(runtimeSource, /\$active_snapshot_commit_adapter[\s\S]*return \$active_snapshot_receipt;[\s\S]*publication_snapshot_commit_receipt_invalid[\s\S]*array\( 'transaction_not_terminal' \)[\s\S]*\$active_snapshot_terminalization\['rolled_back'\]/);
+assert.match(runtimeSource, /'active_snapshot_transaction_claimed_commit_terminalized_without_snapshot_authority' => true/);
+
+assert.match(runtimeSource, /\$active_restore_receipt = array\( 'success' => true, 'committed' => true, 'code' => 'runtime_restore_claimed_commit_while_transaction_active' \)/);
+assert.match(runtimeSource, /\$active_restore_commit_adapter[\s\S]*return \$active_restore_receipt;[\s\S]*recovery_transaction_commit_receipt_invalid[\s\S]*array\( 'transaction_not_terminal' \)[\s\S]*\$active_restore_drift_surface !== \$active_restore_surface_after/);
+assert.match(runtimeSource, /'active_restore_transaction_claimed_commit_terminalized_without_restore_progress' => true/);
+
 assert.match(runtimeSource, /\$published_title_before = \(string\) get_post_field\( 'post_title', \$translation_id \)[\s\S]*'quality_pending'[\s\S]*\$published_title_before !== \(string\) get_post_field\( 'post_title', \$translation_id \)[\s\S]*'changes_requested'[\s\S]*\$published_title_before !== \(string\) get_post_field\( 'post_title', \$translation_id \)/);
 assert.match(runtimeSource, /'published_job_correction_remained_staged_during_quality_review' => true/);
 assert.match(runtimeSource, /'published_job_correction_used_separate_writer_and_quality_principals' => true/);
+assert.match(runtimeSource, /'localized_featured_image_alt_drift_reopened_before_stale_publication_mutation' => true/);
 assert.match(runtimeSource, /\$track_quality_result = static function \( array \$result \) use \( &\$option_keys \): void \{[\s\S]*devenia_workflow_translation_quality_[\s\S]*devenia_tj_quality_evidence_/);
 for (const resultName of ["quality", "second_quality", "third_quality", "generation_three_quality", "post_publish_quality"]) {
 	assert.match(
@@ -79,4 +125,4 @@ for (const resultName of ["quality", "second_quality", "third_quality", "generat
 assert.match(runtimeSource, /\$prior_evidence_key = 'devenia_tj_quality_evidence_'[\s\S]*\$option_keys\[\] = \$prior_evidence_key/);
 assert.match(runtimeSource, /\$identity_quality_key = 'devenia_workflow_translation_quality_'[\s\S]*\$option_keys\[\] = \$identity_quality_key[\s\S]*\$identity_evidence_key = 'devenia_tj_quality_evidence_'[\s\S]*\$option_keys\[\] = \$identity_evidence_key/);
 
-console.log(JSON.stringify({ success: true, contracts: 55, max_submission_generations: 3 }));
+console.log(JSON.stringify({ success: true, contracts: 75, max_submission_generations: 3 }));

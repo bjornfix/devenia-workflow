@@ -892,7 +892,11 @@ trait Devenia_Workflow_Translation_Job {
 			$staged_apply = self::translation_job_apply_staged_artifact( $job, $artifact_record, $surface_snapshot );
 			if ( empty( $staged_apply['success'] ) ) {
 				$surface_snapshot['mutation_started'] = ! empty( $staged_apply['mutation_started'] );
-				$surface_snapshot['rollback_expected_surface_revision'] = (string) ( $staged_apply['mutation_surface_revision'] ?? '' );
+				if ( true === ( $staged_apply['rollback_authorized'] ?? null ) ) {
+					$surface_snapshot['rollback_expected_surface_revision'] = (string) ( $staged_apply['rollback_expected_surface_revision'] ?? '' );
+				} elseif ( false === ( $staged_apply['rollback_authorized'] ?? null ) ) {
+					$surface_snapshot['rollback_authorized'] = false;
+				}
 				$failure = self::translation_job_publish_failure_with_rollback( $staged_apply, $surface_snapshot, absint( $staged_apply['translation_id'] ?? $translation_id ) );
 				if ( in_array( (string) ( $staged_apply['code'] ?? '' ), self::TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES, true ) ) {
 					$surface_refresh = self::translation_job_refresh_drifted_surface( $job, 'publish_baseline_mismatch', $failure );
@@ -905,7 +909,12 @@ trait Devenia_Workflow_Translation_Job {
 			}
 			$translation_id = absint( $staged_apply['translation_id'] ?? 0 );
 			$surface_snapshot['mutation_started'] = ! empty( $staged_apply['mutation_started'] );
-			$surface_snapshot['rollback_expected_surface_revision'] = (string) ( $staged_apply['mutation_cas_revision'] ?? '' );
+			$surface_snapshot['publication_expected_surface_revision'] = (string) ( $staged_apply['mutation_cas_revision'] ?? '' );
+			if ( true === ( $staged_apply['rollback_authorized'] ?? null ) ) {
+				$surface_snapshot['rollback_expected_surface_revision'] = (string) ( $staged_apply['rollback_expected_surface_revision'] ?? '' );
+			} elseif ( false === ( $staged_apply['rollback_authorized'] ?? null ) ) {
+				$surface_snapshot['rollback_authorized'] = false;
+			}
 		} elseif ( self::translation_job_translation_revision( $translation_id ) !== (string) ( $quality['content_revision'] ?? '' ) ) {
 			return array( 'success' => false, 'code' => 'artifact_content_changed', 'message' => 'Stored translation changed after the Quality Decision.' );
 		}
@@ -945,7 +954,7 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$lifecycle_lease = $renewed_lease;
 		$prepublication_cas_revision = is_array( $surface_snapshot )
-			? (string) ( $surface_snapshot['rollback_expected_surface_revision'] ?? '' )
+			? (string) ( $surface_snapshot['publication_expected_surface_revision'] ?? '' )
 			: self::translation_job_rollback_cas_revision( $translation_id );
 		if ( '' === $prepublication_cas_revision ) {
 			return self::translation_job_publish_failure_with_rollback( array( 'success' => false, 'code' => 'prepublication_surface_receipt_failed', 'message' => 'The locked publication precondition could not be captured.' ), $surface_snapshot, $translation_id );
@@ -970,7 +979,11 @@ trait Devenia_Workflow_Translation_Job {
 		if ( empty( $publication['success'] ) ) {
 			if ( is_array( $surface_snapshot ) ) {
 				$surface_snapshot['mutation_started'] = array_key_exists( 'mutation_started', $publication ) ? ! empty( $publication['mutation_started'] ) : true;
-				$surface_snapshot['rollback_expected_surface_revision'] = (string) ( $publication['mutation_cas_revision'] ?? '' );
+				if ( true === ( $publication['rollback_authorized'] ?? null ) ) {
+					$surface_snapshot['rollback_expected_surface_revision'] = (string) ( $publication['rollback_expected_surface_revision'] ?? '' );
+				} elseif ( false === ( $publication['rollback_authorized'] ?? null ) ) {
+					$surface_snapshot['rollback_authorized'] = false;
+				}
 			}
 			return self::translation_job_publish_failure_with_rollback( array_merge(
 				$publication,
@@ -992,6 +1005,13 @@ trait Devenia_Workflow_Translation_Job {
 		return array(
 			'success' => $passed && ! empty( $next['success'] ),
 			'published' => true,
+			'forward_publication_applied' => true,
+			'final_reader_state' => array(
+				'state' => $passed ? 'published_verified' : 'published_unverified',
+				'published' => true,
+				'translation_id' => $translation_id,
+				'surface_revision' => self::translation_job_current_surface_revision( $translation_id ),
+			),
 			'message' => $passed ? 'Translation Job published.' : 'Translation was published, but live verification failed.',
 			'job' => ! empty( $next['job'] ) ? self::translation_job_public_job( $next['job'] ) : self::translation_job_public_job( $job ),
 			'translation' => self::translation_payload( get_post( $translation_id ) ),

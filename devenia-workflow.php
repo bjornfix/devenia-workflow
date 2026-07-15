@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.613
+ * Version: 0.1.614
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -35,6 +35,7 @@ require_once __DIR__ . '/includes/trait-internal-content-link-resolver.php';
 require_once __DIR__ . '/includes/trait-frontend-read-model.php';
 require_once __DIR__ . '/includes/trait-canonical-seo-surface.php';
 require_once __DIR__ . '/includes/trait-social-sharing-runtime-presentation-control.php';
+require_once __DIR__ . '/includes/trait-recovery-commit-reconciliation.php';
 require_once __DIR__ . '/includes/trait-localized-presentation-publication.php';
 require_once __DIR__ . '/includes/trait-translation-job-quality-authority.php';
 require_once __DIR__ . '/includes/trait-translation-job.php';
@@ -57,6 +58,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Frontend_Read_Model;
 	use Devenia_Workflow_Canonical_SEO_Surface;
 	use Devenia_Workflow_Social_Sharing_Runtime_Presentation_Control;
+	use Devenia_Workflow_Recovery_Commit_Reconciliation;
 	use Devenia_Workflow_Localized_Presentation_Publication;
 	use Devenia_Workflow_Translation_Job_Quality_Authority;
 	use Devenia_Workflow_Source_Editor_Adapter;
@@ -65,7 +67,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.613';
+	const VERSION = '0.1.614';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -9498,6 +9500,30 @@ final class Devenia_Workflow {
 		);
 	}
 
+	/** Input schema for the first managed Public Header enrollment. */
+	private static function public_header_enrollment_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'source_menu_id' ),
+			'properties'           => array(
+				'source_menu_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'activate'       => array( 'type' => 'boolean', 'default' => false ),
+				'timeout'        => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
+				'authority_menus' => array(
+					'type'        => 'array',
+					'description' => 'Optional additional verified retained menu identities. Target discovery otherwise requires two agreeing unmanaged menus mapped by stable relations.',
+					'items'       => array(
+						'type'                 => 'object',
+						'required'             => array( 'language', 'menu_id' ),
+						'properties'           => array( 'language' => array( 'type' => 'string', 'minLength' => 1 ), 'menu_id' => array( 'type' => 'integer', 'minimum' => 1 ) ),
+						'additionalProperties' => false,
+					),
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
 	/**
 	 * Input schema for URL hierarchy repair.
 	 */
@@ -17543,7 +17569,6 @@ final class Devenia_Workflow {
 		$target_menu_name = ! empty( $input['target_menu_name'] ) ? sanitize_text_field( (string) $input['target_menu_name'] ) : sanitize_text_field( (string) ( $languages[ $language ]['menu_name'] ?? '' ) );
 		$include_missing  = ! empty( $input['include_untranslated'] );
 		$include_custom   = array_key_exists( 'include_custom_links', $input ) ? (bool) $input['include_custom_links'] : true;
-		$stage_only       = ! empty( $input['stage_only'] );
 		$manifest         = isset( $input['manifest'] ) && is_array( $input['manifest'] ) ? $input['manifest'] : array();
 
 		if ( '' === $target_menu_name ) {
@@ -17666,28 +17691,7 @@ final class Devenia_Workflow {
 			'previous_menu_surface_revision' => $previous_menu_surface_revision,
 			'menu_surface_revision' => $menu_surface_revision,
 		);
-		if ( $stage_only ) {
-			$base_result['staged_only'] = true;
-			return $base_result;
-		}
-		$menu_activation = self::activate_localized_menu_id( $language, (int) $target_menu->term_id, $target_menu_name, $previous_menu_id );
-		if ( empty( $menu_activation['success'] ) ) {
-			wp_delete_nav_menu( (int) $target_menu->term_id );
-			return array(
-				'success'          => false,
-				'code'             => 'menu_projection_activation_failed',
-				'message'          => 'The validated localized menu identity could not be activated.',
-				'previous_menu_id' => $previous_menu_id,
-			);
-		}
-
-		$should_retire_previous = array_key_exists( 'retire_previous', $input )
-			? (bool) $input['retire_previous']
-			: (bool) apply_filters( 'devenia_workflow_retire_previous_localized_menu_projection', true, $previous_menu_id, (int) $target_menu->term_id, $language );
-		$retired_previous = $should_retire_previous ? self::retire_managed_localized_menu( $previous_menu_id, (int) $target_menu->term_id, $previous_menu_surface_revision ) : false;
-
-		$base_result['retired_previous'] = $retired_previous;
-		$base_result['menu_identity_activation'] = $menu_activation;
+		$base_result['staged_only'] = true;
 		return $base_result;
 	}
 
@@ -18288,7 +18292,7 @@ final class Devenia_Workflow {
 
 		$surface  = self::frontend_surface();
 		$language = (string) $surface['language'];
-		$menu_id = self::localized_menu_id( $language, false );
+		$menu_id = self::localized_menu_id( $language );
 		$menu    = $menu_id > 0 ? wp_get_nav_menu_object( $menu_id ) : null;
 		if ( ! $menu ) {
 			return $args;
@@ -18319,7 +18323,7 @@ final class Devenia_Workflow {
 			return $output;
 		}
 		$language = self::frontend_language();
-		return self::localized_menu_id( $language, false ) > 0 ? $output : '';
+		return self::localized_menu_id( $language ) > 0 ? $output : '';
 	}
 
 	/**

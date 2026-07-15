@@ -23,7 +23,35 @@ The deep Module that turns one approved Translation Job into a stable public
 reader surface. Its Interface owns the content publish transition, Public
 Header Projection, canonical frontend-cache invalidation, and origin plus
 canonical-cache verification as one outcome. A stored post status alone is not
-successful Localized Presentation Publication.
+successful Localized Presentation Publication. This Module alone issues
+rollback authority for its mutation: an observed foreign surface revision is
+diagnostic evidence and can never be promoted to rollback authority by a
+Translation Job caller.
+Its recovery Interface accepts a captured reader snapshot only while the exact
+captured surface is still current after cache eviction. A restore is complete
+only when every three-valued transaction receipt has been reconciled to the
+exact captured surface, frontend caches have been invalidated, and the origin
+plus canonical media surfaces have verified. A third observed surface is
+foreign authority and remains untouched.
+The public Translation Job response separates forward-write phase evidence
+from final reader truth. `forward_publication_applied` records only an exact
+commit/CAS-proven forward mutation. After every rollback attempt the complete
+surface CAS and translation payload are read again: `published` is boolean only
+for a verified restored or forward reader surface and is null when the database
+surface is restored/forward but cache or reader verification is incomplete.
+Foreign, empty, or indistinguishable receipts remain null and diagnostic.
+All mutation Modules share one strict Recovery COMMIT Receipt Interface.
+`committed` must be an explicitly present `true`, `false`, or `null`; absence is
+malformed rather than unknown. A malformed Adapter receipt closes only an
+owned transaction and fails critical before any caller can continue, restore,
+clean up, or derive rollback authority from the observed surface. Static
+portfolio discovery scans every production PHP file for recovery COMMIT calls.
+Only the exact null Adapter sentinel selects the default COMMIT; every present
+non-array value is invalid. A field-valid receipt is also rejected while the
+request-local owned transaction remains active, so an Adapter cannot authorize
+progress by describing a terminal boundary it did not actually close. The
+portfolio scan counts the raw private method identifier, rejects indirect
+references, and binds all direct self/static calls to audited owners.
 
 ## Public Header Projection
 
@@ -39,11 +67,22 @@ an incomplete projection, not a successful partial menu. Normal Translation Job
 publication enters this same pending-manifest Interface and cannot activate one
 language independently. Enrollment is durable, so loss of the active manifest
 or an identity after enrollment fails closed instead of reopening a raw menu.
+Every ordinary Public Header identity reader, projection planner, menu selector,
+and verifier is side-effect free: it accepts only the persisted identity whose
+managed term receipt matches the active manifest revision. Name-based retained
+menu discovery exists only inside the explicit capability-gated migration and
+first-enrollment Interfaces; a missing or corrupt identity is never repaired by
+the read which is supposed to detect it.
 Activation and rollback both require cache invalidation and origin plus
 canonical verification for every language homepage and blog archive. A raw
 theme-location menu is only migration input; it cannot become public authority,
 its own verification oracle, or a frontend fallback when managed identity is
 missing or corrupt.
+Every activation or first-enrollment COMMIT receipt is reconciled against a
+cache-cleared exact four-option state before the Module reports success or
+continues. Receipt-bound staged-menu cleanup owns the identity-reference proof,
+all menu surface locks, revalidation, and deletion in one transaction; a changed
+identity or menu revision makes cleanup fail closed without durable deletion.
 Each manifest row also binds one explicit editorial label for the source and
 every configured target language to its stable source-item identity. Page and
 translation titles are content, not menu-label authority. A missing label fails
@@ -55,6 +94,14 @@ Once a managed language menu is selected, its stored signed labels and URLs are
 final reader authority; mutable runtime text cannot relocalize it after receipt
 validation. Schema-1 rollback uses its locked prior menu receipts and exact
 stored navigation snapshot rather than attempting to invent schema-2 labels.
+Before enrollment, a separate capability-gated intake takes one explicitly
+verified source-menu identity, derives stable page/custom/parent identities,
+and discovers target authority only from at least two agreeing unmanaged
+retained menus per configured language. Unrelated menus are ignored; missing,
+ambiguous, conflicting, or changed evidence rejects before pending mutation.
+Activation enters the ordinary atomic all-language Interface, and any failed
+attempt restores the exact four-option pre-intake state so enrollment is safely
+retryable.
 Rollback locks and revalidates every prior term against its pre-activation
 recovery receipt before restoring identities. Verification compares the exact
 projected navigation anchors rather than accepting a matching subsequence.

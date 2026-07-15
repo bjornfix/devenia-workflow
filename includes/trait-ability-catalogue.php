@@ -217,6 +217,16 @@ trait Devenia_Workflow_Ability_Catalogue {
 					},
 					'meta'             => self::ability_meta( false, false, true ),
 				),
+				'devenia-workflow/enroll-public-header-from-existing-menus' => array(
+					'label'            => 'Enroll Public Header from Existing Menus',
+					'description'      => 'Builds the first complete schema-2 Public Header Projection from one verified source menu and two agreeing unmanaged retained target menus per configured language, then optionally activates through atomic sync.',
+					'input_schema'     => self::public_header_enrollment_input_schema(),
+					'output_schema'    => self::generic_output_schema(),
+					'execute_callback' => function ( $input ) {
+						return self::run_ability_operation( 'enroll_public_header_from_existing_menus', $input );
+					},
+					'meta'             => self::ability_meta( false, false, true ),
+				),
 				'devenia-workflow/update-featured-image-alt' => array(
 					'label'            => 'Update Localized Featured Image Alt',
 					'description'      => 'Stores localized featured-image alt text on one translated post without changing the shared attachment alt for other languages.',

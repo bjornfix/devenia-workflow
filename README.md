@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.613
+**Stable tag:** 0.1.614
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,13 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.614
+
+- Make persisted Public Header menu identities read-only during ordinary staging, verification, and frontend selection; legacy discovery is available only through the explicit capability-gated migration Interface.
+- Bind localized featured-image alt text into the complete publication compare-and-swap surface so an editorial media-text change reopens bounded work instead of being overwritten by a stale approved artifact.
+- Require one strict Recovery COMMIT receipt grammar across header, content, staging, snapshot, and restore boundaries: only an exact null Adapter sentinel selects the default COMMIT, malformed or non-terminal receipts fail critical, and every production call site is portfolio-scanned.
+- Separate forward publication phase evidence from the final reader result, classify the post-rollback surface from fresh exact receipts, and rebuild the returned translation payload after recovery so API responses cannot contradict persisted Job authority.
 
 ### 0.1.613
 

@@ -19,6 +19,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	 * @return array<string,mixed>
 	 */
 	private static function sync_public_header_projection( array $input ): array {
+		$cleanup_state_authority = isset( $input['cleanup_state_authority'] ) && is_array( $input['cleanup_state_authority'] ) ? $input['cleanup_state_authority'] : array();
 		$pending = self::pending_public_header_manifest();
 		if ( empty( $pending ) ) {
 			return array( 'success' => false, 'code' => 'public_header_pending_manifest_missing', 'message' => 'Register a pending Public Header Projection manifest before activation.' );
@@ -34,21 +35,26 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 					'language'             => $language,
 					'include_untranslated' => false,
 					'include_custom_links' => true,
-					'stage_only'           => true,
 					'manifest'             => $pending,
 				)
 			);
 			if ( empty( $projection['success'] ) || empty( $projection['validation']['passed'] ) || '' === (string) ( $projection['menu_surface_revision'] ?? '' ) || ! empty( $projection['skipped'] ) || count( (array) ( $projection['added'] ?? array() ) ) !== count( (array) $pending['items'] ) ) {
-				self::delete_staged_public_header_projections( $staged );
-				return array( 'success' => false, 'code' => 'public_header_projection_staging_failed', 'message' => 'Every configured source and target projection must stage, validate, and produce a recovery receipt before activation.', 'failed_language' => $language, 'projection' => $projection );
+				$cleanup = self::delete_staged_public_header_projections( $staged, $cleanup_state_authority );
+				return empty( $cleanup['success'] )
+					? array( 'success' => false, 'code' => 'public_header_projection_staging_cleanup_failed', 'severity' => 'critical', 'failed_language' => $language, 'projection' => $projection, 'projections' => $staged, 'cleanup' => $cleanup )
+					: array( 'success' => false, 'code' => 'public_header_projection_staging_failed', 'message' => 'Every configured source and target projection must stage, validate, and produce a recovery receipt before activation.', 'failed_language' => $language, 'projection' => $projection, 'cleanup' => $cleanup );
 			}
 			$staged[ $language ] = $projection;
 		}
 
 		$activation = self::activate_public_header_projection_set( $pending, $staged );
 		if ( empty( $activation['success'] ) ) {
-			self::delete_staged_public_header_projections( $staged );
-			return array( 'success' => false, 'code' => 'public_header_projection_activation_failed', 'message' => 'The complete Public Header Projection set was not activated.', 'activation' => $activation );
+			$cleanup_authority = self::public_header_activation_cleanup_authority( $activation, $staged );
+			$cleanup = ! empty( $cleanup_authority['allowed'] ) ? self::delete_staged_public_header_projections( $staged, (array) ( $cleanup_authority['state_authority'] ?? array() ) ) : array( 'success' => false, 'code' => 'staged_projection_cleanup_not_authorized', 'results' => array() );
+			if ( empty( $cleanup_authority['allowed'] ) ) { return array( 'success' => false, 'code' => 'public_header_projection_activation_state_unresolved', 'severity' => 'critical', 'activation' => $activation, 'projections' => $staged, 'cleanup_authority' => $cleanup_authority, 'cleanup' => $cleanup ); }
+			return empty( $cleanup['success'] )
+				? array( 'success' => false, 'code' => 'public_header_projection_activation_cleanup_failed', 'severity' => 'critical', 'activation' => $activation, 'projections' => $staged, 'cleanup' => $cleanup )
+				: array( 'success' => false, 'code' => 'public_header_projection_activation_failed', 'message' => 'The complete Public Header Projection set was not activated.', 'activation' => $activation, 'cleanup' => $cleanup );
 		}
 
 		$purge_urls = self::public_header_projection_urls( $languages );
@@ -143,6 +149,27 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		return array( 'success' => $passed, 'passed' => $passed, 'items' => $items );
 	}
 
+	/** Verify only the receipt-bound raw menu which existed before enrollment. */
+	private static function verify_pre_enrollment_public_header_navigation( array $languages, int $timeout, array $expected_navigation ): array {
+		$items = array(); $passed = true;
+		foreach ( $languages as $language ) {
+			$expected = array_values( (array) ( $expected_navigation[ (string) $language ] ?? array() ) );
+			foreach ( array( 'homepage' => self::localized_home_url_for_language( (string) $language ), 'blog_archive' => self::public_blog_archive_url_for_language( (string) $language ) ) as $surface => $url ) {
+				$surface_passed = ! empty( $expected ); $responses = array();
+				foreach ( array( 'origin', 'canonical' ) as $cache_surface ) {
+					$response = self::fetch_frontend_cache_surface( (string) $url, $timeout, $cache_surface );
+					$actual = ! empty( $response['success'] ) && 200 === (int) ( $response['status_code'] ?? 0 ) ? self::primary_navigation_from_html( (string) ( $response['body'] ?? '' ), (string) $language ) : array();
+					$match = ! empty( $expected ) && $actual === $expected;
+					$surface_passed = $surface_passed && $match;
+					$responses[ $cache_surface ] = array_merge( array_diff_key( $response, array( 'body' => true ) ), array( 'navigation_matches' => $match, 'actual_navigation' => $actual ) );
+				}
+				$items[ (string) $language ][ $surface ] = array( 'passed' => $surface_passed, 'expected_navigation' => $expected, 'cache_responses' => $responses );
+				$passed = $passed && $surface_passed && isset( $responses['origin'], $responses['canonical'] );
+			}
+		}
+		return array( 'success' => $passed, 'passed' => $passed, 'pre_enrollment' => true, 'items' => $items );
+	}
+
 	/**
 	 * Activate one complete staged set and its pending manifest in one database transaction.
 	 *
@@ -230,19 +257,51 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				}
 				if ( ! $written ) { self::rollback_public_header_state_transaction(); return array( 'success' => false, 'code' => 'public_header_state_write_failed', 'slot' => $slot ); }
 			}
-			$commit = self::translation_job_commit_recovery_transaction();
+			$commit = apply_filters( 'devenia_workflow_public_header_state_commit_adapter_result', null, $expected, $replacement, $staged );
+			$commit = null === $commit ? self::translation_job_commit_recovery_transaction() : self::translation_job_recovery_commit_adapter_receipt( $commit );
 			self::clear_public_header_state_option_cache();
-			if ( empty( $commit['success'] ) ) { return array( 'success' => false, 'code' => 'public_header_state_commit_failed', 'commit' => $commit ); }
-			return array( 'success' => true, 'commit' => $commit );
+			return self::reconcile_public_header_state_commit_outcome( $expected, $replacement, $commit );
 		} catch ( Throwable $error ) {
 			self::rollback_public_header_state_transaction();
 			return array( 'success' => false, 'code' => 'public_header_state_exception' );
 		}
 	}
 
+	/** Reconcile a structured activation commit receipt against exact state evidence. */
+	private static function reconcile_public_header_state_commit_outcome( array $expected, array $replacement, array $commit ): array {
+		$receipt_validation = self::translation_job_require_recovery_commit_receipt( $commit );
+		$missing = '__devenia_workflow_option_missing__'; self::clear_public_header_state_option_cache();
+		$current = array( 'manifest' => get_option( self::OPTION_PUBLIC_HEADER_MANIFEST, $missing ), 'identities' => get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $missing ), 'pending' => get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing ), 'enrollment' => get_option( self::OPTION_PUBLIC_HEADER_ENROLLMENT, $missing ) );
+		$committed = $receipt_validation['committed'];
+		$expected_exact = self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $expected );
+		$replacement_exact = self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $replacement );
+		$state_class = $expected_exact ? 'expected' : ( $replacement_exact ? 'replacement' : 'foreign' );
+		$base = array( 'success' => false, 'severity' => 'critical', 'commit' => $commit, 'committed' => $committed, 'receipt_validation' => $receipt_validation, 'current_state' => $current, 'expected_state_exact' => $expected_exact, 'replacement_state_exact' => $replacement_exact, 'state_class' => $state_class );
+		if ( empty( $receipt_validation['valid'] ) ) { return array_merge( $base, array( 'code' => 'public_header_state_commit_receipt_invalid', 'state_outcome' => 'invalid_receipt' ) ); }
+		if ( false === $committed && $expected_exact ) { return array_merge( $base, array( 'severity' => 'error', 'code' => 'public_header_state_commit_rolled_back', 'state_outcome' => 'unapplied' ) ); }
+		if ( true === $committed && $replacement_exact && true === ( $commit['success'] ?? null ) ) { return array_merge( $base, array( 'success' => true, 'severity' => 'success', 'code' => 'public_header_state_commit_applied', 'state_outcome' => 'applied' ) ); }
+		if ( true === $committed && $replacement_exact ) { return array_merge( $base, array( 'code' => 'public_header_state_commit_applied_adapter_error', 'state_outcome' => 'applied' ) ); }
+		if ( null === $committed && $expected_exact ) { return array_merge( $base, array( 'code' => 'public_header_state_commit_outcome_unknown_unapplied', 'state_outcome' => 'unapplied' ) ); }
+		if ( null === $committed && $replacement_exact ) { return array_merge( $base, array( 'code' => 'public_header_state_commit_outcome_unknown_applied', 'state_outcome' => 'applied' ) ); }
+		if ( false === $committed && $replacement_exact ) { return array_merge( $base, array( 'code' => 'public_header_state_commit_receipt_conflict', 'state_outcome' => 'applied' ) ); }
+		return array_merge( $base, array( 'code' => 'public_header_state_commit_reconciliation_conflict', 'state_outcome' => 'foreign' ) );
+	}
+
+	/** Authorize staged deletion only after exact current identities prove no reference. */
+	private static function public_header_activation_cleanup_authority( array $activation, array $staged ): array {
+		$missing = '__devenia_workflow_option_missing__'; self::clear_public_header_state_option_cache();
+		$current = array( 'manifest' => get_option( self::OPTION_PUBLIC_HEADER_MANIFEST, $missing ), 'identities' => get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $missing ), 'pending' => get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing ), 'enrollment' => get_option( self::OPTION_PUBLIC_HEADER_ENROLLMENT, $missing ) );
+		$receipt_current_exact = empty( $activation['current_state'] ) || ( is_array( $activation['current_state'] ) && self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $activation['current_state'] ) );
+		$before_exact = isset( $activation['before'] ) && is_array( $activation['before'] ) && self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $activation['before'] );
+		$outcome_unapplied = 'unapplied' === (string) ( $activation['state_outcome'] ?? '' ) || ( '' === (string) ( $activation['state_outcome'] ?? '' ) && $before_exact );
+		$references_excluded = $receipt_current_exact && $outcome_unapplied && self::public_header_state_excludes_staged_menu_ids( $current, $staged, $before_exact );
+		$state_authority = self::public_header_staged_cleanup_state_authority( $current, $before_exact && '__devenia_workflow_option_missing__' === ( $current['identities'] ?? null ) );
+		return array( 'allowed' => $references_excluded, 'state_outcome' => (string) ( $activation['state_outcome'] ?? ( $before_exact ? 'unapplied' : 'unknown' ) ), 'receipt_current_exact' => $receipt_current_exact, 'before_exact' => $before_exact, 'references_excluded' => $references_excluded, 'current_state' => $current, 'state_authority' => $state_authority );
+	}
+
 	/** Handle every post-activation failure through verified cache-safe rollback. */
 	private static function public_header_failure_after_activation( string $code, string $message, array $activation, array $staged, array $purge_urls, $invalidation, array $verification, array $input, array $retirement = array() ): array {
-		$rollback_receipts = self::public_header_rollback_projection_receipts( $activation, $staged );
+		$rollback_receipts = self::public_header_rollback_projection_receipts( $activation, $staged, $input );
 		$rollback = empty( $rollback_receipts['success'] )
 			? array( 'success' => false, 'code' => (string) ( $rollback_receipts['code'] ?? 'public_header_rollback_receipt_invalid' ), 'receipt_validation' => $rollback_receipts )
 			: self::replace_public_header_state_transaction( (array) $activation['after'], (array) $activation['before'], (array) ( $rollback_receipts['projections'] ?? array() ) );
@@ -251,12 +310,16 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		if ( ! empty( $rollback['success'] ) ) {
 			$rollback_invalidation = apply_filters( 'devenia_workflow_frontend_cache_invalidation_result', null, $purge_urls, array( 'event' => 'public_header_projection_rollback', 'failed_code' => $code ) );
 			if ( is_array( $rollback_invalidation ) && true === ( $rollback_invalidation['success'] ?? null ) ) {
-				$rollback_verification = self::verify_public_header_projection_set( self::configured_public_header_languages(), absint( $input['timeout'] ?? 15 ), (array) ( $rollback_receipts['expected_navigation'] ?? array() ) );
+				$rollback_verification = ! empty( $rollback_receipts['pre_enrollment'] )
+					? self::verify_pre_enrollment_public_header_navigation( self::configured_public_header_languages(), absint( $input['timeout'] ?? 15 ), (array) ( $rollback_receipts['expected_navigation'] ?? array() ) )
+					: self::verify_public_header_projection_set( self::configured_public_header_languages(), absint( $input['timeout'] ?? 15 ), (array) ( $rollback_receipts['expected_navigation'] ?? array() ) );
 			}
 		}
 		$rollback_complete = ! empty( $rollback['success'] ) && is_array( $rollback_invalidation ) && true === ( $rollback_invalidation['success'] ?? null ) && ! empty( $rollback_verification['passed'] );
-		if ( $rollback_complete ) { self::delete_staged_public_header_projections( $staged ); }
-		return array( 'success' => false, 'code' => $rollback_complete ? $code : 'public_header_projection_severe_rollback_failure', 'severity' => $rollback_complete ? 'error' : 'critical', 'failed_code' => $code, 'message' => $rollback_complete ? $message : 'Public Header Projection activation failed and the prior cached reader surface could not be proven restored.', 'cache_invalidation' => $invalidation, 'verification' => $verification, 'retirement' => $retirement, 'rollback' => $rollback, 'rollback_cache_invalidation' => $rollback_invalidation, 'rollback_verification' => $rollback_verification );
+		$cleanup_authority = isset( $activation['before'] ) && is_array( $activation['before'] ) ? self::public_header_staged_cleanup_state_authority( $activation['before'], '__devenia_workflow_option_missing__' === ( $activation['before']['identities'] ?? null ) ) : array();
+		$cleanup = $rollback_complete ? self::delete_staged_public_header_projections( $staged, $cleanup_authority ) : array( 'success' => false, 'code' => 'cleanup_not_safe_before_verified_rollback', 'results' => array() );
+		if ( $rollback_complete && empty( $cleanup['success'] ) ) { $rollback_complete = false; }
+		return array( 'success' => false, 'code' => $rollback_complete ? $code : 'public_header_projection_severe_rollback_failure', 'severity' => $rollback_complete ? 'error' : 'critical', 'failed_code' => $code, 'message' => $rollback_complete ? $message : 'Public Header Projection activation failed and the prior cached reader surface could not be proven restored.', 'cache_invalidation' => $invalidation, 'verification' => $verification, 'retirement' => $retirement, 'rollback' => $rollback, 'rollback_cache_invalidation' => $rollback_invalidation, 'rollback_verification' => $rollback_verification, 'cleanup' => $cleanup, 'activation' => $activation, 'projections' => $staged );
 	}
 
 	/**
@@ -264,10 +327,15 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	 * A post-activation rollback must never point readers at an old term which
 	 * changed after staging captured its recovery revision.
 	 */
-	private static function public_header_rollback_projection_receipts( array $activation, array $staged ): array {
+	private static function public_header_rollback_projection_receipts( array $activation, array $staged, array $input = array() ): array {
 		$before_manifest = self::normalize_public_header_manifest( $activation['before']['manifest'] ?? array() );
 		if ( empty( $before_manifest ) ) {
-			return array( 'success' => true, 'projections' => array(), 'pre_enrollment' => true );
+			$recovery = isset( $input['pre_enrollment_recovery'] ) && is_array( $input['pre_enrollment_recovery'] ) ? $input['pre_enrollment_recovery'] : array();
+			$source_menu_id = absint( $recovery['source_menu_id'] ?? 0 );
+			$source_receipt = (string) ( $recovery['source_receipt'] ?? '' );
+			$current_receipt = $source_menu_id > 0 ? self::localized_menu_projection_revision( $source_menu_id ) : '';
+			if ( empty( $recovery['expected_navigation'] ) || '' === $source_receipt || '' === $current_receipt || ! hash_equals( $source_receipt, $current_receipt ) ) { return array( 'success' => false, 'code' => 'public_header_pre_enrollment_recovery_receipt_invalid' ); }
+			return array( 'success' => true, 'projections' => array(), 'pre_enrollment' => true, 'expected_navigation' => (array) $recovery['expected_navigation'] );
 		}
 
 		$projections = array();
@@ -362,14 +430,140 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		return array( 'success' => true, 'retired_menu_ids' => $retired, 'preserved_for_rollback' => true );
 	}
 
-	/** Delete only unactivated staged menus whose pre-activation receipt still matches. */
-	private static function delete_staged_public_header_projections( array $staged ): void {
-		foreach ( $staged as $projection ) {
+	/** Bind an exact Public Header state to a later receipt-checked cleanup. */
+	private static function public_header_staged_cleanup_state_authority( array $state, bool $allow_missing_identities = false ): array {
+		return array(
+			'expected_state'             => $state,
+			'expected_state_revision'    => hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $state ) ) ?: '' ),
+			'allow_missing_identities'   => $allow_missing_identities,
+		);
+	}
+
+	/** Roll back one owned staged-menu cleanup without overstating deletion. */
+	private static function public_header_staged_cleanup_failure( array $failure, array $menu_ids ): array {
+		$rollback = self::translation_job_rollback_recovery_transaction();
+		self::clear_public_header_state_option_cache();
+		if ( ! empty( $menu_ids ) ) { clean_term_cache( $menu_ids ); }
+		$failure['success'] = false;
+		$failure['results'] = (array) ( $failure['results'] ?? array() );
+		$failure['transaction_rollback'] = $rollback;
+		if ( empty( $rollback['success'] ) ) { $failure['severity'] = 'critical'; }
+		return $failure;
+	}
+
+	/**
+	 * Delete only receipt-bound unreferenced staged menus inside one owned
+	 * transaction. The identity proof, every menu surface lock, revalidation,
+	 * and every deletion share the same serializable boundary.
+	 */
+	private static function delete_staged_public_header_projections( array $staged, array $state_authority = array() ): array {
+		if ( empty( $staged ) ) { return array( 'success' => true, 'code' => 'staged_projection_cleanup_complete', 'results' => array() ); }
+		$rows = array(); $menu_ids = array(); $results = array();
+		foreach ( $staged as $language => $projection ) {
 			$menu_id = absint( $projection['target_menu']['id'] ?? 0 );
 			$receipt = (string) ( $projection['menu_surface_revision'] ?? '' );
-			$current = $menu_id ? self::localized_menu_projection_revision( $menu_id ) : '';
-			if ( $menu_id > 0 && '' !== $receipt && '' !== $current && hash_equals( $receipt, $current ) ) { wp_delete_nav_menu( $menu_id ); }
+			if ( $menu_id < 1 || '' === $receipt || isset( $menu_ids[ $menu_id ] ) ) {
+				$results[ (string) $language ] = array( 'success' => false, 'code' => 'staged_menu_receipt_mismatch', 'menu_id' => $menu_id, 'expected_receipt' => $receipt, 'actual_receipt' => '' );
+				return array( 'success' => false, 'code' => 'staged_projection_cleanup_incomplete', 'results' => $results );
+			}
+			$menu_ids[ $menu_id ] = true;
+			$rows[] = array( 'language' => (string) $language, 'menu_id' => $menu_id, 'receipt' => $receipt );
 		}
+		$menu_id_list = array_keys( $menu_ids );
+		if ( ! self::translation_job_begin_recovery_transaction() ) {
+			return array( 'success' => false, 'code' => 'staged_projection_cleanup_transaction_unavailable', 'severity' => 'critical', 'results' => array() );
+		}
+		try {
+			global $wpdb;
+			foreach ( $rows as $row ) {
+				$locked = self::lock_localized_menu_projection_surface( (int) $row['menu_id'] );
+				$current = self::localized_menu_projection_revision( (int) $row['menu_id'] );
+				if ( empty( $locked['success'] ) || '' === $current || ! hash_equals( (string) $row['receipt'], $current ) ) {
+					$results[ $row['language'] ] = array( 'success' => false, 'code' => 'staged_menu_receipt_mismatch', 'menu_id' => $row['menu_id'], 'expected_receipt' => $row['receipt'], 'actual_receipt' => $current );
+					return self::public_header_staged_cleanup_failure( array( 'code' => 'staged_projection_cleanup_incomplete', 'results' => $results ), $menu_id_list );
+				}
+			}
+			$keys = array( self::OPTION_PUBLIC_HEADER_MANIFEST, self::OPTION_LOCALIZED_MENU_IDENTITIES, self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, self::OPTION_PUBLIC_HEADER_ENROLLMENT );
+			$locked_options = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The identity proof and receipt-bound menu deletions must share one locked option/menu transaction.
+				$wpdb->prepare( "SELECT option_id FROM {$wpdb->options} WHERE option_name IN (%s, %s, %s, %s) FOR UPDATE", $keys[0], $keys[1], $keys[2], $keys[3] )
+			);
+			if ( false === $locked_options ) {
+				return self::public_header_staged_cleanup_failure( array( 'code' => 'staged_projection_cleanup_state_lock_failed' ), $menu_id_list );
+			}
+			$missing = '__devenia_workflow_option_missing__';
+			$read_state = static function () use ( $missing ): array {
+				return array(
+					'manifest'   => get_option( self::OPTION_PUBLIC_HEADER_MANIFEST, $missing ),
+					'identities' => get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $missing ),
+					'pending'    => get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing ),
+					'enrollment' => get_option( self::OPTION_PUBLIC_HEADER_ENROLLMENT, $missing ),
+				);
+			};
+			self::clear_public_header_state_option_cache();
+			$locked_state = $read_state();
+			$authority_expected = isset( $state_authority['expected_state'] ) && is_array( $state_authority['expected_state'] ) ? $state_authority['expected_state'] : array();
+			$authority_revision = (string) ( $state_authority['expected_state_revision'] ?? '' );
+			$authority_actual_revision = ! empty( $authority_expected ) ? hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $authority_expected ) ) ?: '' ) : '';
+			$authority_valid = ! empty( $authority_expected ) && '' !== $authority_revision && hash_equals( $authority_revision, $authority_actual_revision );
+			if ( ( ! empty( $state_authority ) && ! $authority_valid ) || ( $authority_valid && self::translation_job_canonicalize( $locked_state ) !== self::translation_job_canonicalize( $authority_expected ) ) ) {
+				return self::public_header_staged_cleanup_failure( array( 'code' => 'staged_projection_cleanup_state_receipt_mismatch', 'severity' => 'critical', 'locked_state' => $locked_state ), $menu_id_list );
+			}
+			$allow_missing_identities = $authority_valid && ! empty( $state_authority['allow_missing_identities'] );
+			if ( ! self::public_header_state_excludes_staged_menu_ids( $locked_state, $staged, $allow_missing_identities ) ) {
+				return self::public_header_staged_cleanup_failure( array( 'code' => 'cleanup_blocked_by_foreign_staged_menu_reference', 'severity' => 'critical', 'locked_state' => $locked_state ), $menu_id_list );
+			}
+
+			do_action( 'devenia_workflow_public_header_staged_cleanup_before_locked_revalidation', $staged, $locked_state );
+			self::clear_public_header_state_option_cache();
+			clean_term_cache( $menu_id_list );
+			$revalidated_state = $read_state();
+			if ( self::translation_job_canonicalize( $revalidated_state ) !== self::translation_job_canonicalize( $locked_state ) || ! self::public_header_state_excludes_staged_menu_ids( $revalidated_state, $staged, $allow_missing_identities ) ) {
+				return self::public_header_staged_cleanup_failure( array( 'code' => 'staged_projection_cleanup_identity_changed', 'severity' => 'critical', 'locked_state' => $locked_state, 'revalidated_state' => $revalidated_state ), $menu_id_list );
+			}
+			foreach ( $rows as $row ) {
+				$current = self::localized_menu_projection_revision( (int) $row['menu_id'] );
+				if ( '' === $current || ! hash_equals( (string) $row['receipt'], $current ) ) {
+					$results[ $row['language'] ] = array( 'success' => false, 'code' => 'staged_menu_receipt_mismatch', 'menu_id' => $row['menu_id'], 'expected_receipt' => $row['receipt'], 'actual_receipt' => $current );
+					return self::public_header_staged_cleanup_failure( array( 'code' => 'staged_projection_cleanup_incomplete', 'results' => $results ), $menu_id_list );
+				}
+			}
+			foreach ( $rows as $row ) {
+				$deleted = wp_delete_nav_menu( (int) $row['menu_id'] );
+				$deleted_ok = ! is_wp_error( $deleted ) && false !== $deleted && ! wp_get_nav_menu_object( (int) $row['menu_id'] );
+				$results[ $row['language'] ] = array( 'success' => $deleted_ok, 'code' => $deleted_ok ? 'staged_menu_deleted' : 'staged_menu_delete_failed', 'menu_id' => $row['menu_id'], 'receipt' => $row['receipt'] );
+				if ( ! $deleted_ok ) { return self::public_header_staged_cleanup_failure( array( 'code' => 'staged_projection_cleanup_incomplete', 'results' => $results ), $menu_id_list ); }
+			}
+			self::clear_public_header_state_option_cache();
+			$state_before_commit = $read_state();
+			if ( self::translation_job_canonicalize( $state_before_commit ) !== self::translation_job_canonicalize( $locked_state ) ) {
+				return self::public_header_staged_cleanup_failure( array( 'code' => 'staged_projection_cleanup_identity_changed', 'severity' => 'critical', 'locked_state' => $locked_state, 'revalidated_state' => $state_before_commit ), $menu_id_list );
+			}
+			$commit = self::translation_job_commit_recovery_transaction();
+			$receipt_validation = self::translation_job_require_recovery_commit_receipt( $commit );
+			self::clear_public_header_state_option_cache(); clean_term_cache( $menu_id_list );
+			$all_deleted = empty( array_filter( $menu_id_list, 'wp_get_nav_menu_object' ) );
+			if ( ! empty( $receipt_validation['valid'] ) && true === ( $commit['success'] ?? null ) && true === ( $commit['committed'] ?? null ) && $all_deleted ) {
+				return array( 'success' => true, 'code' => 'staged_projection_cleanup_complete', 'results' => $results, 'transaction_commit' => $commit, 'receipt_validation' => $receipt_validation, 'locked_state_revision' => hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $locked_state ) ) ?: '' ) );
+			}
+			return array( 'success' => false, 'code' => empty( $receipt_validation['valid'] ) ? 'staged_projection_cleanup_commit_receipt_invalid' : ( $all_deleted ? 'staged_projection_cleanup_commit_outcome_unresolved' : 'staged_projection_cleanup_commit_failed' ), 'severity' => 'critical', 'results' => $results, 'transaction_commit' => $commit, 'receipt_validation' => $receipt_validation, 'state_outcome' => empty( $receipt_validation['valid'] ) ? 'invalid_receipt' : ( $all_deleted ? 'applied' : 'unapplied' ) );
+		} catch ( Throwable $error ) {
+			return self::public_header_staged_cleanup_failure( array( 'code' => 'staged_projection_cleanup_exception', 'severity' => 'critical' ), $menu_id_list );
+		}
+	}
+
+	/** Prove that the currently authoritative identities reference no staged menu. */
+	private static function public_header_state_excludes_staged_menu_ids( array $state, array $staged, bool $exact_owned_state = false ): bool {
+		$staged_ids = array(); foreach ( $staged as $projection ) { $menu_id = absint( $projection['target_menu']['id'] ?? 0 ); if ( $menu_id > 0 ) { $staged_ids[ $menu_id ] = true; } }
+		if ( empty( $staged_ids ) ) { return true; }
+		$identities = $state['identities'] ?? null;
+		if ( '__devenia_workflow_option_missing__' === $identities ) { return $exact_owned_state; }
+		if ( ! is_array( $identities ) ) { return false; }
+		foreach ( $identities as $identity ) {
+			if ( ! is_array( $identity ) ) { continue; }
+			$menu_id = absint( $identity['menu_id'] ?? 0 );
+			if ( $menu_id > 0 && isset( $staged_ids[ $menu_id ] ) ) { return false; }
+		}
+		return true;
 	}
 
 	/**
@@ -429,26 +623,32 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$recover_staged_mutation = ! empty( $input['recover_staged_mutation'] );
 		$prior_mutation_cas_revision = (string) ( $input['expected_mutation_cas_revision'] ?? '' );
 		if ( ! self::translation_job_begin_recovery_transaction() ) {
-			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_unavailable', 'message' => 'The localized presentation transaction could not be started.', 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision ), self::translation_job_recovery_transaction_error_fields() );
+			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_unavailable', 'message' => 'The localized presentation transaction could not be started.', 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision, 'rollback_authorized' => false ), self::translation_job_recovery_transaction_error_fields() );
 		}
+		$current_before = '';
+		$mutation_cas_revision = '';
+		$transition = array();
+		$commit = null;
 		try {
 		$locked = self::translation_job_lock_recovery_surface( $translation_id, $term_scope, $identity_scope );
 		if ( empty( $locked['success'] ) ) {
-			return self::translation_job_failure_after_recovery_rollback( array_merge( $locked, array( 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision ) ) );
+			return self::translation_job_failure_after_recovery_rollback( array_merge( $locked, array( 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision, 'rollback_authorized' => false ) ) );
 		}
 		$expected_before = (string) ( $input['expected_mutation_cas_revision'] ?? '' );
 		$current_before = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
 		if ( '' === $expected_before || '' === $current_before || ! hash_equals( $expected_before, $current_before ) ) {
 			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array_merge( array( 'success' => false, 'code' => 'publication_surface_changed_before_locked_transition', 'message' => 'The translation surface changed before the publication transaction acquired ownership.', 'published' => false, 'mutation_started' => ! empty( $input['recover_staged_mutation'] ), 'mutation_cas_revision' => $expected_before ), self::translation_job_rollback_response_fields( $rollback ) );
+			return array_merge( array( 'success' => false, 'code' => 'publication_surface_changed_before_locked_transition', 'message' => 'The translation surface changed before the publication transaction acquired ownership.', 'published' => false, 'mutation_started' => ! empty( $input['recover_staged_mutation'] ), 'mutation_cas_revision' => $expected_before, 'rollback_authorized' => false ), self::translation_job_rollback_response_fields( $rollback ) );
 		}
 		$transition = self::apply_translation_publish_transition( $translation_id, $language, $source_id, $term_scope );
 		if ( empty( $transition['success'] ) ) {
 			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 			$transition['mutation_started'] = $recover_staged_mutation;
-			$transition['mutation_cas_revision'] = $prior_mutation_cas_revision;
+			$transition['mutation_cas_revision'] = $current_before;
+			$transition['rollback_authorized'] = ! empty( $rollback['success'] ) && ! empty( $rollback['rolled_back'] );
+			if ( $transition['rollback_authorized'] ) { $transition['rollback_expected_surface_revision'] = $current_before; }
 			return array_merge( $transition, self::translation_job_rollback_response_fields( $rollback ) );
 		}
 		$post = get_post( $translation_id );
@@ -459,18 +659,47 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		if ( '' === $mutation_cas_revision ) {
 			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array_merge( array( 'success' => false, 'code' => 'publication_mutation_receipt_failed', 'message' => 'The publication transaction could not produce its exact recovery receipt.', 'published' => false, 'transition' => $transition, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision ), self::translation_job_rollback_response_fields( $rollback ) );
+			$rollback_authorized = ! empty( $rollback['success'] ) && ! empty( $rollback['rolled_back'] );
+			return array_merge( array( 'success' => false, 'code' => 'publication_mutation_receipt_failed', 'message' => 'The publication transaction could not produce its exact recovery receipt.', 'published' => false, 'transition' => $transition, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $current_before, 'rollback_authorized' => $rollback_authorized, 'rollback_expected_surface_revision' => $rollback_authorized ? $current_before : '' ), self::translation_job_rollback_response_fields( $rollback ) );
 		}
-		$commit = self::translation_job_commit_recovery_transaction();
-		if ( empty( $commit['success'] ) ) {
+			$commit = apply_filters( 'devenia_workflow_localized_presentation_commit_adapter_result', null, $translation_id, $current_before, $mutation_cas_revision );
+			$commit = null === $commit ? self::translation_job_commit_recovery_transaction() : self::translation_job_recovery_commit_adapter_receipt( $commit );
+			$receipt_validation = self::translation_job_require_recovery_commit_receipt( $commit );
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_commit_failed', 'message' => 'The localized presentation transaction could not be committed safely.', 'published' => false, 'transition' => $transition, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision, 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
-		}
-		self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+			$observed_mutation_revision = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
+			$committed = $receipt_validation['committed'];
+			$before_exact = '' !== $observed_mutation_revision && hash_equals( $current_before, $observed_mutation_revision );
+			$replacement_exact = '' !== $observed_mutation_revision && hash_equals( $mutation_cas_revision, $observed_mutation_revision );
+			$commit_reconciliation = array( 'committed' => $committed, 'receipt_validation' => $receipt_validation, 'before_exact' => $before_exact, 'replacement_exact' => $replacement_exact, 'before_revision' => $current_before, 'replacement_revision' => $mutation_cas_revision, 'observed_revision' => $observed_mutation_revision );
+			if ( empty( $receipt_validation['valid'] ) ) {
+				return array_merge( array( 'success' => false, 'code' => 'publication_transaction_commit_receipt_invalid', 'severity' => 'critical', 'message' => 'The localized presentation commit Adapter returned an invalid receipt.', 'published' => null, 'transition' => $transition, 'mutation_started' => ! $before_exact, 'mutation_cas_revision' => '', 'observed_mutation_cas_revision' => $observed_mutation_revision, 'rollback_authorized' => false, 'transaction_commit' => $commit, 'commit_reconciliation' => array_merge( $commit_reconciliation, array( 'state_outcome' => 'invalid_receipt' ) ) ), self::translation_job_recovery_transaction_error_fields() );
+			}
+			if ( $before_exact && ( false === $committed || null === $committed ) ) {
+					return array_merge( array( 'success' => false, 'code' => false === $committed ? 'publication_transaction_commit_rolled_back' : 'publication_transaction_commit_outcome_unknown_unapplied', 'severity' => null === $committed ? 'critical' : 'error', 'message' => 'The localized presentation mutation is proven unapplied.', 'published' => false, 'transition' => $transition, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $current_before, 'rollback_authorized' => true, 'rollback_expected_surface_revision' => $current_before, 'transaction_commit' => $commit, 'commit_reconciliation' => $commit_reconciliation ), self::translation_job_recovery_transaction_error_fields() );
+			}
+			if ( $replacement_exact && ( true === $committed || null === $committed ) ) {
+				$mutation_cas_revision = $observed_mutation_revision;
+				$commit_reconciliation['state_outcome'] = 'applied';
+			} else {
+				return array_merge( array( 'success' => false, 'code' => 'publication_transaction_commit_reconciliation_conflict', 'severity' => 'critical', 'message' => 'The localized presentation commit outcome conflicts with the exact observed public mutation surface.', 'published' => null, 'transition' => $transition, 'mutation_started' => true, 'mutation_cas_revision' => '', 'observed_mutation_cas_revision' => $observed_mutation_revision, 'rollback_authorized' => false, 'transaction_commit' => $commit, 'commit_reconciliation' => array_merge( $commit_reconciliation, array( 'state_outcome' => 'foreign' ) ) ), self::translation_job_recovery_transaction_error_fields() );
+			}
+			$post = get_post( $translation_id );
 		} catch ( Throwable $error ) {
 			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_exception', 'message' => 'The localized presentation transaction stopped unexpectedly.', 'published' => false, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $prior_mutation_cas_revision ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+			$observed_after_exception = '' !== $mutation_cas_revision ? self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope ) : '';
+			$exception_before_exact = '' !== $current_before && '' !== $observed_after_exception && hash_equals( $current_before, $observed_after_exception );
+			$exception_replacement_exact = '' !== $mutation_cas_revision && '' !== $observed_after_exception && hash_equals( $mutation_cas_revision, $observed_after_exception );
+			if ( $exception_before_exact ) {
+				return array_merge( array( 'success' => false, 'code' => 'publication_transaction_exception_unapplied', 'severity' => 'error', 'message' => 'The localized presentation transaction stopped unexpectedly and its mutation is proven unapplied.', 'published' => false, 'transition' => $transition, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => $current_before, 'rollback_authorized' => true, 'rollback_expected_surface_revision' => $current_before, 'transaction_commit' => $commit, 'commit_reconciliation' => array( 'state_outcome' => 'unapplied', 'observed_revision' => $observed_after_exception ) ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+			}
+			if ( $exception_replacement_exact ) {
+				return array_merge( array( 'success' => false, 'code' => 'publication_transaction_exception_applied', 'severity' => 'critical', 'message' => 'The localized presentation mutation is applied, but the transaction Adapter stopped before publication could safely continue.', 'published' => true, 'transition' => $transition, 'mutation_started' => true, 'mutation_cas_revision' => $observed_after_exception, 'rollback_authorized' => true, 'rollback_expected_surface_revision' => $observed_after_exception, 'transaction_commit' => $commit, 'commit_reconciliation' => array( 'state_outcome' => 'applied', 'observed_revision' => $observed_after_exception ) ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+			}
+			if ( '' !== $observed_after_exception ) {
+				return array_merge( array( 'success' => false, 'code' => 'publication_transaction_exception_reconciliation_conflict', 'severity' => 'critical', 'message' => 'The localized presentation transaction stopped with a foreign observed public mutation surface.', 'published' => null, 'transition' => $transition, 'mutation_started' => true, 'mutation_cas_revision' => '', 'observed_mutation_cas_revision' => $observed_after_exception, 'rollback_authorized' => false, 'transaction_commit' => $commit, 'commit_reconciliation' => array( 'state_outcome' => 'foreign', 'observed_revision' => $observed_after_exception ) ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+			}
+			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_exception', 'severity' => 'critical', 'message' => 'The localized presentation transaction stopped unexpectedly before an exact mutation outcome could be observed.', 'published' => null, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => '', 'observed_mutation_cas_revision' => $prior_mutation_cas_revision, 'rollback_authorized' => false ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 			}
 
 		$menu = null;
@@ -486,6 +715,10 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 					'menu'                    => $menu,
 					'mutation_started'        => true,
 					'mutation_cas_revision'   => $mutation_cas_revision,
+					'rollback_authorized'      => true,
+					'rollback_expected_surface_revision' => $mutation_cas_revision,
+					'transaction_commit'       => $commit,
+					'commit_reconciliation'    => $commit_reconciliation,
 				);
 			}
 		}
@@ -509,6 +742,10 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				'purge_urls'         => $purge_urls,
 				'cache_invalidation' => null,
 				'mutation_cas_revision' => $mutation_cas_revision,
+				'rollback_authorized' => true,
+				'rollback_expected_surface_revision' => $mutation_cas_revision,
+				'transaction_commit' => $commit,
+				'commit_reconciliation' => $commit_reconciliation,
 			), $menu, absint( $input['live_verification_timeout'] ?? 15 ) );
 		}
 		if ( true !== ( $invalidation['success'] ?? null ) ) {
@@ -522,6 +759,10 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				'purge_urls'         => $purge_urls,
 				'cache_invalidation' => $invalidation,
 				'mutation_cas_revision' => $mutation_cas_revision,
+				'rollback_authorized' => true,
+				'rollback_expected_surface_revision' => $mutation_cas_revision,
+				'transaction_commit' => $commit,
+				'commit_reconciliation' => $commit_reconciliation,
 			), $menu, absint( $input['live_verification_timeout'] ?? 15 ) );
 		}
 
@@ -546,6 +787,10 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				'cache_invalidation' => $invalidation,
 				'live_verification'  => $live,
 				'mutation_cas_revision' => $mutation_cas_revision,
+				'rollback_authorized' => true,
+				'rollback_expected_surface_revision' => $mutation_cas_revision,
+				'transaction_commit' => $commit,
+				'commit_reconciliation' => $commit_reconciliation,
 			), $menu, absint( $input['live_verification_timeout'] ?? 15 ) );
 		}
 
@@ -558,44 +803,11 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			'cache_invalidation' => $invalidation,
 			'live_verification'  => $live,
 			'mutation_cas_revision' => $mutation_cas_revision,
+			'rollback_authorized' => true,
+			'rollback_expected_surface_revision' => $mutation_cas_revision,
 			'transaction_commit' => $commit,
+			'commit_reconciliation' => $commit_reconciliation,
 		);
-	}
-
-	/** Restore the previous active menu identity and remove an uncommitted projection. */
-	private static function rollback_localized_menu_projection( string $language, array $menu ): array {
-		$target_id = absint( $menu['target_menu']['id'] ?? 0 );
-		if ( ! $target_id ) { return array( 'success' => true, 'action' => 'not_required' ); }
-		if ( ! self::translation_job_begin_recovery_transaction() ) { return array_merge( array( 'success' => false, 'action' => 'menu_rollback_conflict', 'error' => 'menu_recovery_transaction_unavailable' ), self::translation_job_recovery_transaction_error_fields() ); }
-		try {
-		$locked = self::lock_localized_menu_projection_surface( $target_id );
-		if ( empty( $locked['success'] ) ) { return self::translation_job_failure_after_recovery_rollback( $locked ); }
-		$previous_id = absint( $menu['previous_menu_id'] ?? 0 );
-		if ( $previous_id ) {
-			$previous_locked = self::lock_localized_menu_projection_surface( $previous_id );
-			if ( empty( $previous_locked['success'] ) ) { return self::translation_job_failure_after_recovery_rollback( $previous_locked ); }
-		}
-		clean_term_cache( array( $target_id ) );
-		$result = self::rollback_localized_menu_projection_uncommitted( $language, $menu );
-		if ( empty( $result['success'] ) ) {
-			$rollback = self::translation_job_rollback_recovery_transaction();
-			clean_term_cache( array( $target_id ) );
-			return array_merge( $result, self::translation_job_rollback_response_fields( $rollback ) );
-		}
-		$commit = self::translation_job_commit_recovery_transaction();
-		if ( empty( $commit['success'] ) ) {
-			clean_term_cache( array( $target_id ) );
-			return array_merge( array( 'success' => false, 'action' => 'menu_rollback_conflict', 'error' => 'menu_recovery_transaction_commit_failed', 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
-		}
-		clean_term_cache( array( $target_id ) );
-		$result['transaction_committed'] = true;
-		$result['transaction_commit'] = $commit;
-		return $result;
-		} catch ( Throwable $error ) {
-			$rollback = self::translation_job_rollback_recovery_transaction();
-			clean_term_cache( array( $target_id ) );
-			return array_merge( array( 'success' => false, 'action' => 'menu_rollback_conflict', 'error' => 'menu_recovery_transaction_exception', 'message' => 'The menu recovery transaction stopped unexpectedly.' ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
-		}
 	}
 
 	/** Lock the option, menu term, every item row/meta row, and all item relationships. */
@@ -742,6 +954,306 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		}
 
 		return array_values( array_unique( array_filter( array_map( 'esc_url_raw', $urls ) ) ) );
+	}
+
+	/**
+	 * Build and optionally activate the first managed Public Header Projection
+	 * from explicitly verified existing WordPress menu identities.
+	 *
+	 * @param array<string,mixed> $input Enrollment arguments.
+	 * @return array<string,mixed>
+	 */
+	private static function enroll_public_header_from_existing_menus( array $input ): array {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return self::error( 'Public header enrollment requires manage_options.' );
+		}
+		$missing_option = '__devenia_workflow_option_missing__';
+		$before = array(
+			'manifest'   => get_option( self::OPTION_PUBLIC_HEADER_MANIFEST, $missing_option ),
+			'identities' => get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $missing_option ),
+			'pending'    => get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing_option ),
+			'enrollment' => get_option( self::OPTION_PUBLIC_HEADER_ENROLLMENT, $missing_option ),
+		);
+		if ( self::public_header_projection_is_enrolled() || ! empty( self::public_header_manifest() ) ) {
+			return array( 'success' => false, 'code' => 'public_header_already_enrolled', 'message' => 'First enrollment is available only before the managed-header activation boundary.' );
+		}
+		if ( $missing_option !== $before['pending'] ) {
+			return array( 'success' => false, 'code' => 'public_header_unenrolled_pending_state_present', 'message' => 'Un-enrolled intake requires an empty pending slot; existing pending state must be classified first.' );
+		}
+
+		$languages = self::configured_public_header_languages();
+		$source_language = self::source_language_code();
+		$source_menu_id = absint( $input['source_menu_id'] ?? 0 );
+		$locations = get_nav_menu_locations();
+		$primary_menu_id = absint( is_array( $locations ) ? ( $locations['primary'] ?? 0 ) : 0 );
+		if ( $source_menu_id < 1 || $source_menu_id !== $primary_menu_id ) {
+			return array( 'success' => false, 'code' => 'public_header_source_menu_not_primary', 'message' => 'First enrollment requires the explicitly verified menu currently assigned to the public primary theme location.', 'source_menu_id' => $source_menu_id, 'primary_menu_id' => $primary_menu_id );
+		}
+		$source_manifest = self::public_header_source_manifest_from_menu( $source_menu_id );
+		if ( empty( $source_manifest['success'] ) ) { return $source_manifest; }
+
+		$authority_ids = array();
+		foreach ( (array) ( $input['authority_menus'] ?? array() ) as $row ) {
+			if ( ! is_array( $row ) ) { continue; }
+			$language = sanitize_key( (string) ( $row['language'] ?? '' ) );
+			$menu_id = absint( $row['menu_id'] ?? 0 );
+			if ( ! in_array( $language, $languages, true ) || $menu_id < 1 ) {
+				return array( 'success' => false, 'code' => 'public_header_enrollment_authority_invalid', 'message' => 'Every authority menu must bind one configured language to one existing menu identity.' );
+			}
+			$authority_ids[ $language ][] = $menu_id;
+		}
+		$authority_ids[ $source_language ][] = $source_menu_id;
+		foreach ( $authority_ids as $language => $ids ) { $authority_ids[ $language ] = array_values( array_unique( array_map( 'absint', $ids ) ) ); }
+		$retained_menus = wp_get_nav_menus();
+
+		$manifest_items = (array) $source_manifest['items'];
+		$authority = array();
+		$missing = array();
+		foreach ( $languages as $language ) {
+			$explicit_ids = (array) ( $authority_ids[ $language ] ?? array() );
+			$ids = $explicit_ids;
+			if ( $source_language !== $language ) {
+				foreach ( $retained_menus as $retained_menu ) {
+					$retained_id = is_object( $retained_menu ) ? absint( $retained_menu->term_id ?? 0 ) : 0;
+					if ( $retained_id > 0 && '1' !== (string) get_term_meta( $retained_id, self::TERM_META_MENU_MANAGED, true ) ) { $ids[] = $retained_id; }
+				}
+				$ids = array_values( array_unique( $ids ) );
+			}
+			if ( empty( $ids ) ) { $missing[] = array( 'language' => $language, 'reason' => 'authority_provenance_missing' ); continue; }
+			$snapshots = array();
+			foreach ( $ids as $menu_id ) {
+				$menu = wp_get_nav_menu_object( $menu_id );
+				if ( $source_language !== $language && '1' === (string) get_term_meta( $menu_id, self::TERM_META_MENU_MANAGED, true ) ) { continue; }
+				$snapshot = $menu ? self::public_header_editorial_label_snapshot( $language, $menu_id, $manifest_items ) : array();
+				if ( empty( $snapshot['success'] ) && in_array( $menu_id, $explicit_ids, true ) ) {
+					$missing[] = array( 'language' => $language, 'menu_id' => $menu_id, 'reason' => (string) ( $snapshot['code'] ?? 'authority_menu_missing' ), 'details' => (array) ( $snapshot['missing'] ?? array() ) );
+					continue;
+				}
+				if ( empty( $snapshot['success'] ) ) { continue; }
+				$snapshots[] = array( 'menu_id' => $menu_id, 'menu_name' => (string) $menu->name, 'provenance' => in_array( $menu_id, $explicit_ids, true ) ? 'explicit_authority' : 'retained_relation_match', 'surface_revision' => self::localized_menu_projection_revision( $menu_id ), 'labels' => (array) $snapshot['labels'] );
+			}
+			if ( empty( $snapshots ) || ( $source_language !== $language && count( $snapshots ) < 2 ) ) {
+				$missing[] = array( 'language' => $language, 'reason' => empty( $snapshots ) ? 'authority_provenance_missing' : 'insufficient_independent_authority_candidates', 'candidate_menu_ids' => array_values( array_map( static function ( array $candidate ): int { return (int) $candidate['menu_id']; }, $snapshots ) ) );
+				continue;
+			}
+			$canonical = self::translation_job_canonicalize( (array) $snapshots[0]['labels'] );
+			foreach ( $snapshots as $snapshot ) {
+				if ( self::translation_job_canonicalize( (array) $snapshot['labels'] ) !== $canonical ) {
+					$missing[] = array( 'language' => $language, 'reason' => 'authority_candidate_conflict', 'candidate_menu_ids' => array_values( array_map( static function ( array $candidate ): int { return (int) $candidate['menu_id']; }, $snapshots ) ) );
+					continue 2;
+				}
+			}
+			$authority[ $language ] = $snapshots;
+			foreach ( (array) $snapshots[0]['labels'] as $source_item_id => $label ) {
+				foreach ( $manifest_items as &$manifest_item ) {
+					if ( absint( $manifest_item['source_item_id'] ?? 0 ) === absint( $source_item_id ) ) { $manifest_item['labels'][ $language ] = (string) $label; break; }
+				}
+				unset( $manifest_item );
+			}
+		}
+		if ( ! empty( $missing ) || count( $authority ) !== count( $languages ) ) {
+			return array( 'success' => false, 'code' => 'public_header_enrollment_authority_incomplete', 'message' => 'First enrollment requires complete unambiguous source-item label authority for every configured language.', 'missing' => $missing, 'authority' => $authority );
+		}
+		foreach ( $manifest_items as &$manifest_item ) { $manifest_item['title'] = sanitize_text_field( (string) ( $manifest_item['labels'][ $source_language ] ?? '' ) ); }
+		unset( $manifest_item );
+		$normalized = self::normalize_public_header_manifest_items( $manifest_items, true );
+		if ( empty( $normalized['success'] ) ) { return array_merge( $normalized, array( 'authority' => $authority ) ); }
+		if ( self::translation_job_canonicalize( $before ) !== self::translation_job_canonicalize( array( 'manifest' => get_option( self::OPTION_PUBLIC_HEADER_MANIFEST, $missing_option ), 'identities' => get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $missing_option ), 'pending' => get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing_option ), 'enrollment' => get_option( self::OPTION_PUBLIC_HEADER_ENROLLMENT, $missing_option ) ) ) ) {
+			return array( 'success' => false, 'code' => 'public_header_enrollment_state_changed', 'message' => 'Public Header state changed while enrollment authority was being verified.' );
+		}
+		$current_source_revision = self::localized_menu_projection_revision( $source_menu_id );
+		if ( '' === $current_source_revision || ! hash_equals( (string) ( $source_manifest['surface_revision'] ?? '' ), $current_source_revision ) ) {
+			return array( 'success' => false, 'code' => 'public_header_source_menu_changed', 'message' => 'The verified source menu changed before enrollment could stage.' );
+		}
+		foreach ( $authority as $language => $snapshots ) {
+			foreach ( $snapshots as $snapshot ) {
+				$current_revision = self::localized_menu_projection_revision( absint( $snapshot['menu_id'] ?? 0 ) );
+				if ( '' === $current_revision || ! hash_equals( (string) ( $snapshot['surface_revision'] ?? '' ), $current_revision ) ) {
+					return array( 'success' => false, 'code' => 'public_header_enrollment_authority_changed', 'message' => 'An accepted authority menu changed before enrollment could stage.', 'language' => $language, 'menu_id' => absint( $snapshot['menu_id'] ?? 0 ) );
+				}
+			}
+		}
+		$recovery = self::pre_enrollment_public_header_recovery_snapshot( $languages, absint( $input['timeout'] ?? 15 ), $source_menu_id, (string) $current_source_revision, $authority );
+		if ( empty( $recovery['success'] ) ) { return $recovery; }
+		$draft = array( 'schema_version' => 2, 'source_language' => $source_language, 'revision' => self::public_header_manifest_revision_for_items( (array) $normalized['items'] ), 'items' => (array) $normalized['items'] );
+		$result = array( 'success' => true, 'activated' => false, 'draft' => $draft, 'authority' => $authority, 'recovery' => $recovery );
+		if ( ! empty( $input['activate'] ) ) {
+			$stage = self::stage_first_public_header_enrollment_transaction( $before, $draft, $source_menu_id, $authority );
+			$result['stage_result'] = $stage;
+			if ( empty( $stage['success'] ) || empty( $stage['pending'] ) ) { $result['success'] = false; return $result; }
+			$activation = self::sync_public_header_projection(
+				array(
+					'timeout'                    => absint( $input['timeout'] ?? 15 ),
+					'pre_enrollment_recovery'    => $recovery,
+					'cleanup_state_authority'    => self::public_header_staged_cleanup_state_authority( (array) $stage['expected_state'], '__devenia_workflow_option_missing__' === ( $stage['expected_state']['identities'] ?? null ) ),
+				)
+			);
+			$result['activation'] = $activation;
+			$result['activated'] = ! empty( $activation['success'] );
+			$result['success'] = ! empty( $activation['success'] );
+			if ( empty( $activation['success'] ) ) {
+				do_action( 'devenia_workflow_public_header_enrollment_before_intake_restore', $activation, $stage );
+				$current = array( 'manifest' => get_option( self::OPTION_PUBLIC_HEADER_MANIFEST, $missing_option ), 'identities' => get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $missing_option ), 'pending' => get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing_option ), 'enrollment' => get_option( self::OPTION_PUBLIC_HEADER_ENROLLMENT, $missing_option ) );
+				$current_is_before = self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $before );
+				$owned_staging_state = isset( $stage['expected_state'] ) && is_array( $stage['expected_state'] ) ? $stage['expected_state'] : array();
+				$owned_staging_revision = hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $owned_staging_state ) ) ?: '' );
+				$owned_staging_receipt_valid = ! empty( $owned_staging_state ) && '' !== (string) ( $stage['expected_state_revision'] ?? '' ) && hash_equals( (string) $stage['expected_state_revision'], $owned_staging_revision );
+				$current_is_owned_staging = $owned_staging_receipt_valid && self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $owned_staging_state );
+				$activation_severe = 'critical' === (string) ( $activation['severity'] ?? '' ) || 'public_header_projection_severe_rollback_failure' === (string) ( $activation['code'] ?? '' );
+				$restored = $current_is_before
+					? array( 'success' => true, 'code' => 'public_header_enrollment_pre_state_already_safe' )
+					: ( $current_is_owned_staging && ! $activation_severe
+						? self::replace_public_header_state_transaction( $owned_staging_state, $before, array() )
+						: array( 'success' => false, 'code' => $activation_severe ? 'public_header_enrollment_severe_rollback_not_bypassed' : 'public_header_enrollment_intake_restore_conflict' ) );
+				$after_restore = array( 'manifest' => get_option( self::OPTION_PUBLIC_HEADER_MANIFEST, $missing_option ), 'identities' => get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $missing_option ), 'pending' => get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing_option ), 'enrollment' => get_option( self::OPTION_PUBLIC_HEADER_ENROLLMENT, $missing_option ) );
+				$exact = ! empty( $restored['success'] ) && self::translation_job_canonicalize( $before ) === self::translation_job_canonicalize( $after_restore );
+				$core_cleanup = isset( $activation['cleanup'] ) && is_array( $activation['cleanup'] ) ? $activation['cleanup'] : array();
+				$cleanup_safe = $exact || ( $current_is_owned_staging && self::public_header_state_excludes_staged_menu_ids( $after_restore, (array) ( $activation['projections'] ?? array() ), true ) );
+				$cleanup_state_authority = self::public_header_staged_cleanup_state_authority( $after_restore, $exact || $current_is_owned_staging );
+				$cleanup = ! empty( $core_cleanup['success'] )
+					? $core_cleanup
+					: ( $cleanup_safe && ! empty( $activation['projections'] ) ? self::delete_staged_public_header_projections( (array) $activation['projections'], $cleanup_state_authority ) : array( 'success' => $cleanup_safe && empty( $activation['projections'] ), 'code' => $cleanup_safe ? 'no_staged_projections_remain' : 'cleanup_blocked_by_foreign_staged_menu_reference', 'results' => array() ) );
+				$purge_urls = self::public_header_projection_urls( $languages );
+				$invalidation = $exact ? apply_filters( 'devenia_workflow_frontend_cache_invalidation_result', null, $purge_urls, array( 'event' => 'public_header_first_enrollment_recovery' ) ) : null;
+					$verification = $exact && ! empty( $cleanup['success'] ) && is_array( $invalidation ) && true === ( $invalidation['success'] ?? null ) ? self::verify_pre_enrollment_public_header_navigation( $languages, absint( $input['timeout'] ?? 15 ), (array) $recovery['expected_navigation'] ) : array();
+				$recovered = $exact && ! empty( $cleanup['success'] ) && is_array( $invalidation ) && true === ( $invalidation['success'] ?? null ) && ! empty( $verification['passed'] );
+				$result['intake_state_restore'] = array( 'success' => $recovered, 'transaction' => $restored, 'current_is_before' => $current_is_before, 'owned_staging_receipt_valid' => $owned_staging_receipt_valid, 'current_is_owned_staging' => $current_is_owned_staging, 'activation_severe' => $activation_severe, 'expected' => $before, 'expected_staging' => $owned_staging_state, 'actual' => $after_restore, 'cleanup' => $cleanup, 'cache_invalidation' => $invalidation, 'verification' => $verification );
+				if ( ! $recovered ) { $result['code'] = 'public_header_enrollment_restore_failed'; $result['severity'] = 'critical'; }
+			}
+		}
+		return $result;
+	}
+
+	/** Atomically bind primary assignment and all authority receipts to pending enrollment. */
+	private static function stage_first_public_header_enrollment_transaction( array $before, array $draft, int $source_menu_id, array $authority ): array {
+		if ( ! self::translation_job_begin_recovery_transaction() ) { return array( 'success' => false, 'code' => 'public_header_enrollment_transaction_unavailable' ); }
+		try {
+			global $wpdb;
+			$receipt_rows = array();
+			foreach ( $authority as $language => $snapshots ) { foreach ( $snapshots as $snapshot ) { $receipt_rows[] = array( 'language' => $language, 'menu_id' => absint( $snapshot['menu_id'] ?? 0 ), 'receipt' => (string) ( $snapshot['surface_revision'] ?? '' ) ); } }
+			foreach ( $receipt_rows as $row ) {
+				$locked = self::lock_localized_menu_projection_surface( (int) $row['menu_id'] );
+				$current = self::localized_menu_projection_revision( (int) $row['menu_id'] );
+				if ( empty( $locked['success'] ) || '' === $current || ! hash_equals( (string) $row['receipt'], $current ) ) { self::rollback_first_public_header_enrollment_transaction(); return array( 'success' => false, 'code' => 'public_header_enrollment_authority_changed_locked', 'language' => $row['language'], 'menu_id' => $row['menu_id'] ); }
+			}
+			$theme_option = 'theme_mods_' . (string) get_option( 'stylesheet' );
+			$locked_options = $wpdb->query( $wpdb->prepare( "SELECT option_id FROM {$wpdb->options} WHERE option_name IN (%s, %s, %s, %s, %s) FOR UPDATE", self::OPTION_PUBLIC_HEADER_MANIFEST, self::OPTION_LOCALIZED_MENU_IDENTITIES, self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, self::OPTION_PUBLIC_HEADER_ENROLLMENT, $theme_option ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Enrollment needs one locked primary assignment plus four option rows.
+			if ( false === $locked_options ) { self::rollback_first_public_header_enrollment_transaction( $theme_option ); return array( 'success' => false, 'code' => 'public_header_enrollment_state_lock_failed' ); }
+			do_action( 'devenia_workflow_public_header_enrollment_before_locked_stage_revalidation', $draft, $authority );
+			wp_cache_delete( $theme_option, 'options' ); self::clear_public_header_state_option_cache();
+			foreach ( $receipt_rows as $row ) {
+				$current = self::localized_menu_projection_revision( (int) $row['menu_id'] );
+				if ( '' === $current || ! hash_equals( (string) $row['receipt'], $current ) ) { self::rollback_first_public_header_enrollment_transaction( $theme_option ); return array( 'success' => false, 'code' => 'public_header_enrollment_authority_changed_at_locked_boundary', 'language' => $row['language'], 'menu_id' => $row['menu_id'] ); }
+			}
+			$locations = get_nav_menu_locations();
+			$current_state = array( 'manifest' => get_option( self::OPTION_PUBLIC_HEADER_MANIFEST, '__devenia_workflow_option_missing__' ), 'identities' => get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, '__devenia_workflow_option_missing__' ), 'pending' => get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, '__devenia_workflow_option_missing__' ), 'enrollment' => get_option( self::OPTION_PUBLIC_HEADER_ENROLLMENT, '__devenia_workflow_option_missing__' ) );
+			if ( $source_menu_id !== absint( is_array( $locations ) ? ( $locations['primary'] ?? 0 ) : 0 ) || self::translation_job_canonicalize( $current_state ) !== self::translation_job_canonicalize( $before ) ) { self::rollback_first_public_header_enrollment_transaction( $theme_option ); return array( 'success' => false, 'code' => 'public_header_enrollment_locked_state_changed' ); }
+			$pending = $draft; $pending['updated_at'] = gmdate( 'c' );
+			if ( ! self::atomic_create_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $pending ) ) { self::rollback_first_public_header_enrollment_transaction( $theme_option ); return array( 'success' => false, 'code' => 'public_header_enrollment_pending_write_failed' ); }
+			$commit = apply_filters( 'devenia_workflow_public_header_enrollment_commit_adapter_result', null, $before, $pending );
+			$commit = null === $commit ? self::translation_job_commit_recovery_transaction() : self::translation_job_recovery_commit_adapter_receipt( $commit );
+			self::clear_first_public_header_enrollment_option_cache( $theme_option );
+			$expected_state = $before; $expected_state['pending'] = $pending;
+			$reconciled = self::reconcile_first_public_header_enrollment_commit_outcome( $before, $pending, $commit );
+			return array_merge( $reconciled, array( 'pending' => ! empty( $reconciled['success'] ), 'revision' => (string) $draft['revision'], 'authority_receipts' => $receipt_rows, 'expected_state' => $expected_state, 'expected_state_revision' => hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $expected_state ) ) ?: '' ) ) );
+		} catch ( Throwable $error ) { self::rollback_first_public_header_enrollment_transaction(); return array( 'success' => false, 'code' => 'public_header_enrollment_transaction_exception' ); }
+	}
+
+	/** Clear option caches changed inside a transaction before its terminal outcome. */
+	private static function clear_first_public_header_enrollment_option_cache( string $theme_option = '' ): void {
+		self::clear_public_header_state_option_cache();
+		if ( '' !== $theme_option ) { wp_cache_delete( $theme_option, 'options' ); }
+		wp_cache_delete( 'alloptions', 'options' );
+		wp_cache_delete( 'notoptions', 'options' );
+	}
+
+	/** Roll back first-enrollment staging and discard every transactional option cache value. */
+	private static function rollback_first_public_header_enrollment_transaction( string $theme_option = '' ): void {
+		self::rollback_public_header_state_transaction();
+		self::clear_first_public_header_enrollment_option_cache( $theme_option );
+	}
+
+	/** Reconcile the three-valued transaction Adapter outcome against exact option evidence. */
+	private static function reconcile_first_public_header_enrollment_commit_outcome( array $before, array $pending, array $commit ): array {
+		$receipt_validation = self::translation_job_require_recovery_commit_receipt( $commit );
+		$missing = '__devenia_workflow_option_missing__';
+		$read = static function () use ( $missing ): array { return array( 'manifest' => get_option( self::OPTION_PUBLIC_HEADER_MANIFEST, $missing ), 'identities' => get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $missing ), 'pending' => get_option( self::OPTION_PENDING_PUBLIC_HEADER_MANIFEST, $missing ), 'enrollment' => get_option( self::OPTION_PUBLIC_HEADER_ENROLLMENT, $missing ) ); };
+		$current = $read();
+		$committed = $receipt_validation['committed'];
+		$expected_after = $before; $expected_after['pending'] = $pending;
+		$pre_state_proven = self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $before );
+		$initial_pre_state_proven = $pre_state_proven;
+		$applied_state_proven = self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $expected_after );
+		$state_class = $pre_state_proven ? 'expected' : ( $applied_state_proven ? 'replacement' : 'foreign' );
+		$restore = array();
+		$base = array( 'success' => false, 'commit' => $commit, 'committed' => $committed, 'receipt_validation' => $receipt_validation, 'state_class' => $state_class, 'reconciliation' => array( 'initial_pre_state_proven' => $pre_state_proven, 'pre_state_proven' => $pre_state_proven, 'applied_state_observed' => $applied_state_proven, 'foreign_state_observed' => ! $pre_state_proven && ! $applied_state_proven, 'restore' => $restore, 'expected' => $before, 'expected_after' => $expected_after, 'actual' => $current ) );
+		if ( empty( $receipt_validation['valid'] ) ) { return array_merge( $base, array( 'code' => 'public_header_enrollment_commit_receipt_invalid', 'severity' => 'critical', 'state_outcome' => 'invalid_receipt' ) ); }
+		$commit_succeeded = true === ( $commit['success'] ?? null ) && true === $committed;
+		if ( ! $commit_succeeded && ! $pre_state_proven && $applied_state_proven ) {
+			$restore = self::replace_public_header_state_transaction( $current, $before, array() );
+			self::clear_public_header_state_option_cache();
+			$current = $read();
+			$pre_state_proven = self::translation_job_canonicalize( $current ) === self::translation_job_canonicalize( $before );
+		}
+		$foreign_state_observed = ! $initial_pre_state_proven && ! $applied_state_proven;
+		$base = array( 'success' => false, 'commit' => $commit, 'committed' => $committed, 'receipt_validation' => $receipt_validation, 'state_class' => $state_class, 'reconciliation' => array( 'initial_pre_state_proven' => $initial_pre_state_proven, 'pre_state_proven' => $pre_state_proven, 'applied_state_observed' => $applied_state_proven, 'foreign_state_observed' => $foreign_state_observed, 'restore' => $restore, 'expected' => $before, 'expected_after' => $expected_after, 'actual' => $current ) );
+		if ( $commit_succeeded && $applied_state_proven ) { return array_merge( $base, array( 'success' => true, 'code' => 'public_header_enrollment_commit_applied', 'state_outcome' => 'applied' ) ); }
+		if ( false === $committed && $initial_pre_state_proven ) { return array_merge( $base, array( 'code' => 'public_header_enrollment_commit_rolled_back' ) ); }
+		if ( false === $committed ) { return array_merge( $base, array( 'code' => $foreign_state_observed ? 'public_header_enrollment_commit_reconciliation_conflict' : 'public_header_enrollment_commit_rollback_evidence_mismatch', 'severity' => 'critical' ) ); }
+		if ( true === $committed && $pre_state_proven ) { return array_merge( $base, array( 'code' => 'public_header_enrollment_commit_applied_then_restored' ) ); }
+		if ( true === $committed && $foreign_state_observed ) { return array_merge( $base, array( 'code' => 'public_header_enrollment_commit_reconciliation_conflict', 'severity' => 'critical' ) ); }
+		if ( null === $committed && $pre_state_proven ) { return array_merge( $base, array( 'code' => 'public_header_enrollment_commit_outcome_unknown_reconciled', 'severity' => 'critical' ) ); }
+		if ( null === $committed && $foreign_state_observed ) { return array_merge( $base, array( 'code' => 'public_header_enrollment_commit_outcome_unknown_conflict', 'severity' => 'critical' ) ); }
+		return array_merge( $base, array( 'code' => 'public_header_enrollment_commit_reconciliation_failed', 'severity' => 'critical' ) );
+	}
+
+	/** Capture the exact pre-enrollment public reader menu on origin and canonical surfaces. */
+	private static function pre_enrollment_public_header_recovery_snapshot( array $languages, int $timeout, int $source_menu_id, string $source_receipt, array $authority ): array {
+		$expected = array(); $evidence = array();
+		foreach ( $languages as $language ) {
+			$observed = array();
+			foreach ( array( 'homepage' => self::localized_home_url_for_language( $language ), 'blog_archive' => self::public_blog_archive_url_for_language( $language ) ) as $surface => $url ) {
+				foreach ( array( 'origin', 'canonical' ) as $cache_surface ) {
+					$response = self::fetch_frontend_cache_surface( $url, $timeout, $cache_surface );
+					$navigation = ! empty( $response['success'] ) && 200 === (int) ( $response['status_code'] ?? 0 ) ? self::primary_navigation_from_html( (string) ( $response['body'] ?? '' ) ) : array();
+					if ( empty( $navigation ) ) { return array( 'success' => false, 'code' => 'public_header_pre_enrollment_oracle_missing', 'language' => $language, 'surface' => $surface, 'cache_surface' => $cache_surface ); }
+					$observed[] = $navigation; $evidence[ $language ][ $surface ][ $cache_surface ] = array_diff_key( $response, array( 'body' => true ) );
+				}
+			}
+			$canonical = self::translation_job_canonicalize( $observed[0] );
+			if ( ! empty( array_filter( $observed, static function ( array $navigation ) use ( $canonical ): bool { return self::translation_job_canonicalize( $navigation ) !== $canonical; } ) ) ) { return array( 'success' => false, 'code' => 'public_header_pre_enrollment_oracle_conflict', 'language' => $language ); }
+			$expected[ $language ] = $observed[0];
+		}
+		return array( 'success' => true, 'source_menu_id' => $source_menu_id, 'source_receipt' => $source_receipt, 'authority' => $authority, 'expected_navigation' => $expected, 'evidence' => $evidence, 'revision' => 'pher_' . substr( hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( array( $source_menu_id, $source_receipt, $authority, $expected ) ) ) ?: '' ), 0, 40 ) );
+	}
+
+	/** Build stable source item identities and hierarchy from one verified source menu. */
+	private static function public_header_source_manifest_from_menu( int $menu_id ): array {
+		$menu = $menu_id > 0 ? wp_get_nav_menu_object( $menu_id ) : false;
+		if ( ! $menu ) { return array( 'success' => false, 'code' => 'public_header_source_menu_missing', 'message' => 'A verified existing source menu identity is required.' ); }
+		$items = wp_get_nav_menu_items( $menu_id, array( 'orderby' => 'menu_order' ) ) ?: array();
+		if ( empty( $items ) ) { return array( 'success' => false, 'code' => 'public_header_source_menu_empty', 'message' => 'The verified source menu is empty.' ); }
+		$known_ids = array(); foreach ( $items as $item ) { if ( is_object( $item ) && ! empty( $item->ID ) ) { $known_ids[ (int) $item->ID ] = true; } }
+		$manifest = array();
+		foreach ( $items as $item ) {
+			if ( ! is_object( $item ) || empty( $item->ID ) ) { return array( 'success' => false, 'code' => 'public_header_source_menu_item_invalid' ); }
+			$type = (string) ( $item->type ?? '' );
+			$title = sanitize_text_field( (string) ( $item->title ?? '' ) );
+			$parent = absint( $item->menu_item_parent ?? 0 );
+			if ( '' === $title || ( $parent > 0 && ! isset( $known_ids[ $parent ] ) ) ) { return array( 'success' => false, 'code' => 'public_header_source_menu_item_invalid' ); }
+			$row = array( 'source_item_id' => (int) $item->ID, 'type' => '', 'title' => $title, 'parent_source_item_id' => $parent, 'position' => absint( $item->menu_order ?? 0 ) );
+			if ( 'post_type' === $type && 'page' === (string) ( $item->object ?? '' ) ) {
+				$object_id = absint( $item->object_id ?? 0 ); $post = $object_id ? get_post( $object_id ) : null;
+				if ( ! $post instanceof WP_Post || 'publish' !== (string) $post->post_status || self::is_translation_post( $object_id ) ) { return array( 'success' => false, 'code' => 'public_header_source_menu_page_invalid', 'source_item_id' => (int) $item->ID ); }
+				$row['type'] = 'page'; $row['object_id'] = $object_id;
+			} elseif ( 'custom' === $type ) {
+				$url = esc_url_raw( (string) ( $item->url ?? '' ) ); if ( '' === $url ) { return array( 'success' => false, 'code' => 'public_header_source_menu_url_invalid', 'source_item_id' => (int) $item->ID ); }
+				$row['type'] = 'custom'; $row['url'] = $url;
+			} else { return array( 'success' => false, 'code' => 'public_header_source_menu_type_unsupported', 'source_item_id' => (int) $item->ID ); }
+			$manifest[] = $row;
+		}
+		$normalized = self::normalize_public_header_manifest_items( $manifest, false );
+		return empty( $normalized['success'] ) ? $normalized : array( 'success' => true, 'items' => (array) $normalized['items'], 'menu_id' => $menu_id, 'surface_revision' => self::localized_menu_projection_revision( $menu_id ) );
 	}
 
 	/**
@@ -1227,149 +1739,18 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		return '' !== $path ? trailingslashit( home_url( '/' . trim( $path, '/' ) . '/' ) ) : '';
 	}
 
-	/**
-	 * Resolve the authoritative menu term ID, migrating deterministic name-based state once.
-	 */
-	private static function localized_menu_id( string $language, bool $migrate = true ): int {
-		$language  = sanitize_key( $language );
+	/** Read the authoritative managed menu identity without mutating its source of truth. */
+	private static function localized_menu_id( string $language ): int {
+		$language   = sanitize_key( $language );
 		$identities = get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, array() );
 		$identities = is_array( $identities ) ? $identities : array();
-		$stored_id  = absint( $identities[ $language ]['menu_id'] ?? 0 );
-		$languages  = self::languages();
-		$config     = isset( $languages[ $language ] ) && is_array( $languages[ $language ] ) ? $languages[ $language ] : array();
+		$stored_id   = absint( $identities[ $language ]['menu_id'] ?? 0 );
 		$active_manifest = self::public_header_manifest();
 		$active_revision = (string) ( $active_manifest['revision'] ?? '' );
 		if ( $stored_id > 0 && '' !== $active_revision && wp_get_nav_menu_object( $stored_id ) && '1' === (string) get_term_meta( $stored_id, self::TERM_META_MENU_MANAGED, true ) && '' === (string) get_term_meta( $stored_id, self::TERM_META_PUBLIC_HEADER_RETIRED, true ) && $language === sanitize_key( (string) get_term_meta( $stored_id, self::TERM_META_MENU_LANGUAGE, true ) ) && hash_equals( $active_revision, (string) get_term_meta( $stored_id, self::TERM_META_PUBLIC_HEADER_MANIFEST_REVISION, true ) ) ) {
 			return $stored_id;
 		}
-		if ( ! $migrate ) {
-			return 0;
-		}
-
-		$name = sanitize_text_field( (string) ( $config['menu_name'] ?? '' ) );
-		if ( '' === $name ) {
-			return 0;
-		}
-		$matches = array_values(
-			array_filter(
-				wp_get_nav_menus(),
-				static function ( $menu ) use ( $name, $language, $active_revision ): bool {
-					return is_object( $menu ) && '' !== $active_revision && $name === (string) $menu->name && '1' === (string) get_term_meta( (int) $menu->term_id, self::TERM_META_MENU_MANAGED, true ) && '' === (string) get_term_meta( (int) $menu->term_id, self::TERM_META_PUBLIC_HEADER_RETIRED, true ) && $language === sanitize_key( (string) get_term_meta( (int) $menu->term_id, self::TERM_META_MENU_LANGUAGE, true ) ) && hash_equals( $active_revision, (string) get_term_meta( (int) $menu->term_id, self::TERM_META_PUBLIC_HEADER_MANIFEST_REVISION, true ) );
-				}
-			)
-		);
-		usort(
-			$matches,
-			static function ( $left, $right ): int {
-				return (int) $left->term_id <=> (int) $right->term_id;
-			}
-		);
-		if ( empty( $matches ) ) {
-			return 0;
-		}
-
-		$selected_id = (int) $matches[0]->term_id;
-		$identities[ $language ] = array(
-			'menu_id'         => $selected_id,
-			'configured_name' => $name,
-			'migrated_at'     => gmdate( 'c' ),
-			'duplicate_ids'   => array_values(
-				array_map(
-					static function ( $menu ): int {
-						return (int) $menu->term_id;
-					},
-					$matches
-				)
-			),
-		);
-		update_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $identities, false );
-
-		return $selected_id;
-	}
-
-	/**
-	 * Persist one validated menu projection as the active identity.
-	 */
-	private static function activate_localized_menu_id( string $language, int $menu_id, string $configured_name, int $previous_id ): array {
-		$active_manifest = self::public_header_manifest();
-		$active_revision = (string) ( $active_manifest['revision'] ?? '' );
-		if ( '' === $active_revision || '1' !== (string) get_term_meta( $menu_id, self::TERM_META_MENU_MANAGED, true ) || sanitize_key( $language ) !== sanitize_key( (string) get_term_meta( $menu_id, self::TERM_META_MENU_LANGUAGE, true ) ) || ! hash_equals( $active_revision, (string) get_term_meta( $menu_id, self::TERM_META_PUBLIC_HEADER_MANIFEST_REVISION, true ) ) ) {
-			return array( 'success' => false, 'code' => 'menu_projection_manifest_revision_mismatch' );
-		}
-		$missing = '__devenia_workflow_option_missing__';
-		$before_raw = get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $missing );
-		$before_exists = $missing !== $before_raw;
-		$identities = is_array( $before_raw ) ? $before_raw : array();
-		$identities[ $language ] = array(
-			'menu_id'          => $menu_id,
-			'configured_name'  => $configured_name,
-			'previous_menu_id' => $previous_id,
-			'activated_at'     => gmdate( 'c' ),
-		);
-		$written = $before_exists
-			? self::atomic_replace_option_value( self::OPTION_LOCALIZED_MENU_IDENTITIES, $before_raw, $identities )
-			: self::atomic_create_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $identities, false );
-		$stored = get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, $missing );
-		$activated = $written && self::translation_job_canonicalize( $stored ) === self::translation_job_canonicalize( $identities );
-		if ( ! $activated && $written ) {
-			if ( $before_exists ) {
-				self::atomic_replace_option_value( self::OPTION_LOCALIZED_MENU_IDENTITIES, $identities, $before_raw );
-			} else {
-				self::atomic_delete_option_value( self::OPTION_LOCALIZED_MENU_IDENTITIES, $identities );
-			}
-		}
-		return array( 'success' => $activated, 'before_exists' => $before_exists, 'before' => $before_raw, 'after' => $identities );
-	}
-
-	/**
-	 * Retire only a projection explicitly created and marked by Workflow.
-	 */
-	private static function retire_managed_localized_menu( int $menu_id, int $active_id, string $expected_menu_revision = '' ): bool {
-		if ( $menu_id < 1 || $menu_id === $active_id ) { return false; }
-		$language = sanitize_key( (string) get_term_meta( $active_id, self::TERM_META_MENU_LANGUAGE, true ) );
-		if ( '' === $language || ! self::translation_job_begin_recovery_transaction() ) { return false; }
-		try {
-			global $wpdb;
-			$menu_lock = self::lock_localized_menu_projection_surface( $menu_id );
-			if ( empty( $menu_lock['success'] ) ) { self::translation_job_rollback_recovery_transaction(); return false; }
-			$queries = array(
-				$wpdb->prepare( "SELECT option_id FROM {$wpdb->options} WHERE option_name = %s FOR UPDATE", self::OPTION_LOCALIZED_MENU_IDENTITIES ),
-				$wpdb->prepare( "SELECT term_id FROM {$wpdb->terms} WHERE term_id IN (%d, %d) FOR UPDATE", $menu_id, $active_id ),
-				$wpdb->prepare( "SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE term_id IN (%d, %d) FOR UPDATE", $menu_id, $active_id ),
-				$wpdb->prepare( "SELECT meta_id FROM {$wpdb->termmeta} WHERE term_id IN (%d, %d) FOR UPDATE", $menu_id, $active_id ),
-				$wpdb->prepare( "SELECT tr.object_id, tr.term_taxonomy_id FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id WHERE tt.term_id IN (%d, %d) FOR UPDATE", $menu_id, $active_id ),
-			);
-			foreach ( $queries as $query ) {
-				if ( false === $wpdb->query( $query ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Prepared row locks prevent deleting a menu which became active concurrently.
-					self::translation_job_rollback_recovery_transaction();
-					return false;
-				}
-			}
-			clean_term_cache( array( $menu_id, $active_id ) );
-			$identities = get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, array() );
-			$current_menu_revision = self::localized_menu_projection_revision( $menu_id );
-			if ( ! is_array( $identities ) || $active_id !== absint( $identities[ $language ]['menu_id'] ?? 0 ) || '1' !== (string) get_term_meta( $menu_id, self::TERM_META_MENU_MANAGED, true ) || '' === $expected_menu_revision || '' === $current_menu_revision || ! hash_equals( $expected_menu_revision, $current_menu_revision ) ) {
-				self::translation_job_rollback_recovery_transaction();
-				return false;
-			}
-			$result = wp_delete_nav_menu( $menu_id );
-			if ( is_wp_error( $result ) || false === $result ) {
-				self::translation_job_rollback_recovery_transaction();
-				clean_term_cache( array( $menu_id, $active_id ) );
-				return false;
-			}
-			$commit = self::translation_job_commit_recovery_transaction();
-			if ( empty( $commit['success'] ) ) {
-				clean_term_cache( array( $menu_id, $active_id ) );
-				return false;
-			}
-			clean_term_cache( array( $menu_id, $active_id ) );
-			return true;
-		} catch ( Throwable $error ) {
-			self::translation_job_rollback_recovery_transaction();
-			clean_term_cache( array( $menu_id, $active_id ) );
-			return false;
-		}
+		return 0;
 	}
 
 	/**
@@ -1779,6 +2160,30 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			return array( self::qa_item( 'frontend_primary_menu_identity_missing', 'No authoritative localized primary-menu identity is configured.', array( 'language' => $language, 'url' => $url, 'cache_surface' => $cache_surface ) ) );
 		}
 
+		$actual = self::primary_navigation_from_html( $html, $language );
+
+		if ( $actual === $expected ) {
+			return array();
+		}
+
+		return array(
+			self::qa_item(
+				'frontend_primary_menu_projection_mismatch',
+				'Rendered primary navigation does not match the authoritative localized menu identity, labels, and URLs.',
+				array(
+					'language'       => $language,
+					'url'            => $url,
+					'cache_surface'  => $cache_surface,
+					'expected_menu_id' => self::localized_menu_id( $language ),
+					'expected'       => $expected,
+					'actual'         => $actual,
+				)
+			),
+		);
+	}
+
+	/** Extract the exact rendered primary-navigation anchor sequence. */
+	private static function primary_navigation_from_html( string $html, string $language = '' ): array {
 		$actual = array();
 		if ( class_exists( 'DOMDocument' ) ) {
 			$dom = new DOMDocument();
@@ -1814,23 +2219,6 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			}
 		}
 
-		if ( $actual === $expected ) {
-			return array();
-		}
-
-		return array(
-			self::qa_item(
-				'frontend_primary_menu_projection_mismatch',
-				'Rendered primary navigation does not match the authoritative localized menu identity, labels, and URLs.',
-				array(
-					'language'       => $language,
-					'url'            => $url,
-					'cache_surface'  => $cache_surface,
-					'expected_menu_id' => self::localized_menu_id( $language ),
-					'expected'       => $expected,
-					'actual'         => $actual,
-				)
-			),
-		);
+		return $actual;
 	}
 }

@@ -832,7 +832,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'canonical_route' => self::json_post_meta_value( $translation_id, self::META_CANONICAL_ROUTE ),
 			),
 			'media' => array(
-				'featured_image' => self::publication_featured_image_revision_identity( $translation_id ),
+				'featured_image'     => self::publication_featured_image_revision_identity( $translation_id ),
+				'featured_image_alt' => (string) get_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT, true ),
 				'visible_media_provenance' => self::json_post_meta_value( $translation_id, self::META_VISIBLE_MEDIA_PROVENANCE ),
 			),
 			'presentation' => array(
@@ -1144,6 +1145,11 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$translation_id = 0;
 		$term_scope = (array) ( $surface_snapshot['term_scope'] ?? array() );
 		$identity_scope = self::translation_job_publication_identity_scope( $job );
+		$captured_revision = '';
+		$mutation_cas_revision = '';
+		$resolved_id = 0;
+		$result = array();
+		$commit = null;
 		if ( ! self::translation_job_begin_recovery_transaction() ) {
 			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_unavailable', 'message' => 'The staged publication transaction could not be started.', 'mutation_started' => false ), self::translation_job_recovery_transaction_error_fields() );
 		}
@@ -1173,24 +1179,117 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				unset( $result['mutation_surface_revision'] );
 				return $result;
 			}
-			$result['mutation_cas_revision'] = self::translation_job_rollback_cas_revision( $resolved_id, $term_scope, $identity_scope );
-			if ( '' === (string) $result['mutation_cas_revision'] ) {
+			$mutation_cas_revision = self::translation_job_rollback_cas_revision( $resolved_id, $term_scope, $identity_scope );
+			$result['mutation_cas_revision'] = $mutation_cas_revision;
+			if ( '' === $mutation_cas_revision ) {
 				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $resolved_id, $term_scope );
 				return array_merge( array( 'success' => false, 'code' => 'staged_mutation_receipt_failed', 'message' => 'The exact staged mutation receipt could not be captured under lock.', 'translation_id' => $resolved_id, 'mutation_started' => false ), self::translation_job_rollback_response_fields( $rollback ) );
 			}
-			$commit = self::translation_job_commit_recovery_transaction();
-			if ( empty( $commit['success'] ) ) {
-				self::translation_job_clean_recovery_caches( $resolved_id, $term_scope );
-				return array_merge( array( 'success' => false, 'code' => 'publication_transaction_commit_failed', 'message' => 'The staged publication transaction could not be committed safely.', 'translation_id' => $resolved_id, 'mutation_started' => false, 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
-			}
+			$commit = apply_filters( 'devenia_workflow_staged_artifact_commit_adapter_result', null, $resolved_id, $captured_revision, $mutation_cas_revision );
+			$commit = null === $commit ? self::translation_job_commit_recovery_transaction() : self::translation_job_recovery_commit_adapter_receipt( $commit );
+			$receipt_validation = self::translation_job_require_recovery_commit_receipt( $commit );
 			self::translation_job_clean_recovery_caches( $resolved_id, $term_scope );
+			$observed_mutation_revision = self::translation_job_rollback_cas_revision( $resolved_id, $term_scope, $identity_scope );
+			$committed = $receipt_validation['committed'];
+			$before_exact = '' !== $observed_mutation_revision && hash_equals( $captured_revision, $observed_mutation_revision );
+			$replacement_exact = '' !== $observed_mutation_revision && hash_equals( $mutation_cas_revision, $observed_mutation_revision );
+			$commit_reconciliation = array(
+				'committed'           => $committed,
+				'receipt_validation'  => $receipt_validation,
+				'before_exact'        => $before_exact,
+				'replacement_exact'   => $replacement_exact,
+				'before_revision'     => $captured_revision,
+				'replacement_revision' => $mutation_cas_revision,
+				'observed_revision'   => $observed_mutation_revision,
+			);
+			if ( empty( $receipt_validation['valid'] ) ) {
+				return array_merge(
+					array(
+						'success'                        => false,
+						'code'                           => 'staged_publication_transaction_commit_receipt_invalid',
+						'severity'                       => 'critical',
+						'message'                        => 'The staged artifact commit Adapter returned an invalid receipt.',
+						'translation_id'                 => $resolved_id,
+						'mutation_started'               => ! $before_exact,
+						'mutation_cas_revision'          => '',
+						'observed_mutation_cas_revision' => $observed_mutation_revision,
+						'rollback_authorized'            => false,
+						'transaction_commit'             => $commit,
+						'commit_reconciliation'          => array_merge( $commit_reconciliation, array( 'state_outcome' => 'invalid_receipt' ) ),
+					),
+					self::translation_job_recovery_transaction_error_fields()
+				);
+			}
+			if ( $before_exact && ( false === $committed || null === $committed ) ) {
+				return array_merge(
+					array(
+						'success'               => false,
+						'code'                  => false === $committed ? 'staged_publication_transaction_commit_rolled_back' : 'staged_publication_transaction_commit_outcome_unknown_unapplied',
+						'severity'              => null === $committed ? 'critical' : 'error',
+						'message'               => 'The staged artifact mutation is proven unapplied.',
+						'translation_id'        => $resolved_id,
+						'mutation_started'      => false,
+						'transaction_commit'     => $commit,
+						'commit_reconciliation' => array_merge( $commit_reconciliation, array( 'state_outcome' => 'unapplied' ) ),
+					),
+					self::translation_job_recovery_transaction_error_fields()
+				);
+			}
+			if ( empty( $result['mutation_started'] ) && $before_exact && true === $committed ) {
+				$result['mutation_started'] = false;
+				$commit_reconciliation['state_outcome'] = 'no_mutation';
+			} elseif ( $replacement_exact && ( true === $committed || null === $committed ) ) {
+				$result['mutation_started'] = true;
+				$result['mutation_cas_revision'] = $observed_mutation_revision;
+				$result['rollback_authorized'] = true;
+				$result['rollback_expected_surface_revision'] = $observed_mutation_revision;
+				$commit_reconciliation['state_outcome'] = 'applied';
+			} else {
+				return array_merge(
+					array(
+						'success'                         => false,
+						'code'                            => 'staged_publication_transaction_commit_reconciliation_conflict',
+						'severity'                        => 'critical',
+						'message'                         => 'The staged artifact commit outcome conflicts with the exact observed public mutation surface.',
+						'translation_id'                  => $resolved_id,
+						'mutation_started'                => true,
+						'mutation_cas_revision'           => '',
+						'observed_mutation_cas_revision'  => $observed_mutation_revision,
+						'rollback_authorized'             => false,
+						'transaction_commit'               => $commit,
+						'commit_reconciliation'           => array_merge( $commit_reconciliation, array( 'state_outcome' => 'foreign' ) ),
+					),
+					self::translation_job_recovery_transaction_error_fields()
+				);
+			}
 			$result['transaction_commit'] = $commit;
+			$result['commit_reconciliation'] = $commit_reconciliation;
 			return $result;
 		} catch ( Throwable $error ) {
 			$rollback = self::translation_job_rollback_recovery_transaction();
-			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_exception', 'message' => 'The staged publication transaction stopped unexpectedly.', 'translation_id' => $translation_id, 'mutation_started' => false ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+			$reconcile_id = $resolved_id > 0 ? $resolved_id : $translation_id;
+			self::translation_job_clean_recovery_caches( $reconcile_id, $term_scope );
+			if ( '' !== $mutation_cas_revision && '' !== $captured_revision ) {
+				$observed_after_exception = self::translation_job_rollback_cas_revision( $reconcile_id, $term_scope, $identity_scope );
+				$exception_before_exact = '' !== $observed_after_exception && hash_equals( $captured_revision, $observed_after_exception );
+				$exception_replacement_exact = '' !== $observed_after_exception && hash_equals( $mutation_cas_revision, $observed_after_exception );
+				$exception_commit = is_array( $commit ) ? $commit : array( 'success' => false, 'committed' => ! empty( $rollback['success'] ) && ! empty( $rollback['rolled_back'] ) ? false : null, 'code' => 'staged_commit_adapter_exception' );
+				$receipt_validation = self::translation_job_require_recovery_commit_receipt( $exception_commit );
+				$exception_committed = $receipt_validation['committed'];
+				$commit_reconciliation = array( 'committed' => $exception_committed, 'receipt_validation' => $receipt_validation, 'before_exact' => $exception_before_exact, 'replacement_exact' => $exception_replacement_exact, 'before_revision' => $captured_revision, 'replacement_revision' => $mutation_cas_revision, 'observed_revision' => $observed_after_exception );
+				if ( empty( $receipt_validation['valid'] ) ) {
+					return array_merge( array( 'success' => false, 'code' => 'staged_publication_transaction_commit_receipt_invalid', 'severity' => 'critical', 'message' => 'The staged artifact commit Adapter returned an invalid receipt.', 'translation_id' => $reconcile_id, 'mutation_started' => ! $exception_before_exact, 'mutation_cas_revision' => '', 'observed_mutation_cas_revision' => $observed_after_exception, 'rollback_authorized' => false, 'transaction_commit' => $exception_commit, 'commit_reconciliation' => array_merge( $commit_reconciliation, array( 'state_outcome' => 'invalid_receipt' ) ) ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+				}
+				if ( $exception_before_exact && ( false === $exception_committed || null === $exception_committed ) ) {
+					return array_merge( array( 'success' => false, 'code' => 'staged_publication_transaction_exception_unapplied', 'severity' => null === $exception_committed ? 'critical' : 'error', 'message' => 'The staged artifact transaction stopped unexpectedly and its mutation is proven unapplied.', 'translation_id' => $reconcile_id, 'mutation_started' => false, 'transaction_commit' => $exception_commit, 'commit_reconciliation' => array_merge( $commit_reconciliation, array( 'state_outcome' => 'unapplied' ) ) ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+				}
+				if ( $exception_replacement_exact && ( true === $exception_committed || null === $exception_committed ) ) {
+					return array_merge( array( 'success' => false, 'code' => 'staged_publication_transaction_exception_applied', 'severity' => 'critical', 'message' => 'The staged artifact mutation is applied, but the transaction Adapter stopped before publication could safely continue.', 'translation_id' => $reconcile_id, 'mutation_started' => true, 'mutation_cas_revision' => $observed_after_exception, 'rollback_authorized' => true, 'rollback_expected_surface_revision' => $observed_after_exception, 'transaction_commit' => $exception_commit, 'commit_reconciliation' => array_merge( $commit_reconciliation, array( 'state_outcome' => 'applied' ) ) ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+				}
+				return array_merge( array( 'success' => false, 'code' => 'staged_publication_transaction_exception_reconciliation_conflict', 'severity' => 'critical', 'message' => 'The staged artifact transaction stopped with a foreign observed public mutation surface.', 'translation_id' => $reconcile_id, 'mutation_started' => true, 'mutation_cas_revision' => '', 'observed_mutation_cas_revision' => $observed_after_exception, 'rollback_authorized' => false, 'transaction_commit' => $exception_commit, 'commit_reconciliation' => array_merge( $commit_reconciliation, array( 'state_outcome' => 'foreign' ) ) ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+			}
+			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_exception', 'message' => 'The staged publication transaction stopped unexpectedly.', 'translation_id' => $reconcile_id, 'mutation_started' => false ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 		}
 	}
 
@@ -1558,6 +1657,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	private static function translation_job_capture_surface_snapshot( int $translation_id, array $manifest = array(), array $identity_scope = array() ): array {
 		$publication_attempt_id = 'tpa_' . substr( hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) ), 0, 32 );
 		$term_scope = self::translation_job_term_lock_scope_from_manifest( $manifest, $publication_attempt_id );
+		$snapshot = array();
+		$commit = null;
 		if ( ! self::translation_job_begin_recovery_transaction() ) {
 			return array_merge( array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_transaction_unavailable', 'mutation_started' => false ), self::translation_job_recovery_transaction_error_fields() );
 		}
@@ -1578,19 +1679,42 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 				return array_merge( $snapshot, self::translation_job_rollback_response_fields( $rollback ) );
 			}
-			$commit = self::translation_job_commit_recovery_transaction();
-			if ( empty( $commit['success'] ) ) {
-				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-				return array_merge( array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_commit_failed', 'mutation_started' => false, 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
-			}
-			self::translation_job_clean_recovery_caches( $translation_id, (array) ( $snapshot['term_scope'] ?? $term_scope ) );
-			$snapshot['transaction_commit'] = $commit;
-			return $snapshot;
+			$commit = apply_filters( 'devenia_workflow_translation_job_snapshot_commit_adapter_result', null, $snapshot, $translation_id );
+			$commit = null === $commit ? self::translation_job_commit_recovery_transaction() : self::translation_job_recovery_commit_adapter_receipt( $commit );
+			return self::translation_job_reconcile_snapshot_commit_outcome( $snapshot, $translation_id, $commit );
 		} catch ( Throwable $error ) {
 			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+			if ( ! empty( $snapshot['snapshot_valid'] ) ) {
+				$exception_commit = is_array( $commit ) ? $commit : array( 'success' => false, 'committed' => ! empty( $rollback['rolled_back'] ) ? false : null, 'code' => 'snapshot_commit_adapter_exception' );
+				$reconciled = self::translation_job_reconcile_snapshot_commit_outcome( $snapshot, $translation_id, $exception_commit );
+				$reconciled['transaction_exception'] = array( 'code' => 'publication_snapshot_transaction_exception', 'message' => 'The snapshot transaction stopped unexpectedly.' );
+				return array_merge( $reconciled, self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+			}
 			return array_merge( array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_transaction_exception', 'mutation_started' => false ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 		}
+	}
+
+	/** Accept a read-only snapshot only while its exact captured surface is still current. */
+	private static function translation_job_reconcile_snapshot_commit_outcome( array $snapshot, int $translation_id, array $commit ): array {
+		$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
+		$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
+		$receipt_validation = self::translation_job_require_recovery_commit_receipt( $commit );
+		self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+		$captured_revision = (string) ( $snapshot['captured_cas_revision'] ?? '' );
+		$observed_revision = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
+		$exact = '' !== $captured_revision && '' !== $observed_revision && hash_equals( $captured_revision, $observed_revision );
+		$committed = $receipt_validation['committed'];
+		$reconciliation = array( 'committed' => $committed, 'receipt_validation' => $receipt_validation, 'state_outcome' => $exact ? 'current' : 'foreign', 'captured_revision' => $captured_revision, 'observed_revision' => $observed_revision, 'exact' => $exact );
+		if ( empty( $receipt_validation['valid'] ) ) {
+			return array_merge( array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_commit_receipt_invalid', 'severity' => 'critical', 'mutation_started' => false, 'transaction_commit' => $commit, 'commit_reconciliation' => array_merge( $reconciliation, array( 'state_outcome' => 'invalid_receipt' ) ) ), self::translation_job_recovery_transaction_error_fields() );
+		}
+		if ( $exact ) {
+			$snapshot['transaction_commit'] = $commit;
+			$snapshot['commit_reconciliation'] = $reconciliation;
+			return $snapshot;
+		}
+		return array_merge( array( 'snapshot_valid' => false, 'existed' => false, 'translation_id' => $translation_id, 'message' => 'publication_snapshot_commit_reconciliation_conflict', 'severity' => 'critical', 'mutation_started' => false, 'transaction_commit' => $commit, 'commit_reconciliation' => $reconciliation ), self::translation_job_recovery_transaction_error_fields() );
 	}
 
 	/** Read the snapshot only after its complete post, meta, relationship and term scope is locked. */
@@ -1699,6 +1823,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	private static function translation_job_restore_surface_snapshot( array $snapshot, int $translation_id ): array {
 		$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
 		$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
+		$result = array();
+		$commit = null;
 		if ( ! self::translation_job_begin_recovery_transaction() ) {
 			return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_unavailable', 'translation_id' => $translation_id ), self::translation_job_recovery_transaction_error_fields() );
 		}
@@ -1713,20 +1839,52 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 				return array_merge( $result, self::translation_job_rollback_response_fields( $rollback ) );
 			}
-			$commit = self::translation_job_commit_recovery_transaction();
-			if ( empty( $commit['success'] ) ) {
+			$expected_restored_revision = (string) ( $snapshot['captured_cas_revision'] ?? '' );
+			$owned_restored_revision = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
+			if ( '' === $expected_restored_revision || '' === $owned_restored_revision || ! hash_equals( $expected_restored_revision, $owned_restored_revision ) ) {
+				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-				return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_commit_failed', 'translation_id' => $translation_id, 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
+				return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'restored_surface_receipt_mismatch', 'translation_id' => $translation_id, 'expected_restored_revision' => $expected_restored_revision, 'observed_restored_revision' => $owned_restored_revision ), self::translation_job_rollback_response_fields( $rollback ) );
 			}
-			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			$result['transaction_committed'] = true;
-			$result['transaction_commit'] = $commit;
-			return $result;
+			$commit = apply_filters( 'devenia_workflow_translation_job_restore_commit_adapter_result', null, $snapshot, $translation_id, $result );
+			$commit = null === $commit ? self::translation_job_commit_recovery_transaction() : self::translation_job_recovery_commit_adapter_receipt( $commit );
+			return self::translation_job_reconcile_restore_commit_outcome( $snapshot, $translation_id, $result, $commit );
 		} catch ( Throwable $error ) {
 			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+			if ( ! empty( $result['success'] ) ) {
+				$exception_commit = is_array( $commit ) ? $commit : array( 'success' => false, 'committed' => ! empty( $rollback['rolled_back'] ) ? false : null, 'code' => 'restore_commit_adapter_exception' );
+				$reconciled = self::translation_job_reconcile_restore_commit_outcome( $snapshot, $translation_id, $result, $exception_commit );
+				$reconciled['transaction_exception'] = array( 'code' => 'recovery_transaction_exception', 'message' => 'The recovery transaction stopped unexpectedly.' );
+				return array_merge( $reconciled, self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+			}
 			return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_exception', 'message' => 'The recovery transaction stopped unexpectedly.', 'translation_id' => $translation_id ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 		}
+	}
+
+	/** Reconcile every restore COMMIT receipt against exact pre/owned/foreign state. */
+	private static function translation_job_reconcile_restore_commit_outcome( array $snapshot, int $translation_id, array $result, array $commit ): array {
+		$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
+		$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
+		$receipt_validation = self::translation_job_require_recovery_commit_receipt( $commit );
+		self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+		$observed_revision = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
+		$pre_restore_revision = (string) ( $snapshot['rollback_expected_surface_revision'] ?? '' );
+		$restored_revision = (string) ( $snapshot['captured_cas_revision'] ?? '' );
+		$committed = $receipt_validation['committed'];
+		$pre_restore_exact = '' !== $observed_revision && '' !== $pre_restore_revision && hash_equals( $pre_restore_revision, $observed_revision );
+		$restored_exact = '' !== $observed_revision && '' !== $restored_revision && hash_equals( $restored_revision, $observed_revision );
+		$reconciliation = array( 'committed' => $committed, 'receipt_validation' => $receipt_validation, 'state_outcome' => 'foreign', 'pre_restore_exact' => $pre_restore_exact, 'restored_exact' => $restored_exact, 'pre_restore_revision' => $pre_restore_revision, 'restored_revision' => $restored_revision, 'observed_revision' => $observed_revision );
+		if ( empty( $receipt_validation['valid'] ) ) {
+			return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_commit_receipt_invalid', 'severity' => 'critical', 'translation_id' => $translation_id, 'transaction_commit' => $commit, 'observed_surface_revision' => $observed_revision, 'commit_reconciliation' => array_merge( $reconciliation, array( 'state_outcome' => 'invalid_receipt' ) ) ), self::translation_job_recovery_transaction_error_fields() );
+		}
+		if ( $restored_exact && ( true === $committed || null === $committed ) ) {
+			return array_merge( $result, array( 'success' => true, 'transaction_applied' => true, 'transaction_committed' => true === $committed, 'transaction_commit' => $commit, 'commit_reconciliation' => array_merge( $reconciliation, array( 'state_outcome' => 'applied' ) ) ) );
+		}
+		if ( $pre_restore_exact && ( false === $committed || null === $committed ) ) {
+			return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => false === $committed ? 'recovery_transaction_commit_rolled_back' : 'recovery_transaction_commit_outcome_unknown_unapplied', 'severity' => null === $committed ? 'critical' : 'error', 'translation_id' => $translation_id, 'transaction_commit' => $commit, 'commit_reconciliation' => array_merge( $reconciliation, array( 'state_outcome' => 'unapplied' ) ) ), self::translation_job_recovery_transaction_error_fields() );
+		}
+		return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'recovery_transaction_commit_reconciliation_conflict', 'severity' => 'critical', 'translation_id' => $translation_id, 'transaction_commit' => $commit, 'observed_surface_revision' => $observed_revision, 'commit_reconciliation' => $reconciliation ), self::translation_job_recovery_transaction_error_fields() );
 	}
 
 	/** Perform recovery writes only after every owned row/range is locked. */
@@ -1837,6 +1995,9 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
 		$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
 		$target_menu_id = absint( $menu['target_menu']['id'] ?? 0 );
+		$menu_preflight = array();
+		$restore_result = array();
+		$commit = null;
 		if ( ! self::translation_job_begin_recovery_transaction() ) { return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_unavailable' ), self::translation_job_recovery_transaction_error_fields() ); }
 		try {
 			$content_lock = self::translation_job_lock_recovery_surface( $translation_id, $term_scope, $identity_scope );
@@ -1860,29 +2021,100 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
 				return array_merge( array( 'success' => false, 'action' => 'publication_restore_rolled_back', 'error' => 'publication_restore_incomplete', 'content_rollback' => $content_rollback, 'menu_rollback' => $menu_rollback ), self::translation_job_rollback_response_fields( $rollback ) );
 			}
-			$commit = self::translation_job_commit_recovery_transaction();
-			if ( empty( $commit['success'] ) ) {
+			$expected_restored_revision = (string) ( $snapshot['captured_cas_revision'] ?? '' );
+			$owned_restored_revision = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
+			if ( '' === $expected_restored_revision || '' === $owned_restored_revision || ! hash_equals( $expected_restored_revision, $owned_restored_revision ) ) {
+				$rollback = self::translation_job_rollback_recovery_transaction();
 				self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 				if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
-				return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_commit_failed', 'transaction_commit' => $commit ), self::translation_job_recovery_transaction_error_fields() );
+				return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_restored_surface_receipt_mismatch', 'expected_restored_revision' => $expected_restored_revision, 'observed_restored_revision' => $owned_restored_revision ), self::translation_job_rollback_response_fields( $rollback ) );
 			}
-			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
-			if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
-			return array( 'success' => true, 'action' => 'restore_publication', 'transaction_committed' => true, 'transaction_commit' => $commit, 'content_rollback' => $content_rollback, 'menu_rollback' => $menu_rollback );
+			$restore_result = array( 'success' => true, 'action' => 'restore_publication', 'content_rollback' => $content_rollback, 'menu_rollback' => $menu_rollback, 'menu_preflight' => $menu_preflight );
+			$commit = apply_filters( 'devenia_workflow_translation_job_publication_restore_commit_adapter_result', null, $snapshot, $translation_id, $language, $menu, $restore_result );
+			$commit = null === $commit ? self::translation_job_commit_recovery_transaction() : self::translation_job_recovery_commit_adapter_receipt( $commit );
+			return self::translation_job_reconcile_publication_restore_commit_outcome( $snapshot, $translation_id, $menu, $restore_result, $commit );
 		} catch ( Throwable $error ) {
 			$rollback = self::translation_job_rollback_recovery_transaction();
 			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
 			if ( $target_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id ) ); }
+			if ( ! empty( $restore_result['success'] ) ) {
+				$exception_commit = is_array( $commit ) ? $commit : array( 'success' => false, 'committed' => ! empty( $rollback['rolled_back'] ) ? false : null, 'code' => 'publication_restore_commit_adapter_exception' );
+				$reconciled = self::translation_job_reconcile_publication_restore_commit_outcome( $snapshot, $translation_id, $menu, $restore_result, $exception_commit );
+				$reconciled['transaction_exception'] = array( 'code' => 'publication_recovery_transaction_exception', 'message' => 'The publication recovery transaction stopped unexpectedly.' );
+				return array_merge( $reconciled, self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
+			}
 			return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_exception', 'message' => 'The publication recovery transaction stopped unexpectedly.' ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 		}
+	}
+
+	/** Reconcile the latent combined content/menu restore without trusting commit.success. */
+	private static function translation_job_reconcile_publication_restore_commit_outcome( array $snapshot, int $translation_id, array $menu, array $result, array $commit ): array {
+		$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
+		$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
+		$target_menu_id = absint( $menu['target_menu']['id'] ?? 0 );
+		$previous_menu_id = absint( $menu['previous_menu_id'] ?? 0 );
+		$receipt_validation = self::translation_job_require_recovery_commit_receipt( $commit );
+		self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+		if ( $target_menu_id || $previous_menu_id ) { self::translation_job_clean_term_caches( array( $target_menu_id, $previous_menu_id ) ); }
+		wp_cache_delete( self::OPTION_LOCALIZED_MENU_IDENTITIES, 'options' );
+		$observed_revision = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
+		$pre_restore_revision = (string) ( $snapshot['rollback_expected_surface_revision'] ?? '' );
+		$restored_revision = (string) ( $snapshot['captured_cas_revision'] ?? '' );
+		$activation = (array) ( $menu['menu_identity_activation'] ?? array() );
+		$identities = get_option( self::OPTION_LOCALIZED_MENU_IDENTITIES, '__devenia_workflow_option_missing__' );
+		$expected_before = ! empty( $activation['before_exists'] ) ? ( $activation['before'] ?? array() ) : '__devenia_workflow_option_missing__';
+		$expected_after = $activation['after'] ?? array();
+		$target_revision = $target_menu_id ? self::localized_menu_projection_revision( $target_menu_id ) : '';
+		$previous_revision = $previous_menu_id ? self::localized_menu_projection_revision( $previous_menu_id ) : '';
+		$previous_exact = ! $previous_menu_id || ( '' !== $previous_revision && hash_equals( (string) ( $menu['previous_menu_surface_revision'] ?? '' ), $previous_revision ) );
+		$menu_pre_restore_exact = ! $target_menu_id || ( self::translation_job_canonicalize( $identities ) === self::translation_job_canonicalize( $expected_after ) && '' !== $target_revision && hash_equals( (string) ( $menu['menu_surface_revision'] ?? '' ), $target_revision ) && $previous_exact );
+		$menu_restored_exact = ! $target_menu_id || ( self::translation_job_canonicalize( $identities ) === self::translation_job_canonicalize( $expected_before ) && ! wp_get_nav_menu_object( $target_menu_id ) && $previous_exact );
+		$pre_restore_exact = '' !== $observed_revision && '' !== $pre_restore_revision && hash_equals( $pre_restore_revision, $observed_revision ) && $menu_pre_restore_exact;
+		$restored_exact = '' !== $observed_revision && '' !== $restored_revision && hash_equals( $restored_revision, $observed_revision ) && $menu_restored_exact;
+		$committed = $receipt_validation['committed'];
+		$reconciliation = array( 'committed' => $committed, 'receipt_validation' => $receipt_validation, 'state_outcome' => 'foreign', 'pre_restore_exact' => $pre_restore_exact, 'restored_exact' => $restored_exact, 'pre_restore_revision' => $pre_restore_revision, 'restored_revision' => $restored_revision, 'observed_revision' => $observed_revision, 'menu_pre_restore_exact' => $menu_pre_restore_exact, 'menu_restored_exact' => $menu_restored_exact );
+		if ( empty( $receipt_validation['valid'] ) ) {
+			return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_commit_receipt_invalid', 'severity' => 'critical', 'transaction_commit' => $commit, 'observed_surface_revision' => $observed_revision, 'commit_reconciliation' => array_merge( $reconciliation, array( 'state_outcome' => 'invalid_receipt' ) ) ), self::translation_job_recovery_transaction_error_fields() );
+		}
+		if ( $restored_exact && ( true === $committed || null === $committed ) ) {
+			return array_merge( $result, array( 'success' => true, 'transaction_applied' => true, 'transaction_committed' => true === $committed, 'transaction_commit' => $commit, 'commit_reconciliation' => array_merge( $reconciliation, array( 'state_outcome' => 'applied' ) ) ) );
+		}
+		if ( $pre_restore_exact && ( false === $committed || null === $committed ) ) {
+			return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => false === $committed ? 'publication_recovery_transaction_commit_rolled_back' : 'publication_recovery_transaction_commit_outcome_unknown_unapplied', 'severity' => null === $committed ? 'critical' : 'error', 'transaction_commit' => $commit, 'commit_reconciliation' => array_merge( $reconciliation, array( 'state_outcome' => 'unapplied' ) ) ), self::translation_job_recovery_transaction_error_fields() );
+		}
+		return array_merge( array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'publication_recovery_transaction_commit_reconciliation_conflict', 'severity' => 'critical', 'transaction_commit' => $commit, 'observed_surface_revision' => $observed_revision, 'commit_reconciliation' => $reconciliation ), self::translation_job_recovery_transaction_error_fields() );
 	}
 
 	/** Attach rollback evidence to any failure after the first staged mutation. */
 	private static function translation_job_publish_failure_with_rollback( array $failure, $snapshot, int $translation_id ): array {
 		if ( ! is_array( $snapshot ) ) { return $failure; }
+		$commit_state = sanitize_key( (string) ( $failure['commit_reconciliation']['state_outcome'] ?? '' ) );
+		if ( empty( $snapshot['mutation_started'] ) ) {
+			$failure['forward_publication_applied'] = false;
+		} else {
+			$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
+			$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
+			$forward_revision = (string) ( $snapshot['rollback_expected_surface_revision'] ?? ( $failure['rollback_expected_surface_revision'] ?? '' ) );
+			self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+			$pre_rollback_revision = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
+			if ( '' !== $forward_revision && '' !== $pre_rollback_revision && hash_equals( $forward_revision, $pre_rollback_revision ) ) {
+				$failure['forward_publication_applied'] = true;
+			} elseif ( 'applied' === $commit_state ) {
+				$failure['forward_publication_applied'] = true;
+			} elseif ( 'unapplied' === $commit_state ) {
+				$failure['forward_publication_applied'] = false;
+			} else {
+				$failure['forward_publication_applied'] = null;
+			}
+		}
+		if ( false === ( $failure['rollback_authorized'] ?? ( $snapshot['rollback_authorized'] ?? null ) ) ) {
+			$failure['severity'] = 'critical';
+			$failure['rollback'] = array( 'success' => false, 'attempted' => false, 'action' => 'rollback_not_authorized', 'error' => 'foreign_surface_not_owned', 'translation_id' => $translation_id );
+			return self::translation_job_finalize_publication_failure_response( $failure, $snapshot, $translation_id );
+		}
 		if ( empty( $snapshot['mutation_started'] ) ) {
 			$failure['rollback'] = array( 'success' => true, 'action' => 'not_required_before_mutation', 'translation_id' => $translation_id );
-			return $failure;
+			return self::translation_job_finalize_publication_failure_response( $failure, $snapshot, $translation_id );
 		}
 		if ( empty( $snapshot['rollback_expected_surface_revision'] ) ) {
 			$snapshot['rollback_expected_surface_revision'] = (string) ( $failure['mutation_surface_revision'] ?? '' );
@@ -1891,7 +2123,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$failure['rollback'] = array( 'success' => false, 'action' => 'rollback_conflict', 'error' => 'missing_expected_mutation_revision', 'translation_id' => $translation_id );
 			$failure['code'] = 'publication_rollback_failed';
 			$failure['message'] = 'Publication failed and rollback could not prove exclusive ownership of the current surface.';
-			return $failure;
+			return self::translation_job_finalize_publication_failure_response( $failure, $snapshot, $translation_id );
 		}
 		$menu_recovery_plan = isset( $failure['menu_recovery_plan'] ) && is_array( $failure['menu_recovery_plan'] ) ? $failure['menu_recovery_plan'] : null;
 		$failure['rollback'] = is_array( $menu_recovery_plan )
@@ -1925,6 +2157,73 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$failure['code'] = 'publication_rollback_failed';
 			$failure['message'] = 'Publication failed and the original WordPress surface could not be restored automatically.';
 		}
+		return self::translation_job_finalize_publication_failure_response( $failure, $snapshot, $translation_id );
+	}
+
+	/**
+	 * Reconcile the public failure response to the final persisted reader state.
+	 *
+	 * Inner publication Modules expose whether their forward write was applied so
+	 * recovery can make an ownership decision. That phase evidence must never be
+	 * reused as the final `published` result after compensation. The final result
+	 * is classified from a fresh complete-surface CAS read, and the translation
+	 * payload is rebuilt only after rollback has stopped.
+	 */
+	private static function translation_job_finalize_publication_failure_response( array $failure, array $snapshot, int $translation_id ): array {
+		$forward_publication_applied = array_key_exists( 'forward_publication_applied', $failure ) && ( is_bool( $failure['forward_publication_applied'] ) || null === $failure['forward_publication_applied'] )
+			? $failure['forward_publication_applied']
+			: null;
+
+		$term_scope = (array) ( $snapshot['term_scope'] ?? array() );
+		$identity_scope = (array) ( $snapshot['identity_scope'] ?? array() );
+		self::translation_job_clean_recovery_caches( $translation_id, $term_scope );
+		$observed_revision = self::translation_job_rollback_cas_revision( $translation_id, $term_scope, $identity_scope );
+		$restored_revision = (string) ( $snapshot['captured_cas_revision'] ?? '' );
+		$forward_revision = (string) ( $snapshot['rollback_expected_surface_revision'] ?? ( $failure['rollback_expected_surface_revision'] ?? '' ) );
+		$restored_exact = '' !== $observed_revision && '' !== $restored_revision && hash_equals( $restored_revision, $observed_revision );
+		$forward_exact = '' !== $observed_revision && '' !== $forward_revision && hash_equals( $forward_revision, $observed_revision );
+		$rollback_verified = ! empty( $failure['rollback']['success'] );
+		$revisions_distinct = '' !== $restored_revision && '' !== $forward_revision && ! hash_equals( $restored_revision, $forward_revision );
+		$forward_reader_verified = is_array( $failure['cache_invalidation'] ?? null )
+			&& true === ( $failure['cache_invalidation']['success'] ?? null )
+			&& is_array( $failure['live_verification'] ?? null )
+			&& true === ( $failure['live_verification']['success'] ?? null )
+			&& true === ( $failure['live_verification']['passed'] ?? null );
+
+		if ( empty( $snapshot['mutation_started'] ) && $restored_exact ) {
+			$final_published = false;
+			$final_state = 'unchanged_before_mutation';
+		} elseif ( '' === $observed_revision || ! $revisions_distinct ) {
+			$final_published = null;
+			$final_state = 'unknown';
+		} elseif ( $restored_exact ) {
+			$final_published = $rollback_verified ? false : null;
+			$final_state = $rollback_verified ? 'restored_verified' : 'restored_unverified';
+		} elseif ( $forward_exact ) {
+			$final_published = $forward_reader_verified ? true : null;
+			$final_state = $forward_reader_verified ? 'forward_verified' : 'forward_unverified';
+		} else {
+			$final_published = null;
+			$final_state = 'foreign';
+		}
+
+		clean_post_cache( $translation_id );
+		$current_post = get_post( $translation_id );
+		$failure['forward_publication_applied'] = $forward_publication_applied;
+		$failure['published'] = $final_published;
+		$failure['final_reader_state'] = array(
+			'state' => $final_state,
+			'published' => $final_published,
+			'translation_id' => $current_post instanceof WP_Post ? (int) $current_post->ID : 0,
+			'observed_cas_revision' => $observed_revision,
+			'restored_cas_revision' => $restored_revision,
+			'forward_cas_revision' => $forward_revision,
+			'restored_exact' => $restored_exact,
+			'forward_exact' => $forward_exact,
+			'rollback_verified' => $rollback_verified,
+			'forward_reader_verified' => $forward_reader_verified,
+		);
+		$failure['translation'] = $current_post instanceof WP_Post ? self::translation_payload( $current_post ) : null;
 		return $failure;
 	}
 

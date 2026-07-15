@@ -23,10 +23,20 @@ $runtime_provenance_before = get_option( 'devenia_workflow_runtime_mutation_prov
 $menu_identities_before = get_option( 'devenia_workflow_localized_menu_identities' );
 $public_header_manifest_before = get_option( 'devenia_workflow_public_header_manifest' );
 $pending_public_header_manifest_before = get_option( 'devenia_workflow_pending_public_header_manifest' );
+$public_header_enrollment_before = get_option( 'devenia_workflow_public_header_enrollment' );
+$runtime_option_missing = '__devenia_workflow_runtime_option_missing__';
+$show_on_front_before = get_option( 'show_on_front', $runtime_option_missing );
+$page_on_front_before = get_option( 'page_on_front', $runtime_option_missing );
+$page_for_posts_before = get_option( 'page_for_posts', $runtime_option_missing );
 $source_inventory_dirty_before = get_option( 'devenia_workflow_source_inventory_dirty' );
 $nav_menu_locations_before = get_theme_mod( 'nav_menu_locations', array() );
 $runtime_menu_ids = array();
 $runtime_source_menu_id = 0;
+$runtime_translation_ids_by_language = array();
+$runtime_header_source_id = 0;
+$runtime_header_translation_ids_by_language = array();
+$runtime_header_blog_source_id = 0;
+$runtime_header_blog_translation_ids_by_language = array();
 $runtime_page_link = null;
 $runtime_http_surface = null;
 $cache_invalidation_calls = array();
@@ -64,6 +74,8 @@ $call = static function ( string $method, ...$arguments ) {
 	$reflection->setAccessible( true );
 	return $reflection->invokeArgs( null, $arguments );
 };
+$workflow_reflection = new ReflectionClass( Devenia_Workflow::class );
+$runtime_meta_status_key = (string) $workflow_reflection->getConstant( 'META_STATUS' );
 $track_quality_result = static function ( array $result ) use ( &$option_keys ): void {
 	$quality = isset( $result['quality_decision'] ) && is_array( $result['quality_decision'] )
 		? $result['quality_decision']
@@ -470,6 +482,7 @@ try {
 	if ( is_wp_error( $translation_id ) || $translation_id < 1 ) {
 		throw new RuntimeException( 'Could not create the pre-existing public translation fixture.' );
 	}
+	$runtime_translation_ids_by_language[ $language ] = (int) $translation_id;
 	update_post_meta( $translation_id, '_devenia_translation_source_id', $source_id );
 	update_post_meta( $translation_id, '_devenia_translation_language', $language );
 	update_post_meta( $translation_id, '_devenia_translation_status', 'needs_review' );
@@ -626,12 +639,21 @@ try {
 		throw new RuntimeException( 'Observed/stored route mismatch changed Job, Run, claim, artifact authority, or public state: ' . wp_json_encode( $route_mismatch_submit ) );
 	}
 
-	$runtime_page_link = static function ( string $url, int $post_id ) use ( &$translation_id, $language ): string {
-		if ( $post_id !== $translation_id ) {
+	$runtime_page_link = static function ( string $url, int $post_id ) use ( &$runtime_translation_ids_by_language, &$runtime_header_translation_ids_by_language, &$runtime_header_blog_translation_ids_by_language ): string {
+		$runtime_language = array_search( $post_id, $runtime_translation_ids_by_language, true );
+		if ( false === $runtime_language ) {
+			$runtime_language = array_search( $post_id, $runtime_header_translation_ids_by_language, true );
+		}
+		if ( false === $runtime_language ) {
+			$runtime_language = array_search( $post_id, $runtime_header_blog_translation_ids_by_language, true );
+		}
+		if ( false === $runtime_language ) {
 			return $url;
 		}
 		$post = get_post( $post_id );
-		return home_url( '/' . trim( $language . '/' . ( $post instanceof WP_Post ? $post->post_name : '' ), '/' ) . '/' );
+		$languages = Devenia_Workflow::languages();
+		$prefix = sanitize_key( (string) ( $languages[ $runtime_language ]['prefix'] ?? $runtime_language ) );
+		return home_url( '/' . trim( $prefix . '/' . ( $post instanceof WP_Post ? $post->post_name : '' ), '/' ) . '/' );
 	};
 	add_filter( 'page_link', $runtime_page_link, 10, 2 );
 	$runtime_translation_url = (string) get_permalink( $translation_id );
@@ -697,10 +719,46 @@ try {
 	// Dev does not have production language routing or localized menus. Build a
 	// bounded presentation fixture so fail-closed publication exercises the real
 	// stable-menu identity plus origin/canonical verification paths.
-	$runtime_source_menu_id = wp_create_nav_menu( 'Workflow runtime source ' . wp_generate_password( 8, false, false ) );
-	if ( is_wp_error( $runtime_source_menu_id ) ) {
-		throw new RuntimeException( 'Could not create the runtime source menu: ' . $runtime_source_menu_id->get_error_message() );
+	$runtime_header_source_insert = wp_insert_post(
+		array(
+			'post_type'    => 'page',
+			'post_status'  => 'publish',
+			'post_title'   => 'Runtime complete-set header source',
+			'post_excerpt' => 'Runtime complete-set header source fixture.',
+			'post_content' => '<!-- wp:paragraph --><p>Runtime complete-set header source fixture.</p><!-- /wp:paragraph -->',
+			'post_name'    => 'runtime-header-source-' . strtolower( wp_generate_password( 6, false, false ) ),
+		),
+		true
+	);
+	if ( is_wp_error( $runtime_header_source_insert ) || $runtime_header_source_insert < 1 ) {
+		throw new RuntimeException( 'Could not create the isolated complete-set runtime header source.' );
 	}
+	$runtime_header_source_id = (int) $runtime_header_source_insert;
+	update_post_meta( $runtime_header_source_id, '_thumbnail_id', $source_thumbnail_id );
+	$runtime_header_blog_source_insert = wp_insert_post(
+		array(
+			'post_type'    => 'page',
+			'post_status'  => 'publish',
+			'post_title'   => 'Runtime complete-set blog source',
+			'post_excerpt' => 'Runtime complete-set blog source fixture.',
+			'post_content' => '<!-- wp:paragraph --><p>Runtime complete-set blog source fixture.</p><!-- /wp:paragraph -->',
+			'post_name'    => 'runtime-blog-source-' . strtolower( wp_generate_password( 6, false, false ) ),
+		),
+		true
+	);
+	if ( is_wp_error( $runtime_header_blog_source_insert ) || $runtime_header_blog_source_insert < 1 ) {
+		throw new RuntimeException( 'Could not create the isolated complete-set runtime blog source.' );
+	}
+	$runtime_header_blog_source_id = (int) $runtime_header_blog_source_insert;
+	update_post_meta( $runtime_header_blog_source_id, '_thumbnail_id', $source_thumbnail_id );
+	update_option( 'show_on_front', 'page', false );
+	update_option( 'page_on_front', $runtime_header_source_id, false );
+	update_option( 'page_for_posts', $runtime_header_blog_source_id, false );
+	$runtime_source_menu_insert = wp_create_nav_menu( 'Workflow runtime source ' . wp_generate_password( 8, false, false ) );
+	if ( is_wp_error( $runtime_source_menu_insert ) ) {
+		throw new RuntimeException( 'Could not create the runtime source menu: ' . $runtime_source_menu_insert->get_error_message() );
+	}
+	$runtime_source_menu_id = (int) $runtime_source_menu_insert;
 	$runtime_source_menu_parent_id = wp_update_nav_menu_item(
 		(int) $runtime_source_menu_id,
 		0,
@@ -717,7 +775,7 @@ try {
 		array(
 			'menu-item-title'     => 'Runtime source',
 			'menu-item-object'    => 'page',
-			'menu-item-object-id' => $source_id,
+			'menu-item-object-id' => $runtime_header_source_id,
 			'menu-item-type'      => 'post_type',
 			'menu-item-status'    => 'publish',
 			'menu-item-parent-id' => is_wp_error( $runtime_source_menu_parent_id ) ? 0 : (int) $runtime_source_menu_parent_id,
@@ -730,25 +788,85 @@ try {
 	$runtime_locations = is_array( $nav_menu_locations_before ) ? $nav_menu_locations_before : array();
 	$runtime_locations['primary'] = (int) $runtime_source_menu_id;
 	set_theme_mod( 'nav_menu_locations', $runtime_locations );
-	$runtime_languages = get_option( 'devenia_workflow_language_registry', array() );
-	$runtime_languages = is_array( $runtime_languages ) ? $runtime_languages : array();
-	$runtime_languages['en']['menu_name'] = (string) wp_get_nav_menu_object( $runtime_source_menu_id )->name;
-	$runtime_languages[ $language ]['menu_name'] = 'Workflow runtime target ' . wp_generate_password( 8, false, false );
+	$runtime_languages = Devenia_Workflow::languages( true );
+	$runtime_source_language_code = $call( 'source_language_code' );
+	if ( '' === $runtime_source_language_code || empty( $runtime_languages[ $runtime_source_language_code ] ) || empty( $runtime_languages[ $language ] ) ) {
+		throw new RuntimeException( 'The runtime header fixture requires one configured source and target language.' );
+	}
+	$runtime_header_token = wp_generate_password( 8, false, false );
+	foreach ( $runtime_languages as $runtime_header_language => &$runtime_header_config ) {
+		$runtime_header_config['menu_name'] = $runtime_source_language_code === $runtime_header_language
+			? (string) wp_get_nav_menu_object( $runtime_source_menu_id )->name
+			: 'Workflow runtime target ' . $runtime_header_language . ' ' . $runtime_header_token;
+	}
+	unset( $runtime_header_config );
 	update_option( 'devenia_workflow_language_registry', $runtime_languages, false );
 	Devenia_Workflow::languages( true );
+	foreach ( array_keys( $call( 'target_languages' ) ) as $runtime_header_language ) {
+		$runtime_header_translation_slug = 'runtime-header-' . $runtime_header_language . '-' . strtolower( wp_generate_password( 6, false, false ) );
+		$runtime_header_translation_id = wp_insert_post(
+			array(
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_title'   => 'Runtime header translation ' . $runtime_header_language,
+				'post_excerpt' => 'Runtime complete-set header fixture.',
+				'post_content' => '<!-- wp:paragraph --><p>Runtime complete-set header fixture.</p><!-- /wp:paragraph -->',
+				'post_name'    => $runtime_header_translation_slug,
+			),
+			true
+		);
+		if ( is_wp_error( $runtime_header_translation_id ) || $runtime_header_translation_id < 1 ) {
+			throw new RuntimeException( 'Could not create the complete-set runtime header translation for ' . $runtime_header_language . '.' );
+		}
+		$runtime_header_translation_ids_by_language[ $runtime_header_language ] = (int) $runtime_header_translation_id;
+		$runtime_header_prefix = sanitize_key( (string) ( $runtime_languages[ $runtime_header_language ]['prefix'] ?? $runtime_header_language ) );
+		update_post_meta( $runtime_header_translation_id, '_devenia_translation_source_id', $runtime_header_source_id );
+		update_post_meta( $runtime_header_translation_id, '_devenia_translation_language', $runtime_header_language );
+		update_post_meta( $runtime_header_translation_id, '_devenia_translation_status', 'published' );
+		update_post_meta( $runtime_header_translation_id, '_devenia_translation_localized_path', trim( $runtime_header_prefix . '/' . $runtime_header_translation_slug, '/' ) );
+		update_post_meta( $runtime_header_translation_id, '_thumbnail_id', $source_thumbnail_id );
+		clean_post_cache( $runtime_header_translation_id );
+		if ( ! $call( 'sync_translation_index_row', $runtime_header_translation_id ) ) {
+			throw new RuntimeException( 'Could not index the complete-set runtime header translation for ' . $runtime_header_language . '.' );
+		}
+		$runtime_header_blog_translation_slug = 'runtime-blog-' . $runtime_header_language . '-' . strtolower( wp_generate_password( 6, false, false ) );
+		$runtime_header_blog_translation_id = wp_insert_post(
+			array(
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_title'   => 'Runtime blog translation ' . $runtime_header_language,
+				'post_excerpt' => 'Runtime complete-set blog fixture.',
+				'post_content' => '<!-- wp:paragraph --><p>Runtime complete-set blog fixture.</p><!-- /wp:paragraph -->',
+				'post_name'    => $runtime_header_blog_translation_slug,
+			),
+			true
+		);
+		if ( is_wp_error( $runtime_header_blog_translation_id ) || $runtime_header_blog_translation_id < 1 ) {
+			throw new RuntimeException( 'Could not create the complete-set runtime blog translation for ' . $runtime_header_language . '.' );
+		}
+		$runtime_header_blog_translation_ids_by_language[ $runtime_header_language ] = (int) $runtime_header_blog_translation_id;
+		update_post_meta( $runtime_header_blog_translation_id, '_devenia_translation_source_id', $runtime_header_blog_source_id );
+		update_post_meta( $runtime_header_blog_translation_id, '_devenia_translation_language', $runtime_header_language );
+		update_post_meta( $runtime_header_blog_translation_id, '_devenia_translation_status', 'published' );
+		update_post_meta( $runtime_header_blog_translation_id, '_devenia_translation_localized_path', trim( $runtime_header_prefix . '/' . $runtime_header_blog_translation_slug, '/' ) );
+		update_post_meta( $runtime_header_blog_translation_id, '_thumbnail_id', $source_thumbnail_id );
+		clean_post_cache( $runtime_header_blog_translation_id );
+		if ( ! $call( 'sync_translation_index_row', $runtime_header_blog_translation_id ) ) {
+			throw new RuntimeException( 'Could not index the complete-set runtime blog translation for ' . $runtime_header_language . '.' );
+		}
+	}
+	update_option( 'devenia_workflow_localized_menu_identities', array(), false );
+	delete_option( 'devenia_workflow_public_header_enrollment' );
 	$source_language_code = $call( 'source_language_code' );
-	$runtime_group_labels = array();
 	$runtime_source_labels = array();
 	foreach ( array_keys( Devenia_Workflow::languages() ) as $runtime_header_language ) {
-		$runtime_group_labels[ $runtime_header_language ] = $source_language_code === $runtime_header_language ? 'Runtime group' : 'Runtime group ' . $runtime_header_language;
 		$runtime_source_labels[ $runtime_header_language ] = $source_language_code === $runtime_header_language ? 'Runtime source' : 'Runtime source ' . $runtime_header_language;
 	}
 	$runtime_manifest = $call(
 		'update_public_header_manifest',
 		array(
 			'items' => array(
-				array( 'source_item_id' => (int) $runtime_source_menu_parent_id, 'type' => 'custom', 'title' => 'Runtime group', 'labels' => $runtime_group_labels, 'url' => home_url( '/' ), 'parent_source_item_id' => 0, 'position' => 1 ),
-				array( 'source_item_id' => (int) $runtime_source_menu_item_id, 'type' => 'page', 'title' => 'Runtime source', 'labels' => $runtime_source_labels, 'object_id' => $source_id, 'parent_source_item_id' => (int) $runtime_source_menu_parent_id, 'position' => 2 ),
+				array( 'source_item_id' => (int) $runtime_source_menu_item_id, 'type' => 'page', 'title' => 'Runtime source', 'labels' => $runtime_source_labels, 'object_id' => $runtime_header_source_id, 'parent_source_item_id' => 0, 'position' => 1 ),
 			),
 		)
 	);
@@ -763,26 +881,65 @@ try {
 	$runtime_html_lang = (string) $html_lang_method->invoke( null, $language );
 	$hreflang_method = new ReflectionMethod( Devenia_Workflow::class, 'hreflang_for_language' );
 	$hreflang_method->setAccessible( true );
-	$runtime_hreflang = (string) $hreflang_method->invoke( null, $language );
 	$runtime_source_url = (string) get_permalink( $source_id );
-	$runtime_http_surface = static function ( $preempt, array $args, string $url ) use ( &$translation_id, $source_id, $language, $runtime_source_url, &$runtime_translation_url, $runtime_html_lang, $runtime_hreflang ) {
+	$runtime_header_surfaces = array();
+	$runtime_header_surface_profiles = array();
+	foreach ( array_keys( $runtime_languages ) as $runtime_header_language ) {
+		$runtime_header_home_surface_id = $source_language_code === $runtime_header_language
+			? $runtime_header_source_id
+			: absint( $runtime_header_translation_ids_by_language[ $runtime_header_language ] ?? 0 );
+		$runtime_header_blog_surface_id = $source_language_code === $runtime_header_language
+			? $runtime_header_blog_source_id
+			: absint( $runtime_header_blog_translation_ids_by_language[ $runtime_header_language ] ?? 0 );
+		if ( $runtime_header_home_surface_id < 1 || $runtime_header_blog_surface_id < 1 ) {
+			throw new RuntimeException( 'The complete-set runtime header surface is missing for ' . $runtime_header_language . '.' );
+		}
+		$runtime_header_surface_profile = array(
+			'language'  => $runtime_header_language,
+			'html_lang' => (string) $html_lang_method->invoke( null, $runtime_header_language ),
+			'hreflang'  => (string) $hreflang_method->invoke( null, $runtime_header_language ),
+		);
+		$runtime_header_surface_profiles[ $runtime_header_language ] = $runtime_header_surface_profile;
+		foreach (
+			array(
+				array( 'url' => $call( 'localized_home_url_for_language', $runtime_header_language ), 'surface_id' => $runtime_header_home_surface_id ),
+				array( 'url' => $call( 'public_blog_archive_url_for_language', $runtime_header_language ), 'surface_id' => $runtime_header_blog_surface_id ),
+			) as $runtime_header_surface
+		) {
+			$runtime_header_url = (string) ( $runtime_header_surface['url'] ?? '' );
+			if ( '' === $runtime_header_url ) {
+				throw new RuntimeException( 'The complete-set runtime header URL is missing for ' . $runtime_header_language . '.' );
+			}
+			$runtime_header_surfaces[ untrailingslashit( $runtime_header_url ) ] = array_merge( $runtime_header_surface_profile, $runtime_header_surface );
+		}
+	}
+	$runtime_http_surface = static function ( $preempt, array $args, string $url ) use ( &$translation_id, $source_id, $language, $source_language_code, $runtime_source_url, &$runtime_translation_url, $runtime_html_lang, $runtime_header_surfaces, $runtime_header_surface_profiles ) {
 		$request_url = untrailingslashit( strtok( $url, '?' ) ?: '' );
 		if ( $translation_id > 0 ) { $runtime_translation_url = (string) get_permalink( $translation_id ); }
 		$is_translation = $translation_id > 0 && $request_url === untrailingslashit( $runtime_translation_url );
 		$is_source = $request_url === untrailingslashit( $runtime_source_url );
-		if ( ! $is_translation && ! $is_source ) {
+		$surface = $runtime_header_surfaces[ $request_url ] ?? null;
+		if ( $is_translation ) {
+			$surface = array_merge( (array) ( $runtime_header_surface_profiles[ $language ] ?? array() ), array( 'url' => $runtime_translation_url, 'language' => $language, 'html_lang' => $runtime_html_lang, 'surface_id' => $translation_id ) );
+		} elseif ( $is_source ) {
+			$surface = array_merge( (array) ( $runtime_header_surface_profiles[ $source_language_code ] ?? array() ), array( 'url' => $runtime_source_url, 'language' => $source_language_code, 'surface_id' => $source_id ) );
+		}
+		if ( ! is_array( $surface ) ) {
 			return $preempt;
 		}
-		$surface_url = $is_translation ? $runtime_translation_url : $runtime_source_url;
-		$surface_language = $is_translation ? $runtime_html_lang : 'en-US';
-		$surface_hreflang = $is_translation ? $runtime_hreflang : 'en';
-		$surface_id = $is_translation ? $translation_id : $source_id;
+		$surface_url = (string) ( $surface['url'] ?? '' );
+		$surface_language_code = sanitize_key( (string) ( $surface['language'] ?? '' ) );
+		$surface_language = (string) ( $surface['html_lang'] ?? '' );
+		$surface_hreflang = (string) ( $surface['hreflang'] ?? '' );
+		$surface_id = absint( $surface['surface_id'] ?? 0 );
 		$identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
-		$menu_id = absint( $identities[ $language ]['menu_id'] ?? 0 );
+		$menu_id = absint( $identities[ $surface_language_code ]['menu_id'] ?? 0 );
 		$navigation = (string) wp_nav_menu( array( 'menu' => $menu_id, 'container' => false, 'echo' => false, 'fallback_cb' => false, 'items_wrap' => '%3$s' ) );
-		$thumbnail_url = (string) wp_get_attachment_image_url( absint( get_post_thumbnail_id( $surface_id ) ), 'full' );
+		$thumbnail_id = absint( get_post_thumbnail_id( $surface_id ) );
+		$thumbnail_url = (string) wp_get_attachment_image_url( $thumbnail_id, 'full' );
+		$thumbnail_srcset = (string) wp_get_attachment_image_srcset( $thumbnail_id, 'full' );
 		$media_head = '' !== $thumbnail_url ? '<meta property="og:image" content="' . esc_url( $thumbnail_url ) . '">' : '';
-		$media_body = '' !== $thumbnail_url ? '<img class="wp-post-image" src="' . esc_url( $thumbnail_url ) . '">' : '';
+		$media_body = '' !== $thumbnail_url ? '<img class="wp-post-image" src="' . esc_url( $thumbnail_url ) . '"' . ( '' !== $thumbnail_srcset ? ' srcset="' . esc_attr( $thumbnail_srcset ) . '"' : '' ) . '>' : '';
 		$body = '<!doctype html><html lang="' . esc_attr( $surface_language ) . '"><head><link rel="alternate" hreflang="' . esc_attr( $surface_hreflang ) . '" href="' . esc_url( $surface_url ) . '">' . $media_head . '</head><body><nav id="site-navigation">' . $navigation . '</nav><main><h1>' . esc_html( (string) get_the_title( $surface_id ) ) . '</h1>' . $media_body . '</main></body></html>';
 		return array(
 			'headers'  => array( 'cf-cache-status' => false === strpos( $url, 'devenia_frontend_integrity=' ) ? 'HIT' : 'DYNAMIC', 'age' => '0' ),
@@ -794,29 +951,28 @@ try {
 	};
 	add_filter( 'pre_http_request', $runtime_http_surface, 10, 3 );
 
-	// The translation fixture is already public before the staged Job begins.
-	// Seed its current localized primary-menu identity explicitly so every
-	// pre-publish frontend check starts from a real, internally consistent
-	// presentation surface instead of depending on residue from an earlier run.
-	$runtime_seed_menu = $call(
-		'sync_language_menu',
-		array(
-			'language'             => $language,
-			'include_untranslated' => false,
-			'include_custom_links' => true,
-			'retire_previous'      => false,
-		)
-	);
-	$runtime_seed_menu_id = absint( $runtime_seed_menu['target_menu']['id'] ?? 0 );
-	if (
-		empty( $runtime_seed_menu['success'] )
-		|| empty( $runtime_seed_menu['validation']['passed'] )
-		|| $runtime_seed_menu_id < 1
-	) {
-		throw new RuntimeException( 'Could not seed the runtime localized primary-menu identity: ' . wp_json_encode( $runtime_seed_menu ) );
+	// Establish the same complete managed reader surface production requires.
+	// One-language menu staging is not activation authority.
+	$runtime_header_activation = $call( 'sync_public_header_projection', array( 'timeout' => 3 ) );
+	$runtime_header_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
+	// Record every fixture-owned projection before interpreting the result. A
+	// real activation followed by a verification RED must still leave finally
+	// with complete deletion authority for every generated managed menu.
+	foreach ( (array) ( $runtime_header_activation['projections'] ?? array() ) as $runtime_header_projection ) {
+		$runtime_menu_ids[] = absint( $runtime_header_projection['target_menu']['id'] ?? 0 );
 	}
-	$runtime_menu_ids[] = $runtime_seed_menu_id;
-
+	foreach ( (array) $runtime_header_identities as $runtime_header_identity ) {
+		$runtime_menu_ids[] = absint( $runtime_header_identity['menu_id'] ?? 0 );
+	}
+	$runtime_seed_menu_id = absint( $runtime_header_identities[ $language ]['menu_id'] ?? 0 );
+	if (
+		empty( $runtime_header_activation['success'] )
+		|| $runtime_seed_menu_id < 1
+		|| count( (array) $runtime_header_identities ) !== count( (array) $runtime_languages )
+		|| empty( $runtime_header_activation['verification']['passed'] )
+	) {
+		throw new RuntimeException( 'Could not activate the complete runtime Public Header Projection: ' . wp_json_encode( $runtime_header_activation ) );
+	}
 	// A failure after the owner has backfilled the route must restore the exact
 	// legacy state, including absence of the route meta. This proves the
 	// deterministic backfill participates in the normal publication rollback.
@@ -1306,6 +1462,607 @@ try {
 	) {
 		throw new RuntimeException( 'Fresh generation-three Quality Decision failed: ' . wp_json_encode( $generation_three_quality ) );
 	}
+
+	// Staged Translation Artifact application owns the first public mutation.
+	// Exercise that complete Translation Job Interface for both applied and
+	// foreign outcomes after a real COMMIT whose Adapter reports true or unknown.
+	// Define the matrix here beside the generation fixtures it protects, but run
+	// it only after the later published-correction lifecycle establishes a fresh
+	// independently reviewed artifact on one valid visible-media baseline.
+	$run_commit_reconciliation_matrices = static function ( string $matrix_job_id, string $matrix_job_key ) use ( $call, $translation_id, $runtime_meta_status_key, &$cache_invalidation_calls ): void {
+		$job_id = $matrix_job_id;
+		$attempt_limit_job_key = $matrix_job_key;
+	$staged_commit_job_before = get_option( $attempt_limit_job_key );
+	$staged_commit_artifact = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . (string) ( $staged_commit_job_before['artifact_revision'] ?? '' ) ) );
+	$staged_commit_quality_key = 'devenia_workflow_translation_quality_' . (string) ( $staged_commit_job_before['quality_revision'] ?? '' );
+	// Only the exact null sentinel may select the internal COMMIT Interface. A
+	// present non-array value and a structurally complete receipt that claims a
+	// COMMIT without ending the transaction are both invalid Adapter receipts.
+	// Each case must terminalize the still-owned transaction and stop before the
+	// Localized Presentation publication phase receives any authority.
+	$staged_active_receipt_modes = array(
+		'non_array' => array(
+			'receipt'                    => 'runtime-non-array-receipt-' . wp_generate_uuid4(),
+			'expect_missing_committed'   => true,
+			'expect_adapter_receipt_type' => 'string',
+		),
+		'claimed_commit_while_active' => array(
+			'receipt'                    => array( 'success' => true, 'committed' => true, 'code' => 'runtime_claimed_commit_while_transaction_active' ),
+			'expect_missing_committed'   => false,
+			'expect_adapter_receipt_type' => '',
+		),
+	);
+	foreach ( $staged_active_receipt_modes as $staged_active_mode => $staged_active_expectation ) {
+		$staged_active_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $staged_commit_artifact['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', $staged_commit_job_before ) );
+		if ( empty( $staged_active_snapshot['snapshot_valid'] ) ) { throw new RuntimeException( 'Active-transaction staged receipt fixture could not capture its exact pre-attempt surface for ' . $staged_active_mode . '.' ); }
+		$staged_active_before_revision = (string) ( $staged_active_snapshot['captured_cas_revision'] ?? '' );
+		$staged_active_post_before = get_post( $translation_id );
+		$staged_active_surface_before = maybe_serialize( array( 'post' => $staged_active_post_before instanceof WP_Post ? $staged_active_post_before->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+		$staged_active_job_bytes_before = maybe_serialize( get_option( $attempt_limit_job_key ) );
+		$staged_active_quality_bytes_before = maybe_serialize( get_option( $staged_commit_quality_key ) );
+		$staged_active_header_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$staged_active_rollback_invalidations_before = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+		$staged_active_adapter_called = false;
+		$staged_active_content_called = false;
+		$staged_active_receipt = $staged_active_expectation['receipt'];
+		$staged_active_commit_adapter = static function ( $default, int $committed_translation_id, string $before_revision, string $replacement_revision ) use ( $translation_id, $staged_active_before_revision, $staged_active_receipt, &$staged_active_adapter_called ) {
+			unset( $default );
+			if ( $translation_id !== $committed_translation_id || ! hash_equals( $staged_active_before_revision, $before_revision ) || '' === $replacement_revision || hash_equals( $before_revision, $replacement_revision ) ) { throw new RuntimeException( 'Active-transaction staged receipt Adapter received an invalid ownership receipt.' ); }
+			$staged_active_adapter_called = true;
+			return $staged_active_receipt;
+		};
+		$staged_active_content_adapter = static function ( $default ) use ( &$staged_active_content_called ) {
+			$staged_active_content_called = true;
+			return $default;
+		};
+		add_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_active_commit_adapter, 10, 4 );
+		add_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $staged_active_content_adapter, 10, 4 );
+		try {
+			$staged_active_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
+		} finally {
+			remove_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_active_commit_adapter, 10 );
+			remove_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $staged_active_content_adapter, 10 );
+		}
+		clean_post_cache( $translation_id );
+		$staged_active_post_after = get_post( $translation_id );
+		$staged_active_surface_after = maybe_serialize( array( 'post' => $staged_active_post_after instanceof WP_Post ? $staged_active_post_after->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+		$staged_active_current_revision = (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $staged_active_snapshot['term_scope'] ?? array() ), (array) ( $staged_active_snapshot['identity_scope'] ?? array() ) );
+		$staged_active_header_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$staged_active_rollback_invalidations_after = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+		$staged_active_reconciliation = (array) ( $staged_active_publish['commit_reconciliation'] ?? array() );
+		$staged_active_receipt_validation = (array) ( $staged_active_reconciliation['receipt_validation'] ?? array() );
+		$staged_active_terminalization = (array) ( $staged_active_receipt_validation['terminalization'] ?? array() );
+		$staged_active_transaction_commit = (array) ( $staged_active_publish['transaction_commit'] ?? array() );
+		$staged_active_missing_committed_observed = in_array( 'missing_committed', (array) ( $staged_active_receipt_validation['violations'] ?? array() ), true );
+		if (
+			! $staged_active_adapter_called
+			|| $staged_active_content_called
+			|| ! empty( $staged_active_publish['success'] )
+			|| ! empty( $staged_active_publish['published'] )
+			|| 'staged_publication_transaction_commit_receipt_invalid' !== (string) ( $staged_active_publish['code'] ?? '' )
+			|| 'critical' !== (string) ( $staged_active_publish['severity'] ?? '' )
+			|| false !== ( $staged_active_publish['rollback_authorized'] ?? null )
+			|| false !== ( $staged_active_publish['rollback']['attempted'] ?? null )
+			|| 'rollback_not_authorized' !== (string) ( $staged_active_publish['rollback']['action'] ?? '' )
+			|| 'invalid_receipt' !== (string) ( $staged_active_reconciliation['state_outcome'] ?? '' )
+			|| ! empty( $staged_active_receipt_validation['valid'] )
+			|| empty( $staged_active_receipt_validation['transaction_still_owned_at_boundary'] )
+			|| ! in_array( 'transaction_not_terminal', (array) ( $staged_active_receipt_validation['violations'] ?? array() ), true )
+			|| empty( $staged_active_terminalization['success'] )
+			|| empty( $staged_active_terminalization['rolled_back'] )
+			|| 'transaction_rolled_back' !== (string) ( $staged_active_terminalization['code'] ?? '' )
+			|| (bool) $staged_active_expectation['expect_missing_committed'] !== $staged_active_missing_committed_observed
+			|| ( '' !== (string) $staged_active_expectation['expect_adapter_receipt_type'] && (string) $staged_active_expectation['expect_adapter_receipt_type'] !== (string) ( $staged_active_transaction_commit['adapter_receipt_type'] ?? '' ) )
+			|| ( 'non_array' === $staged_active_mode && 'recovery_commit_adapter_receipt_not_array' !== (string) ( $staged_active_transaction_commit['code'] ?? '' ) )
+			|| ( 'claimed_commit_while_active' === $staged_active_mode && $staged_active_receipt !== $staged_active_transaction_commit )
+			|| ! hash_equals( $staged_active_before_revision, $staged_active_current_revision )
+			|| $staged_active_surface_before !== $staged_active_surface_after
+			|| $staged_active_job_bytes_before !== maybe_serialize( get_option( $attempt_limit_job_key ) )
+			|| 'ready_to_publish' !== (string) ( get_option( $attempt_limit_job_key )['status'] ?? '' )
+			|| $staged_active_quality_bytes_before !== maybe_serialize( get_option( $staged_commit_quality_key ) )
+			|| $staged_active_header_before !== $staged_active_header_after
+			|| $staged_active_rollback_invalidations_before !== $staged_active_rollback_invalidations_after
+		) {
+			throw new RuntimeException( 'Present non-array or falsely terminal staged receipt selected default COMMIT, escaped owned terminalization, or advanced publication for ' . $staged_active_mode . ': ' . wp_json_encode( array( 'result' => $staged_active_publish, 'adapter_called' => $staged_active_adapter_called, 'content_called' => $staged_active_content_called, 'surface_preserved' => $staged_active_surface_before === $staged_active_surface_after, 'job_preserved' => $staged_active_job_bytes_before === maybe_serialize( get_option( $attempt_limit_job_key ) ), 'quality_preserved' => $staged_active_quality_bytes_before === maybe_serialize( get_option( $staged_commit_quality_key ) ), 'header_preserved' => $staged_active_header_before === $staged_active_header_after ) ) );
+		}
+	}
+	// A real COMMIT followed by a malformed Adapter receipt must never be
+	// mistaken for the legitimate committed=null outcome, even while the exact
+	// staged replacement is observable. Publication stops without granting
+	// rollback authority; this fixture then restores only the exact revision it
+	// just proved so the remaining reconciliation matrix starts cleanly.
+	$invalid_staged_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $staged_commit_artifact['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', $staged_commit_job_before ) );
+	if ( empty( $invalid_staged_snapshot['snapshot_valid'] ) ) { throw new RuntimeException( 'Malformed staged-commit fixture could not capture its exact pre-attempt surface.' ); }
+	$invalid_staged_before_revision = (string) ( $invalid_staged_snapshot['captured_cas_revision'] ?? '' );
+	$invalid_staged_post_before = get_post( $translation_id );
+	$invalid_staged_surface_before = maybe_serialize( array( 'post' => $invalid_staged_post_before instanceof WP_Post ? $invalid_staged_post_before->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+	$invalid_staged_job_bytes_before = maybe_serialize( get_option( $attempt_limit_job_key ) );
+	$invalid_staged_quality_bytes_before = maybe_serialize( get_option( $staged_commit_quality_key ) );
+	$invalid_staged_header_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$invalid_staged_rollback_invalidations_before = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+	$invalid_staged_adapter_called = false;
+	$invalid_staged_content_called = false;
+	$invalid_staged_replacement_revision = '';
+	$invalid_staged_commit_adapter = static function ( $default, int $committed_translation_id, string $before_revision, string $replacement_revision ) use ( $call, $translation_id, $invalid_staged_before_revision, &$invalid_staged_adapter_called, &$invalid_staged_replacement_revision ): array {
+		unset( $default );
+		if ( $translation_id !== $committed_translation_id || ! hash_equals( $invalid_staged_before_revision, $before_revision ) || '' === $replacement_revision || hash_equals( $before_revision, $replacement_revision ) ) { throw new RuntimeException( 'Malformed staged-commit Adapter received an invalid ownership receipt.' ); }
+		$actual = $call( 'translation_job_commit_recovery_transaction' );
+		if ( empty( $actual['success'] ) || ! array_key_exists( 'committed', $actual ) || true !== $actual['committed'] ) { throw new RuntimeException( 'Malformed staged-commit fixture could not establish its real COMMIT.' ); }
+		$invalid_staged_adapter_called = true;
+		$invalid_staged_replacement_revision = $replacement_revision;
+		return array( 'success' => false, 'code' => 'runtime_staged_commit_missing_committed', 'actual' => $actual );
+	};
+	$invalid_staged_content_adapter = static function ( $default ) use ( &$invalid_staged_content_called ) {
+		$invalid_staged_content_called = true;
+		return $default;
+	};
+	add_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $invalid_staged_commit_adapter, 10, 4 );
+	add_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $invalid_staged_content_adapter, 10, 4 );
+	try {
+		$invalid_staged_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
+	} finally {
+		remove_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $invalid_staged_commit_adapter, 10 );
+		remove_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $invalid_staged_content_adapter, 10 );
+	}
+	clean_post_cache( $translation_id );
+	$invalid_staged_post_after = get_post( $translation_id );
+	$invalid_staged_surface_after = maybe_serialize( array( 'post' => $invalid_staged_post_after instanceof WP_Post ? $invalid_staged_post_after->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+	$invalid_staged_current_revision = (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $invalid_staged_snapshot['term_scope'] ?? array() ), (array) ( $invalid_staged_snapshot['identity_scope'] ?? array() ) );
+	$invalid_staged_header_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$invalid_staged_rollback_invalidations_after = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+	$invalid_staged_reconciliation = (array) ( $invalid_staged_publish['commit_reconciliation'] ?? array() );
+	$invalid_staged_receipt_validation = (array) ( $invalid_staged_reconciliation['receipt_validation'] ?? array() );
+	if (
+		! $invalid_staged_adapter_called
+		|| $invalid_staged_content_called
+		|| ! empty( $invalid_staged_publish['success'] )
+		|| 'staged_publication_transaction_commit_receipt_invalid' !== (string) ( $invalid_staged_publish['code'] ?? '' )
+		|| 'critical' !== (string) ( $invalid_staged_publish['severity'] ?? '' )
+		|| false !== ( $invalid_staged_publish['rollback_authorized'] ?? null )
+		|| false !== ( $invalid_staged_publish['rollback']['attempted'] ?? null )
+		|| 'rollback_not_authorized' !== (string) ( $invalid_staged_publish['rollback']['action'] ?? '' )
+		|| 'invalid_receipt' !== (string) ( $invalid_staged_reconciliation['state_outcome'] ?? '' )
+		|| ! empty( $invalid_staged_receipt_validation['valid'] )
+		|| ! in_array( 'missing_committed', (array) ( $invalid_staged_receipt_validation['violations'] ?? array() ), true )
+		|| array_key_exists( 'committed', (array) ( $invalid_staged_publish['transaction_commit'] ?? array() ) )
+		|| ! hash_equals( $invalid_staged_replacement_revision, $invalid_staged_current_revision )
+		|| $invalid_staged_surface_before === $invalid_staged_surface_after
+		|| $invalid_staged_job_bytes_before !== maybe_serialize( get_option( $attempt_limit_job_key ) )
+		|| 'ready_to_publish' !== (string) ( get_option( $attempt_limit_job_key )['status'] ?? '' )
+		|| $invalid_staged_quality_bytes_before !== maybe_serialize( get_option( $staged_commit_quality_key ) )
+		|| $invalid_staged_header_before !== $invalid_staged_header_after
+		|| $invalid_staged_rollback_invalidations_before !== $invalid_staged_rollback_invalidations_after
+	) {
+		throw new RuntimeException( 'Malformed staged COMMIT receipt was accepted, advanced, or granted rollback authority despite an exact applied replacement: ' . wp_json_encode( array( 'result' => $invalid_staged_publish, 'adapter_called' => $invalid_staged_adapter_called, 'content_called' => $invalid_staged_content_called, 'replacement_revision' => $invalid_staged_replacement_revision, 'current_revision' => $invalid_staged_current_revision, 'surface_changed' => $invalid_staged_surface_before !== $invalid_staged_surface_after, 'job_preserved' => $invalid_staged_job_bytes_before === maybe_serialize( get_option( $attempt_limit_job_key ) ), 'quality_preserved' => $invalid_staged_quality_bytes_before === maybe_serialize( get_option( $staged_commit_quality_key ) ), 'header_preserved' => $invalid_staged_header_before === $invalid_staged_header_after ) ) );
+	}
+	$invalid_staged_snapshot['mutation_started'] = true;
+	$invalid_staged_snapshot['rollback_expected_surface_revision'] = $invalid_staged_current_revision;
+	$invalid_staged_fixture_restore = $call( 'translation_job_restore_surface_snapshot', $invalid_staged_snapshot, $translation_id );
+	clean_post_cache( $translation_id );
+	$invalid_staged_restored_post = get_post( $translation_id );
+	$invalid_staged_restored_surface = maybe_serialize( array( 'post' => $invalid_staged_restored_post instanceof WP_Post ? $invalid_staged_restored_post->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+	if ( empty( $invalid_staged_fixture_restore['success'] ) || ! hash_equals( $invalid_staged_before_revision, (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $invalid_staged_snapshot['term_scope'] ?? array() ), (array) ( $invalid_staged_snapshot['identity_scope'] ?? array() ) ) ) || $invalid_staged_surface_before !== $invalid_staged_restored_surface ) {
+		throw new RuntimeException( 'Malformed staged COMMIT fixture could not restore only its exact proved replacement: ' . wp_json_encode( $invalid_staged_fixture_restore ) );
+	}
+	foreach ( array( 'staged_committed_true_applied' => true, 'staged_committed_unknown_applied' => null ) as $staged_applied_mode => $staged_applied_committed ) {
+		$staged_applied_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $staged_commit_artifact['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', $staged_commit_job_before ) );
+		if ( empty( $staged_applied_snapshot['snapshot_valid'] ) ) { throw new RuntimeException( 'Applied staged-commit fixture could not capture its exact pre-attempt surface.' ); }
+		$staged_applied_before_revision = (string) ( $staged_applied_snapshot['captured_cas_revision'] ?? '' );
+		$staged_applied_header_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$staged_applied_job_bytes_before = maybe_serialize( get_option( $attempt_limit_job_key ) );
+		$staged_applied_quality_bytes_before = maybe_serialize( get_option( $staged_commit_quality_key ) );
+		$staged_applied_rollback_invalidations_before = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+		$staged_applied_adapter_called = false;
+		$staged_applied_content_called = false;
+		$staged_applied_replacement = '';
+		$staged_applied_content_before = '';
+		$staged_applied_commit_adapter = static function ( $default, int $committed_translation_id, string $before_revision, string $replacement_revision ) use ( $call, $translation_id, $staged_applied_committed, $staged_applied_mode, $staged_applied_before_revision, &$staged_applied_adapter_called, &$staged_applied_replacement ): array {
+			if ( $translation_id !== $committed_translation_id || ! hash_equals( $staged_applied_before_revision, $before_revision ) || '' === $replacement_revision || hash_equals( $before_revision, $replacement_revision ) ) { throw new RuntimeException( 'Applied staged-commit Adapter received an invalid ownership receipt.' ); }
+			$actual = $call( 'translation_job_commit_recovery_transaction' );
+			if ( empty( $actual['success'] ) || ! array_key_exists( 'committed', $actual ) || true !== $actual['committed'] ) { throw new RuntimeException( 'Applied staged-commit fixture could not establish its real COMMIT.' ); }
+			$staged_applied_adapter_called = true;
+			$staged_applied_replacement = $replacement_revision;
+			return array( 'success' => false, 'committed' => $staged_applied_committed, 'code' => true === $staged_applied_committed ? 'runtime_staged_commit_applied' : 'runtime_staged_commit_unknown_applied', 'mode' => $staged_applied_mode, 'actual' => $actual );
+		};
+		$staged_applied_content_adapter = static function ( $default, int $committed_translation_id, string $before_revision ) use ( $call, $translation_id, &$staged_applied_content_called, &$staged_applied_content_before ): array {
+			if ( $translation_id !== $committed_translation_id ) { throw new RuntimeException( 'Applied staged-commit continuation reached the wrong content identity.' ); }
+			$staged_applied_content_called = true;
+			$staged_applied_content_before = $before_revision;
+			$actual = $call( 'translation_job_rollback_recovery_transaction' );
+			if ( empty( $actual['success'] ) || empty( $actual['rolled_back'] ) ) { throw new RuntimeException( 'Applied staged-commit fixture could not establish its controlled later failure.' ); }
+			return array( 'success' => false, 'committed' => false, 'code' => 'runtime_content_transition_rolled_back_after_staged_apply', 'actual' => $actual );
+		};
+		add_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_applied_commit_adapter, 10, 4 );
+		add_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $staged_applied_content_adapter, 10, 4 );
+		try {
+			$staged_applied_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
+		} finally {
+			remove_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_applied_commit_adapter, 10 );
+			remove_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $staged_applied_content_adapter, 10 );
+		}
+		$staged_applied_current_revision = (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $staged_applied_snapshot['term_scope'] ?? array() ), (array) ( $staged_applied_snapshot['identity_scope'] ?? array() ) );
+		$staged_applied_header_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$staged_applied_rollback_invalidations_after = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+		if ( ! $staged_applied_adapter_called || ! $staged_applied_content_called || ! hash_equals( $staged_applied_replacement, $staged_applied_content_before ) || 'publication_transaction_commit_rolled_back' !== (string) ( $staged_applied_publish['code'] ?? '' ) || true !== ( $staged_applied_publish['rollback_authorized'] ?? null ) || empty( $staged_applied_publish['rollback']['success'] ) || 'restore_existing' !== (string) ( $staged_applied_publish['rollback']['action'] ?? '' ) || ! array_key_exists( 'forward_publication_applied', $staged_applied_publish ) || true !== $staged_applied_publish['forward_publication_applied'] || ! array_key_exists( 'published', $staged_applied_publish ) || false !== $staged_applied_publish['published'] || 'restored_verified' !== (string) ( $staged_applied_publish['final_reader_state']['state'] ?? '' ) || ! hash_equals( $staged_applied_before_revision, $staged_applied_current_revision ) || $staged_applied_job_bytes_before !== maybe_serialize( get_option( $attempt_limit_job_key ) ) || 'ready_to_publish' !== (string) ( get_option( $attempt_limit_job_key )['status'] ?? '' ) || $staged_applied_quality_bytes_before !== maybe_serialize( get_option( $staged_commit_quality_key ) ) || $staged_applied_header_before !== $staged_applied_header_after || $staged_applied_rollback_invalidations_before + 1 !== $staged_applied_rollback_invalidations_after ) {
+			throw new RuntimeException( 'Applied staged-commit outcome did not continue with exact owned rollback authority for ' . $staged_applied_mode . ': ' . wp_json_encode( array( 'result' => $staged_applied_publish, 'adapter_called' => $staged_applied_adapter_called, 'content_called' => $staged_applied_content_called, 'owned_replacement' => $staged_applied_replacement, 'content_before' => $staged_applied_content_before, 'before_revision' => $staged_applied_before_revision, 'current_revision' => $staged_applied_current_revision, 'job_preserved' => $staged_applied_job_bytes_before === maybe_serialize( get_option( $attempt_limit_job_key ) ), 'quality_preserved' => $staged_applied_quality_bytes_before === maybe_serialize( get_option( $staged_commit_quality_key ) ), 'header_preserved' => $staged_applied_header_before === $staged_applied_header_after, 'rollback_invalidations_before' => $staged_applied_rollback_invalidations_before, 'rollback_invalidations_after' => $staged_applied_rollback_invalidations_after ) ) );
+		}
+	}
+	foreach ( array( 'staged_committed_true_foreign' => true, 'staged_committed_unknown_foreign' => null ) as $staged_foreign_mode => $staged_foreign_committed ) {
+		$staged_foreign_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $staged_commit_artifact['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', $staged_commit_job_before ) );
+		if ( empty( $staged_foreign_snapshot['snapshot_valid'] ) ) { throw new RuntimeException( 'Foreign staged-commit fixture could not capture its exact pre-attempt surface.' ); }
+		$staged_foreign_header_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$staged_foreign_job_bytes_before = maybe_serialize( get_option( $attempt_limit_job_key ) );
+		$staged_foreign_quality_bytes_before = maybe_serialize( get_option( $staged_commit_quality_key ) );
+		$staged_foreign_rollback_invalidations_before = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+		$staged_foreign_excerpt = 'Foreign staged-apply surface ' . $staged_foreign_mode . ' ' . wp_generate_uuid4();
+		$staged_foreign_cached_excerpt = '';
+		$staged_foreign_commit_adapter = static function ( $default, int $committed_translation_id ) use ( $call, $staged_foreign_committed, $staged_foreign_mode, $staged_foreign_excerpt, &$staged_foreign_cached_excerpt ): array {
+			global $wpdb;
+			$actual = $call( 'translation_job_commit_recovery_transaction' );
+			if ( empty( $actual['success'] ) || ! array_key_exists( 'committed', $actual ) || true !== $actual['committed'] ) { throw new RuntimeException( 'Foreign staged-commit fixture could not establish its real COMMIT.' ); }
+			$cached = get_post( $committed_translation_id );
+			$staged_foreign_cached_excerpt = $cached instanceof WP_Post ? (string) $cached->post_excerpt : '';
+			$updated = $wpdb->update( $wpdb->posts, array( 'post_excerpt' => $staged_foreign_excerpt ), array( 'ID' => $committed_translation_id ), array( '%s' ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Deliberately bypass cache to prove post-COMMIT reconciliation evicts the stale owned replacement before reading a concurrent foreign state.
+			if ( 1 !== $updated ) { throw new RuntimeException( 'Foreign staged-commit fixture could not write its uncached concurrent state.' ); }
+			return array( 'success' => false, 'committed' => $staged_foreign_committed, 'code' => true === $staged_foreign_committed ? 'runtime_staged_commit_applied_then_foreign' : 'runtime_staged_commit_unknown_then_foreign', 'mode' => $staged_foreign_mode, 'actual' => $actual );
+		};
+		add_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_foreign_commit_adapter, 10, 4 );
+		try {
+			$staged_foreign_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
+		} finally {
+			remove_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_foreign_commit_adapter, 10 );
+		}
+		$staged_foreign_post = get_post( $translation_id );
+		$staged_foreign_current_revision = (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $staged_foreign_snapshot['term_scope'] ?? array() ), (array) ( $staged_foreign_snapshot['identity_scope'] ?? array() ) );
+		$staged_foreign_header_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$staged_foreign_rollback_invalidations_after = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+		if ( 'staged_publication_transaction_commit_reconciliation_conflict' !== (string) ( $staged_foreign_publish['code'] ?? '' ) || 'critical' !== (string) ( $staged_foreign_publish['severity'] ?? '' ) || false !== ( $staged_foreign_publish['rollback_authorized'] ?? null ) || false !== ( $staged_foreign_publish['rollback']['attempted'] ?? null ) || 'rollback_not_authorized' !== (string) ( $staged_foreign_publish['rollback']['action'] ?? '' ) || 'foreign_surface_not_owned' !== (string) ( $staged_foreign_publish['rollback']['error'] ?? '' ) || '' !== (string) ( $staged_foreign_publish['mutation_cas_revision'] ?? '' ) || $staged_foreign_current_revision !== (string) ( $staged_foreign_publish['observed_mutation_cas_revision'] ?? '' ) || 'foreign' !== (string) ( $staged_foreign_publish['commit_reconciliation']['state_outcome'] ?? '' ) || ! $staged_foreign_post instanceof WP_Post || $staged_foreign_excerpt !== (string) $staged_foreign_post->post_excerpt || $staged_foreign_excerpt === $staged_foreign_cached_excerpt || $staged_foreign_job_bytes_before !== maybe_serialize( get_option( $attempt_limit_job_key ) ) || 'ready_to_publish' !== (string) ( get_option( $attempt_limit_job_key )['status'] ?? '' ) || $staged_foreign_quality_bytes_before !== maybe_serialize( get_option( $staged_commit_quality_key ) ) || $staged_foreign_header_before !== $staged_foreign_header_after || $staged_foreign_rollback_invalidations_before !== $staged_foreign_rollback_invalidations_after ) {
+			throw new RuntimeException( 'Foreign staged-commit outcome was overwritten or promoted to rollback authority for ' . $staged_foreign_mode . ': ' . wp_json_encode( array( 'result' => $staged_foreign_publish, 'foreign_revision' => $staged_foreign_current_revision, 'foreign_excerpt' => $staged_foreign_excerpt, 'cached_excerpt_before_direct_write' => $staged_foreign_cached_excerpt, 'current_excerpt' => $staged_foreign_post instanceof WP_Post ? $staged_foreign_post->post_excerpt : null, 'job_preserved' => $staged_foreign_job_bytes_before === maybe_serialize( get_option( $attempt_limit_job_key ) ), 'quality_preserved' => $staged_foreign_quality_bytes_before === maybe_serialize( get_option( $staged_commit_quality_key ) ), 'header_preserved' => $staged_foreign_header_before === $staged_foreign_header_after, 'rollback_invalidations_before' => $staged_foreign_rollback_invalidations_before, 'rollback_invalidations_after' => $staged_foreign_rollback_invalidations_after ) ) );
+		}
+		$staged_foreign_snapshot['mutation_started'] = true;
+		$staged_foreign_snapshot['rollback_expected_surface_revision'] = $staged_foreign_current_revision;
+		$staged_foreign_fixture_restore = $call( 'translation_job_restore_surface_snapshot', $staged_foreign_snapshot, $translation_id );
+		if ( empty( $staged_foreign_fixture_restore['success'] ) || (string) ( $staged_foreign_snapshot['captured_cas_revision'] ?? '' ) !== (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $staged_foreign_snapshot['term_scope'] ?? array() ), (array) ( $staged_foreign_snapshot['identity_scope'] ?? array() ) ) ) { throw new RuntimeException( 'Foreign staged-commit fixture cleanup failed for ' . $staged_foreign_mode . ': ' . wp_json_encode( $staged_foreign_fixture_restore ) ); }
+	}
+	// The Localized Presentation Publication Module owns rollback authority.
+	// Exercise the complete Translation Job caller twice: a real COMMIT followed
+	// by a foreign write must remain diagnostic-only for both true and unknown
+	// commit receipts, with no caller rollback or header mutation.
+	$foreign_publish_job_before = get_option( $attempt_limit_job_key );
+	$foreign_publish_artifact = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . (string) ( $foreign_publish_job_before['artifact_revision'] ?? '' ) ) );
+	foreach ( array( 'committed_true_foreign' => true, 'committed_unknown_foreign' => null ) as $foreign_publish_mode => $foreign_committed ) {
+		$foreign_fixture_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $foreign_publish_artifact['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', $foreign_publish_job_before ) );
+		if ( empty( $foreign_fixture_snapshot['snapshot_valid'] ) ) { throw new RuntimeException( 'Foreign publication caller fixture could not capture its exact pre-attempt surface.' ); }
+		$foreign_header_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$foreign_job_bytes_before = maybe_serialize( get_option( $attempt_limit_job_key ) );
+		$foreign_revision = ''; $foreign_surface_bytes = '';
+		$rollback_invalidation_before = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+		$foreign_commit_adapter = static function ( $default, int $committed_translation_id ) use ( $call, $foreign_committed, $foreign_publish_mode, $foreign_fixture_snapshot, &$foreign_revision, &$foreign_surface_bytes ) {
+			$actual = $call( 'translation_job_commit_recovery_transaction' );
+			if ( empty( $actual['success'] ) || ! array_key_exists( 'committed', $actual ) || true !== $actual['committed'] ) { throw new RuntimeException( 'Foreign publication caller fixture could not establish its real COMMIT.' ); }
+			$foreign_excerpt = 'Foreign caller-owned surface ' . $foreign_publish_mode . ' ' . wp_generate_uuid4();
+			$updated = wp_update_post( array( 'ID' => $committed_translation_id, 'post_excerpt' => $foreign_excerpt ), true );
+			if ( is_wp_error( $updated ) || $committed_translation_id !== absint( $updated ) ) { throw new RuntimeException( 'Foreign publication caller fixture could not write the concurrent surface.' ); }
+			clean_post_cache( $committed_translation_id );
+			$foreign_revision = (string) $call( 'translation_job_rollback_cas_revision', $committed_translation_id, (array) ( $foreign_fixture_snapshot['term_scope'] ?? array() ), (array) ( $foreign_fixture_snapshot['identity_scope'] ?? array() ) );
+			$foreign_post = get_post( $committed_translation_id );
+			$foreign_surface_bytes = maybe_serialize( array( 'post' => $foreign_post instanceof WP_Post ? $foreign_post->to_array() : null, 'meta' => get_post_meta( $committed_translation_id ) ) );
+			return array( 'success' => false, 'committed' => $foreign_committed, 'code' => true === $foreign_committed ? 'runtime_commit_applied_then_foreign' : 'runtime_commit_unknown_then_foreign', 'actual' => $actual );
+		};
+		add_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $foreign_commit_adapter, 10, 4 );
+		try {
+			$foreign_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
+		} finally {
+			remove_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $foreign_commit_adapter, 10 );
+		}
+		clean_post_cache( $translation_id );
+		$foreign_surface_after_bytes = maybe_serialize( array( 'post' => ( get_post( $translation_id ) instanceof WP_Post ? get_post( $translation_id )->to_array() : null ), 'meta' => get_post_meta( $translation_id ) ) );
+		$foreign_current_revision = (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $foreign_fixture_snapshot['term_scope'] ?? array() ), (array) ( $foreign_fixture_snapshot['identity_scope'] ?? array() ) );
+		$foreign_header_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$rollback_invalidation_after = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+		if ( 'publication_transaction_commit_reconciliation_conflict' !== (string) ( $foreign_publish['code'] ?? '' ) || 'critical' !== (string) ( $foreign_publish['severity'] ?? '' ) || false !== ( $foreign_publish['rollback_authorized'] ?? null ) || ! isset( $foreign_publish['rollback'] ) || false !== ( $foreign_publish['rollback']['attempted'] ?? null ) || 'rollback_not_authorized' !== (string) ( $foreign_publish['rollback']['action'] ?? '' ) || 'foreign_surface_not_owned' !== (string) ( $foreign_publish['rollback']['error'] ?? '' ) || ! array_key_exists( 'published', $foreign_publish ) || null !== $foreign_publish['published'] || 'foreign' !== (string) ( $foreign_publish['final_reader_state']['state'] ?? '' ) || '' !== (string) ( $foreign_publish['mutation_cas_revision'] ?? '' ) || $foreign_revision !== (string) ( $foreign_publish['observed_mutation_cas_revision'] ?? '' ) || $foreign_revision !== $foreign_current_revision || $foreign_surface_bytes !== $foreign_surface_after_bytes || $foreign_job_bytes_before !== maybe_serialize( get_option( $attempt_limit_job_key ) ) || 'ready_to_publish' !== (string) ( get_option( $attempt_limit_job_key )['status'] ?? '' ) || $foreign_header_before !== $foreign_header_after || $rollback_invalidation_before !== $rollback_invalidation_after ) {
+			throw new RuntimeException( 'Translation Job caller promoted a foreign diagnostic revision to rollback authority for ' . $foreign_publish_mode . ': ' . wp_json_encode( array( 'result' => $foreign_publish, 'foreign_revision' => $foreign_revision, 'current_revision' => $foreign_current_revision, 'surface_bytes_preserved' => $foreign_surface_bytes === $foreign_surface_after_bytes, 'job_preserved' => $foreign_job_bytes_before === maybe_serialize( get_option( $attempt_limit_job_key ) ), 'header_preserved' => $foreign_header_before === $foreign_header_after, 'rollback_invalidations_before' => $rollback_invalidation_before, 'rollback_invalidations_after' => $rollback_invalidation_after ) ) );
+		}
+		$foreign_fixture_snapshot['mutation_started'] = true;
+		$foreign_fixture_snapshot['rollback_expected_surface_revision'] = $foreign_revision;
+		$foreign_fixture_restore = $call( 'translation_job_restore_surface_snapshot', $foreign_fixture_snapshot, $translation_id );
+		if ( empty( $foreign_fixture_restore['success'] ) || (string) ( $foreign_fixture_snapshot['captured_cas_revision'] ?? '' ) !== (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $foreign_fixture_snapshot['term_scope'] ?? array() ), (array) ( $foreign_fixture_snapshot['identity_scope'] ?? array() ) ) ) { throw new RuntimeException( 'Foreign publication caller fixture cleanup failed for ' . $foreign_publish_mode . ': ' . wp_json_encode( $foreign_fixture_restore ) ); }
+	}
+
+	// restore_commit_applied_true_and_unknown_public_publish:
+	// A public Translation Job failure must treat an exact applied restore as
+	// owned for both true and unknown receipts, then purge and verify it.
+	// restore_commit_foreign_true_and_unknown_public_publish:
+	// A foreign post-COMMIT writer remains byte-exact and never receives a
+	// rollback invalidation or a false successful-restore claim.
+	$restore_commit_modes = array(
+		'applied_true'    => array( 'committed' => true, 'foreign' => false ),
+		'applied_unknown' => array( 'committed' => null, 'foreign' => false ),
+		'foreign_true'    => array( 'committed' => true, 'foreign' => true ),
+		'foreign_unknown' => array( 'committed' => null, 'foreign' => true ),
+	);
+	foreach ( $restore_commit_modes as $restore_commit_mode => $restore_expectation ) {
+		$restore_job_before = get_option( $attempt_limit_job_key );
+		$restore_artifact = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . (string) ( $restore_job_before['artifact_revision'] ?? '' ) ) );
+		$restore_fixture_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $restore_artifact['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', $restore_job_before ) );
+		if ( empty( $restore_fixture_snapshot['snapshot_valid'] ) ) { throw new RuntimeException( 'Restore commit fixture could not capture its exact pre-attempt surface for ' . $restore_commit_mode . '.' ); }
+		$restore_post_before = get_post( $translation_id );
+		$restore_surface_before = maybe_serialize( array( 'post' => $restore_post_before instanceof WP_Post ? $restore_post_before->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+		$restore_job_bytes_before = maybe_serialize( $restore_job_before );
+		$restore_header_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$restore_rollback_invalidations_before = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+		$restore_foreign_revision = '';
+		$restore_foreign_surface = '';
+		$restore_commit_adapter = static function ( $default, array $snapshot, int $restored_translation_id ) use ( $call, $restore_commit_mode, $restore_expectation, &$restore_foreign_revision, &$restore_foreign_surface ) {
+			unset( $default );
+			$actual = $call( 'translation_job_commit_recovery_transaction' );
+			if ( empty( $actual['success'] ) || ! array_key_exists( 'committed', $actual ) || true !== $actual['committed'] ) { throw new RuntimeException( 'Restore commit fixture could not establish a real COMMIT for ' . $restore_commit_mode . '.' ); }
+			if ( ! empty( $restore_expectation['foreign'] ) ) {
+				$foreign_excerpt = 'Foreign restore surface ' . $restore_commit_mode . ' ' . wp_generate_uuid4();
+				$updated = wp_update_post( array( 'ID' => $restored_translation_id, 'post_excerpt' => $foreign_excerpt ), true );
+				if ( is_wp_error( $updated ) || $restored_translation_id !== absint( $updated ) ) { throw new RuntimeException( 'Restore commit fixture could not write its foreign surface.' ); }
+				clean_post_cache( $restored_translation_id );
+				$restore_foreign_revision = (string) $call( 'translation_job_rollback_cas_revision', $restored_translation_id, (array) ( $snapshot['term_scope'] ?? array() ), (array) ( $snapshot['identity_scope'] ?? array() ) );
+				$foreign_post = get_post( $restored_translation_id );
+				$restore_foreign_surface = maybe_serialize( array( 'post' => $foreign_post instanceof WP_Post ? $foreign_post->to_array() : null, 'meta' => get_post_meta( $restored_translation_id ) ) );
+			}
+			return array( 'success' => true === $restore_expectation['committed'], 'committed' => $restore_expectation['committed'], 'code' => 'runtime_restore_' . $restore_commit_mode, 'actual' => $actual );
+		};
+		$force_publication_failure = static function ( $result, array $urls, array $context ) {
+			unset( $urls );
+			return 'localized_presentation_publication' === (string) ( $context['event'] ?? '' )
+				? array( 'success' => false, 'code' => 'runtime_forced_publication_failure_for_restore' )
+				: $result;
+		};
+		add_filter( 'devenia_workflow_translation_job_restore_commit_adapter_result', $restore_commit_adapter, 10, 4 );
+		add_filter( 'devenia_workflow_frontend_cache_invalidation_result', $force_publication_failure, 20, 3 );
+		try {
+			$restore_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => true ) );
+		} finally {
+			remove_filter( 'devenia_workflow_translation_job_restore_commit_adapter_result', $restore_commit_adapter, 10 );
+			remove_filter( 'devenia_workflow_frontend_cache_invalidation_result', $force_publication_failure, 20 );
+		}
+		clean_post_cache( $translation_id );
+		$restore_post_after = get_post( $translation_id );
+		$restore_surface_after = maybe_serialize( array( 'post' => $restore_post_after instanceof WP_Post ? $restore_post_after->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+		$restore_current_revision = (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $restore_fixture_snapshot['term_scope'] ?? array() ), (array) ( $restore_fixture_snapshot['identity_scope'] ?? array() ) );
+		$restore_header_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$restore_rollback_invalidations_after = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+		$restore_result = (array) ( $restore_publish['rollback'] ?? array() );
+		$restore_commit_reconciliation = (array) ( $restore_result['commit_reconciliation'] ?? array() );
+		if ( empty( $restore_expectation['foreign'] ) ) {
+			if ( 'runtime_forced_publication_failure_for_restore' !== (string) ( $restore_publish['code'] ?? '' ) || empty( $restore_result['success'] ) || 'applied' !== (string) ( $restore_result['commit_reconciliation']['state_outcome'] ?? '' ) || ! array_key_exists( 'committed', $restore_commit_reconciliation ) || $restore_expectation['committed'] !== $restore_commit_reconciliation['committed'] || ! array_key_exists( 'forward_publication_applied', $restore_publish ) || true !== $restore_publish['forward_publication_applied'] || ! array_key_exists( 'published', $restore_publish ) || false !== $restore_publish['published'] || 'restored_verified' !== (string) ( $restore_publish['final_reader_state']['state'] ?? '' ) || empty( $restore_result['cache_invalidation']['success'] ) || empty( $restore_result['media_verification']['success'] ) || ! isset( $restore_result['media_verification']['responses']['origin'], $restore_result['media_verification']['responses']['canonical'] ) || $restore_surface_before !== $restore_surface_after || (string) ( $restore_fixture_snapshot['captured_cas_revision'] ?? '' ) !== $restore_current_revision || $restore_job_bytes_before !== maybe_serialize( get_option( $attempt_limit_job_key ) ) || 'ready_to_publish' !== (string) ( get_option( $attempt_limit_job_key )['status'] ?? '' ) || $restore_header_before !== $restore_header_after || $restore_rollback_invalidations_before + 1 !== $restore_rollback_invalidations_after ) {
+				throw new RuntimeException( 'Applied restore commit was not reconciled, invalidated, and verified for ' . $restore_commit_mode . ': ' . wp_json_encode( array( 'result' => $restore_publish, 'surface_restored' => $restore_surface_before === $restore_surface_after, 'job_preserved' => $restore_job_bytes_before === maybe_serialize( get_option( $attempt_limit_job_key ) ), 'header_preserved' => $restore_header_before === $restore_header_after, 'rollback_invalidations_before' => $restore_rollback_invalidations_before, 'rollback_invalidations_after' => $restore_rollback_invalidations_after ) ) );
+			}
+		} else {
+			if ( 'publication_rollback_failed' !== (string) ( $restore_publish['code'] ?? '' ) || ! empty( $restore_result['success'] ) || 'critical' !== (string) ( $restore_result['severity'] ?? '' ) || 'recovery_transaction_commit_reconciliation_conflict' !== (string) ( $restore_result['error'] ?? '' ) || 'foreign' !== (string) ( $restore_result['commit_reconciliation']['state_outcome'] ?? '' ) || ! array_key_exists( 'committed', $restore_commit_reconciliation ) || $restore_expectation['committed'] !== $restore_commit_reconciliation['committed'] || ! array_key_exists( 'published', $restore_publish ) || null !== $restore_publish['published'] || 'foreign' !== (string) ( $restore_publish['final_reader_state']['state'] ?? '' ) || $restore_foreign_revision !== $restore_current_revision || $restore_foreign_surface !== $restore_surface_after || $restore_job_bytes_before !== maybe_serialize( get_option( $attempt_limit_job_key ) ) || 'ready_to_publish' !== (string) ( get_option( $attempt_limit_job_key )['status'] ?? '' ) || $restore_header_before !== $restore_header_after || $restore_rollback_invalidations_before !== $restore_rollback_invalidations_after ) {
+				throw new RuntimeException( 'Foreign restore commit state was not preserved and rejected for ' . $restore_commit_mode . ': ' . wp_json_encode( array( 'result' => $restore_publish, 'foreign_revision' => $restore_foreign_revision, 'current_revision' => $restore_current_revision, 'foreign_surface_preserved' => $restore_foreign_surface === $restore_surface_after, 'job_preserved' => $restore_job_bytes_before === maybe_serialize( get_option( $attempt_limit_job_key ) ), 'header_preserved' => $restore_header_before === $restore_header_after ) ) );
+			}
+			$restore_fixture_snapshot['mutation_started'] = true;
+			$restore_fixture_snapshot['rollback_expected_surface_revision'] = $restore_foreign_revision;
+			$restore_fixture_cleanup = $call( 'translation_job_restore_surface_snapshot', $restore_fixture_snapshot, $translation_id );
+			if ( empty( $restore_fixture_cleanup['success'] ) || (string) ( $restore_fixture_snapshot['captured_cas_revision'] ?? '' ) !== (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $restore_fixture_snapshot['term_scope'] ?? array() ), (array) ( $restore_fixture_snapshot['identity_scope'] ?? array() ) ) ) { throw new RuntimeException( 'Foreign restore commit fixture cleanup failed for ' . $restore_commit_mode . ': ' . wp_json_encode( $restore_fixture_cleanup ) ); }
+		}
+	}
+	// A structurally valid success/committed receipt is still invalid while the
+	// snapshot transaction is active. It must be rolled back by the receipt
+	// boundary and never expose a usable snapshot to publication.
+	$active_snapshot_job_bytes_before = maybe_serialize( get_option( $attempt_limit_job_key ) );
+	$active_snapshot_quality_bytes_before = maybe_serialize( get_option( $staged_commit_quality_key ) );
+	$active_snapshot_post_before = get_post( $translation_id );
+	$active_snapshot_surface_before = maybe_serialize( array( 'post' => $active_snapshot_post_before instanceof WP_Post ? $active_snapshot_post_before->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+	$active_snapshot_header_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$active_snapshot_receipt = array( 'success' => true, 'committed' => true, 'code' => 'runtime_snapshot_claimed_commit_while_transaction_active' );
+	$active_snapshot_adapter_called = false;
+	$active_snapshot_commit_adapter = static function ( $default, array $snapshot, int $snapshot_translation_id ) use ( $translation_id, $active_snapshot_receipt, &$active_snapshot_adapter_called ): array {
+		unset( $default );
+		if ( $translation_id !== $snapshot_translation_id || empty( $snapshot['snapshot_valid'] ) || '' === (string) ( $snapshot['captured_cas_revision'] ?? '' ) ) { throw new RuntimeException( 'Active snapshot receipt Adapter did not receive an exact captured snapshot.' ); }
+		$active_snapshot_adapter_called = true;
+		return $active_snapshot_receipt;
+	};
+	add_filter( 'devenia_workflow_translation_job_snapshot_commit_adapter_result', $active_snapshot_commit_adapter, 10, 3 );
+	try {
+		$active_snapshot_result = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $staged_commit_artifact['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', get_option( $attempt_limit_job_key ) ) );
+	} finally {
+		remove_filter( 'devenia_workflow_translation_job_snapshot_commit_adapter_result', $active_snapshot_commit_adapter, 10 );
+	}
+	clean_post_cache( $translation_id );
+	$active_snapshot_post_after = get_post( $translation_id );
+	$active_snapshot_surface_after = maybe_serialize( array( 'post' => $active_snapshot_post_after instanceof WP_Post ? $active_snapshot_post_after->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+	$active_snapshot_header_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$active_snapshot_reconciliation = (array) ( $active_snapshot_result['commit_reconciliation'] ?? array() );
+	$active_snapshot_validation = (array) ( $active_snapshot_reconciliation['receipt_validation'] ?? array() );
+	$active_snapshot_terminalization = (array) ( $active_snapshot_validation['terminalization'] ?? array() );
+	if (
+		! $active_snapshot_adapter_called
+		|| ! empty( $active_snapshot_result['snapshot_valid'] )
+		|| 'publication_snapshot_commit_receipt_invalid' !== (string) ( $active_snapshot_result['message'] ?? '' )
+		|| 'critical' !== (string) ( $active_snapshot_result['severity'] ?? '' )
+		|| 'invalid_receipt' !== (string) ( $active_snapshot_reconciliation['state_outcome'] ?? '' )
+		|| empty( $active_snapshot_reconciliation['exact'] )
+		|| $active_snapshot_receipt !== (array) ( $active_snapshot_result['transaction_commit'] ?? array() )
+		|| ! empty( $active_snapshot_validation['valid'] )
+		|| empty( $active_snapshot_validation['transaction_still_owned_at_boundary'] )
+		|| array( 'transaction_not_terminal' ) !== array_values( (array) ( $active_snapshot_validation['violations'] ?? array() ) )
+		|| empty( $active_snapshot_terminalization['success'] )
+		|| empty( $active_snapshot_terminalization['rolled_back'] )
+		|| 'transaction_rolled_back' !== (string) ( $active_snapshot_terminalization['code'] ?? '' )
+		|| $active_snapshot_surface_before !== $active_snapshot_surface_after
+		|| $active_snapshot_job_bytes_before !== maybe_serialize( get_option( $attempt_limit_job_key ) )
+		|| $active_snapshot_quality_bytes_before !== maybe_serialize( get_option( $staged_commit_quality_key ) )
+		|| $active_snapshot_header_before !== $active_snapshot_header_after
+	) {
+		throw new RuntimeException( 'A falsely terminal success receipt escaped owned rollback or exposed a usable publication snapshot: ' . wp_json_encode( array( 'result' => $active_snapshot_result, 'adapter_called' => $active_snapshot_adapter_called, 'surface_preserved' => $active_snapshot_surface_before === $active_snapshot_surface_after, 'job_preserved' => $active_snapshot_job_bytes_before === maybe_serialize( get_option( $attempt_limit_job_key ) ), 'quality_preserved' => $active_snapshot_quality_bytes_before === maybe_serialize( get_option( $staged_commit_quality_key ) ), 'header_preserved' => $active_snapshot_header_before === $active_snapshot_header_after ) ) );
+	}
+
+	// The restore boundary must likewise roll back its own uncommitted restore
+	// when an Adapter merely claims success. The deliberately drifted fixture
+	// must remain exact until a later unfiltered, valid restore cleans it up.
+	$active_restore_job_bytes_before = maybe_serialize( get_option( $attempt_limit_job_key ) );
+	$active_restore_quality_bytes_before = maybe_serialize( get_option( $staged_commit_quality_key ) );
+	$active_restore_header_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$active_restore_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $staged_commit_artifact['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', get_option( $attempt_limit_job_key ) ) );
+	if ( empty( $active_restore_snapshot['snapshot_valid'] ) ) { throw new RuntimeException( 'Active restore receipt fixture could not capture its exact original surface.' ); }
+	$active_restore_original_post = get_post( $translation_id );
+	$active_restore_original_surface = maybe_serialize( array( 'post' => $active_restore_original_post instanceof WP_Post ? $active_restore_original_post->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+	$active_restore_drift_excerpt = 'Runtime active restore receipt drift ' . wp_generate_uuid4();
+	$active_restore_drift_update = wp_update_post( array( 'ID' => $translation_id, 'post_excerpt' => $active_restore_drift_excerpt ), true );
+	if ( is_wp_error( $active_restore_drift_update ) || $translation_id !== absint( $active_restore_drift_update ) ) { throw new RuntimeException( 'Active restore receipt fixture could not create its controlled pre-restore drift.' ); }
+	clean_post_cache( $translation_id );
+	$active_restore_drift_post = get_post( $translation_id );
+	$active_restore_drift_surface = maybe_serialize( array( 'post' => $active_restore_drift_post instanceof WP_Post ? $active_restore_drift_post->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+	$active_restore_drift_revision = (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $active_restore_snapshot['term_scope'] ?? array() ), (array) ( $active_restore_snapshot['identity_scope'] ?? array() ) );
+	if ( '' === $active_restore_drift_revision || hash_equals( (string) ( $active_restore_snapshot['captured_cas_revision'] ?? '' ), $active_restore_drift_revision ) || $active_restore_original_surface === $active_restore_drift_surface ) { throw new RuntimeException( 'Active restore receipt fixture did not establish a distinct controlled drift.' ); }
+	$active_restore_snapshot['mutation_started'] = true;
+	$active_restore_snapshot['rollback_expected_surface_revision'] = $active_restore_drift_revision;
+	$active_restore_receipt = array( 'success' => true, 'committed' => true, 'code' => 'runtime_restore_claimed_commit_while_transaction_active' );
+	$active_restore_adapter_called = false;
+	$active_restore_commit_adapter = static function ( $default, array $snapshot, int $restored_translation_id, array $result ) use ( $translation_id, $active_restore_receipt, &$active_restore_adapter_called ): array {
+		unset( $default );
+		if ( $translation_id !== $restored_translation_id || empty( $result['success'] ) || '' === (string) ( $snapshot['captured_cas_revision'] ?? '' ) ) { throw new RuntimeException( 'Active restore receipt Adapter did not receive an exact uncommitted restore.' ); }
+		$active_restore_adapter_called = true;
+		return $active_restore_receipt;
+	};
+	add_filter( 'devenia_workflow_translation_job_restore_commit_adapter_result', $active_restore_commit_adapter, 10, 4 );
+	try {
+		$active_restore_result = $call( 'translation_job_restore_surface_snapshot', $active_restore_snapshot, $translation_id );
+	} finally {
+		remove_filter( 'devenia_workflow_translation_job_restore_commit_adapter_result', $active_restore_commit_adapter, 10 );
+	}
+	clean_post_cache( $translation_id );
+	$active_restore_post_after = get_post( $translation_id );
+	$active_restore_surface_after = maybe_serialize( array( 'post' => $active_restore_post_after instanceof WP_Post ? $active_restore_post_after->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+	$active_restore_current_revision = (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $active_restore_snapshot['term_scope'] ?? array() ), (array) ( $active_restore_snapshot['identity_scope'] ?? array() ) );
+	$active_restore_reconciliation = (array) ( $active_restore_result['commit_reconciliation'] ?? array() );
+	$active_restore_validation = (array) ( $active_restore_reconciliation['receipt_validation'] ?? array() );
+	$active_restore_terminalization = (array) ( $active_restore_validation['terminalization'] ?? array() );
+	$active_restore_header_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	if (
+		! $active_restore_adapter_called
+		|| ! empty( $active_restore_result['success'] )
+		|| 'rollback_conflict' !== (string) ( $active_restore_result['action'] ?? '' )
+		|| 'recovery_transaction_commit_receipt_invalid' !== (string) ( $active_restore_result['error'] ?? '' )
+		|| 'critical' !== (string) ( $active_restore_result['severity'] ?? '' )
+		|| 'invalid_receipt' !== (string) ( $active_restore_reconciliation['state_outcome'] ?? '' )
+		|| empty( $active_restore_reconciliation['pre_restore_exact'] )
+		|| ! empty( $active_restore_reconciliation['restored_exact'] )
+		|| $active_restore_receipt !== (array) ( $active_restore_result['transaction_commit'] ?? array() )
+		|| ! empty( $active_restore_validation['valid'] )
+		|| empty( $active_restore_validation['transaction_still_owned_at_boundary'] )
+		|| array( 'transaction_not_terminal' ) !== array_values( (array) ( $active_restore_validation['violations'] ?? array() ) )
+		|| empty( $active_restore_terminalization['success'] )
+		|| empty( $active_restore_terminalization['rolled_back'] )
+		|| 'transaction_rolled_back' !== (string) ( $active_restore_terminalization['code'] ?? '' )
+		|| ! hash_equals( $active_restore_drift_revision, $active_restore_current_revision )
+		|| $active_restore_drift_surface !== $active_restore_surface_after
+		|| $active_restore_job_bytes_before !== maybe_serialize( get_option( $attempt_limit_job_key ) )
+		|| $active_restore_quality_bytes_before !== maybe_serialize( get_option( $staged_commit_quality_key ) )
+		|| $active_restore_header_before !== $active_restore_header_after
+	) {
+		throw new RuntimeException( 'A falsely terminal success receipt escaped owned rollback or advanced an uncommitted surface restore: ' . wp_json_encode( array( 'result' => $active_restore_result, 'adapter_called' => $active_restore_adapter_called, 'drift_revision' => $active_restore_drift_revision, 'current_revision' => $active_restore_current_revision, 'drift_preserved' => $active_restore_drift_surface === $active_restore_surface_after, 'job_preserved' => $active_restore_job_bytes_before === maybe_serialize( get_option( $attempt_limit_job_key ) ), 'quality_preserved' => $active_restore_quality_bytes_before === maybe_serialize( get_option( $staged_commit_quality_key ) ), 'header_preserved' => $active_restore_header_before === $active_restore_header_after ) ) );
+	}
+	$active_restore_cleanup = $call( 'translation_job_restore_surface_snapshot', $active_restore_snapshot, $translation_id );
+	clean_post_cache( $translation_id );
+	$active_restore_cleanup_post = get_post( $translation_id );
+	$active_restore_cleanup_surface = maybe_serialize( array( 'post' => $active_restore_cleanup_post instanceof WP_Post ? $active_restore_cleanup_post->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+	if ( empty( $active_restore_cleanup['success'] ) || $active_restore_original_surface !== $active_restore_cleanup_surface || ! hash_equals( (string) ( $active_restore_snapshot['captured_cas_revision'] ?? '' ), (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $active_restore_snapshot['term_scope'] ?? array() ), (array) ( $active_restore_snapshot['identity_scope'] ?? array() ) ) ) ) {
+		throw new RuntimeException( 'Active restore receipt fixture could not clean up only its exact controlled drift: ' . wp_json_encode( $active_restore_cleanup ) );
+	}
+	// The restore path must apply the same receipt grammar. Establish a real
+	// restore COMMIT and return a receipt with no committed key. Even though the
+	// exact restored revision is visible, the public publish Interface must keep
+	// the Job/Quality authority immutable and report a critical failed rollback.
+	// `forward_publication_applied=true` remains deliberate phase evidence that
+	// the forward publication really committed before the forced follow-up
+	// failure. Final reader status is unknown until the malformed restore receipt
+	// is resolved, even though the database CAS proves the original surface is
+	// present again.
+	$invalid_restore_job_before = get_option( $attempt_limit_job_key );
+	$invalid_restore_artifact = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . (string) ( $invalid_restore_job_before['artifact_revision'] ?? '' ) ) );
+	$invalid_restore_fixture_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $invalid_restore_artifact['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', $invalid_restore_job_before ) );
+	if ( empty( $invalid_restore_fixture_snapshot['snapshot_valid'] ) ) { throw new RuntimeException( 'Malformed restore-commit fixture could not capture its exact pre-attempt surface.' ); }
+	$invalid_restore_post_before = get_post( $translation_id );
+	$invalid_restore_surface_before = maybe_serialize( array( 'post' => $invalid_restore_post_before instanceof WP_Post ? $invalid_restore_post_before->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+	$invalid_restore_job_bytes_before = maybe_serialize( $invalid_restore_job_before );
+	$invalid_restore_quality_bytes_before = maybe_serialize( get_option( $staged_commit_quality_key ) );
+	$invalid_restore_header_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$invalid_restore_rollback_invalidations_before = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+	$invalid_restore_adapter_called = false;
+	$invalid_restore_observed_revision = '';
+	$invalid_restore_expected_revision = '';
+	$invalid_restore_commit_adapter = static function ( $default, array $snapshot, int $restored_translation_id ) use ( $call, &$invalid_restore_adapter_called, &$invalid_restore_observed_revision, &$invalid_restore_expected_revision ): array {
+		unset( $default );
+		$actual = $call( 'translation_job_commit_recovery_transaction' );
+		if ( empty( $actual['success'] ) || ! array_key_exists( 'committed', $actual ) || true !== $actual['committed'] ) { throw new RuntimeException( 'Malformed restore-commit fixture could not establish its real COMMIT.' ); }
+		$invalid_restore_adapter_called = true;
+		$invalid_restore_expected_revision = (string) ( $snapshot['captured_cas_revision'] ?? '' );
+		$invalid_restore_observed_revision = (string) $call( 'translation_job_rollback_cas_revision', $restored_translation_id, (array) ( $snapshot['term_scope'] ?? array() ), (array) ( $snapshot['identity_scope'] ?? array() ) );
+		if ( '' === $invalid_restore_expected_revision || ! hash_equals( $invalid_restore_expected_revision, $invalid_restore_observed_revision ) ) { throw new RuntimeException( 'Malformed restore-commit fixture did not observe the exact restored revision after its real COMMIT.' ); }
+		return array( 'success' => false, 'code' => 'runtime_restore_commit_missing_committed', 'actual' => $actual );
+	};
+	$invalid_restore_force_publication_failure = static function ( $result, array $urls, array $context ) {
+		unset( $urls );
+		return 'localized_presentation_publication' === (string) ( $context['event'] ?? '' )
+			? array( 'success' => false, 'code' => 'runtime_forced_publication_failure_for_invalid_restore_receipt' )
+			: $result;
+	};
+	add_filter( 'devenia_workflow_translation_job_restore_commit_adapter_result', $invalid_restore_commit_adapter, 10, 4 );
+	add_filter( 'devenia_workflow_frontend_cache_invalidation_result', $invalid_restore_force_publication_failure, 20, 3 );
+	try {
+		$invalid_restore_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => true ) );
+	} finally {
+		remove_filter( 'devenia_workflow_translation_job_restore_commit_adapter_result', $invalid_restore_commit_adapter, 10 );
+		remove_filter( 'devenia_workflow_frontend_cache_invalidation_result', $invalid_restore_force_publication_failure, 20 );
+	}
+	clean_post_cache( $translation_id );
+	$invalid_restore_post_after = get_post( $translation_id );
+	$invalid_restore_surface_after = maybe_serialize( array( 'post' => $invalid_restore_post_after instanceof WP_Post ? $invalid_restore_post_after->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
+	$invalid_restore_current_revision = (string) $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $invalid_restore_fixture_snapshot['term_scope'] ?? array() ), (array) ( $invalid_restore_fixture_snapshot['identity_scope'] ?? array() ) );
+	$invalid_restore_header_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+	$invalid_restore_rollback_invalidations_after = count( array_filter( $cache_invalidation_calls, static function ( array $entry ): bool { return 'localized_presentation_rollback' === (string) ( $entry['context']['event'] ?? '' ); } ) );
+	$invalid_restore_result = (array) ( $invalid_restore_publish['rollback'] ?? array() );
+	$invalid_restore_reconciliation = (array) ( $invalid_restore_result['commit_reconciliation'] ?? array() );
+	$invalid_restore_receipt_validation = (array) ( $invalid_restore_reconciliation['receipt_validation'] ?? array() );
+	$invalid_restore_final_reader_state = (array) ( $invalid_restore_publish['final_reader_state'] ?? array() );
+	$invalid_restore_response_translation = (array) ( $invalid_restore_publish['translation'] ?? array() );
+	if (
+		! $invalid_restore_adapter_called
+		|| ! empty( $invalid_restore_publish['success'] )
+		|| ! array_key_exists( 'published', $invalid_restore_publish )
+		|| null !== $invalid_restore_publish['published']
+		|| ! array_key_exists( 'forward_publication_applied', $invalid_restore_publish )
+		|| true !== $invalid_restore_publish['forward_publication_applied']
+		|| 'restored_unverified' !== (string) ( $invalid_restore_final_reader_state['state'] ?? '' )
+		|| ! array_key_exists( 'published', $invalid_restore_final_reader_state )
+		|| null !== $invalid_restore_final_reader_state['published']
+		|| empty( $invalid_restore_final_reader_state['restored_exact'] )
+		|| ! empty( $invalid_restore_final_reader_state['forward_exact'] )
+		|| ! empty( $invalid_restore_final_reader_state['rollback_verified'] )
+		|| ! hash_equals( $invalid_restore_current_revision, (string) ( $invalid_restore_final_reader_state['observed_cas_revision'] ?? '' ) )
+		|| 'publication_rollback_failed' !== (string) ( $invalid_restore_publish['code'] ?? '' )
+		|| ! empty( $invalid_restore_result['success'] )
+		|| 'rollback_conflict' !== (string) ( $invalid_restore_result['action'] ?? '' )
+		|| 'recovery_transaction_commit_receipt_invalid' !== (string) ( $invalid_restore_result['error'] ?? '' )
+		|| 'critical' !== (string) ( $invalid_restore_result['severity'] ?? '' )
+		|| 'invalid_receipt' !== (string) ( $invalid_restore_reconciliation['state_outcome'] ?? '' )
+		|| ! empty( $invalid_restore_receipt_validation['valid'] )
+		|| ! in_array( 'missing_committed', (array) ( $invalid_restore_receipt_validation['violations'] ?? array() ), true )
+		|| array_key_exists( 'committed', (array) ( $invalid_restore_result['transaction_commit'] ?? array() ) )
+		|| ! hash_equals( $invalid_restore_expected_revision, $invalid_restore_observed_revision )
+		|| ! hash_equals( $invalid_restore_expected_revision, $invalid_restore_current_revision )
+		|| $invalid_restore_surface_before !== $invalid_restore_surface_after
+		|| $invalid_restore_job_bytes_before !== maybe_serialize( get_option( $attempt_limit_job_key ) )
+		|| 'ready_to_publish' !== (string) ( get_option( $attempt_limit_job_key )['status'] ?? '' )
+		|| $translation_id !== absint( $invalid_restore_response_translation['id'] ?? 0 )
+		|| (string) get_post_field( 'post_title', $translation_id ) !== (string) ( $invalid_restore_response_translation['title'] ?? '' )
+		|| (string) get_post_meta( $translation_id, $runtime_meta_status_key, true ) !== (string) ( $invalid_restore_response_translation['translation_status'] ?? '' )
+		|| $invalid_restore_quality_bytes_before !== maybe_serialize( get_option( $staged_commit_quality_key ) )
+		|| $invalid_restore_header_before !== $invalid_restore_header_after
+		|| $invalid_restore_rollback_invalidations_before !== $invalid_restore_rollback_invalidations_after
+	) {
+		throw new RuntimeException( 'Malformed restore COMMIT receipt was accepted as a successful rollback or mutated immutable authority despite the exact restored state: ' . wp_json_encode( array( 'result' => $invalid_restore_publish, 'adapter_called' => $invalid_restore_adapter_called, 'expected_revision' => $invalid_restore_expected_revision, 'observed_revision' => $invalid_restore_observed_revision, 'current_revision' => $invalid_restore_current_revision, 'surface_restored' => $invalid_restore_surface_before === $invalid_restore_surface_after, 'job_preserved' => $invalid_restore_job_bytes_before === maybe_serialize( get_option( $attempt_limit_job_key ) ), 'quality_preserved' => $invalid_restore_quality_bytes_before === maybe_serialize( get_option( $staged_commit_quality_key ) ), 'header_preserved' => $invalid_restore_header_before === $invalid_restore_header_after ) ) );
+	}
+	};
 	$pre_publish_concurrency_job = get_option( $attempt_limit_job_key );
 	$pre_publish_concurrency_artifact = (string) ( $pre_publish_concurrency_job['artifact_revision'] ?? '' );
 	$pre_publish_concurrency_quality = (string) ( $pre_publish_concurrency_job['quality_revision'] ?? '' );
@@ -1369,6 +2126,11 @@ try {
 	$rollback_event = $cache_invalidation_calls[ $rollback_invalidation_count ]['context']['event'] ?? '';
 	if (
 		empty( $rollback_media_success['rollback']['success'] )
+		|| ! array_key_exists( 'forward_publication_applied', $rollback_media_success )
+		|| true !== $rollback_media_success['forward_publication_applied']
+		|| ! array_key_exists( 'published', $rollback_media_success )
+		|| false !== $rollback_media_success['published']
+		|| 'restored_verified' !== (string) ( $rollback_media_success['final_reader_state']['state'] ?? '' )
 		|| 'localized_presentation_rollback' !== $rollback_event
 		|| empty( $rollback_media_success['rollback']['media_verification']['success'] )
 		|| ! isset( $rollback_media_success['rollback']['media_verification']['responses']['origin'], $rollback_media_success['rollback']['media_verification']['responses']['canonical'] )
@@ -1394,6 +2156,9 @@ try {
 	if (
 		'publication_rollback_failed' !== (string) ( $rollback_media_failure['code'] ?? '' )
 		|| ! empty( $rollback_media_failure['rollback']['success'] )
+		|| ! array_key_exists( 'published', $rollback_media_failure )
+		|| null !== $rollback_media_failure['published']
+		|| 'restored_unverified' !== (string) ( $rollback_media_failure['final_reader_state']['state'] ?? '' )
 		|| 'rollback_featured_image_verification_failed' !== (string) ( $rollback_media_failure['rollback']['error'] ?? '' )
 		|| empty( $rollback_media_failure['rollback']['media_verification']['issues'] )
 	) {
@@ -1739,10 +2504,11 @@ try {
 		throw new RuntimeException( 'Identity-race lower-level proof did not preserve zero mutation, rollback, immutable records, and exact CAS refresh: ' . wp_json_encode( array( 'failure' => $identity_failure, 'refresh' => $identity_refresh, 'job' => $stored_identity_job ) ) );
 	}
 
-	// Preserve direct coverage for the original baseline-drift code as a
-	// separate deterministic transaction-boundary scenario. The current public
-	// surface is the locked snapshot, while the cloned staged artifact retains
-	// its older captured baseline.
+	// Preserve direct coverage for the baseline-drift code as a separate
+	// deterministic transaction-boundary scenario. A direct persisted change to
+	// the localized attachment alt after approval must be part of the current
+	// surface revision, remain untouched by the stale artifact, and reopen only
+	// through the bounded lifecycle.
 	$baseline_job_id = 'tj_runtime_baseline_refresh_' . wp_generate_password( 8, false, false );
 	$baseline_job_key = 'devenia_workflow_translation_job_' . $baseline_job_id;
 	$baseline_artifact_revision = 'a_' . substr( hash( 'sha256', $baseline_job_id ), 0, 32 );
@@ -1774,24 +2540,21 @@ try {
 	if ( ! $baseline_public_post instanceof WP_Post ) {
 		throw new RuntimeException( 'Baseline-drift lower-level fixture could not read the published translation.' );
 	}
-	$baseline_original_excerpt = (string) $baseline_public_post->post_excerpt;
+	$baseline_original_featured_alt_exists = metadata_exists( 'post', $translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT );
+	$baseline_original_featured_alt = (string) get_post_meta( $translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT, true );
+	$baseline_approved_featured_alt = (string) ( $baseline_artifact_record['surface_manifest']['media']['featured_image_alt'] ?? '' );
 	$baseline_original_surface_revision = $call( 'translation_job_current_surface_revision', $translation_id );
 	$baseline_drift_surface_revision = '';
 	$baseline_restored_surface_revision = '';
+	$baseline_drift_featured_alt = 'Runtime localized featured-image alt drift ' . wp_generate_password( 8, false, false );
+	$baseline_observed_featured_alt_after_failure = '';
 	$baseline_snapshot = array();
 	$baseline_failure = array();
 	$baseline_refresh = array();
 	try {
-		$baseline_drift_excerpt = $baseline_original_excerpt . ' Runtime public baseline drift ' . wp_generate_password( 8, false, false ) . '.';
-		$baseline_drift_update = wp_update_post(
-			array(
-				'ID' => $translation_id,
-				'post_excerpt' => $baseline_drift_excerpt,
-			),
-			true
-		);
-		if ( is_wp_error( $baseline_drift_update ) || $translation_id !== absint( $baseline_drift_update ) ) {
-			throw new RuntimeException( 'Baseline-drift lower-level fixture could not establish public drift: ' . ( is_wp_error( $baseline_drift_update ) ? $baseline_drift_update->get_error_message() : 'unexpected post ID' ) );
+		$baseline_drift_update = update_post_meta( $translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT, $baseline_drift_featured_alt );
+		if ( false === $baseline_drift_update || $baseline_drift_featured_alt !== (string) get_post_meta( $translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT, true ) ) {
+			throw new RuntimeException( 'Baseline-drift lower-level fixture could not establish localized featured-image alt drift.' );
 		}
 		clean_post_cache( $translation_id );
 		$call( 'sync_translation_index_row', $translation_id );
@@ -1799,16 +2562,15 @@ try {
 		$baseline_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) $baseline_artifact_record['surface_manifest'], $baseline_scope );
 		$baseline_failure = $call( 'translation_job_apply_staged_artifact', $baseline_job, $baseline_artifact_record, $baseline_snapshot );
 		$baseline_refresh = $call( 'translation_job_refresh_drifted_surface', $baseline_job, 'publish_baseline_mismatch', $baseline_failure );
+		$baseline_observed_featured_alt_after_failure = (string) get_post_meta( $translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT, true );
 	} finally {
-		$baseline_restore = wp_update_post(
-			array(
-				'ID' => $translation_id,
-				'post_excerpt' => $baseline_original_excerpt,
-			),
-			true
-		);
-		if ( is_wp_error( $baseline_restore ) || $translation_id !== absint( $baseline_restore ) ) {
-			throw new RuntimeException( 'Baseline-drift lower-level fixture could not restore the published translation: ' . ( is_wp_error( $baseline_restore ) ? $baseline_restore->get_error_message() : 'unexpected post ID' ) );
+		if ( $baseline_original_featured_alt_exists ) {
+			$baseline_restore = update_post_meta( $translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT, $baseline_original_featured_alt );
+			if ( false === $baseline_restore && $baseline_original_featured_alt !== (string) get_post_meta( $translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT, true ) ) {
+				throw new RuntimeException( 'Baseline-drift lower-level fixture could not restore the localized featured-image alt.' );
+			}
+		} elseif ( ! delete_post_meta( $translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT ) && metadata_exists( 'post', $translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT ) ) {
+			throw new RuntimeException( 'Baseline-drift lower-level fixture could not restore absent localized featured-image alt meta.' );
 		}
 		clean_post_cache( $translation_id );
 		$call( 'sync_translation_index_row', $translation_id );
@@ -1820,10 +2582,13 @@ try {
 	if (
 		empty( $baseline_snapshot['snapshot_valid'] )
 		|| $baseline_original_surface_revision === $baseline_drift_surface_revision
+		|| $baseline_approved_featured_alt === $baseline_drift_featured_alt
 		|| (string) ( $baseline_artifact_record['baseline_surface_revision'] ?? '' ) === $baseline_drift_surface_revision
 		|| $baseline_drift_surface_revision !== (string) ( $baseline_snapshot['captured_surface_revision'] ?? '' )
 		|| $baseline_original_surface_revision !== $baseline_restored_surface_revision
-		|| $baseline_original_excerpt !== (string) get_post_field( 'post_excerpt', $translation_id )
+		|| $baseline_drift_featured_alt !== $baseline_observed_featured_alt_after_failure
+		|| $baseline_original_featured_alt !== (string) get_post_meta( $translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT, true )
+		|| $baseline_original_featured_alt_exists !== metadata_exists( 'post', $translation_id, Devenia_Workflow::META_FEATURED_IMAGE_ALT )
 		|| 'staged_surface_drifted' !== (string) ( $baseline_failure['code'] ?? '' )
 		|| ! empty( $baseline_failure['mutation_started'] )
 		|| empty( $baseline_failure['transaction_rollback']['success'] )
@@ -1836,7 +2601,7 @@ try {
 		|| $identity_quality_bytes !== maybe_serialize( get_option( $identity_quality_key ) )
 		|| $identity_evidence_bytes !== maybe_serialize( get_option( $identity_evidence_key ) )
 	) {
-		throw new RuntimeException( 'Baseline-drift lower-level proof did not preserve zero mutation, rollback, immutable records, and exact CAS refresh: ' . wp_json_encode( array( 'failure' => $baseline_failure, 'refresh' => $baseline_refresh, 'job' => $stored_baseline_job, 'original_surface_revision' => $baseline_original_surface_revision, 'drift_surface_revision' => $baseline_drift_surface_revision, 'restored_surface_revision' => $baseline_restored_surface_revision, 'public_drift_and_fixture_restoration_proven' => false ) ) );
+		throw new RuntimeException( 'Localized featured-image alt baseline-drift proof did not preserve the direct edit, zero publication mutation, rollback, immutable records, and exact CAS refresh: ' . wp_json_encode( array( 'failure' => $baseline_failure, 'refresh' => $baseline_refresh, 'job' => $stored_baseline_job, 'original_surface_revision' => $baseline_original_surface_revision, 'drift_surface_revision' => $baseline_drift_surface_revision, 'restored_surface_revision' => $baseline_restored_surface_revision, 'approved_featured_image_alt' => $baseline_approved_featured_alt, 'drift_featured_image_alt' => $baseline_drift_featured_alt, 'observed_featured_image_alt_after_failure' => $baseline_observed_featured_alt_after_failure, 'public_drift_and_fixture_restoration_proven' => false ) ) );
 	}
 	$runtime_menu_ids[] = $runtime_active_menu_id;
 	$primary_nav_issues_method = new ReflectionMethod( Devenia_Workflow::class, 'localized_primary_navigation_html_issues' );
@@ -1852,24 +2617,27 @@ try {
 		throw new RuntimeException( 'Canonical English-menu cache fixture did not fail localized primary-navigation integrity.' );
 	}
 
-	$migration_identities = $runtime_identities;
-	$migration_languages = Devenia_Workflow::languages( true );
-	$migration_menu_id = wp_create_nav_menu( (string) ( $migration_languages[ $language ]['menu_name'] ?? '' ) );
-	if ( is_wp_error( $migration_menu_id ) ) {
-		throw new RuntimeException( 'Could not create the configured-name migration fixture: ' . $migration_menu_id->get_error_message() );
+	$reader_identities = $runtime_identities;
+	$reader_languages = Devenia_Workflow::languages( true );
+	$reader_candidate_menu_id = wp_create_nav_menu( (string) ( $reader_languages[ $language ]['menu_name'] ?? '' ) );
+	if ( is_wp_error( $reader_candidate_menu_id ) ) {
+		throw new RuntimeException( 'Could not create the configured-name read-only identity fixture: ' . $reader_candidate_menu_id->get_error_message() );
 	}
-	add_term_meta( (int) $migration_menu_id, '_devenia_workflow_localized_menu_managed', '1', true );
-	add_term_meta( (int) $migration_menu_id, '_devenia_workflow_localized_menu_language', $language, true );
-	add_term_meta( (int) $migration_menu_id, '_devenia_workflow_public_header_manifest_revision', (string) $runtime_manifest['revision'], true );
-	$runtime_menu_ids[] = (int) $migration_menu_id;
-	unset( $migration_identities[ $language ] );
-	update_option( 'devenia_workflow_localized_menu_identities', $migration_identities, false );
+	add_term_meta( (int) $reader_candidate_menu_id, '_devenia_workflow_localized_menu_managed', '1', true );
+	add_term_meta( (int) $reader_candidate_menu_id, '_devenia_workflow_localized_menu_language', $language, true );
+	add_term_meta( (int) $reader_candidate_menu_id, '_devenia_workflow_public_header_manifest_revision', (string) $runtime_manifest['revision'], true );
+	$runtime_menu_ids[] = (int) $reader_candidate_menu_id;
+	unset( $reader_identities[ $language ] );
+	update_option( 'devenia_workflow_localized_menu_identities', $reader_identities, false );
 	$localized_menu_id = new ReflectionMethod( Devenia_Workflow::class, 'localized_menu_id' );
 	$localized_menu_id->setAccessible( true );
-	$migrated_menu_id = (int) $localized_menu_id->invoke( null, $language, true );
-	$migrated_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
-	if ( $migrated_menu_id < 1 || $migrated_menu_id !== absint( $migrated_identities[ $language ]['menu_id'] ?? 0 ) ) {
-		throw new RuntimeException( 'Stable menu identity did not migrate deterministically from the configured name.' );
+	$reader_identity_before = get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' );
+	$read_menu_id = (int) $localized_menu_id->invoke( null, $language );
+	$read_expected_navigation = (array) $call( 'expected_localized_primary_navigation', $language );
+	$read_identity_issues = (array) $call( 'localized_primary_navigation_html_issues', '<html><body><nav id="site-navigation"><a href="' . esc_url( home_url( '/' ) ) . '">Reader fixture</a></nav></body></html>', $language, (string) get_permalink( $translation_id ), 'canonical' );
+	$reader_identity_after = get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' );
+	if ( 0 !== $read_menu_id || ! empty( $read_expected_navigation ) || 'frontend_primary_menu_identity_missing' !== (string) ( $read_identity_issues[0]['code'] ?? '' ) || $reader_identity_before !== $reader_identity_after || $reader_identities !== $reader_identity_after ) {
+		throw new RuntimeException( 'Ordinary identity reading or verification rediscovered or mutated a missing identity instead of failing closed.' );
 	}
 	update_option( 'devenia_workflow_localized_menu_identities', $runtime_identities, false );
 
@@ -1938,6 +2706,77 @@ try {
 		)
 	);
 	update_option( 'devenia_workflow_translation_job_' . $job_id, $published_job, false );
+	$build_runtime_correction_artifact = static function ( array $fresh_packet, string $title ) use ( $call ): array {
+		$packet = (array) ( $fresh_packet['packet'] ?? array() );
+		$packet_fragments = array_values( (array) ( $packet['fragments'] ?? array() ) );
+		$packet_links = array_values( (array) ( $packet['links'] ?? array() ) );
+		$expected_targets = array();
+		$link_markup = array();
+		$link_issues = array();
+		foreach ( $packet_links as $link_index => $link ) {
+			$source_url = (string) ( $link['source_url'] ?? '' );
+			$target_url = (string) ( $link['target_url'] ?? '' );
+			$policy = (string) ( $link['policy'] ?? '' );
+			$target_key = '' !== $target_url ? (string) $call( 'normalized_comparable_url', $target_url ) : '';
+			if (
+				'' === $source_url
+				|| '' === $target_url
+				|| '' === $target_key
+				|| ! in_array( $policy, array( 'retain_source_url_until_localized_target_is_published', 'use_published_localized_target' ), true )
+			) {
+				$link_issues[] = array( 'index' => $link_index, 'source_url' => $source_url, 'target_url' => $target_url, 'policy' => $policy );
+				continue;
+			}
+			$expected_targets[ $target_key ] = $target_url;
+			$link_markup[] = '<a href="' . esc_url( $target_url ) . '">den lenkede kilden</a>';
+		}
+
+		$localized_fragments = array();
+		$fragment_keys = array();
+		foreach ( $packet_fragments as $fragment_index => $fragment ) {
+			$key = (string) ( $fragment['key'] ?? '' );
+			if ( '' === $key || isset( $fragment_keys[ $key ] ) ) {
+				return array( 'success' => false, 'code' => 'runtime_correction_packet_fragment_invalid', 'fragment_index' => $fragment_index, 'fragment_key' => $key );
+			}
+			$fragment_keys[ $key ] = true;
+			$localized_fragments[] = array(
+				'key' => $key,
+				'html' => '<strong>Nyttig innhold</strong><br>'
+					. ( $link_markup ? 'Les ' . implode( ' og ', $link_markup ) . ', og ' : '' )
+					. '<a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.',
+			);
+		}
+
+		$artifact = array(
+			'title' => $title,
+			'excerpt' => 'En nyttig oversatt ingress.',
+			'localized_slug' => 'must-not-replace-published-route',
+			'localized_fragments' => $localized_fragments,
+			'seo' => array( 'title' => 'Oversatt testside', 'description' => 'En nyttig beskrivelse av den oversatte testsiden.', 'focus_keyword' => '' ),
+		);
+		$consumed_targets = array();
+		foreach ( $localized_fragments as $fragment ) {
+			foreach ( $call( 'translation_job_anchor_hrefs', (string) $fragment['html'] ) as $href ) {
+				$absolute = (string) $call( 'translation_job_absolute_internal_url', (string) $href );
+				$key = '' !== $absolute ? (string) $call( 'normalized_comparable_url', $absolute ) : '';
+				if ( '' !== $key && isset( $expected_targets[ $key ] ) ) {
+					$consumed_targets[ $key ] = $expected_targets[ $key ];
+				}
+			}
+		}
+		$missing_targets = array_values( array_diff_key( $expected_targets, $consumed_targets ) );
+
+		return array(
+			'success' => empty( $link_issues ) && ! empty( $packet_fragments ) && empty( $missing_targets ),
+			'code' => empty( $link_issues ) ? ( $packet_fragments ? ( $missing_targets ? 'runtime_correction_packet_targets_missing' : 'runtime_correction_artifact_built' ) : 'runtime_correction_packet_fragments_missing' ) : 'runtime_correction_packet_links_invalid',
+			'artifact' => $artifact,
+			'packet_link_count' => count( $packet_links ),
+			'expected_target_urls' => array_values( $expected_targets ),
+			'consumed_target_urls' => array_values( $consumed_targets ),
+			'missing_target_urls' => $missing_targets,
+			'link_issues' => $link_issues,
+		);
+	};
 	$post_publish_run_id = 'runtime-translator-post-publish-' . wp_generate_password( 8, false, false );
 	$post_publish_claim = $call(
 		'translation_job_claim',
@@ -1967,9 +2806,15 @@ try {
 	) {
 		throw new RuntimeException( 'Published correction packet missing: ' . wp_json_encode( $post_publish_packet ) );
 	}
-	$post_publish_artifact = $artifact;
-	$post_publish_artifact['title'] = 'Runtime translated title corrected after browser QA';
-	$post_publish_artifact['localized_slug'] = 'must-not-replace-published-route';
+	$post_publish_artifact_build = $build_runtime_correction_artifact( $post_publish_packet, 'Runtime translated title corrected after browser QA' );
+	$post_publish_artifact = (array) ( $post_publish_artifact_build['artifact'] ?? array() );
+	if (
+		empty( $post_publish_artifact_build['success'] )
+		|| (array) ( $post_publish_artifact_build['expected_target_urls'] ?? array() ) !== (array) ( $post_publish_artifact_build['consumed_target_urls'] ?? array() )
+		|| ! empty( $post_publish_artifact_build['missing_target_urls'] )
+	) {
+		throw new RuntimeException( 'Published correction Artifact did not consume every authoritative target from its fresh packet: ' . wp_json_encode( $post_publish_artifact_build ) );
+	}
 	$published_route_before = (string) get_permalink( $translation_id );
 	$published_slug_before  = (string) get_post_field( 'post_name', $translation_id );
 	$published_title_before = (string) get_post_field( 'post_title', $translation_id );
@@ -2042,6 +2887,130 @@ try {
 	) {
 		throw new RuntimeException( 'Published correction staging changed the live title, status, slug, or route before a fresh passing Quality Decision and publication.' );
 	}
+
+	// Establish a fresh ready-to-publish correction whose captured reader
+	// baseline has exactly one valid featured-image authority. The commit
+	// reconciliation matrix must not inherit the deliberately invalid duplicate
+	// thumbnail baseline used by the earlier generation-limit fixture.
+	$post_publish_final_run_id = 'runtime-translator-post-publish-final-' . wp_generate_password( 8, false, false );
+	$post_publish_final_claim = $call(
+		'translation_job_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $post_publish_final_run_id,
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'translator',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $post_publish_final_claim['success'] ) || 'changes_requested' !== (string) ( $post_publish_final_claim['claim']['previous_status'] ?? '' ) ) {
+		throw new RuntimeException( 'Final published-correction translator Run could not claim the reviewed correction: ' . wp_json_encode( $post_publish_final_claim ) );
+	}
+	$option_keys[] = 'devenia_workflow_translation_run_' . $post_publish_final_run_id;
+	$post_publish_final_packet = $call(
+		'translation_job_fetch_packet',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $post_publish_final_run_id,
+			'claim_token' => (string) $post_publish_final_claim['claim_token'],
+		)
+	);
+	if (
+		empty( $post_publish_final_packet['success'] )
+		|| (string) $post_publish_submit['artifact_revision'] !== (string) ( $post_publish_final_packet['packet']['correction_context']['previous_artifact_revision'] ?? '' )
+		|| empty( $post_publish_final_packet['packet']['correction_context']['previous_artifact']['artifact'] )
+		|| empty( $post_publish_final_packet['packet']['correction_context']['corrections'] )
+	) {
+		throw new RuntimeException( 'Final published-correction packet did not bind the exact prior artifact and requested correction: ' . wp_json_encode( $post_publish_final_packet ) );
+	}
+	$post_publish_final_artifact_build = $build_runtime_correction_artifact( $post_publish_final_packet, 'Runtime translated title approved after browser QA' );
+	$post_publish_final_artifact = (array) ( $post_publish_final_artifact_build['artifact'] ?? array() );
+	if (
+		empty( $post_publish_final_artifact_build['success'] )
+		|| (array) ( $post_publish_final_artifact_build['expected_target_urls'] ?? array() ) !== (array) ( $post_publish_final_artifact_build['consumed_target_urls'] ?? array() )
+		|| ! empty( $post_publish_final_artifact_build['missing_target_urls'] )
+	) {
+		throw new RuntimeException( 'Final published correction Artifact did not consume every authoritative target from its fresh packet: ' . wp_json_encode( $post_publish_final_artifact_build ) );
+	}
+	$post_publish_final_submit = $call(
+		'translation_job_submit_artifact',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $post_publish_final_run_id,
+			'claim_token' => (string) $post_publish_final_claim['claim_token'],
+			'artifact' => $post_publish_final_artifact,
+			'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
+		)
+	);
+	$post_publish_final_artifact_revision = (string) ( $post_publish_final_submit['artifact_revision'] ?? '' );
+	$option_keys[] = 'devenia_workflow_translation_artifact_' . $post_publish_final_artifact_revision;
+	$post_publish_final_artifact_record = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . $post_publish_final_artifact_revision ) );
+	if (
+		empty( $post_publish_final_submit['success'] )
+		|| 'quality_pending' !== (string) ( $post_publish_final_submit['job']['status'] ?? '' )
+		|| '' === $post_publish_final_artifact_revision
+		|| $post_publish_final_artifact_revision === (string) $post_publish_submit['artifact_revision']
+		|| $published_title_before !== (string) get_post_field( 'post_title', $translation_id )
+		|| $published_slug_before !== (string) get_post_field( 'post_name', $translation_id )
+		|| $published_route_before !== (string) get_permalink( $translation_id )
+	) {
+		throw new RuntimeException( 'Final published-correction artifact was not staged immutably over the stable public baseline: ' . wp_json_encode( $post_publish_final_submit ) );
+	}
+	$post_publish_final_quality_run_id = 'runtime-quality-post-publish-final-' . wp_generate_password( 8, false, false );
+	$post_publish_final_quality_claim = $call(
+		'translation_job_claim',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $post_publish_final_quality_run_id,
+			'coordinator_id' => 'runtime-coordinator',
+			'role' => 'quality',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $post_publish_final_quality_claim['success'] ) ) {
+		throw new RuntimeException( 'Final published correction could not enter independent Quality review: ' . wp_json_encode( $post_publish_final_quality_claim ) );
+	}
+	$option_keys[] = 'devenia_workflow_translation_run_' . $post_publish_final_quality_run_id;
+	$post_publish_final_quality = $call(
+		'translation_job_submit_quality_decision',
+		$quality_payload( $post_publish_final_quality_claim, $post_publish_final_artifact_revision, 'pass', 'A fresh independent Quality principal approved the exact final correction on a stable one-attachment public baseline.', array() )
+	);
+	$track_quality_result( $post_publish_final_quality );
+	$post_publish_matrix_job = get_option( $attempt_limit_job_key );
+	$post_publish_matrix_thumbnail_rows = array_values( array_map( 'absint', (array) get_post_meta( $translation_id, '_thumbnail_id', false ) ) );
+	$post_publish_matrix_header = array(
+		'manifest' => get_option( 'devenia_workflow_public_header_manifest', array() ),
+		'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', array() ),
+		'identities' => get_option( 'devenia_workflow_localized_menu_identities', array() ),
+		'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '' ),
+	);
+	$post_publish_matrix_header_complete = count( (array) $post_publish_matrix_header['identities'] ) === count( $runtime_languages );
+	foreach ( array_keys( $runtime_languages ) as $post_publish_matrix_header_language ) {
+		$post_publish_matrix_header_identity = (array) ( $post_publish_matrix_header['identities'][ $post_publish_matrix_header_language ] ?? array() );
+		$post_publish_matrix_header_complete = $post_publish_matrix_header_complete
+			&& absint( $post_publish_matrix_header_identity['menu_id'] ?? 0 ) > 0
+			&& (string) ( $runtime_manifest['revision'] ?? '' ) === (string) ( $post_publish_matrix_header_identity['manifest_revision'] ?? '' );
+	}
+	if (
+		empty( $post_publish_final_quality['success'] )
+		|| 'ready_to_publish' !== (string) ( $post_publish_matrix_job['status'] ?? '' )
+		|| $post_publish_final_artifact_revision !== (string) ( $post_publish_matrix_job['artifact_revision'] ?? '' )
+		|| (string) ( $post_publish_final_artifact_record['writer_principal']['principal_id'] ?? '' ) === (string) ( $post_publish_final_quality['quality_decision']['reviewer_principal']['principal_id'] ?? '' )
+		|| (string) ( $post_publish_final_artifact_record['writer_principal']['run_id'] ?? '' ) === (string) ( $post_publish_final_quality['quality_decision']['reviewer_principal']['run_id'] ?? '' )
+		|| array( $source_thumbnail_id ) !== $post_publish_matrix_thumbnail_rows
+		|| $source_thumbnail_id !== absint( get_post_thumbnail_id( $translation_id ) )
+		|| ! $post_publish_matrix_header_complete
+		|| '1' !== (string) $post_publish_matrix_header['enrollment']
+		|| (string) ( $runtime_manifest['revision'] ?? '' ) !== (string) ( $post_publish_matrix_header['manifest']['revision'] ?? '' )
+		|| 'activated' !== (string) ( $post_publish_matrix_header['pending']['status'] ?? '' )
+		|| (string) ( $runtime_manifest['revision'] ?? '' ) !== (string) ( $post_publish_matrix_header['pending']['revision'] ?? '' )
+	) {
+		throw new RuntimeException( 'Commit reconciliation matrix did not receive a fresh separately reviewed artifact with one exact valid media authority and complete active Public Header: ' . wp_json_encode( array( 'quality' => $post_publish_final_quality, 'job' => $post_publish_matrix_job, 'thumbnail_rows' => $post_publish_matrix_thumbnail_rows, 'header' => $post_publish_matrix_header ) ) );
+	}
+	$run_commit_reconciliation_matrices( $job_id, $attempt_limit_job_key );
+	if ( 'ready_to_publish' !== (string) ( get_option( $attempt_limit_job_key )['status'] ?? '' ) || array( $source_thumbnail_id ) !== array_values( array_map( 'absint', (array) get_post_meta( $translation_id, '_thumbnail_id', false ) ) ) ) {
+		throw new RuntimeException( 'Commit reconciliation matrix did not preserve the fresh correction Job and its exact single featured-image authority.' );
+	}
 	$orphaned_run = get_option( 'devenia_workflow_translation_run_' . $translator_run_id );
 	$orphaned_run['status'] = 'running';
 	unset( $orphaned_run['outcome'], $orphaned_run['finished_at'] );
@@ -2101,13 +3070,14 @@ try {
 			'orphaned_run_finalized_during_publish' => true,
 			'translation_publish_preserved_seeded_menu_identity' => true,
 			'atomic_menu_failure_preserved_active_identity' => true,
-			'stable_menu_identity_migrated' => true,
+			'ordinary_identity_reader_failed_closed_without_migration' => true,
 			'frontend_cache_invalidation_adapter_consumed' => true,
 			'canonical_english_menu_cache_rejected' => true,
 			'publish_surface_drift_reopened_after_zero_mutation_and_rollback' => true,
 			'publish_snapshot_to_lock_surface_drift_reopened_in_same_call' => true,
 			'publish_identity_drift_lower_level_transaction_proven' => true,
 			'publish_baseline_drift_lower_level_transaction_proven' => true,
+			'localized_featured_image_alt_drift_reopened_before_stale_publication_mutation' => true,
 			'publish_lifecycle_lease_blocked_concurrent_claim' => true,
 			'claim_winner_forced_publish_reread_before_mutation' => true,
 			'claim_lifecycle_lease_released_before_run_lifetime' => true,
@@ -2119,6 +3089,14 @@ try {
 			'surface_refresh_generation_limit_failed_closed' => true,
 			'publish_coordinator_label_not_required_for_authority' => true,
 			'same_second_lifecycle_lease_renewal_advanced_owned_cas' => true,
+			'foreign_publication_revision_never_became_rollback_authority' => true,
+			'foreign_publication_true_and_unknown_preserved_job_content_header' => true,
+			'malformed_staged_commit_receipt_rejected_after_exact_applied_replacement' => true,
+			'malformed_restore_commit_receipt_rejected_after_exact_restored_state' => true,
+			'present_non_array_commit_adapter_never_selected_default_commit' => true,
+			'active_staged_transaction_claimed_commit_terminalized_without_publication' => true,
+			'active_snapshot_transaction_claimed_commit_terminalized_without_snapshot_authority' => true,
+			'active_restore_transaction_claimed_commit_terminalized_without_restore_progress' => true,
 		);
 } catch ( Throwable $error ) {
 	$runtime_error = $error;
@@ -2135,6 +3113,19 @@ try {
 	update_option( 'devenia_workflow_language_registry', $languages_option_before, false );
 	update_option( 'devenia_workflow_runtime_mutation_provenance', $runtime_provenance_before, false );
 	set_theme_mod( 'nav_menu_locations', is_array( $nav_menu_locations_before ) ? $nav_menu_locations_before : array() );
+	foreach (
+		array(
+			'show_on_front' => $show_on_front_before,
+			'page_on_front' => $page_on_front_before,
+			'page_for_posts' => $page_for_posts_before,
+		) as $runtime_option_key => $runtime_option_before
+	) {
+		if ( $runtime_option_missing === $runtime_option_before ) {
+			delete_option( $runtime_option_key );
+		} else {
+			update_option( $runtime_option_key, $runtime_option_before, false );
+		}
+	}
 	if ( false === $menu_identities_before ) {
 		delete_option( 'devenia_workflow_localized_menu_identities' );
 	} else {
@@ -2150,6 +3141,12 @@ try {
 	} else {
 		update_option( 'devenia_workflow_pending_public_header_manifest', $pending_public_header_manifest_before, false );
 	}
+	if ( false === $public_header_enrollment_before ) {
+		delete_option( 'devenia_workflow_public_header_enrollment' );
+	} else {
+		update_option( 'devenia_workflow_public_header_enrollment', $public_header_enrollment_before, false );
+	}
+	Devenia_Workflow::languages( true );
 	if ( false === $source_inventory_dirty_before ) {
 		delete_option( 'devenia_workflow_source_inventory_dirty' );
 	} else {
@@ -2162,6 +3159,22 @@ try {
 	}
 	if ( $runtime_source_menu_id > 0 ) {
 		wp_delete_nav_menu( $runtime_source_menu_id );
+	}
+	foreach ( array_unique( array_values( $runtime_header_translation_ids_by_language ) ) as $runtime_header_translation_id ) {
+		if ( $runtime_header_translation_id > 0 ) {
+			wp_delete_post( $runtime_header_translation_id, true );
+		}
+	}
+	foreach ( array_unique( array_values( $runtime_header_blog_translation_ids_by_language ) ) as $runtime_header_blog_translation_id ) {
+		if ( $runtime_header_blog_translation_id > 0 ) {
+			wp_delete_post( $runtime_header_blog_translation_id, true );
+		}
+	}
+	if ( $runtime_header_source_id > 0 ) {
+		wp_delete_post( $runtime_header_source_id, true );
+	}
+	if ( $runtime_header_blog_source_id > 0 ) {
+		wp_delete_post( $runtime_header_blog_source_id, true );
 	}
 	if ( $translation_id > 0 ) {
 		wp_delete_post( $translation_id, true );

@@ -79,9 +79,128 @@ URLs are already reader authority and are not passed through mutable runtime
 text localization again. If schema-2 activation fails, the locked schema-1 menu
 surface receipts provide a versioned exact-navigation verification oracle for
 rollback; recovery never tries to manufacture schema-2 labels for schema-1.
+An un-enrolled installation uses a separate capability-gated first-enrollment
+Interface. The operator supplies the verified source-menu identity; the Adapter
+derives stable page, custom-link, and parent identities and accepts target label
+authority only when at least two unmanaged retained menus agree completely for
+every configured language. Unrelated menus are not errors. Missing, ambiguous,
+conflicting, or snapshot-to-stage changed authority rejects before mutation.
+The complete schema-2 draft then enters the same atomic activation Interface.
+Any failed first activation restores and verifies the exact four-option state
+captured before intake, leaving no orphan pending manifest.
+The first-enrollment staging boundary consumes the recovery transaction
+Adapter's three-valued commit receipt explicitly. A proven rollback must match
+the exact pre-state. A proven commit followed by an Adapter error is reconciled
+and restored to that pre-state. An unknown commit outcome is never collapsed to
+failure or success: the owner re-reads the four option surfaces, attempts an
+evidence-bound restore, and remains structured critical even when the exact
+safe pre-state is recovered. Stale transactional `theme_mods`, `alloptions`, and
+`notoptions` cache entries are evicted before any reconciliation read.
+Every recovery boundary first passes the Adapter result through one strict
+receipt decoder. `success` must be boolean, `committed` must be present and
+strictly `true`, `false`, or `null`, and `code` must be a non-empty string.
+Missing `committed` is malformed input, never an alias for explicit `null`.
+Only the exact `null` filter sentinel means no Adapter supplied a receipt and
+may invoke the default COMMIT Interface. A present non-array value becomes a
+malformed diagnostic receipt; it can never silently trigger a real COMMIT.
+Field validity is not terminality: the request-local owned transaction receipt
+must also be absent at the reconciliation boundary. An Adapter which reports a
+plausible committed value while leaving the owned transaction active is
+invalid, and the owner closes that exact boundary before reading final state.
+Malformed receipts terminalize only a still-owned transaction, then return a
+critical `invalid_receipt` outcome without activation, publication, restore,
+cleanup, or newly inferred rollback authority. The production portfolio gate
+enumerates every raw recovery-COMMIT method identifier across every production
+PHP file, rejects indirect/string call paths, and binds every direct self/static
+call to its audited owner so a new mutation boundary cannot bypass the decoder
+by moving traits or changing call syntax.
+Every receipt crosses that cache-cleared read, including a successful COMMIT;
+success is accepted only while the exact operation-owned replacement remains
+current. A successful COMMIT followed by a third four-option revision is
+foreign authority, stays byte-exact untouched, and never enters activation.
+Reconciliation is operation-bound: it may accept the exact captured pre-state
+or restore only this operation's exact pending `expected_after` state. Any third
+four-option revision is foreign authority, remains byte-exact untouched, and
+returns a structured critical conflict for both committed and unknown receipts.
+The same proof binding applies after activation failure. The enrollment wrapper
+accepts an already exact pre-state or restores only the exact staging state and
+revision returned by this attempt's successful stage transaction. It never uses
+an arbitrary observed state as CAS authority and never bypasses a severe
+activation rollback. Foreign option state remains untouched; receipt-matching
+staged menus are not deleted under that untrusted state. A severe unresolved
+rollback that ends in this attempt's exact receipt-valid staging state is
+different: its explicitly absent identity slot proves no staged menu is reader
+authority, so the receipt-matching menus are removed without restoring or
+bypassing the severe option state. If an exact authoritative state instead
+references activation projection menus, those menus remain a closed critical
+reader set. Recoverable failures and exact owned-staging cleanup require zero
+unreferenced managed menus.
+The activation state transaction consumes the same three-valued commit Adapter
+receipt. After cache eviction it classifies only exact expected state as
+unapplied, exact replacement state as applied, and every third state as foreign.
+This classification runs for every receipt, including `success=true` with a
+proven COMMIT; the COMMIT result alone is never activation authority.
+Staged deletion requires a fresh read matching that receipt, an unapplied
+outcome, and identities which reference none of the staged menu IDs. A true or
+unknown commit with exact replacement preserves the active menus and returns a
+structured critical applied state; foreign state is untouched and critical.
+The reference proof, all staged-menu surface locks, a second state and receipt
+revalidation, and every receipt-bound deletion share one owned serializable
+transaction. Any identity or menu revision change rolls the whole cleanup back
+before a staged deletion can become durable.
+The content publication transaction follows the same rule before any header
+refresh or public cache work. After commit and cache eviction, exact pre-state
+is unapplied only for a false or unknown receipt, and exact replacement is
+applied only for a true or unknown receipt. Every third post/meta/taxonomy
+surface is foreign even when the Adapter reports a successful commit, because
+success proves only that this transaction committed, not that a concurrent
+writer did not change the surface immediately afterwards. Foreign state remains
+untouched and returns a critical indeterminate publication result. Its observed
+revision is diagnostic only and is explicitly denied rollback authority. Only
+an exact owned replacement, or the exact owned staged pre-state after a proven
+unapplied second-phase commit, can issue a rollback receipt to the Translation
+Job caller. The caller never infers ownership from `published`, commit outcome,
+or an observed revision. Applied state continues through the all-language header
+refresh and every later failure carries its explicit owned rollback receipt.
+The Translation Job recovery transaction consumes the same three-valued
+receipt for every restore, including an Adapter response whose `success` is
+true. After cache eviction, an exact captured pre-publication surface is an
+applied restore for a true or unknown receipt; the exact owned mutation surface
+is unapplied only for a false or unknown receipt. Every third surface is foreign
+and remains untouched and critical. A read-only recovery snapshot is valid only
+while its captured revision remains exact after its transaction closes. A
+combined content/menu restore additionally proves the prior menu identity,
+prior menu revision, and absence of the rolled-back staged menu before it can
+report success. Successful restore writes still require frontend invalidation
+and origin plus canonical media verification before recovery is complete.
+The outer Translation Job Interface must not expose the inner Module's
+`published` phase flag as its final result after compensation. It preserves
+that history separately as `forward_publication_applied`, evicts caches after
+rollback, and compares one fresh complete-surface CAS with both the captured
+pre-state and the owned forward receipt. A verified restored surface reports
+`final_reader_state=restored_verified` and `published=false`; an exact restore
+whose receipt, cache invalidation, or reader/media verification is incomplete
+reports `restored_unverified` and `published=null`. Forward state is true only
+when both the owned forward CAS and reader verification pass. Foreign, empty,
+or indistinguishable revisions remain null. The response rebuilds its
+translation payload after this classification, so pre-rollback content cannot
+leak as final authority.
+Pre-enrollment recovery uses a dedicated receipt-bound reader verifier. It
+fetches homepage and blog archive on origin and canonical cache surfaces and
+compares the exact observed primary-navigation label/URL sequence with the
+captured oracle. It intentionally does not apply forward schema-2 localized-link
+expectations to the raw menu being restored; managed/schema-1/schema-2 rollback
+continues through the full frontend integrity verifier.
 
 Language menus use persisted WordPress term IDs as authority. Names remain
 display metadata and migration input, not runtime identity.
+Ordinary identity reads, projection staging, menu selection, and frontend
+verification are side-effect free. They resolve only a persisted term identity
+whose managed-language and manifest-revision receipts match the active
+manifest. A missing or corrupt identity remains byte-exact and fails closed;
+configured-name discovery and any resulting identity transition are permitted
+only inside the capability-gated schema migration or first-enrollment
+Interface.
 
 The Cloudflare cache Adapter also observes completed WordPress plugin rollouts
 and invalidates public HTML only after the upgrade has completed, closing the
