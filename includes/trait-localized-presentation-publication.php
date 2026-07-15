@@ -2496,8 +2496,8 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				$expressions = apply_filters(
 					'devenia_workflow_primary_navigation_xpaths',
 					array(
-						"//nav[@id='site-navigation']//a[@href and not(ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' devenia-language-menu-dropdown ')])]",
-						"//nav[contains(concat(' ', normalize-space(@class), ' '), ' main-navigation ')]//a[@href and not(ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' devenia-language-menu-dropdown ')])]",
+						"(//nav[@id='site-navigation']//ul[contains(concat(' ', normalize-space(@class), ' '), ' menu ')])[1]//a[@href and not(ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' devenia-language-menu-dropdown ')]) and not(contains(concat(' ', normalize-space(@class), ' '), ' devenia-language-trigger ')) and not(contains(concat(' ', normalize-space(@class), ' '), ' devenia-language-menu-item '))]",
+						"(//nav[contains(concat(' ', normalize-space(@class), ' '), ' main-navigation ')]//ul[contains(concat(' ', normalize-space(@class), ' '), ' menu ')])[1]//a[@href and not(ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' devenia-language-menu-dropdown ')]) and not(contains(concat(' ', normalize-space(@class), ' '), ' devenia-language-trigger ')) and not(contains(concat(' ', normalize-space(@class), ' '), ' devenia-language-menu-item '))]",
 					),
 					$language
 				);

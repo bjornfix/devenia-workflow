@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.615
+**Stable tag:** 0.1.616
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.616
+
+- Parse only the owned primary menu list during Public Header verification, excluding branding, search controls, secondary menus, and presentation-injected language-selector links even when tolerant HTML parsing reparents them.
 
 ### 0.1.615
 

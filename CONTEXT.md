@@ -62,6 +62,10 @@ menu. Manifest updates create a pending revision. That revision becomes active
 only after every configured source and target projection has staged, validated,
 and produced a recovery receipt, followed by one atomic manifest-and-identity
 activation. The prior complete set remains active until that boundary passes.
+Frontend verification observes only anchors inside the owned primary menu list.
+Theme branding, search controls, secondary menus, and the presentation-injected
+language selector are separate reader surfaces and cannot enter the Public Header
+comparison oracle, including when tolerant HTML parsing reparents injected links.
 Every manifest row must resolve in every configured language; a skipped row is
 an incomplete projection, not a successful partial menu. Normal Translation Job
 publication enters this same pending-manifest Interface and cannot activate one

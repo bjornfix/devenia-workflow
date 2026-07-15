@@ -25,6 +25,13 @@ if ! command -v "$php_bin" >/dev/null 2>&1; then
 	exit 2
 fi
 
+parser_result="$("$php_bin" "$plugin_root/tools/check-primary-navigation-parser.php")"
+printf '%s\n' "$parser_result"
+if [[ "$parser_result" != 'Primary navigation parser contract passed.' ]]; then
+	printf '%s\n' 'Primary navigation parser did not return the exact success proof.' >&2
+	exit 1
+fi
+
 if "$wp_cli_bin" option get devenia_workflow_version --path="$wp_path" --skip-plugins --skip-themes >/dev/null 2>&1; then
 	"$wp_cli_bin" option delete devenia_workflow_version --path="$wp_path" --skip-plugins --skip-themes >/dev/null
 fi
