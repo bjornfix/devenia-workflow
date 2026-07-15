@@ -866,16 +866,20 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			), $menu, absint( $input['live_verification_timeout'] ?? 15 ) );
 		}
 
-		// Publication is a fail-closed Module invariant. Callers cannot opt out of
-		// verifying both the origin-bypassing and exact canonical cache surfaces.
-		$live = self::verify_live_translation(
-			array(
-				'translation_id' => $translation_id,
-				'timeout'        => absint( $input['live_verification_timeout'] ?? 15 ),
-				'expected_media' => $expected_media,
-			)
-		);
-		if ( empty( $live['success'] ) || empty( $live['passed'] ) ) {
+		// Live HTTP verification is deliberately separate from the publication
+		// transaction and its lifecycle lease. Explicit non-Job callers may still
+		// request it, but Translation Job publication always releases first.
+		$live = null;
+		if ( ! empty( $input['verify_live'] ) ) {
+			$live = self::verify_live_translation(
+				array(
+					'translation_id' => $translation_id,
+					'timeout'        => absint( $input['live_verification_timeout'] ?? 15 ),
+					'expected_media' => $expected_media,
+				)
+			);
+		}
+		if ( is_array( $live ) && ( empty( $live['success'] ) || empty( $live['passed'] ) ) ) {
 			return self::publication_failure_with_public_header_rollback( array(
 				'success'            => false,
 				'code'               => 'localized_presentation_verification_failed',

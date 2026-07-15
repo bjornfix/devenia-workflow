@@ -20,10 +20,12 @@ the shared `Devenia_Workflow` product namespace.
 ## Localized Presentation Publication
 
 The deep Module that turns one approved Translation Job into a stable public
-reader surface. Its Interface owns the content publish transition, Public
-Header Projection, canonical frontend-cache invalidation, and origin plus
-canonical-cache verification as one outcome. A stored post status alone is not
-successful Localized Presentation Publication. This Module alone issues
+reader surface. Its Interface owns the content publish transition, canonical
+frontend-cache invalidation for the affected translation URLs, and origin plus
+canonical-cache verification as one outcome. Public Header Projection is a
+separate explicit Module and ordinary Translation Job publication has no menu
+mutation authority. A stored post status alone is not successful Localized
+Presentation Publication. This Module alone issues
 rollback authority for its mutation: an observed foreign surface revision is
 diagnostic evidence and can never be promoted to rollback authority by a
 Translation Job caller.
@@ -76,9 +78,10 @@ their unused time to later groups. Dispatching changes latency only: every
 response keeps the same cache-surface identity and fail-closed parser contract,
 and no external service becomes runtime authority.
 Every manifest row must resolve in every configured language; a skipped row is
-an incomplete projection, not a successful partial menu. Normal Translation Job
-publication enters this same pending-manifest Interface and cannot activate one
-language independently. Enrollment is durable, so loss of the active manifest
+an incomplete projection, not a successful partial menu. Only explicit Public
+Header operations enter the pending-manifest Interface; ordinary Translation
+Job publication cannot stage or activate menus. Enrollment is durable, so loss
+of the active manifest
 or an identity after enrollment fails closed instead of reopening a raw menu.
 Every ordinary Public Header identity reader, projection planner, menu selector,
 and verifier is side-effect free: it accepts only the persisted identity whose
@@ -133,9 +136,9 @@ have no source/language translation identity. A target relation requires exactly
 one published object of the same canonical type with exactly one matching source
 row and one matching language row; the source type, status, and absence of
 translation identity are re-read for source and target projections alike. Every
-pending projection, including ordinary Translation Job publication and operator
-restaging of an active manifest, carries a new complete all-language ephemeral
-relation receipt. A missing target relation rejects the new revision before the
+pending projection created by an explicit Public Header operation, including
+operator restaging of an active manifest, carries a new complete all-language
+ephemeral relation receipt. A missing target relation rejects the new revision before the
 pending option or any menu changes, preserving the exact active and pre-existing
 pending authority. Missing or malformed receipts likewise stop before staging,
 and both intake and relation receipts are stripped from the active reader manifest.

@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted.
+Accepted, amended 2026-07-15 to separate ordinary content publication from
+rare explicit Public Header changes.
 
 ## Context
 
@@ -20,24 +21,32 @@ then remain public after the plugin hooks were active again.
 
 ## Decision
 
-Localized Presentation Publication is one deep Module inside the Translation
-Module. Its Interface does not succeed until all of these invariants hold:
+Localized Presentation Publication and Public Header Projection are separate
+deep Modules inside the Translation Module. Ordinary Translation Job
+publication has no menu mutation authority. Its Interface does not succeed
+until all of these content invariants hold:
 
 1. the approved content revision is published;
-2. a manifest update creates a pending revision while the previous active
+2. affected translation URLs are invalidated through the Frontend Cache Adapter;
+3. origin and canonical-cache responses show the exact approved translation.
+
+The separate explicit Public Header Interface does not succeed until all of
+these menu invariants hold:
+
+1. a manifest update creates a pending revision while the previous active
    manifest and all active projections remain reader-visible;
-3. a complete Public Header Projection is built away from the active menus for
+2. a complete Public Header Projection is built away from the active menus for
    the configured source language and every configured target language; every
    manifest row must resolve, and skipped rows fail the complete set closed;
-4. labels, localized targets, custom links, order, parent relationships, and a
+3. labels, localized targets, custom links, order, parent relationships, and a
    pre-activation recovery receipt are validated for every language before one
    database transaction switches the active manifest and all language-to-term
    identities together;
-5. the prior managed projection set is retired only after activation, cache
+4. the prior managed projection set is retired only after activation, cache
    invalidation, and public verification succeed;
-6. every canonical menu-dependent public URL is invalidated through the
+5. every canonical menu-dependent public URL is invalidated through the
    Frontend Cache Adapter;
-7. an origin-bypassing response and the canonical cacheable response both show
+6. an origin-bypassing response and the canonical cacheable response both show
    the expected language, primary-menu labels, and localized targets on the
    language homepage and blog archive.
 
@@ -61,8 +70,9 @@ pre-existing header during the one-time staged rollout.
 Enrollment is stored as a durable transition independent of the active manifest,
 so deleting or corrupting that manifest later cannot recreate pre-enrollment
 fallback behavior. Restaging the active revision atomically cancels any different
-pending revision. Normal Translation Job publication uses this same complete-set
-Interface and cannot call a one-language activation path.
+pending revision. Ordinary Translation Job publication never enters this
+Interface; menu activation is available only through the explicit Public Header
+operation.
 
 Public Header Projection expectations come from a complete runtime manifest
 and registered language data. The current raw primary menu and the current
@@ -115,9 +125,10 @@ translation identity. A target relation is valid only when exactly one
 published object of the canonical source type has exactly one source-meta row
 and one requested-language row. Source type/status and absence of translation
 identity are validated even while resolving target-language candidates. Every
-pending projection revision receives a fresh all-language ephemeral Relation
-Authority receipt, including ordinary Translation Job publication and operator
-restaging; a receipt-free active reader manifest is never mutation authority.
+pending projection revision created by an explicit Public Header operation
+receives a fresh all-language ephemeral Relation Authority receipt, including
+operator restaging; a receipt-free active reader manifest is never mutation
+authority.
 An unresolved target relation rejects the proposed revision before any pending
 option or menu mutation and preserves the exact pre-existing pending authority.
 Missing or malformed receipts also reject before staging, and activation removes

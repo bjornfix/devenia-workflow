@@ -36,7 +36,8 @@ trait Devenia_Workflow_Translation_Job {
 			'translation-job-fetch-packet' => array( 'Fetch Translation Job Packet', 'Returns the bounded source or quality packet for the current Run.', 'translation_job_claim_access_schema', 'translation_job_fetch_packet', true, true ),
 			'translation-job-submit-artifact' => array( 'Submit Translation Artifact', 'Validates and atomically stores one complete localized artifact within the translator Token Budget.', 'translation_job_artifact_schema', 'translation_job_submit_artifact', false, false ),
 			'translation-job-submit-quality-decision' => array( 'Submit Translation Quality Decision', 'Stores a bounded Quality Decision against the exact submitted artifact revision.', 'translation_job_quality_schema', 'translation_job_submit_quality_decision', false, false ),
-			'translation-job-publish' => array( 'Publish Approved Translation Job', 'Publishes an artifact only when deterministic QA and its exact Quality Decision pass.', 'translation_job_publish_schema', 'translation_job_publish', false, false ),
+			'translation-job-publish' => array( 'Publish Approved Translation Job', 'Publishes an artifact only when deterministic QA and its exact Quality Decision pass. Menu projection and live HTTP verification are separate explicit operations.', 'translation_job_publish_schema', 'translation_job_publish', false, false ),
+			'translation-job-verify-live' => array( 'Verify Published Translation Job', 'Verifies the exact published Job on origin and canonical reader surfaces, then records the passing receipt.', 'translation_job_verify_live_schema', 'translation_job_verify_live', false, true ),
 			'translation-job-status' => array( 'Inspect Translation Job Status', 'Returns authoritative Job, Run, Quality Decision, and measured cost status.', 'translation_job_status_schema', 'translation_job_status', true, true ),
 		);
 		$catalogue = array();
@@ -64,6 +65,7 @@ trait Devenia_Workflow_Translation_Job {
 			'translation_job_submit_artifact'         => 'translation_job_submit_artifact',
 			'translation_job_submit_quality_decision' => 'translation_job_submit_quality_decision',
 			'translation_job_publish'                 => 'translation_job_publish',
+			'translation_job_verify_live'             => 'translation_job_verify_live',
 			'translation_job_status'                  => 'translation_job_status',
 		);
 	}
@@ -252,9 +254,21 @@ trait Devenia_Workflow_Translation_Job {
 			'properties' => array(
 				'job_id' => array( 'type' => 'string' ),
 				'coordinator_id' => array( 'type' => 'string', 'description' => 'Deprecated compatibility label. It grants no publication authority.' ),
-				'sync_menu' => array( 'type' => 'boolean', 'default' => true ),
-				'verify_live' => array( 'type' => 'boolean', 'default' => true, 'description' => 'Deprecated compatibility input. Publication always verifies origin and canonical cache surfaces.' ),
-				'live_verification_timeout' => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
+				'sync_menu' => array( 'type' => 'boolean', 'default' => false, 'description' => 'Deprecated and ignored. Translation publication never mutates the Public Header; use the explicit sync-menu ability.' ),
+				'verify_live' => array( 'type' => 'boolean', 'default' => false, 'description' => 'Deprecated and ignored. Use translation-job-verify-live after publication.' ),
+				'live_verification_timeout' => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15, 'description' => 'Deprecated and ignored by publication. Supply timeout to translation-job-verify-live.' ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	private static function translation_job_verify_live_schema(): array {
+		return array(
+			'type' => 'object',
+			'required' => array( 'job_id' ),
+			'properties' => array(
+				'job_id' => array( 'type' => 'string' ),
+				'timeout' => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
 			),
 			'additionalProperties' => false,
 		);
@@ -966,9 +980,12 @@ trait Devenia_Workflow_Translation_Job {
 				'source_id'                 => (int) $job['source_id'],
 				'job_id'                    => (string) $job['job_id'],
 				'expected_media'             => (array) ( $artifact_record['surface_manifest']['media']['featured_image'] ?? array() ),
-				'sync_menu'                 => ! array_key_exists( 'sync_menu', $input ) || ! empty( $input['sync_menu'] ),
+				// Menu authority is intentionally absent from ordinary Translation Job
+				// publication. Public Header changes are rare, explicit operations owned
+				// exclusively by the separate sync-menu Interface.
+				'sync_menu'                 => false,
 				'include_custom_links'      => true,
-				'verify_live'               => true,
+				'verify_live'               => false,
 				'live_verification_timeout' => absint( $input['live_verification_timeout'] ?? 15 ),
 				'rollback_term_scope'        => is_array( $surface_snapshot ) ? (array) ( $surface_snapshot['term_scope'] ?? array() ) : array(),
 				'rollback_identity_scope'    => is_array( $surface_snapshot ) ? (array) ( $surface_snapshot['identity_scope'] ?? array() ) : array(),
@@ -999,20 +1016,20 @@ trait Devenia_Workflow_Translation_Job {
 		$menu = $publication['menu'] ?? null;
 		$live = $publication['live_verification'] ?? null;
 		$orphaned_runs_finalized = self::translation_job_finalize_orphaned_runs( $job );
-		$next = self::translation_job_transition( $job, array( 'status' => 'published', 'translation_id' => $translation_id, 'content_revision' => self::translation_job_translation_revision( $translation_id ), 'applied_surface_revision' => self::translation_job_current_surface_revision( $translation_id ), 'published_at' => gmdate( 'c' ), 'live_verification_passed' => null === $live ? null : ! empty( $live['passed'] ) ) );
+		$next = self::translation_job_transition( $job, array( 'status' => 'published', 'translation_id' => $translation_id, 'content_revision' => self::translation_job_translation_revision( $translation_id ), 'applied_surface_revision' => self::translation_job_current_surface_revision( $translation_id ), 'published_at' => gmdate( 'c' ), 'live_verification_passed' => false ) );
 		if ( ! empty( $next['success'] ) ) { delete_post_meta( $translation_id, '_devenia_workflow_publication_attempt_id' ); }
-		$passed = null === $live || ( ! empty( $live['success'] ) && ! empty( $live['passed'] ) );
+		$verified = is_array( $live ) && ! empty( $live['success'] ) && ! empty( $live['passed'] );
 		return array(
-			'success' => $passed && ! empty( $next['success'] ),
+			'success' => ! empty( $next['success'] ),
 			'published' => true,
 			'forward_publication_applied' => true,
 			'final_reader_state' => array(
-				'state' => $passed ? 'published_verified' : 'published_unverified',
+				'state' => $verified ? 'published_verified' : 'published_unverified',
 				'published' => true,
 				'translation_id' => $translation_id,
 				'surface_revision' => self::translation_job_current_surface_revision( $translation_id ),
 			),
-			'message' => $passed ? 'Translation Job published.' : 'Translation was published, but live verification failed.',
+			'message' => $verified ? 'Translation Job published and verified.' : 'Translation Job published; explicit live verification is pending.',
 			'job' => ! empty( $next['job'] ) ? self::translation_job_public_job( $next['job'] ) : self::translation_job_public_job( $job ),
 			'translation' => self::translation_payload( get_post( $translation_id ) ),
 			'qa' => $qa,
@@ -1027,6 +1044,34 @@ trait Devenia_Workflow_Translation_Job {
 		} finally {
 			self::translation_job_release_lifecycle_lease( $lifecycle_lease );
 		}
+	}
+
+	private static function translation_job_verify_live( array $input ): array {
+		$job_id = self::translation_job_clean_id( (string) ( $input['job_id'] ?? '' ) );
+		$job = self::translation_job_get_job( $job_id );
+		if ( ! $job ) { return self::error( 'Translation Job not found.' ); }
+		if ( 'published' !== (string) ( $job['status'] ?? '' ) ) {
+			return array( 'success' => false, 'code' => 'job_not_published', 'message' => 'Live verification requires a published Translation Job.', 'job' => self::translation_job_public_job( $job ) );
+		}
+		$translation_id = absint( $job['translation_id'] ?? 0 );
+		$authority = self::translation_job_validate_published_authority( $job, $translation_id, false );
+		if ( empty( $authority['success'] ) ) {
+			return array( 'success' => false, 'code' => 'published_authority_mismatch', 'authority_code' => sanitize_key( (string) ( $authority['code'] ?? '' ) ), 'message' => 'Live verification requires the exact current Job, Artifact, Quality and Evidence authority chain.' );
+		}
+		$artifact_record = (array) ( $authority['artifact_record'] ?? array() );
+		$live = self::verify_live_translation(
+			array(
+				'translation_id' => $translation_id,
+				'timeout' => absint( $input['timeout'] ?? 15 ),
+				'expected_media' => (array) ( $artifact_record['surface_manifest']['media']['featured_image'] ?? array() ),
+			)
+		);
+		if ( empty( $live['success'] ) || empty( $live['passed'] ) ) {
+			return array( 'success' => false, 'code' => 'live_verification_failed', 'message' => 'The published translation failed origin or canonical reader verification.', 'job' => self::translation_job_public_job( $job ), 'live_verification' => $live );
+		}
+		$next = self::translation_job_transition( $job, array( 'live_verification_passed' => true, 'live_verified_at' => gmdate( 'c' ) ) );
+		if ( empty( $next['success'] ) ) { return $next; }
+		return array( 'success' => true, 'passed' => true, 'message' => 'Published Translation Job verified live.', 'job' => self::translation_job_public_job( $next['job'] ), 'live_verification' => $live );
 	}
 
 	private static function translation_job_status( array $input ): array {

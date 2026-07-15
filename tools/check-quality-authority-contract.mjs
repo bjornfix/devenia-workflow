@@ -32,6 +32,10 @@ const functionBody = (name, nextName) => {
 const submitArtifact = functionBody("translation_job_submit_artifact", "translation_job_submit_quality_decision");
 const submitQuality = functionBody("translation_job_submit_quality_decision", "translation_job_publish");
 const qualitySchema = functionBody("translation_job_quality_schema", "translation_job_publish_schema");
+const publishSchema = functionBody("translation_job_publish_schema", "translation_job_status_schema");
+const publishJobStart = source.indexOf("private static function translation_job_publish( array");
+const publishJobEnd = source.indexOf("private static function translation_job_status( array", publishJobStart + 1);
+const publishJob = publishJobStart >= 0 && publishJobEnd > publishJobStart ? source.slice(publishJobStart, publishJobEnd) : "";
 const validateUsage = functionBody("translation_job_validate_usage", "translation_job_finish_run");
 const claim = functionBody("translation_job_claim", "translation_job_fetch_packet");
 const evidenceReceipts = functionBody("translation_job_quality_evidence_receipts", "translation_job_browser_receipt");
@@ -422,8 +426,11 @@ if (!/hash\( 'sha256', \$source_id \. '\|' \. \$language \)/.test(source) || !/t
 if (!/atomic_replace_option_value/.test(atomicOptionSource) || !/atomic_delete_option_value/.test(atomicOptionSource) || !/atomic_delete_option_value\( \$key, \$owned \)/.test(source)) {
 	failures.push("lease takeover, renewal, and release must use compare-and-swap storage operations");
 }
-if (!/refresh_public_header_projection_for_publication/.test(publicationSource) || !/public_header_failure_after_activation/.test(publicationSource) || !/public_header_rollback_projection_receipts/.test(publicationSource)) {
-	failures.push("localized publication must use the complete Public Header Projection Interface with receipt-bound rollback");
+if (!publishSchema.includes("'sync_menu' => array( 'type' => 'boolean', 'default' => false") || !publishSchema.includes("Deprecated and ignored") || !/'sync_menu'\s*=>\s*false/.test(publishJob) || /array_key_exists\(\s*'sync_menu'\s*,\s*\$input\s*\)/.test(publishJob)) {
+	failures.push("ordinary Translation Job publication must have zero menu mutation authority; only the explicit sync-menu Interface may change Public Header state");
+}
+if (!/'verify_live'\s*=>\s*false/.test(publishJob) || !/translation_job_verify_live[\s\S]*verify_live_translation[\s\S]*live_verification_passed'\s*=>\s*true/.test(source)) {
+	failures.push("live HTTP verification must run after publication through its own bounded Job Interface and record the passing receipt");
 }
 if (!/localized_presentation_rollback/.test(rollbackFailure) || !/rollback_cache_invalidation_failed/.test(rollbackFailure)) {
 	failures.push("successful database rollback must purge the restored frontend surface and fail closed when that purge is unavailable");
@@ -432,7 +439,7 @@ if (/repair_internal_links\s*\(/.test(publicationSource)) {
 	failures.push("localized presentation publication still performs cross-post link mutation outside its rollback snapshot");
 }
 if (!/translation_job_begin_recovery_transaction/.test(publicationSource) || !/translation_job_lock_recovery_surface/.test(publicationSource) || !/mutation_cas_revision\s*=\s*self::translation_job_rollback_cas_revision/.test(publicationSource) || !/translation_job_commit_recovery_transaction/.test(publicationSource)) {
-	failures.push("publication transition and menu activation must capture their mutation receipt inside one row-locked transaction");
+	failures.push("publication transition must capture its mutation receipt inside one row-locked transaction");
 }
 if (/empty\( \$publication\['success'\] \)[\s\S]{0,500}translation_job_rollback_cas_revision/.test(jobSource)) {
 	failures.push("caller still samples rollback CAS after the publication Module has failed");
