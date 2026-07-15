@@ -221,6 +221,60 @@ assert.equal(productionHeaderStateContractPasses(publicHeaderRuntime), true, "th
 assert.equal(productionHeaderStateContractPasses(publicHeaderRuntime.replace("$missing = '__devenia_workflow_option_missing__';", "$missing = '__workflow_missing__';")), false, "the state-reader gate must reject a harness sentinel substituted for production authority");
 assert.equal(productionHeaderStateContractPasses(publicHeaderRuntime.replace("get_option( 'devenia_workflow_pending_public_header_manifest', $missing )", "get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' )")), false, "the state-reader gate must reject a pending-only sentinel substitution");
 
+const boundedSource = (source, startMarker, endMarker) => {
+	const start = source.indexOf(startMarker);
+	const end = source.indexOf(endMarker, start + startMarker.length);
+	return start >= 0 && end > start ? source.slice(start, end) : "";
+};
+const stagedProjectionEvidenceContractPasses = (source) => {
+	const helper = boundedSource(source, "$staged_projection_set_evidence =", "$inventory_term_ids =");
+	return /static function \( array \$attempt, string \$expected_manifest_revision \)/.test(helper)
+		&& /in_array\( \$menu_id, \$menu_ids, true \)/.test(helper)
+		&& /hash_equals\( \$receipt, \$current_receipt \)/.test(helper)
+		&& /TERM_META_MENU_MANAGED[\s\S]*TERM_META_MENU_LANGUAGE/.test(helper)
+		&& /'' === \$expected_manifest_revision[\s\S]*hash_equals\( \$expected_manifest_revision, \$manifest_revision \)[\s\S]*TERM_META_PUBLIC_HEADER_MANIFEST_REVISION/.test(helper);
+};
+assert.equal(stagedProjectionEvidenceContractPasses(publicHeaderRuntime), true, "staged projection evidence must bind unique live menu receipts and metadata to the receipt-owned pending manifest revision");
+assert.equal(stagedProjectionEvidenceContractPasses(publicHeaderRuntime.replace("! hash_equals( $expected_manifest_revision, $manifest_revision )", "false")), false, "the staged projection gate must reject a receipt/meta self-consistent projection from the wrong pending revision");
+const pendingRaceRuntimeContractPasses = (source) => {
+	const injection = boundedSource(source, "if ( 'pending_race' === $failure_mode )", "if ( 'enrollment_state_race' === $failure_mode )");
+	const assertion = boundedSource(source, "$pending_race_before =", "$enrollment_state_race_before =");
+	return /\$pending_race_foreign_state = array\( 'race' => wp_generate_uuid4\(\) \);[\s\S]*update_option\( 'devenia_workflow_pending_public_header_manifest', \$pending_race_foreign_state, false \)[\s\S]*\$pending_race_foreign_state !== get_option/.test(injection)
+		&& /public_header_projection_activation_state_unresolved[\s\S]*public_header_activation_receipt_mismatch[\s\S]*'pending' !== \(string\) \( \$pending_race\['activation'\]\['slot'\]/.test(assertion)
+		&& /\$pending_race_foreign_state !== \( \$pending_race_after\['pending'\][\s\S]*\$pending_race_before\['manifest'\][\s\S]*\$pending_race_before\['identities'\][\s\S]*\$pending_race_before\['enrollment'\][\s\S]*\$pending_race_before !== \( \$pending_race\['activation'\]\['before'\][\s\S]*\$pending_race_after !== \( \$pending_race\['cleanup_authority'\]\['current_state'\]/.test(assertion)
+		&& /cleanup_authority'\]\['allowed'[\s\S]*'unknown'[\s\S]*receipt_current_exact[\s\S]*before_exact[\s\S]*references_excluded[\s\S]*staged_projection_cleanup_not_authorized[\s\S]*cleanup'\]\['results'/.test(assertion)
+		&& /\$staged_projection_set_evidence\( \$pending_race, \(string\) \( \$pending_race_before\['pending'\]\['revision'\]/.test(assertion)
+		&& /empty\( \$pending_projection_evidence\['exact'\] \)[\s\S]*count\( \$pending_projection_ids \) !== count\( \$languages \)[\s\S]*\$pending_expected_staged_ids !== \$pending_inventory_delta[\s\S]*\$expected_managed_with_staged[\s\S]*\$pending_race_raw_menus_before !== \$raw_fixture_menu_surface\(\)[\s\S]*\$pending_race_relations_before !== \$raw_relation_post_surface/.test(assertion)
+		&& /array_key_exists\( 'cache_invalidation', \$pending_race \)[\s\S]*array_key_exists\( 'verification', \$pending_race \)[\s\S]*array_key_exists\( 'retirement', \$pending_race \)/.test(assertion)
+		&& /\$pending_race_before !== \$pending_race_restored[\s\S]*\$pending_race_before !== \$state_after_identity_race[\s\S]*\$pending_race_before !== \$pending_state_after_cleanup/.test(assertion);
+};
+assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime), true, "the bounded pending-race oracle must require the exact foreign raw owner, receipt-specific evidence, denied cleanup, and every intact staged projection");
+assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("'public_header_activation_receipt_mismatch' !== (string) ( $pending_race['activation']['code'] ?? '' )", "'public_header_state_changed' !== (string) ( $pending_race['activation']['code'] ?? '' )")), false, "the pending-race gate must reject the obsolete generic state-change oracle");
+assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("$pending_race_foreign_state !== ( $pending_race_after['pending'] ?? null )", "false")), false, "the pending-race gate must reject removal of exact foreign pending preservation");
+assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("empty( $pending_projection_evidence['exact'] )", "false")), false, "the pending-race gate must reject removal of exact staged-projection evidence");
+assert.equal(pendingRaceRuntimeContractPasses(publicHeaderRuntime.replace("$pending_race_before !== $pending_race_restored", "false")), false, "the pending-race gate must reject removal of strict four-slot fixture restoration");
+
+const enrollmentRaceRuntimeContractPasses = (source) => {
+	const injection = boundedSource(source, "if ( 'enrollment_state_race' === $failure_mode )", "if ( 'pending_key_reorder' === $failure_mode )");
+	const assertion = boundedSource(source, "$enrollment_state_race_before =", "$failure_mode = ''; $failure_injected = false; $stage_b =");
+	return /\$enrollment_state_race_foreign_state = array\( 'race' => wp_generate_uuid4\(\) \);[\s\S]*update_option\( 'devenia_workflow_public_header_enrollment', \$enrollment_state_race_foreign_state, false \)[\s\S]*\$enrollment_state_race_foreign_state !== get_option/.test(injection)
+		&& /public_header_projection_activation_state_unresolved[\s\S]*public_header_state_changed[\s\S]*'enrollment' !== \(string\) \( \$enrollment_state_race\['activation'\]\['slot'\]/.test(assertion)
+		&& /\$enrollment_state_race_foreign_state !== \( \$enrollment_state_race_after\['enrollment'\][\s\S]*\$enrollment_state_race_before\['manifest'\][\s\S]*\$enrollment_state_race_before\['pending'\][\s\S]*\$enrollment_state_race_before\['identities'\][\s\S]*\$enrollment_state_race_before !== \( \$enrollment_state_race\['activation'\]\['before'\][\s\S]*\$enrollment_state_race_after !== \( \$enrollment_state_race\['cleanup_authority'\]\['current_state'\]/.test(assertion)
+		&& /cleanup_authority'\]\['allowed'[\s\S]*'unknown'[\s\S]*receipt_current_exact[\s\S]*before_exact[\s\S]*references_excluded[\s\S]*staged_projection_cleanup_not_authorized[\s\S]*cleanup'\]\['results'/.test(assertion)
+		&& /staged_projection_cleanup_not_authorized[\s\S]*empty\( \$enrollment_projection_evidence\['exact'\] \)[\s\S]*count\( \$enrollment_projection_ids \) !== count\( \$languages \)[\s\S]*\$enrollment_expected_staged_ids !== \$enrollment_inventory_delta[\s\S]*\$enrollment_state_race_raw_menus_before !== \$raw_fixture_menu_surface\(\)[\s\S]*\$enrollment_state_race_relations_before !== \$raw_relation_post_surface/.test(assertion)
+		&& /\$staged_projection_set_evidence\( \$enrollment_state_race, \(string\) \( \$enrollment_state_race_before\['pending'\]\['revision'\]/.test(assertion)
+		&& /array_key_exists\( 'cache_invalidation', \$enrollment_state_race \)[\s\S]*array_key_exists\( 'verification', \$enrollment_state_race \)[\s\S]*array_key_exists\( 'retirement', \$enrollment_state_race \)/.test(assertion)
+		&& /\$enrollment_state_race_before !== \$enrollment_state_restored[\s\S]*delete_staged_public_header_projections[\s\S]*\$enrollment_state_race_inventory_before !== \$raw_nav_menu_inventory\(\)/.test(assertion);
+};
+assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime), true, "a separate bounded non-pending locked race must keep the generic state-CAS rejection real and prove exact fixture restoration");
+assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("'public_header_state_changed' !== (string) ( $enrollment_state_race['activation']['code'] ?? '' )", "'public_header_activation_receipt_mismatch' !== (string) ( $enrollment_state_race['activation']['code'] ?? '' )")), false, "the enrollment-race gate must reject substitution of pending-only receipt evidence");
+assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("'enrollment' !== (string) ( $enrollment_state_race['activation']['slot'] ?? '' )", "'pending' !== (string) ( $enrollment_state_race['activation']['slot'] ?? '' )")), false, "the enrollment-race gate must remain bound to a non-pending state slot");
+assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("$enrollment_state_race_foreign_state !== ( $enrollment_state_race_after['enrollment'] ?? null )", "false")), false, "the enrollment-race gate must reject removal of exact foreign enrollment preservation");
+assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("empty( $enrollment_projection_evidence['exact'] )", "false")), false, "the enrollment-race gate must reject removal of exact projection-receipt evidence");
+assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("! empty( $enrollment_state_race['cleanup_authority']['allowed'] )", "false")), false, "the enrollment-race gate must reject removal of cleanup denial");
+assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("false !== ( $enrollment_state_race['cleanup_authority']['before_exact'] ?? null )", "false")), false, "the enrollment-race gate must reject removal of foreign-state cleanup classification");
+assert.equal(enrollmentRaceRuntimeContractPasses(publicHeaderRuntime.replace("array_key_exists( 'cache_invalidation', $enrollment_state_race )", "false")), false, "the enrollment-race gate must reject removal of the pre-cache-invalidation phase boundary");
+
 const syncStart = plugin.indexOf("private static function sync_language_menu");
 const syncEnd = plugin.indexOf("private static function existing_menu_label_map", syncStart);
 assert.ok(syncStart > 0 && syncEnd > syncStart, "sync_language_menu must remain a bounded implementation");
@@ -504,6 +558,7 @@ for (const evidence of [
 	"non_array_header_commit_receipt_rolled_back_failed_closed",
 	"unterminated_success_header_commit_receipt_rolled_back_failed_closed",
 	"pending_foreign_race_preserved_then_fixture_cleaned",
+	"locked_non_pending_state_race_rejected",
 	"unenrolled_unrelated_menus_ignored",
 	"unenrolled_locked_primary_source_authority_races_rejected",
 	"unenrolled_all_post_activation_failure_phases_recovered",
