@@ -988,6 +988,7 @@ trait Devenia_Workflow_Translation_Job {
 				// exclusively by the separate sync-menu Interface.
 				'sync_menu'                 => false,
 				'include_custom_links'      => true,
+				'invalidate_cache'          => false,
 				'verify_live'               => false,
 				'live_verification_timeout' => absint( $input['live_verification_timeout'] ?? 15 ),
 				'rollback_term_scope'        => is_array( $surface_snapshot ) ? (array) ( $surface_snapshot['term_scope'] ?? array() ) : array(),
@@ -1083,6 +1084,21 @@ trait Devenia_Workflow_Translation_Job {
 			return array( 'success' => false, 'code' => 'published_authority_mismatch', 'authority_code' => sanitize_key( (string) ( $authority['code'] ?? '' ) ), 'message' => 'Live verification requires the exact current Job, Artifact, Quality and Evidence authority chain.' );
 		}
 		$artifact_record = (array) ( $authority['artifact_record'] ?? array() );
+		$purge_urls = self::localized_content_purge_urls( $translation_id );
+		$cache_invalidation = apply_filters(
+			'devenia_workflow_frontend_cache_invalidation_result',
+			null,
+			$purge_urls,
+			array(
+				'event' => 'translation_job_live_verification',
+				'language' => sanitize_key( (string) ( $job['target_language'] ?? '' ) ),
+				'translation_id' => $translation_id,
+				'job_id' => $job_id,
+			)
+		);
+		if ( ! is_array( $cache_invalidation ) || true !== ( $cache_invalidation['success'] ?? null ) ) {
+			return array( 'success' => false, 'code' => 'reader_cache_invalidation_failed', 'message' => 'The translation is published, but its exact reader URL could not be invalidated before live verification.', 'job' => self::translation_job_public_job( $job ), 'purge_urls' => $purge_urls, 'cache_invalidation' => $cache_invalidation );
+		}
 		$live = self::verify_live_translation(
 			array(
 				'translation_id' => $translation_id,
@@ -1091,11 +1107,11 @@ trait Devenia_Workflow_Translation_Job {
 			)
 		);
 		if ( empty( $live['success'] ) || empty( $live['passed'] ) ) {
-			return array( 'success' => false, 'code' => 'live_verification_failed', 'message' => 'The published translation failed origin or canonical reader verification.', 'job' => self::translation_job_public_job( $job ), 'live_verification' => $live );
+			return array( 'success' => false, 'code' => 'live_verification_failed', 'message' => 'The published translation failed origin or canonical reader verification.', 'job' => self::translation_job_public_job( $job ), 'purge_urls' => $purge_urls, 'cache_invalidation' => $cache_invalidation, 'live_verification' => $live );
 		}
 		$next = self::translation_job_transition( $job, array( 'live_verification_passed' => true, 'live_verified_at' => gmdate( 'c' ) ) );
 		if ( empty( $next['success'] ) ) { return $next; }
-		return array( 'success' => true, 'passed' => true, 'message' => 'Published Translation Job verified live.', 'job' => self::translation_job_public_job( $next['job'] ), 'live_verification' => $live );
+		return array( 'success' => true, 'passed' => true, 'message' => 'Published Translation Job verified live.', 'job' => self::translation_job_public_job( $next['job'] ), 'purge_urls' => $purge_urls, 'cache_invalidation' => $cache_invalidation, 'live_verification' => $live );
 	}
 
 	private static function translation_job_status( array $input ): array {

@@ -125,7 +125,12 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 
 		$purge_urls = self::public_header_projection_urls( $languages );
 		$context = array( 'event' => 'public_header_projection', 'manifest_revision' => (string) $pending['revision'], 'languages' => $languages );
-		$invalidation = apply_filters( 'devenia_workflow_frontend_cache_invalidation_result', null, $purge_urls, $context );
+		$invalidation = empty( $input['invalidate_cache'] ) && array_key_exists( 'invalidate_cache', $input )
+			? null
+			: apply_filters( 'devenia_workflow_frontend_cache_invalidation_result', null, $purge_urls, $context );
+		if ( null === $invalidation && empty( $input['invalidate_cache'] ) && array_key_exists( 'invalidate_cache', $input ) ) {
+			$invalidation = array( 'success' => true, 'deferred' => true );
+		}
 		if ( ! is_array( $invalidation ) || true !== ( $invalidation['success'] ?? null ) ) {
 			return self::public_header_failure_after_activation( 'public_header_cache_invalidation_failed', 'The activated Public Header Projection set could not be invalidated.', $activation, $staged, $purge_urls, $invalidation, array(), $input );
 		}
@@ -2364,12 +2369,15 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		}
 		ksort( $expected_srcset );
 		ksort( $actual_srcset );
-		$open_graph_policy = $expected_id > 0 ? 'exact_featured_image' : 'none_without_featured_image';
+		$open_graph_policy = $expected_id > 0 ? 'exact_featured_image' : 'not_content_owned_without_featured_image';
 		$srcset_policy = $expected_srcset ? 'exact_attachment_candidate_descriptor_set' : 'none_available_for_attachment';
 		$hero_matches = $expected_id <= 0
 			? $parse_success && 0 === $hero_element_count && empty( $actual_srcset ) && $srcset_well_formed
 			: $parse_success && 1 === $hero_element_count && array( $expected_normalized ) === $normalized_hero && $srcset_well_formed && $expected_srcset === $actual_srcset;
-		$og_matches = $expected_id <= 0 ? $parse_success && 0 === $open_graph_element_count : $parse_success && 1 === $open_graph_element_count && array( $expected_normalized ) === $normalized_og;
+		// Without an approved featured image, the translation owns no og:image
+		// identity. A site-wide SEO fallback may legitimately render one, so only
+		// the post hero absence remains content authority in this branch.
+		$og_matches = $expected_id <= 0 ? $parse_success : $parse_success && 1 === $open_graph_element_count && array( $expected_normalized ) === $normalized_og;
 		if ( $hero_matches && $og_matches ) { return array(); }
 		return array(
 			self::qa_item(

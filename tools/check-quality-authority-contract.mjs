@@ -433,6 +433,9 @@ if (!publishSchema.includes("'sync_menu' => array( 'type' => 'boolean', 'default
 if (!/'verify_live'\s*=>\s*false/.test(publishJob) || !/translation_job_verify_live[\s\S]*verify_live_translation[\s\S]*live_verification_passed'\s*=>\s*true/.test(source)) {
 	failures.push("live HTTP verification must run after publication through its own bounded Job Interface and record the passing receipt");
 }
+if (!/'invalidate_cache'\s*=>\s*false/.test(publishJob) || !/translation_job_verify_live[\s\S]*devenia_workflow_frontend_cache_invalidation_result[\s\S]*translation_job_live_verification[\s\S]*verify_live_translation/.test(source)) {
+	failures.push("content publication must defer exact reader-cache invalidation to the separate live-verification Interface so cache latency cannot hold the publication lifecycle lease");
+}
 if (/publication_experience_readiness_for_post\s*\(/.test(publishJob) || !/\$quality\['publication_experience'\][\s\S]*missing_quality_receipt/.test(publishJob)) {
 	failures.push("publication must consume the immutable Quality publication-experience receipt and must not perform synchronous frontend inspection while holding the lifecycle lease");
 }

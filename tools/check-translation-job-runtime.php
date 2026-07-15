@@ -2681,7 +2681,7 @@ try {
 	$extra_stale_media_issues = $media_issues->invoke( null, str_replace( '</body>', '<img class="wp-post-image" src="' . esc_attr( (string) ( $source_media_a['url'] ?? '' ) ) . '"></body>', $correct_media_html ), $source_media_b, get_permalink( $translation_id ), 'canonical' );
 	$no_image_media = $call( 'publication_featured_image_revision_identity', $linked_source_id );
 	$no_image_clean_issues = $media_issues->invoke( null, '<html><head></head><body></body></html>', $no_image_media, get_permalink( $linked_source_id ), 'origin' );
-	$no_image_stale_og_issues = $media_issues->invoke( null, '<html><head><meta property="og:image" content="' . esc_attr( (string) ( $source_media_a['url'] ?? '' ) ) . '"></head><body></body></html>', $no_image_media, get_permalink( $linked_source_id ), 'canonical' );
+	$no_image_global_og_issues = $media_issues->invoke( null, '<html><head><meta property="og:image" content="' . esc_attr( (string) ( $source_media_a['url'] ?? '' ) ) . '"></head><body></body></html>', $no_image_media, get_permalink( $linked_source_id ), 'canonical' );
 	$no_image_empty_hero_issues = $media_issues->invoke( null, '<html><head></head><body><img class="wp-post-image" src=""></body></html>', $no_image_media, get_permalink( $linked_source_id ), 'origin' );
 	$no_image_empty_og_issues = $media_issues->invoke( null, '<html><head><meta property="og:image" content=""></head><body></body></html>', $no_image_media, get_permalink( $linked_source_id ), 'canonical' );
 	$no_image_parser_unavailable_issues = $media_issues->invoke( null, '<html><head></head><body></body></html>', $no_image_media, get_permalink( $linked_source_id ), 'origin', false );
@@ -2707,13 +2707,13 @@ try {
 		|| empty( $missing_media_issues )
 		|| empty( $extra_stale_media_issues )
 		|| ! empty( $no_image_clean_issues )
-		|| empty( $no_image_stale_og_issues )
+		|| ! empty( $no_image_global_og_issues )
 		|| empty( $no_image_empty_hero_issues )
-		|| empty( $no_image_empty_og_issues )
+		|| ! empty( $no_image_empty_og_issues )
 		|| empty( $no_image_parser_unavailable_issues )
 		|| empty( $no_image_parse_failure_issues )
 	) {
-		throw new RuntimeException( 'Source Publication Surface media lifecycle failed closed incorrectly: ' . wp_json_encode( compact( 'source_surface_a', 'source_surface_b', 'stale_approval', 'old_publish', 'repair_dry_run', 'repair_forbidden', 'repair_bounded', 'correct_media_issues', 'missing_srcset_media_issues', 'partial_srcset_media_issues', 'invalid_descriptor_media_issues', 'extra_token_media_issues', 'empty_candidate_media_issues', 'wrong_media_issues', 'missing_media_issues', 'extra_stale_media_issues', 'no_image_clean_issues', 'no_image_stale_og_issues', 'no_image_empty_hero_issues', 'no_image_empty_og_issues', 'no_image_parser_unavailable_issues', 'no_image_parse_failure_issues' ) ) );
+		throw new RuntimeException( 'Source Publication Surface media lifecycle failed closed incorrectly: ' . wp_json_encode( compact( 'source_surface_a', 'source_surface_b', 'stale_approval', 'old_publish', 'repair_dry_run', 'repair_forbidden', 'repair_bounded', 'correct_media_issues', 'missing_srcset_media_issues', 'partial_srcset_media_issues', 'invalid_descriptor_media_issues', 'extra_token_media_issues', 'empty_candidate_media_issues', 'wrong_media_issues', 'missing_media_issues', 'extra_stale_media_issues', 'no_image_clean_issues', 'no_image_global_og_issues', 'no_image_empty_hero_issues', 'no_image_empty_og_issues', 'no_image_parser_unavailable_issues', 'no_image_parse_failure_issues' ) ) );
 	}
 	update_post_meta( $source_id, '_thumbnail_id', $source_thumbnail_id );
 	clean_post_cache( $source_id );
