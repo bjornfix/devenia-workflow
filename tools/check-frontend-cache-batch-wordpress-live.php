@@ -10,6 +10,9 @@
 if ( ! defined( 'WP_CLI' ) || ! WP_CLI || ! class_exists( 'Devenia_Workflow' ) ) {
 	throw new RuntimeException( 'This live transport proof requires WP-CLI with Devenia Workflow active.' );
 }
+if ( false !== has_filter( 'devenia_workflow_frontend_cache_batch_adapter_result' ) ) {
+	throw new RuntimeException( 'The live transport proof refuses to run while a frontend batch Adapter is registered.' );
+}
 
 $call = static function ( string $method, ...$arguments ) {
 	$reflection = new ReflectionMethod( Devenia_Workflow::class, $method );

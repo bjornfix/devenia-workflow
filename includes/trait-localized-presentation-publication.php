@@ -2515,7 +2515,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$concurrency_limit = max( 1, min( self::PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT, $concurrency_limit ) );
 		$dispatches = array_chunk( $native, $concurrency_limit, true );
 		$minimum_timeout = 3;
-		if ( count( $dispatches ) * $minimum_timeout > self::PUBLIC_HEADER_BATCH_BUDGET_SECONDS ) {
+		if ( count( $dispatches ) * $minimum_timeout >= self::PUBLIC_HEADER_BATCH_BUDGET_SECONDS ) {
 			return $fail_all( $normalized, $native, 'public_header_batch_budget_exceeded', 'The complete frontend cache request plan exceeds its bounded runtime budget.' );
 		}
 		$requested_timeout = max( $minimum_timeout, min( 30, $timeout ) );

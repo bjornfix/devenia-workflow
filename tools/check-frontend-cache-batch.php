@@ -185,7 +185,7 @@ namespace {
 	foreach ( array_slice( \WpOrg\Requests\Requests::$calls, 0, count( $batch_sizes ) ) as $call ) {
 		$dispatched += $call['requests'];
 	}
-	if ( count( $dispatched ) !== count( $requests ) || ! empty( array_diff_key( $dispatched, $requests ) ) || ! empty( array_diff_key( $requests, $dispatched ) ) ) {
+	if ( count( $dispatched ) !== count( $requests ) || array_keys( $dispatched ) !== array_keys( $requests ) || ! empty( array_diff_key( $dispatched, $requests ) ) || ! empty( array_diff_key( $requests, $dispatched ) ) ) {
 		fwrite( STDERR, "The bounded dispatch plan did not consume every requested key exactly once.\n" );
 		exit( 1 );
 	}
@@ -295,6 +295,22 @@ namespace {
 	foreach ( $oversized as $response ) {
 		if ( false !== ( $response['success'] ?? null ) || 'public_header_batch_budget_exceeded' !== ( $response['code'] ?? null ) ) {
 			fwrite( STDERR, "An oversized complete request plan did not fail every coordinate closed.\n" );
+			exit( 1 );
+		}
+	}
+	$boundary_requests = array();
+	for ( $index = 0; $index < 200; $index++ ) {
+		$boundary_requests[ 'boundary_' . $index ] = array( 'url' => 'https://example.test/boundary-' . $index . '/', 'surface' => 0 === $index % 2 ? 'origin' : 'canonical' );
+	}
+	$calls_before_boundary = count( \WpOrg\Requests\Requests::$calls );
+	$boundary = Devenia_Workflow_Frontend_Cache_Batch_Harness::fetch( $boundary_requests, 30 );
+	if ( $calls_before_boundary !== count( \WpOrg\Requests\Requests::$calls ) ) {
+		fwrite( STDERR, "A request plan with no wall-clock margin reached the transport.\n" );
+		exit( 1 );
+	}
+	foreach ( $boundary as $response ) {
+		if ( false !== ( $response['success'] ?? null ) || 'public_header_batch_budget_exceeded' !== ( $response['code'] ?? null ) ) {
+			fwrite( STDERR, "A request plan at the exact minimum-timeout boundary did not fail closed before transport.\n" );
 			exit( 1 );
 		}
 	}
