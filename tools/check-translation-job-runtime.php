@@ -1409,6 +1409,9 @@ try {
 	$wrong_index_menu_ids = array( $runtime_source_menu_id );
 	foreach ( (array) get_option( 'devenia_workflow_localized_menu_identities', array() ) as $wrong_index_identity ) { $wrong_index_menu_ids[] = absint( is_array( $wrong_index_identity ) ? ( $wrong_index_identity['menu_id'] ?? 0 ) : 0 ); }
 	$wrong_index_authority_options = $raw_option_records( array( $wrong_index_job_key, $wrong_index_artifact_key, $wrong_index_quality_key, $wrong_index_evidence_key ) );
+	$wrong_index_job_before = get_option( $wrong_index_job_key, array() );
+	$wrong_index_artifact_record = get_option( $wrong_index_artifact_key, array() );
+	$wrong_index_surface_snapshot = $call( 'translation_job_capture_surface_snapshot', $translation_id, (array) ( $wrong_index_artifact_record['surface_manifest'] ?? array() ), $call( 'translation_job_publication_identity_scope', (array) $wrong_index_job_before ) );
 	$wrong_index_content_before = $raw_translation_content_surface( $translation_id );
 	$wrong_index_header_before = $raw_option_records( $wrong_index_header_options );
 	$wrong_index_menu_before = $raw_nav_menu_surface( $wrong_index_menu_ids );
@@ -1421,7 +1424,7 @@ try {
 	global $wpdb;
 	$wrong_index_rows_before = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d ORDER BY source_post_id ASC, language ASC, translation_post_id ASC', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact fixture row is restored byte-for-byte below.
 	if ( ! $wrong_index_target_post instanceof WP_Post || '' === $wrong_index_target_language || 1 !== count( (array) $wrong_index_rows_before ) ) { throw new RuntimeException( 'Could not establish the exact ordinary-publication wrong-index fixture.' ); }
-	$wrong_index_publish = array(); $wrong_index_restore_success = true; $wrong_index_injected = false; $wrong_index_commit_calls = 0; $wrong_index_commit_receipt = array(); $wrong_index_rows_missing = array();
+	$wrong_index_publish = array(); $wrong_index_restore_success = true; $wrong_index_fixture_restore = array(); $wrong_index_injected = false; $wrong_index_commit_calls = 0; $wrong_index_commit_receipt = array(); $wrong_index_rows_missing = array();
 	$wrong_index_commit_adapter = static function ( $default, int $committed_translation_id, string $before_revision, string $replacement_revision ) use ( $call, $translation_id, $wrong_index_target_id, $wrong_index_target_post, $wrong_index_table, $wpdb, &$wrong_index_injected, &$wrong_index_commit_calls, &$wrong_index_commit_receipt, &$wrong_index_rows_missing ) {
 		unset( $default );
 		++$wrong_index_commit_calls;
@@ -1445,6 +1448,9 @@ try {
 		foreach ( (array) $wrong_index_rows_before as $wrong_index_row ) {
 			if ( false === $wpdb->insert( $wrong_index_table, $wrong_index_row ) ) { $wrong_index_restore_success = false; } // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Restore every original persisted column exactly, including original timestamps.
 		}
+		$wrong_index_fixture_restore = $call( 'translation_job_restore_surface_snapshot', $wrong_index_surface_snapshot, $translation_id );
+		update_option( $wrong_index_job_key, $wrong_index_job_before, false );
+		$call( 'sync_translation_index_row', $translation_id );
 	}
 	$wrong_index_rows_after = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d ORDER BY source_post_id ASC, language ASC, translation_post_id ASC', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact cleanup oracle.
 	$wrong_index_content_after = $raw_translation_content_surface( $translation_id );
@@ -1471,6 +1477,7 @@ try {
 		|| 'published_unverified' !== (string) ( $wrong_index_publish['final_reader_state']['state'] ?? '' )
 		|| ! empty( $wrong_index_nested_failure )
 		|| empty( $wrong_index_publish['translation_index']['success'] )
+		|| empty( $wrong_index_fixture_restore['success'] )
 		|| ! $wrong_index_restore_success
 		|| $wrong_index_rows_before !== $wrong_index_rows_after
 		|| $wrong_index_header_before !== $raw_option_records( $wrong_index_header_options )

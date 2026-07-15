@@ -356,8 +356,12 @@ const publicationStageEnd = publication.indexOf("private static function refresh
 assert.ok(publicationStageStart > 0 && publicationStageEnd > publicationStageStart, "ordinary publication staging must remain a bounded ownership Interface");
 const publicationStage = publication.slice(publicationStageStart, publicationStageEnd);
 
-assert.match(publication, /publish_localized_presentation[\s\S]*apply_translation_publish_transition[\s\S]*refresh_public_header_projection_for_publication[\s\S]*devenia_workflow_frontend_cache_invalidation_result[\s\S]*verify_live_translation/);
-assert.doesNotMatch(publication.slice(publication.indexOf("private static function publish_localized_presentation"), publication.indexOf("private static function rollback_localized_menu_projection")), /sync_language_menu\s*\(/, "normal publication must not activate one language directly");
+const contentPublication = publication.slice(publication.indexOf("private static function publish_localized_presentation"), publication.indexOf("private static function rollback_localized_menu_projection"));
+assert.match(contentPublication, /apply_translation_publish_transition[\s\S]*localized_content_purge_urls[\s\S]*devenia_workflow_frontend_cache_invalidation_result[\s\S]*verify_live_translation/);
+assert.doesNotMatch(contentPublication, /sync_language_menu\s*\(|refresh_public_header_projection_for_publication\s*\(/, "content publication must have no Public Header mutation authority");
+assert.match(contentPublication, /localized_content_purge_urls\( \$translation_id \)/, "content publication must invalidate only its owned translation URL");
+assert.match(publication, /private static function localized_content_purge_urls\( int \$translation_id \)[\s\S]*get_permalink\( \$translation_id \)[\s\S]*return '' === \$url \? array\(\) : array\( \$url \)/, "the content cache plan must contain exactly the translation permalink");
+assert.doesNotMatch(contentPublication, /localized_home_url_for_language|public_blog_archive_url_for_language|public_header_projection_urls/, "content publication must not broaden cache invalidation to unrelated header or archive surfaces");
 assert.match(jobs, /translation_job_publish[\s\S]*publish_localized_presentation/);
 assert.match(plugin, /private static function publish_translation[\s\S]*publish_localized_presentation/);
 assert.match(publication, /frontend_cache_adapter_missing/);
@@ -369,7 +373,7 @@ assert.match(publicHeaderRuntime, /array_key_exists\( 'published', \$content_att
 assert.doesNotMatch(publicHeaderRuntime, /null !== \( \$content_attempt\['published'\] \?\? false \)/, "null coalescing must not erase the explicit published=null foreign receipt");
 assert.match(publication, /'rollback_authorized' => true[\s\S]*'rollback_expected_surface_revision' => \$mutation_cas_revision/, "only an exact owned replacement receipt may authorize caller rollback");
 assert.match(publication, /catch \( Throwable \$error \)[\s\S]*observed_after_exception[\s\S]*publication_transaction_exception_unapplied[\s\S]*publication_transaction_exception_applied[\s\S]*publication_transaction_exception_reconciliation_conflict/, "transaction Adapter exceptions must reconcile exact unapplied, applied, or foreign state instead of collapsing to unpublished");
-assert.match(publication, /public_header_projection_publication_failed[\s\S]*commit_reconciliation[\s\S]*frontend_cache_adapter_missing[\s\S]*commit_reconciliation[\s\S]*localized_presentation_verification_failed[\s\S]*commit_reconciliation/, "every post-commit failure must preserve commit reconciliation and the exact mutation receipt");
+assert.match(contentPublication, /frontend_cache_adapter_missing[\s\S]*commit_reconciliation[\s\S]*localized_presentation_verification_failed[\s\S]*commit_reconciliation/, "every content post-commit failure must preserve commit reconciliation and the exact mutation receipt");
 
 assert.match(sync, /wp_create_nav_menu\( \$staging_name \)/);
 assert.match(sync, /validate_localized_menu_projection[\s\S]*devenia_workflow_public_header_projection_receipt[\s\S]*'staged_only'\] = true[\s\S]*return \$base_result/, "single-language projection may only return a validated staged receipt");

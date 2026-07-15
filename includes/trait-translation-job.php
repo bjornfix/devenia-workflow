@@ -955,12 +955,15 @@ trait Devenia_Workflow_Translation_Job {
 			return self::translation_job_publish_failure_with_rollback( array( 'success' => false, 'code' => 'publish_qa_failed', 'message' => 'Deterministic QA failed before publication.', 'qa' => $qa ), $surface_snapshot, $translation_id );
 		}
 		$language = sanitize_key( (string) $job['target_language'] );
-		$translation_post = get_post( $translation_id );
-		$publication_experience = $translation_post instanceof WP_Post
-			? self::publication_experience_readiness_for_post( $translation_post, $language, 'pre_publish' )
-			: array( 'passed' => false );
+		// Quality already bound its publication-experience decision and browser
+		// evidence to this exact immutable Artifact revision. Publication consumes
+		// that receipt; it must not start a new frontend HTTP inspection while the
+		// lifecycle lease is held. Live reader verification is a separate operation.
+		$publication_experience = isset( $quality['publication_experience'] ) && is_array( $quality['publication_experience'] )
+			? $quality['publication_experience']
+			: array( 'passed' => false, 'state' => 'missing_quality_receipt' );
 		if ( empty( $publication_experience['passed'] ) ) {
-			return self::translation_job_publish_failure_with_rollback( array( 'success' => false, 'code' => 'publication_experience_failed', 'message' => 'Publication experience failed before publication.', 'publication_experience' => $publication_experience ), $surface_snapshot, $translation_id );
+			return self::translation_job_publish_failure_with_rollback( array( 'success' => false, 'code' => 'publication_experience_failed', 'message' => 'The exact Quality Decision does not contain a passing publication-experience receipt.', 'publication_experience' => $publication_experience ), $surface_snapshot, $translation_id );
 		}
 		$renewed_lease = self::translation_job_renew_lifecycle_lease( $lifecycle_lease );
 		if ( empty( $renewed_lease['success'] ) ) {

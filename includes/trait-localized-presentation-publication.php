@@ -802,28 +802,11 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			return array_merge( array( 'success' => false, 'code' => 'publication_transaction_exception', 'severity' => 'critical', 'message' => 'The localized presentation transaction stopped unexpectedly before an exact mutation outcome could be observed.', 'published' => null, 'mutation_started' => $recover_staged_mutation, 'mutation_cas_revision' => '', 'observed_mutation_cas_revision' => $prior_mutation_cas_revision, 'rollback_authorized' => false ), self::translation_job_rollback_response_fields( $rollback ), self::translation_job_recovery_transaction_error_fields() );
 			}
 
+		// This Module has no Public Header authority. Menus are changed only by the
+		// explicit sync-menu Interface, never as a side effect of content publication.
 		$menu = null;
-		if ( $post instanceof WP_Post && 'page' === $post->post_type && ! empty( $input['sync_menu'] ) ) {
-			$menu = self::refresh_public_header_projection_for_publication( absint( $input['live_verification_timeout'] ?? 15 ) );
-			if ( empty( $menu['success'] ) ) {
-				return array(
-					'success'                 => false,
-					'code'                    => 'public_header_projection_publication_failed',
-					'message'                 => 'Content was published, but the complete source-and-target Public Header Projection failed and retained or restored the prior reader surface.',
-					'published'               => true,
-					'transition'              => $transition,
-					'menu'                    => $menu,
-					'mutation_started'        => true,
-					'mutation_cas_revision'   => $mutation_cas_revision,
-					'rollback_authorized'      => true,
-					'rollback_expected_surface_revision' => $mutation_cas_revision,
-					'transaction_commit'       => $commit,
-					'commit_reconciliation'    => $commit_reconciliation,
-				);
-			}
-		}
 
-		$purge_urls = self::localized_presentation_purge_urls( $language, (array) ( $transition['purge_urls'] ?? array() ) );
+		$purge_urls = self::localized_content_purge_urls( $translation_id );
 		$context    = array(
 			'event'          => 'localized_presentation_publication',
 			'language'       => $language,
@@ -1039,25 +1022,14 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	}
 
 	/**
-	 * Include the language root because every primary-menu projection affects it.
+	 * Return only the public URL owned by this content publication.
 	 *
-	 * @param string[] $transition_urls URLs produced by the content transition.
 	 * @return string[]
 	 */
-	private static function localized_presentation_purge_urls( string $language, array $transition_urls ): array {
-		$urls = array_merge(
-			$transition_urls,
-			array(
-				self::localized_home_url_for_language( $language ),
-				self::public_blog_archive_url_for_language( $language ),
-			)
-		);
-		$urls = apply_filters( 'devenia_workflow_localized_presentation_purge_urls', $urls, $language );
-		if ( ! is_array( $urls ) ) {
-			return array();
-		}
+	private static function localized_content_purge_urls( int $translation_id ): array {
+		$url = esc_url_raw( (string) get_permalink( $translation_id ) );
 
-		return array_values( array_unique( array_filter( array_map( 'esc_url_raw', $urls ) ) ) );
+		return '' === $url ? array() : array( $url );
 	}
 
 	/**
