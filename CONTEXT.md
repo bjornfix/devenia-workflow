@@ -67,9 +67,12 @@ Theme branding, search controls, secondary menus, and the presentation-injected
 language selector are separate reader surfaces and cannot enter the Public Header
 comparison oracle, including when tolerant HTML parsing reparents injected links.
 Complete all-language origin/canonical evidence is fetched through one bounded
-concurrent batch from WordPress core's bundled Requests transport. Batching
-changes latency only: each response keeps the same cache-surface identity and
-fail-closed parser contract, and no external service becomes runtime authority.
+WordPress Requests plan. Cache hits may share one wide concurrent dispatch;
+cache-bypass requests use small keyed concurrent groups so the verification
+cannot exhaust its own WordPress origin. The complete plan has one cumulative
+timeout budget. Dispatching changes latency only: every response keeps the same
+cache-surface identity and fail-closed parser contract, and no external service
+becomes runtime authority.
 Every manifest row must resolve in every configured language; a skipped row is
 an incomplete projection, not a successful partial menu. Normal Translation Job
 publication enters this same pending-manifest Interface and cannot activate one

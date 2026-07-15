@@ -80,10 +80,14 @@ namespace {
 	}
 
 	$GLOBALS['devenia_workflow_test_batch_adapter'] = null;
+	$GLOBALS['devenia_workflow_test_origin_limit'] = null;
 
 	function apply_filters( $hook, $value, ...$args ) { // phpcs:ignore Universal.NamingConventions.NoReservedKeywordParameterNames.valueFound -- Minimal WordPress test stub.
 		if ( 'devenia_workflow_frontend_cache_batch_adapter_result' === $hook && is_callable( $GLOBALS['devenia_workflow_test_batch_adapter'] ?? null ) ) {
 			return ( $GLOBALS['devenia_workflow_test_batch_adapter'] )( $value, ...$args );
+		}
+		if ( 'devenia_workflow_public_header_origin_concurrency_limit' === $hook && null !== ( $GLOBALS['devenia_workflow_test_origin_limit'] ?? null ) ) {
+			return $GLOBALS['devenia_workflow_test_origin_limit'];
 		}
 		return $value;
 	}
@@ -133,6 +137,8 @@ namespace {
 
 	final class Devenia_Workflow_Frontend_Cache_Batch_Harness {
 		use \Devenia_Workflow_Localized_Presentation_Publication;
+		private const PUBLIC_HEADER_ORIGIN_CONCURRENCY_LIMIT = 8;
+		private const PUBLIC_HEADER_BATCH_BUDGET_SECONDS = 75;
 
 		public static function fetch( array $requests, int $timeout ): array {
 			return self::fetch_frontend_cache_surfaces( $requests, $timeout );
@@ -152,12 +158,29 @@ namespace {
 	}
 	$responses = Devenia_Workflow_Frontend_Cache_Batch_Harness::fetch( $requests, 9 );
 	$batch_sizes = array_map( static fn( array $call ): int => count( $call['requests'] ), \WpOrg\Requests\Requests::$calls );
-	if ( array( 60 ) !== $batch_sizes ) {
-		fwrite( STDERR, 'Expected one complete concurrent batch: ' . json_encode( $batch_sizes ) . PHP_EOL );
+	if ( array( 30, 8, 8, 8, 6 ) !== $batch_sizes ) {
+		fwrite( STDERR, 'Expected one complete bounded dispatch plan: ' . json_encode( $batch_sizes ) . PHP_EOL );
 		exit( 1 );
 	}
-	$origin_request = \WpOrg\Requests\Requests::$calls[0]['requests']['request_0'] ?? array();
-	$canonical_request = \WpOrg\Requests\Requests::$calls[0]['requests']['request_1'] ?? array();
+	foreach ( \WpOrg\Requests\Requests::$calls as $call_index => $call ) {
+		foreach ( array_keys( $call['requests'] ) as $key ) {
+			$numeric_key = (int) substr( $key, strlen( 'request_' ) );
+			if ( ( 0 === $call_index && 0 === $numeric_key % 2 ) || ( $call_index > 0 && 1 === $numeric_key % 2 ) || ( $call_index > 0 && count( $call['requests'] ) > 8 ) ) {
+				fwrite( STDERR, "Canonical and origin transport classes were not partitioned under the absolute origin cap.\n" );
+				exit( 1 );
+			}
+		}
+	}
+	$dispatched = array();
+	foreach ( \WpOrg\Requests\Requests::$calls as $call ) {
+		$dispatched += $call['requests'];
+	}
+	if ( count( $dispatched ) !== count( $requests ) || ! empty( array_diff_key( $dispatched, $requests ) ) || ! empty( array_diff_key( $requests, $dispatched ) ) ) {
+		fwrite( STDERR, "The bounded dispatch plan did not consume every requested key exactly once.\n" );
+		exit( 1 );
+	}
+	$origin_request = $dispatched['request_0'] ?? array();
+	$canonical_request = $dispatched['request_1'] ?? array();
 	if ( ! str_contains( (string) ( $origin_request['url'] ?? '' ), 'devenia_frontend_integrity=fixture-1' ) || 'no-cache, no-store, max-age=0' !== (string) ( $origin_request['headers']['Cache-Control'] ?? '' ) ) {
 		fwrite( STDERR, "Origin cache-bypass request was not preserved.\n" );
 		exit( 1 );
@@ -177,6 +200,52 @@ namespace {
 	foreach ( \WpOrg\Requests\Requests::$calls as $call ) {
 		if ( 9 !== ( $call['options']['timeout'] ?? null ) || 9 !== ( $call['options']['connect_timeout'] ?? null ) || 3 !== ( $call['options']['redirects'] ?? null ) || ABSPATH . WPINC . '/certificates/ca-bundle.crt' !== ( $call['options']['verify'] ?? null ) || \WpOrg\Requests\Transport\Curl::class !== ltrim( (string) ( $call['options']['transport'] ?? '' ), '\\' ) ) {
 			fwrite( STDERR, "Batch transport options changed.\n" );
+			exit( 1 );
+		}
+	}
+	$budget_calls_before = count( \WpOrg\Requests\Requests::$calls );
+	Devenia_Workflow_Frontend_Cache_Batch_Harness::fetch( $requests, 30 );
+	$budget_calls = array_slice( \WpOrg\Requests\Requests::$calls, $budget_calls_before );
+	if ( array( 30, 8, 8, 8, 6 ) !== array_map( static fn( array $call ): int => count( $call['requests'] ), $budget_calls ) ) {
+		fwrite( STDERR, "The cumulative-timeout fixture changed the bounded dispatch plan.\n" );
+		exit( 1 );
+	}
+	foreach ( $budget_calls as $call ) {
+		if ( 15 !== ( $call['options']['timeout'] ?? null ) || 15 !== ( $call['options']['connect_timeout'] ?? null ) ) {
+			fwrite( STDERR, "The complete request plan exceeded its cumulative timeout budget.\n" );
+			exit( 1 );
+		}
+	}
+	$GLOBALS['devenia_workflow_test_origin_limit'] = 100;
+	$raised_calls_before = count( \WpOrg\Requests\Requests::$calls );
+	Devenia_Workflow_Frontend_Cache_Batch_Harness::fetch( $requests, 9 );
+	$raised_sizes = array_map( static fn( array $call ): int => count( $call['requests'] ), array_slice( \WpOrg\Requests\Requests::$calls, $raised_calls_before ) );
+	if ( array( 30, 8, 8, 8, 6 ) !== $raised_sizes ) {
+		fwrite( STDERR, "The origin-concurrency seam raised the absolute safety limit.\n" );
+		exit( 1 );
+	}
+	$GLOBALS['devenia_workflow_test_origin_limit'] = 4;
+	$lowered_calls_before = count( \WpOrg\Requests\Requests::$calls );
+	Devenia_Workflow_Frontend_Cache_Batch_Harness::fetch( $requests, 9 );
+	$lowered_sizes = array_map( static fn( array $call ): int => count( $call['requests'] ), array_slice( \WpOrg\Requests\Requests::$calls, $lowered_calls_before ) );
+	if ( array( 30, 4, 4, 4, 4, 4, 4, 4, 2 ) !== $lowered_sizes ) {
+		fwrite( STDERR, "The origin-concurrency seam could not lower the safety limit.\n" );
+		exit( 1 );
+	}
+	$GLOBALS['devenia_workflow_test_origin_limit'] = null;
+	$oversized_requests = array();
+	for ( $index = 0; $index < 201; $index++ ) {
+		$oversized_requests[ 'oversized_' . $index ] = array( 'url' => 'https://example.test/origin-' . $index . '/', 'surface' => 'origin' );
+	}
+	$calls_before_oversized = count( \WpOrg\Requests\Requests::$calls );
+	$oversized = Devenia_Workflow_Frontend_Cache_Batch_Harness::fetch( $oversized_requests, 30 );
+	if ( $calls_before_oversized !== count( \WpOrg\Requests\Requests::$calls ) ) {
+		fwrite( STDERR, "A request plan outside the cumulative budget reached the transport.\n" );
+		exit( 1 );
+	}
+	foreach ( $oversized as $response ) {
+		if ( false !== ( $response['success'] ?? null ) || 'public_header_batch_budget_exceeded' !== ( $response['code'] ?? null ) ) {
+			fwrite( STDERR, "An oversized complete request plan did not fail every coordinate closed.\n" );
 			exit( 1 );
 		}
 	}

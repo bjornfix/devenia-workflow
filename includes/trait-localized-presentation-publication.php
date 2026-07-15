@@ -1335,7 +1335,16 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				foreach ( array( 'origin', 'canonical' ) as $cache_surface ) {
 					$response = (array) ( $response_set[ $language ][ $surface ][ $cache_surface ] ?? array() );
 					$navigation = ! empty( $response['success'] ) && 200 === (int) ( $response['status_code'] ?? 0 ) ? self::primary_navigation_from_html( (string) ( $response['body'] ?? '' ) ) : array();
-					if ( empty( $navigation ) ) { return array( 'success' => false, 'code' => 'public_header_pre_enrollment_oracle_missing', 'language' => $language, 'surface' => $surface, 'cache_surface' => $cache_surface ); }
+					if ( empty( $navigation ) ) {
+						return array(
+							'success' => false,
+							'code' => 'public_header_pre_enrollment_oracle_missing',
+							'language' => $language,
+							'surface' => $surface,
+							'cache_surface' => $cache_surface,
+							'response_evidence' => array_merge( array_diff_key( $response, array( 'body' => true ) ), array( 'body_length' => strlen( (string) ( $response['body'] ?? '' ) ) ) ),
+						);
+					}
 					$observed[] = $navigation; $evidence[ $language ][ $surface ][ $cache_surface ] = array_diff_key( $response, array( 'body' => true ) );
 				}
 			}
@@ -2414,7 +2423,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	}
 
 	/**
-	 * Fetch the complete all-language Public Header oracle in one bounded batch.
+	 * Fetch the complete all-language Public Header oracle through one bounded plan.
 	 *
 	 * @param string[] $languages Configured language codes.
 	 * @return array<string,array<string,array<string,array<string,mixed>>>>
@@ -2446,7 +2455,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	}
 
 	/**
-	 * Fetch explicit cache surfaces concurrently in one WordPress Requests batch.
+	 * Fetch explicit cache surfaces through a bounded WordPress Requests plan.
 	 *
 	 * The returned shape is identical to fetch_frontend_cache_surface(), so every
 	 * existing fail-closed parser and verifier consumes the same evidence.
@@ -2495,9 +2504,31 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				'headers' => $canonical ? array() : array( 'Cache-Control' => 'no-cache, no-store, max-age=0' ),
 			);
 		}
+		$canonical_dispatch = array();
+		$origin_dispatch = array();
+		foreach ( $native as $key => $request ) {
+			if ( 'canonical' === $normalized[ $key ]['surface'] ) {
+				$canonical_dispatch[ $key ] = $request;
+			} else {
+				$origin_dispatch[ $key ] = $request;
+			}
+		}
+		$origin_limit = absint( apply_filters( 'devenia_workflow_public_header_origin_concurrency_limit', self::PUBLIC_HEADER_ORIGIN_CONCURRENCY_LIMIT, count( $origin_dispatch ) ) );
+		$origin_limit = max( 1, min( self::PUBLIC_HEADER_ORIGIN_CONCURRENCY_LIMIT, $origin_limit ) );
+		$dispatches = empty( $canonical_dispatch ) ? array() : array( $canonical_dispatch );
+		foreach ( array_chunk( $origin_dispatch, $origin_limit, true ) as $origin_chunk ) {
+			$dispatches[] = $origin_chunk;
+		}
+		$minimum_timeout = 3;
+		if ( count( $dispatches ) * $minimum_timeout > self::PUBLIC_HEADER_BATCH_BUDGET_SECONDS ) {
+			return $fail_all( $normalized, $native, 'public_header_batch_budget_exceeded', 'The complete frontend cache request plan exceeds its bounded runtime budget.' );
+		}
+		$requested_timeout = max( $minimum_timeout, min( 30, $timeout ) );
+		$remaining_budget = self::PUBLIC_HEADER_BATCH_BUDGET_SECONDS;
+		$deadline = microtime( true ) + self::PUBLIC_HEADER_BATCH_BUDGET_SECONDS;
 		$options = array(
-			'timeout' => max( 3, min( 30, $timeout ) ),
-			'connect_timeout' => max( 3, min( 30, $timeout ) ),
+			'timeout' => $requested_timeout,
+			'connect_timeout' => $requested_timeout,
 			'redirects' => 3,
 			'useragent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . home_url( '/' ),
 			'verify' => ABSPATH . WPINC . '/certificates/ca-bundle.crt',
@@ -2509,7 +2540,23 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				if ( ! class_exists( $requests_class ) || ! class_exists( $response_class ) || ! class_exists( 'WP_HTTP_Requests_Response' ) || ! class_exists( $curl_class ) || ( ! class_exists( $capability_class ) && ! interface_exists( $capability_class ) ) || ! $curl_class::test( array( $capability_class::SSL => true ) ) ) {
 					return $fail_all( $normalized, $native, 'public_header_batch_transport_unavailable', 'Concurrent WordPress cURL transport is unavailable.' );
 				}
-				$batch = $requests_class::request_multiple( $native, $options );
+				$batch = array();
+				$dispatch_count = count( $dispatches );
+				foreach ( $dispatches as $dispatch_index => $dispatch ) {
+					$remaining_dispatches = $dispatch_count - $dispatch_index;
+					$wall_remaining = (int) floor( $deadline - microtime( true ) );
+					$dispatch_timeout = min( $requested_timeout, intdiv( $remaining_budget, $remaining_dispatches ), $wall_remaining );
+					if ( $dispatch_timeout < $minimum_timeout ) {
+						return $fail_all( $normalized, $native, 'public_header_batch_budget_exhausted', 'The complete frontend cache request plan exhausted its bounded runtime budget.' );
+					}
+					$remaining_budget -= $dispatch_timeout;
+					$dispatch_options = array_merge( $options, array( 'timeout' => $dispatch_timeout, 'connect_timeout' => $dispatch_timeout ) );
+					$partial = $requests_class::request_multiple( $dispatch, $dispatch_options );
+					if ( ! is_array( $partial ) || ! empty( array_diff_key( $partial, $dispatch ) ) || ! empty( array_diff_key( $dispatch, $partial ) ) || ! empty( array_intersect_key( $batch, $partial ) ) ) {
+						return $fail_all( $normalized, $native, 'public_header_batch_result_key_mismatch', 'Concurrent frontend cache results did not match the exact requested key set.' );
+					}
+					$batch += $partial;
+				}
 			}
 		} catch ( Throwable $error ) {
 			return $fail_all( $normalized, $native, 'public_header_batch_request_failed', $error->getMessage() );

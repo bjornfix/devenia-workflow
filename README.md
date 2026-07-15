@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.617
+**Stable tag:** 0.1.618
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.618
+
+- Bound cache-bypass verification concurrency separately from cached requests, preventing complete Public Header checks from exhausting the WordPress origin while retaining an exact all-language result set and cumulative runtime budget.
 
 ### 0.1.617
 
