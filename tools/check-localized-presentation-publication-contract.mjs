@@ -205,6 +205,21 @@ const activationInputStart = publicHeaderRuntime.indexOf("$activation_input = st
 const activationInputEnd = publicHeaderRuntime.indexOf("$option_keys =", activationInputStart);
 assert.ok(activationInputStart > 0 && activationInputEnd > activationInputStart, "the runtime activation-input helper must remain bounded");
 const activationInput = publicHeaderRuntime.slice(activationInputStart, activationInputEnd);
+const productionHeaderStateContractPasses = (source) => {
+	const start = source.indexOf("$production_header_state = static function");
+	const end = source.indexOf("$before =", start);
+	if (start < 0 || end <= start) return false;
+	const helper = source.slice(start, end);
+	return /\$missing = '__devenia_workflow_option_missing__';/.test(helper)
+		&& /'manifest'\s*=> get_option\( 'devenia_workflow_public_header_manifest', \$missing \)/.test(helper)
+		&& /'pending'\s*=> get_option\( 'devenia_workflow_pending_public_header_manifest', \$missing \)/.test(helper)
+		&& /'identities'\s*=> get_option\( 'devenia_workflow_localized_menu_identities', \$missing \)/.test(helper)
+		&& /'enrollment'\s*=> get_option\( 'devenia_workflow_public_header_enrollment', \$missing \)/.test(helper)
+		&& !/__workflow_missing__/.test(helper);
+};
+assert.equal(productionHeaderStateContractPasses(publicHeaderRuntime), true, "the bounded reconciliation-state reader must use the production missing-option sentinel for every Public Header slot");
+assert.equal(productionHeaderStateContractPasses(publicHeaderRuntime.replace("$missing = '__devenia_workflow_option_missing__';", "$missing = '__workflow_missing__';")), false, "the state-reader gate must reject a harness sentinel substituted for production authority");
+assert.equal(productionHeaderStateContractPasses(publicHeaderRuntime.replace("get_option( 'devenia_workflow_pending_public_header_manifest', $missing )", "get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' )")), false, "the state-reader gate must reject a pending-only sentinel substitution");
 
 const syncStart = plugin.indexOf("private static function sync_language_menu");
 const syncEnd = plugin.indexOf("private static function existing_menu_label_map", syncStart);
@@ -541,6 +556,7 @@ assert.match(publicHeaderRuntime, /array\( 'empty' => array\(\), 'malformed' => 
 assert.match(publicHeaderRuntime, /independent_pending_stage[\s\S]*publication_ownership_state_before[\s\S]*publication_ownership_raw_menus_before[\s\S]*publication_ownership_inventory_before[\s\S]*publication_ownership_relations_before[\s\S]*refresh_public_header_projection_for_publication'[\s\S]*public_header_pending_manifest_ownership_conflict[\s\S]*publication_ownership_state_before !== \$publication_ownership_state_after[\s\S]*publication_ownership_raw_menus_before !== \$raw_fixture_menu_surface\(\)[\s\S]*publication_ownership_inventory_before !== \$raw_nav_menu_inventory\(\)[\s\S]*publication_ownership_relations_before !== \$raw_relation_post_surface/, "ordinary publication must reject a valid independently staged pending owner before creating projections and preserve options, raw menus, global inventory, and canonical relation rows exactly");
 assert.match(publicHeaderRuntime, /cancel_independent_pending[\s\S]*publication_self_stage = \$call\( 'refresh_public_header_projection_for_publication'[\s\S]*manifest_staging'\]\['activation_receipt'[\s\S]*get_option\( 'devenia_workflow_pending_public_header_manifest', false \)/, "after explicit owner cancellation, ordinary publication must self-stage, carry its own receipt, activate, and release the pending slot");
 assert.match(publicHeaderRuntime, /public_header_enrollment_commit_receipt_invalid[\s\S]*missing_committed[\s\S]*public_header_state_commit_receipt_invalid[\s\S]*missing_committed[\s\S]*publication_transaction_commit_receipt_invalid[\s\S]*missing_committed/, "the real WordPress runtime must reject a committed transaction whose Adapter receipt omits committed at all three Public Header publication seams");
+assert.match(publicHeaderRuntime, /\$activation_receipt_state_after = \$production_header_state\(\)[\s\S]*\$activation_receipt_state_after\['pending'\][\s\S]*\$activation_transaction\['current_state'\]\['pending'\][\s\S]*translation_job_canonicalize', \$activation_receipt_state_after[\s\S]*\$unterminated_state_before = \$production_header_state\(\)[\s\S]*\$unterminated_state_after = \$production_header_state\(\)/, "receipt-domain and nonterminal runtime comparisons must consume the bounded production-sentinel state reader and prove successful activation released pending");
 assert.match(publicHeaderRuntime, /'non_array' === \$activation_commit_mode[\s\S]*return false;[\s\S]*'unterminated_success' === \$activation_commit_mode[\s\S]*'success' => true, 'committed' => true/, "the runtime must inject both a present non-array receipt and a structurally valid receipt that leaves the owned transaction open");
 assert.match(publicHeaderRuntime, /missing_committed[\s\S]*transaction_not_terminal[\s\S]*recovery_commit_adapter_receipt_not_array[\s\S]*adapter_receipt_type[\s\S]*transaction_rolled_back/, "non-terminal Adapter receipts must be normalized, rejected, and terminalized by owned rollback before any forward Public Header work");
 

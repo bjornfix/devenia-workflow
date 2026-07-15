@@ -7,6 +7,15 @@ $activation_input = static function ( array $input, string $activation_receipt )
 	return array_merge( array( 'timeout' => 5, 'activation_receipt' => $activation_receipt ), $input );
 };
 $option_keys = array( 'devenia_workflow_language_registry', 'devenia_workflow_localized_menu_identities', 'devenia_workflow_public_header_manifest', 'devenia_workflow_pending_public_header_manifest', 'devenia_workflow_public_header_enrollment', 'show_on_front', 'page_on_front', 'page_for_posts' );
+$production_header_state = static function (): array {
+	$missing = '__devenia_workflow_option_missing__';
+	return array(
+		'manifest'   => get_option( 'devenia_workflow_public_header_manifest', $missing ),
+		'pending'    => get_option( 'devenia_workflow_pending_public_header_manifest', $missing ),
+		'identities' => get_option( 'devenia_workflow_localized_menu_identities', $missing ),
+		'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', $missing ),
+	);
+};
 $before = array(); foreach ( $option_keys as $key ) { $before[ $key ] = get_option( $key, '__workflow_missing__' ); }
 $locations_before = get_theme_mod( 'nav_menu_locations', array() );
 $user_before = get_current_user_id();
@@ -875,6 +884,7 @@ try {
 		$activation_commit_mode = '';
 		$activation_sync = (array) ( $activation_commit_attempt['activation'] ?? array() ); $activation_transaction = (array) ( $activation_sync['activation'] ?? array() ); $activation_projections = (array) ( $activation_sync['projections'] ?? array() );
 		$activation_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$activation_receipt_state_after = $production_header_state();
 		if ( 'rollback_confirmed' === $activation_mode ) {
 			if ( ! $activation_commit_injected || 'unapplied' !== (string) ( $activation_transaction['state_outcome'] ?? '' ) || empty( $activation_commit_attempt['intake_state_restore']['success'] ) || $unenrolled_before !== $activation_after || $managed_before_activation_commit !== $managed_fixture_menu_ids() ) { throw new RuntimeException( 'Proven-unapplied activation COMMIT did not clean only unapplied projections: ' . wp_json_encode( $activation_commit_attempt ) ); }
 			continue;
@@ -903,7 +913,9 @@ try {
 				|| 'transaction_not_owned' !== (string) ( $invalid_activation_terminalization['code'] ?? '' )
 				|| empty( $activation_transaction['replacement_state_exact'] )
 				|| 'replacement' !== (string) ( $activation_transaction['state_class'] ?? '' )
-				|| $call( 'translation_job_canonicalize', $activation_after ) !== $call( 'translation_job_canonicalize', (array) ( $activation_transaction['current_state'] ?? array() ) )
+				|| '__devenia_workflow_option_missing__' !== ( $activation_receipt_state_after['pending'] ?? null )
+				|| '__devenia_workflow_option_missing__' !== ( $activation_transaction['current_state']['pending'] ?? null )
+				|| $call( 'translation_job_canonicalize', $activation_receipt_state_after ) !== $call( 'translation_job_canonicalize', (array) ( $activation_transaction['current_state'] ?? array() ) )
 				|| 'staged_projection_cleanup_not_authorized' !== (string) ( $activation_sync['cleanup']['code'] ?? '' )
 				|| array_key_exists( 'cache_invalidation', $activation_sync )
 				|| array_key_exists( 'verification', $activation_sync )
@@ -1260,7 +1272,7 @@ try {
 	$locked_restored_pending = get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' );
 	if ( '' === $stage_b_activation_receipt || ! is_array( $locked_restored_pending ) || $locked_restored_pending !== $call( 'normalize_public_header_manifest', $locked_restored_pending ) ) { throw new RuntimeException( 'Operator restaging did not replace the locked-boundary reordered raw pending value exactly.' ); }
 	foreach ( array( 'non_array', 'unterminated_success' ) as $unterminated_mode ) {
-		$unterminated_state_before = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$unterminated_state_before = $production_header_state();
 		$managed_before_unterminated_receipt = $managed_fixture_menu_ids();
 		$activation_commit_mode = $unterminated_mode;
 		$activation_commit_injected = false;
@@ -1269,7 +1281,7 @@ try {
 		$unterminated_activation = (array) ( $unterminated_attempt['activation'] ?? array() );
 		$unterminated_validation = (array) ( $unterminated_activation['receipt_validation'] ?? array() );
 		$unterminated_terminalization = (array) ( $unterminated_validation['terminalization'] ?? array() );
-		$unterminated_state_after = array( 'manifest' => get_option( 'devenia_workflow_public_header_manifest', '__workflow_missing__' ), 'pending' => get_option( 'devenia_workflow_pending_public_header_manifest', '__workflow_missing__' ), 'identities' => get_option( 'devenia_workflow_localized_menu_identities', '__workflow_missing__' ), 'enrollment' => get_option( 'devenia_workflow_public_header_enrollment', '__workflow_missing__' ) );
+		$unterminated_state_after = $production_header_state();
 		$unterminated_projection_ids = array();
 		foreach ( (array) ( $unterminated_attempt['projections'] ?? array() ) as $projection ) { $menu_id = absint( $projection['target_menu']['id'] ?? 0 ); if ( $menu_id > 0 ) { $unterminated_projection_ids[] = $menu_id; } }
 		$unterminated_projection_ids = array_values( array_unique( $unterminated_projection_ids ) );
