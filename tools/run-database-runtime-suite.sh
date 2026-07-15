@@ -32,6 +32,13 @@ if [[ "$parser_result" != 'Primary navigation parser contract passed.' ]]; then
 	exit 1
 fi
 
+batch_result="$("$php_bin" "$plugin_root/tools/check-frontend-cache-batch.php")"
+printf '%s\n' "$batch_result"
+if [[ "$batch_result" != 'Frontend cache batch contract passed.' ]]; then
+	printf '%s\n' 'Frontend cache batch did not return the exact success proof.' >&2
+	exit 1
+fi
+
 if "$wp_cli_bin" option get devenia_workflow_version --path="$wp_path" --skip-plugins --skip-themes >/dev/null 2>&1; then
 	"$wp_cli_bin" option delete devenia_workflow_version --path="$wp_path" --skip-plugins --skip-themes >/dev/null
 fi

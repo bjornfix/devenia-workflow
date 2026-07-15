@@ -66,6 +66,10 @@ Frontend verification observes only anchors inside the owned primary menu list.
 Theme branding, search controls, secondary menus, and the presentation-injected
 language selector are separate reader surfaces and cannot enter the Public Header
 comparison oracle, including when tolerant HTML parsing reparents injected links.
+Complete all-language origin/canonical evidence is fetched through one bounded
+concurrent batch from WordPress core's bundled Requests transport. Batching
+changes latency only: each response keeps the same cache-surface identity and
+fail-closed parser contract, and no external service becomes runtime authority.
 Every manifest row must resolve in every configured language; a skipped row is
 an incomplete projection, not a successful partial menu. Normal Translation Job
 publication enters this same pending-manifest Interface and cannot activate one

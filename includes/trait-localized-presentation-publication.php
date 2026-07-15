@@ -216,9 +216,10 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	private static function verify_public_header_projection_set( array $languages, int $timeout, array $expected_navigation = array() ): array {
 		$items = array();
 		$passed = true;
+		$response_set = self::public_header_frontend_cache_response_set( $languages, $timeout );
 		foreach ( $languages as $language ) {
 			foreach ( array( 'homepage' => self::localized_home_url_for_language( (string) $language ), 'blog_archive' => self::public_blog_archive_url_for_language( (string) $language ) ) as $surface => $url ) {
-				$item = self::frontend_public_surface_integrity_for_url( (string) $url, (string) $language, $timeout, $surface, array(), (array) ( $expected_navigation[ (string) $language ] ?? array() ) );
+				$item = self::frontend_public_surface_integrity_for_url( (string) $url, (string) $language, $timeout, $surface, array(), (array) ( $expected_navigation[ (string) $language ] ?? array() ), (array) ( $response_set[ (string) $language ][ $surface ] ?? array() ) );
 				$items[ (string) $language ][ $surface ] = $item;
 				$passed = $passed && ! empty( $item['passed'] ) && isset( $item['cache_responses']['origin'], $item['cache_responses']['canonical'] );
 			}
@@ -229,12 +230,13 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	/** Verify only the receipt-bound raw menu which existed before enrollment. */
 	private static function verify_pre_enrollment_public_header_navigation( array $languages, int $timeout, array $expected_navigation ): array {
 		$items = array(); $passed = true;
+		$response_set = self::public_header_frontend_cache_response_set( $languages, $timeout );
 		foreach ( $languages as $language ) {
 			$expected = array_values( (array) ( $expected_navigation[ (string) $language ] ?? array() ) );
 			foreach ( array( 'homepage' => self::localized_home_url_for_language( (string) $language ), 'blog_archive' => self::public_blog_archive_url_for_language( (string) $language ) ) as $surface => $url ) {
 				$surface_passed = ! empty( $expected ); $responses = array();
 				foreach ( array( 'origin', 'canonical' ) as $cache_surface ) {
-					$response = self::fetch_frontend_cache_surface( (string) $url, $timeout, $cache_surface );
+					$response = (array) ( $response_set[ (string) $language ][ $surface ][ $cache_surface ] ?? array() );
 					$actual = ! empty( $response['success'] ) && 200 === (int) ( $response['status_code'] ?? 0 ) ? self::primary_navigation_from_html( (string) ( $response['body'] ?? '' ), (string) $language ) : array();
 					$match = ! empty( $expected ) && $actual === $expected;
 					$surface_passed = $surface_passed && $match;
@@ -1326,11 +1328,12 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	/** Capture the exact pre-enrollment public reader menu on origin and canonical surfaces. */
 	private static function pre_enrollment_public_header_recovery_snapshot( array $languages, int $timeout, int $source_menu_id, string $source_receipt, array $authority ): array {
 		$expected = array(); $evidence = array();
+		$response_set = self::public_header_frontend_cache_response_set( $languages, $timeout );
 		foreach ( $languages as $language ) {
 			$observed = array();
 			foreach ( array( 'homepage' => self::localized_home_url_for_language( $language ), 'blog_archive' => self::public_blog_archive_url_for_language( $language ) ) as $surface => $url ) {
 				foreach ( array( 'origin', 'canonical' ) as $cache_surface ) {
-					$response = self::fetch_frontend_cache_surface( $url, $timeout, $cache_surface );
+					$response = (array) ( $response_set[ $language ][ $surface ][ $cache_surface ] ?? array() );
 					$navigation = ! empty( $response['success'] ) && 200 === (int) ( $response['status_code'] ?? 0 ) ? self::primary_navigation_from_html( (string) ( $response['body'] ?? '' ) ) : array();
 					if ( empty( $navigation ) ) { return array( 'success' => false, 'code' => 'public_header_pre_enrollment_oracle_missing', 'language' => $language, 'surface' => $surface, 'cache_surface' => $cache_surface ); }
 					$observed[] = $navigation; $evidence[ $language ][ $surface ][ $cache_surface ] = array_diff_key( $response, array( 'body' => true ) );
@@ -2235,7 +2238,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function frontend_public_surface_integrity_for_url( string $url, string $language, int $timeout = 15, string $surface = 'public', array $expected_media = array(), array $expected_navigation = array() ): array {
+	private static function frontend_public_surface_integrity_for_url( string $url, string $language, int $timeout = 15, string $surface = 'public', array $expected_media = array(), array $expected_navigation = array(), ?array $provided_responses = null ): array {
 		$url       = esc_url_raw( $url );
 		$language  = sanitize_key( $language );
 		$issues    = array();
@@ -2246,7 +2249,9 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			$issues[] = self::qa_item( 'frontend_url_missing', 'Frontend URL is missing.', array( 'language' => $language, 'surface' => $surface ) );
 		} else {
 			foreach ( array( 'origin', 'canonical' ) as $cache_surface ) {
-				$response = self::fetch_frontend_cache_surface( $url, $timeout, $cache_surface );
+				$response = null !== $provided_responses
+					? (array) ( $provided_responses[ $cache_surface ] ?? array() )
+					: self::fetch_frontend_cache_surface( $url, $timeout, $cache_surface );
 				$body     = (string) ( $response['body'] ?? '' );
 				$final_url = (string) ( $response['final_url'] ?? $url );
 				$responses[ $cache_surface ] = array_diff_key( $response, array( 'body' => true ) );
@@ -2406,6 +2411,144 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			$issues = array_merge( $issues, self::frontend_featured_image_html_issues( (string) ( $response['body'] ?? '' ), $expected_media, $url, $cache_surface ) );
 		}
 		return array( 'success' => empty( $issues ), 'issues' => $issues, 'responses' => $responses );
+	}
+
+	/**
+	 * Fetch the complete all-language Public Header oracle in one bounded batch.
+	 *
+	 * @param string[] $languages Configured language codes.
+	 * @return array<string,array<string,array<string,array<string,mixed>>>>
+	 */
+	private static function public_header_frontend_cache_response_set( array $languages, int $timeout ): array {
+		$requests = array();
+		$keys = array();
+		$index = 0;
+		foreach ( $languages as $language ) {
+			$language = sanitize_key( (string) $language );
+			foreach ( array( 'homepage' => self::localized_home_url_for_language( $language ), 'blog_archive' => self::public_blog_archive_url_for_language( $language ) ) as $surface => $url ) {
+				foreach ( array( 'origin', 'canonical' ) as $cache_surface ) {
+					$key = 'public_header_' . $index++;
+					$requests[ $key ] = array( 'url' => (string) $url, 'surface' => $cache_surface );
+					$keys[ $language ][ $surface ][ $cache_surface ] = $key;
+				}
+			}
+		}
+		$fetched = self::fetch_frontend_cache_surfaces( $requests, $timeout );
+		$responses = array();
+		foreach ( $keys as $language => $surfaces ) {
+			foreach ( $surfaces as $surface => $cache_surfaces ) {
+				foreach ( $cache_surfaces as $cache_surface => $key ) {
+					$responses[ $language ][ $surface ][ $cache_surface ] = (array) ( $fetched[ $key ] ?? array() );
+				}
+			}
+		}
+		return $responses;
+	}
+
+	/**
+	 * Fetch explicit cache surfaces concurrently in one WordPress Requests batch.
+	 *
+	 * The returned shape is identical to fetch_frontend_cache_surface(), so every
+	 * existing fail-closed parser and verifier consumes the same evidence.
+	 *
+	 * @param array<string,array{url:string,surface:string}> $requests Requests keyed by caller identity.
+	 * @return array<string,array<string,mixed>>
+	 */
+	private static function fetch_frontend_cache_surfaces( array $requests, int $timeout ): array {
+		$normalized = array();
+		foreach ( $requests as $key => $request ) {
+			$url = esc_url_raw( (string) ( $request['url'] ?? '' ) );
+			$surface = 'canonical' === (string) ( $request['surface'] ?? '' ) ? 'canonical' : 'origin';
+			if ( '' !== $url ) { $normalized[ (string) $key ] = array( 'url' => $url, 'surface' => $surface ); }
+		}
+		if ( empty( $normalized ) ) { return array(); }
+
+		$requests_class = '\\WpOrg\\Requests\\Requests';
+		$response_class = '\\WpOrg\\Requests\\Response';
+		$curl_class = '\\WpOrg\\Requests\\Transport\\Curl';
+		$capability_class = '\\WpOrg\\Requests\\Capability';
+		$failure = static function ( array $request, string $fetch_url, string $code, string $message ): array {
+			return array(
+				'success' => false,
+				'code' => $code,
+				'surface' => $request['surface'],
+				'url' => $fetch_url,
+				'error' => $message,
+				'status_code' => 0,
+				'body' => '',
+				'cf_cache_status' => '',
+				'age' => '',
+			);
+		};
+		$fail_all = static function ( array $source, array $native, string $code, string $message ) use ( $failure ): array {
+			$failed = array();
+			foreach ( $source as $key => $request ) { $failed[ $key ] = $failure( $request, (string) ( $native[ $key ]['url'] ?? $request['url'] ), $code, $message ); }
+			return $failed;
+		};
+		$native = array();
+		foreach ( $normalized as $key => $request ) {
+			$canonical = 'canonical' === $request['surface'];
+			$fetch_url = $canonical ? $request['url'] : add_query_arg( 'devenia_frontend_integrity', wp_generate_uuid4(), $request['url'] );
+			$native[ $key ] = array(
+				'url' => $fetch_url,
+				'type' => 'GET',
+				'headers' => $canonical ? array() : array( 'Cache-Control' => 'no-cache, no-store, max-age=0' ),
+			);
+		}
+		$options = array(
+			'timeout' => max( 3, min( 30, $timeout ) ),
+			'connect_timeout' => max( 3, min( 30, $timeout ) ),
+			'redirects' => 3,
+			'useragent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . home_url( '/' ),
+			'verify' => ABSPATH . WPINC . '/certificates/ca-bundle.crt',
+			'transport' => $curl_class,
+		);
+		try {
+			$batch = apply_filters( 'devenia_workflow_frontend_cache_batch_adapter_result', null, $native, $options );
+			if ( null === $batch ) {
+				if ( ! class_exists( $requests_class ) || ! class_exists( $response_class ) || ! class_exists( 'WP_HTTP_Requests_Response' ) || ! class_exists( $curl_class ) || ( ! class_exists( $capability_class ) && ! interface_exists( $capability_class ) ) || ! $curl_class::test( array( $capability_class::SSL => true ) ) ) {
+					return $fail_all( $normalized, $native, 'public_header_batch_transport_unavailable', 'Concurrent WordPress cURL transport is unavailable.' );
+				}
+				$batch = $requests_class::request_multiple( $native, $options );
+			}
+		} catch ( Throwable $error ) {
+			return $fail_all( $normalized, $native, 'public_header_batch_request_failed', $error->getMessage() );
+		}
+		if ( ! is_array( $batch ) || count( $batch ) !== count( $native ) || ! empty( array_diff_key( $batch, $native ) ) || ! empty( array_diff_key( $native, $batch ) ) ) {
+			return $fail_all( $normalized, $native, 'public_header_batch_result_key_mismatch', 'Concurrent frontend cache results did not match the exact requested key set.' );
+		}
+		$responses = array();
+		foreach ( array_keys( $native ) as $key ) {
+			$request = $normalized[ $key ];
+			$fetch_url = (string) $native[ $key ]['url'];
+			$response = $batch[ $key ];
+			if ( is_object( $response ) && is_a( $response, $response_class ) ) {
+				$response = ( new WP_HTTP_Requests_Response( $response ) )->to_array();
+			}
+			if ( is_wp_error( $response ) ) {
+				$responses[ $key ] = $failure( $request, $fetch_url, 'public_header_batch_member_failed', $response->get_error_message() );
+				continue;
+			}
+			if ( $response instanceof Throwable || ! is_array( $response ) ) {
+				$responses[ $key ] = $failure( $request, $fetch_url, 'public_header_batch_member_failed', $response instanceof Throwable ? $response->getMessage() : 'Concurrent frontend cache request did not return a response.' );
+				continue;
+			}
+			$responses[ $key ] = array(
+				'success' => true,
+				'surface' => $request['surface'],
+				'url' => $fetch_url,
+				'final_url' => self::wp_remote_final_url( $response, $fetch_url ),
+				'status_code' => (int) wp_remote_retrieve_response_code( $response ),
+				'body' => (string) wp_remote_retrieve_body( $response ),
+				'cf_cache_status' => (string) wp_remote_retrieve_header( $response, 'cf-cache-status' ),
+				'age' => (string) wp_remote_retrieve_header( $response, 'age' ),
+			);
+		}
+		$ordered = array();
+		foreach ( array_keys( $normalized ) as $key ) {
+			$ordered[ $key ] = $responses[ $key ];
+		}
+		return $ordered;
 	}
 
 	/**

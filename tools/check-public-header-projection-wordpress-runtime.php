@@ -217,9 +217,18 @@ try {
 		}
 		$_SERVER['REQUEST_URI'] = $request_before;
 		$lang = (string) $call( 'html_lang_for_language', $language ); $href = (string) $call( 'hreflang_for_language', $language );
-		$body = '<!doctype html><html lang="' . esc_attr( $lang ) . '"><head><link rel="alternate" hreflang="' . esc_attr( $href ) . '" href="' . esc_url( $canonical ) . '"></head><body><nav id="site-navigation">' . $navigation . '</nav><main><p>Fixture</p></main></body></html>';
+		$body = '<!doctype html><html lang="' . esc_attr( $lang ) . '"><head><link rel="alternate" hreflang="' . esc_attr( $href ) . '" href="' . esc_url( $canonical ) . '"></head><body><nav id="site-navigation"><ul class="menu">' . $navigation . '</ul></nav><main><p>Fixture</p></main></body></html>';
 		return array( 'headers' => array( 'cf-cache-status' => false === strpos( $url, 'devenia_frontend_integrity=' ) ? 'HIT' : 'DYNAMIC', 'age' => '0' ), 'body' => $body, 'response' => array( 'code' => 200, 'message' => 'OK' ), 'cookies' => array(), 'filename' => null );
-	}; add_filter( 'pre_http_request', $http, 10, 3 ); $filters[] = array( 'pre_http_request', $http, 10 );
+	};
+	$batch_http = static function ( $default, array $requests ) use ( $http ): array {
+		$responses = array();
+		foreach ( $requests as $key => $request ) {
+			$response = $http( false, array(), (string) ( $request['url'] ?? '' ) );
+			$responses[ $key ] = false === $response ? new WP_Error( 'unknown_frontend_fixture_url', 'The Public Header fixture received an unknown frontend URL.' ) : $response;
+		}
+		return $responses;
+	};
+	add_filter( 'devenia_workflow_frontend_cache_batch_adapter_result', $batch_http, 10, 3 ); $filters[] = array( 'devenia_workflow_frontend_cache_batch_adapter_result', $batch_http, 10 );
 	$cache = static function ( $default, array $purge_urls, array $context ) use ( &$failure_mode ): array { $event = (string) ( $context['event'] ?? '' ); if ( 'public_header_projection' === $event && in_array( $failure_mode, array( 'invalidation_fail', 'rollback_cache_fail' ), true ) ) { return array( 'success' => false, 'code' => 'injected_invalidation_failure' ); } if ( 'public_header_projection_rollback' === $event && 'rollback_cache_fail' === $failure_mode ) { return array( 'success' => false, 'code' => 'injected_rollback_invalidation_failure' ); } return array( 'success' => true, 'purged_urls' => $purge_urls ); };
 	add_filter( 'devenia_workflow_frontend_cache_invalidation_result', $cache, 10, 3 ); $filters[] = array( 'devenia_workflow_frontend_cache_invalidation_result', $cache, 10 );
 	$receipt = static function ( $value, $target_menu ) use ( &$failure_mode, &$failure_injected, &$staged_race_menu_id ) {

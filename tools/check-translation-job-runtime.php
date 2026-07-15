@@ -41,6 +41,7 @@ $runtime_header_blog_source_id = 0;
 $runtime_header_blog_translation_ids_by_language = array();
 $runtime_page_link = null;
 $runtime_http_surface = null;
+$runtime_batch_http = null;
 $cache_invalidation_calls = array();
 $call = null;
 $publish_claim_probe_enabled = false;
@@ -1076,7 +1077,7 @@ try {
 		$thumbnail_srcset = (string) wp_get_attachment_image_srcset( $thumbnail_id, 'full' );
 		$media_head = '' !== $thumbnail_url ? '<meta property="og:image" content="' . esc_url( $thumbnail_url ) . '">' : '';
 		$media_body = '' !== $thumbnail_url ? '<img class="wp-post-image" src="' . esc_url( $thumbnail_url ) . '"' . ( '' !== $thumbnail_srcset ? ' srcset="' . esc_attr( $thumbnail_srcset ) . '"' : '' ) . '>' : '';
-		$body = '<!doctype html><html lang="' . esc_attr( $surface_language ) . '"><head><link rel="alternate" hreflang="' . esc_attr( $surface_hreflang ) . '" href="' . esc_url( $surface_url ) . '">' . $media_head . '</head><body><nav id="site-navigation">' . $navigation . '</nav><main><h1>' . esc_html( (string) get_the_title( $surface_id ) ) . '</h1>' . $media_body . '</main></body></html>';
+		$body = '<!doctype html><html lang="' . esc_attr( $surface_language ) . '"><head><link rel="alternate" hreflang="' . esc_attr( $surface_hreflang ) . '" href="' . esc_url( $surface_url ) . '">' . $media_head . '</head><body><nav id="site-navigation"><ul class="menu">' . $navigation . '</ul></nav><main><h1>' . esc_html( (string) get_the_title( $surface_id ) ) . '</h1>' . $media_body . '</main></body></html>';
 		return array(
 			'headers'  => array( 'cf-cache-status' => false === strpos( $url, 'devenia_frontend_integrity=' ) ? 'HIT' : 'DYNAMIC', 'age' => '0' ),
 			'body'     => $body,
@@ -1086,6 +1087,15 @@ try {
 		);
 	};
 	add_filter( 'pre_http_request', $runtime_http_surface, 10, 3 );
+	$runtime_batch_http = static function ( $default, array $requests ) use ( $runtime_http_surface ): array {
+		$responses = array();
+		foreach ( $requests as $key => $request ) {
+			$response = $runtime_http_surface( false, array(), (string) ( $request['url'] ?? '' ) );
+			$responses[ $key ] = false === $response ? new WP_Error( 'unknown_translation_job_header_fixture_url', 'The Translation Job header fixture received an unknown frontend URL.' ) : $response;
+		}
+		return $responses;
+	};
+	add_filter( 'devenia_workflow_frontend_cache_batch_adapter_result', $runtime_batch_http, 10, 3 );
 
 	// Establish the same complete managed reader surface production requires.
 	// One-language menu staging is not activation authority.
@@ -3482,6 +3492,9 @@ try {
 } catch ( Throwable $error ) {
 	$runtime_error = $error;
 } finally {
+	if ( $runtime_batch_http ) {
+		remove_filter( 'devenia_workflow_frontend_cache_batch_adapter_result', $runtime_batch_http, 10 );
+	}
 	if ( $runtime_http_surface ) {
 		remove_filter( 'pre_http_request', $runtime_http_surface, 10 );
 	}
