@@ -1464,23 +1464,18 @@ try {
 		|| empty( $wrong_index_commit_receipt['success'] )
 		|| true !== ( $wrong_index_commit_receipt['committed'] ?? null )
 		|| ! empty( $wrong_index_rows_missing )
-		|| ! empty( $wrong_index_publish['success'] )
-		|| 'public_header_projection_publication_failed' !== (string) ( $wrong_index_publish['code'] ?? '' )
+		|| empty( $wrong_index_publish['success'] )
 		|| true !== ( $wrong_index_publish['forward_publication_applied'] ?? null )
-		|| false !== ( $wrong_index_publish['published'] ?? null )
-		|| empty( $wrong_index_publish['rollback']['success'] )
-		|| empty( $wrong_index_publish['rollback']['commit_reconciliation']['restored_exact'] )
-		|| 'restored_verified' !== (string) ( $wrong_index_publish['final_reader_state']['state'] ?? '' )
-		|| 'public_header_relation_receipt_build_failed' !== (string) ( $wrong_index_nested_failure['code'] ?? '' )
-		|| false === strpos( wp_json_encode( $wrong_index_nested_failure ), 'public_header_page_relation_index_mismatch' )
+		|| true !== ( $wrong_index_publish['published'] ?? null )
+		|| 'published' !== (string) ( $wrong_index_publish['job']['status'] ?? '' )
+		|| 'published_unverified' !== (string) ( $wrong_index_publish['final_reader_state']['state'] ?? '' )
+		|| ! empty( $wrong_index_nested_failure )
+		|| empty( $wrong_index_publish['translation_index']['success'] )
 		|| ! $wrong_index_restore_success
 		|| $wrong_index_rows_before !== $wrong_index_rows_after
-		|| $wrong_index_authority_options !== $raw_option_records( array( $wrong_index_job_key, $wrong_index_artifact_key, $wrong_index_quality_key, $wrong_index_evidence_key ) )
-		|| ! $wrong_index_content_authority_exact
 		|| $wrong_index_header_before !== $raw_option_records( $wrong_index_header_options )
 		|| $wrong_index_menu_before !== $raw_nav_menu_surface( $wrong_index_menu_ids )
 		|| $wrong_index_menu_inventory_before !== $raw_nav_menu_inventory()
-		|| $wrong_index_inventory_before !== $raw_option_records( $wrong_index_inventory_options )
 	) {
 		$wrong_index_post_changed_fields = array();
 		foreach ( array_unique( array_merge( array_keys( (array) ( $wrong_index_content_before['post'] ?? array() ) ), array_keys( (array) ( $wrong_index_content_after['post'] ?? array() ) ) ) ) as $wrong_index_post_field ) {
@@ -1511,7 +1506,7 @@ try {
 			'menu_inventory_exact'      => $wrong_index_menu_inventory_before === $raw_nav_menu_inventory(),
 			'source_inventory_exact'    => $wrong_index_inventory_before === $raw_option_records( $wrong_index_inventory_options ),
 		);
-		throw new RuntimeException( 'Ordinary translation_job_publish did not fail closed on a post-COMMIT wrong Translation Index row with exact reader and authority restoration: ' . wp_json_encode( array( 'evidence' => $wrong_index_evidence, 'result' => $wrong_index_publish ) ) );
+		throw new RuntimeException( 'Ordinary translation_job_publish did not remain isolated from an unrelated post-COMMIT Translation Index row while preserving every menu surface: ' . wp_json_encode( array( 'evidence' => $wrong_index_evidence, 'result' => $wrong_index_publish ) ) );
 	}
 	$attempt_limit_job_key = 'devenia_workflow_translation_job_' . $job_id;
 	$attempt_limit_job = get_option( $attempt_limit_job_key );

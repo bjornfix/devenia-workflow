@@ -1015,6 +1015,26 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$menu = $publication['menu'] ?? null;
 		$live = $publication['live_verification'] ?? null;
+		$index_synced = self::sync_translation_index_row( $translation_id );
+		$index_receipt = $index_synced
+			? self::translation_index_publication_row_matches( (int) $job['source_id'], $language, $translation_id )
+			: array( 'success' => false, 'code' => 'translation_index_sync_failed' );
+		if ( empty( $index_receipt['success'] ) ) {
+			return self::translation_job_publish_failure_with_rollback(
+				array_merge(
+					$publication,
+					array(
+						'success' => false,
+						'code' => 'translation_index_publication_sync_failed',
+						'message' => 'Content was committed, but its Translation Index queue row could not be synchronized and verified.',
+						'job' => self::translation_job_public_job( $job ),
+						'translation_index' => $index_receipt,
+					)
+				),
+				$surface_snapshot,
+				$translation_id
+			);
+		}
 		$orphaned_runs_finalized = self::translation_job_finalize_orphaned_runs( $job );
 		$next = self::translation_job_transition( $job, array( 'status' => 'published', 'translation_id' => $translation_id, 'content_revision' => self::translation_job_translation_revision( $translation_id ), 'applied_surface_revision' => self::translation_job_current_surface_revision( $translation_id ), 'published_at' => gmdate( 'c' ), 'live_verification_passed' => false ) );
 		if ( ! empty( $next['success'] ) ) { delete_post_meta( $translation_id, '_devenia_workflow_publication_attempt_id' ); }
@@ -1038,6 +1058,7 @@ trait Devenia_Workflow_Translation_Job {
 			'menu' => $menu,
 			'purge_urls' => $publication['purge_urls'] ?? array(),
 			'cache_invalidation' => $publication['cache_invalidation'] ?? null,
+			'translation_index' => $index_receipt,
 			'live_verification' => $live,
 			'orphaned_runs_finalized' => $orphaned_runs_finalized,
 		);

@@ -12,6 +12,7 @@ const commitReceiptUrl = new URL("../includes/trait-recovery-commit-reconciliati
 const commitReceiptSource = existsSync(commitReceiptUrl) ? readFileSync(commitReceiptUrl, "utf8") : "";
 const taxonomySource = readFileSync(new URL("../includes/trait-taxonomy-localization.php", import.meta.url), "utf8");
 const atomicOptionSource = readFileSync(new URL("../includes/trait-atomic-option-store.php", import.meta.url), "utf8");
+const translationIndexSource = readFileSync(new URL("../includes/trait-translation-index-read-model.php", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../devenia-workflow.php", import.meta.url), "utf8");
 const runtimeSource = readFileSync(new URL("./check-translation-job-runtime.php", import.meta.url), "utf8");
 const source = `${jobSource}\n${authoritySource}`;
@@ -431,6 +432,9 @@ if (!publishSchema.includes("'sync_menu' => array( 'type' => 'boolean', 'default
 }
 if (!/'verify_live'\s*=>\s*false/.test(publishJob) || !/translation_job_verify_live[\s\S]*verify_live_translation[\s\S]*live_verification_passed'\s*=>\s*true/.test(source)) {
 	failures.push("live HTTP verification must run after publication through its own bounded Job Interface and record the passing receipt");
+}
+if (!/translation_index_publication_row_matches[\s\S]*translation_index_publication_row_mismatch/.test(translationIndexSource) || !/sync_translation_index_row[\s\S]*translation_index_publication_row_matches[\s\S]*translation_index_publication_sync_failed/.test(publishJob)) {
+	failures.push("content publication must directly synchronize and verify only its own Translation Index queue row without entering the Public Header Module");
 }
 if (!/localized_presentation_rollback/.test(rollbackFailure) || !/rollback_cache_invalidation_failed/.test(rollbackFailure)) {
 	failures.push("successful database rollback must purge the restored frontend surface and fail closed when that purge is unavailable");

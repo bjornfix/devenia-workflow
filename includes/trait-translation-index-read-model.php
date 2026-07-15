@@ -214,6 +214,34 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 		return false !== $result;
 	}
 
+	/** Verify the one queue identity row owned by a published translation. */
+	private static function translation_index_publication_row_matches( int $source_id, string $language, int $translation_id ): array {
+		if ( ! self::translation_index_available() ) {
+			return array( 'success' => false, 'code' => 'translation_index_unavailable' );
+		}
+		global $wpdb;
+		$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact post-publication read-model receipt.
+			$wpdb->prepare(
+				'SELECT source_post_id, translation_post_id, language, post_status FROM %i WHERE source_post_id = %d AND language = %s ORDER BY translation_post_id ASC',
+				self::translation_index_table(),
+				$source_id,
+				sanitize_key( $language )
+			),
+			ARRAY_A
+		);
+		if ( ! is_array( $rows ) ) {
+			return array( 'success' => false, 'code' => 'translation_index_read_failed' );
+		}
+		$passed = 1 === count( $rows )
+			&& $source_id === absint( $rows[0]['source_post_id'] ?? 0 )
+			&& $translation_id === absint( $rows[0]['translation_post_id'] ?? 0 )
+			&& sanitize_key( $language ) === sanitize_key( (string) ( $rows[0]['language'] ?? '' ) )
+			&& 'publish' === (string) ( $rows[0]['post_status'] ?? '' );
+		return $passed
+			? array( 'success' => true, 'row' => $rows[0] )
+			: array( 'success' => false, 'code' => 'translation_index_publication_row_mismatch', 'rows' => $rows );
+	}
+
 	/**
 	 * Delete one registry row.
 	 */
