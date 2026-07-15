@@ -83,8 +83,25 @@ An un-enrolled installation uses a separate capability-gated first-enrollment
 Interface. The operator supplies the verified source-menu identity; the Adapter
 derives stable page, custom-link, and parent identities and accepts target label
 authority only when at least two unmanaged retained menus agree completely for
-every configured language. Unrelated menus are not errors. Missing, ambiguous,
-conflicting, or snapshot-to-stage changed authority rejects before mutation.
+every configured language. A complete explicit authority set replaces broad
+retained-menu discovery for that language rather than being mixed into it.
+Within each menu, exact source menu-item identity and stored stable source-item
+identity are evaluated before page/URL fallback and must agree with the requested
+language relation, allowing intentional duplicate page references at different
+hierarchy positions without ambiguity. Legacy relation fallback is available
+only when stable identity metadata is wholly absent; invalid values, duplicate
+rows, foreign identities, or relation mismatches are authoritative failures.
+Unrelated menus are not errors. Missing, ambiguous, conflicting, or
+snapshot-to-stage changed authority rejects before mutation.
+The snapshot also binds the exact fresh page object or custom URL relation for
+each stable source-item identity. A canonical temporary pending receipt covers
+the manifest revision, relation revision, and every candidate menu surface
+revision. Staging consumes only those exact relations, revalidates the receipt
+before staging, after the complete set is staged, and again at the activation
+boundary, then removes the intake receipt from the active manifest. Explicit
+authority sets are all-or-nothing; a missing, managed, wrong-language, or
+otherwise invalid member rejects the whole operation even when two other
+candidates agree.
 The complete schema-2 draft then enters the same atomic activation Interface.
 Any failed first activation restores and verifies the exact four-option state
 captured before intake, leaving no orphan pending manifest.

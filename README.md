@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.614
+**Stable tag:** 0.1.615
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,14 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.615
+
+- Resolve first-enrollment menu labels by exact source-item identity before page or URL fallback, preserving intentional duplicate links to the same page at different hierarchy positions.
+- Treat a supplied complete target authority set as the entire verified set for that language, so unrelated retained menus cannot create false cross-language conflicts.
+- Allow legacy page/URL discovery only when stable identity metadata is truly absent; duplicate, corrupt, foreign-language, or relation-conflicting persisted identities now fail closed.
+- Bind accepted labels to fresh exact page/custom relations and candidate menu revisions in a temporary pending receipt, consume that receipt during staging, revalidate it through activation, and keep it out of the active reader manifest.
+- Make explicit first-enrollment and schema-1 migration authority sets all-or-nothing, including deterministic rejection of missing, managed, wrong-language, changed, or otherwise invalid members.
 
 ### 0.1.614
 

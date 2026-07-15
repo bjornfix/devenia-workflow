@@ -97,8 +97,23 @@ stored navigation snapshot rather than attempting to invent schema-2 labels.
 Before enrollment, a separate capability-gated intake takes one explicitly
 verified source-menu identity, derives stable page/custom/parent identities,
 and discovers target authority only from at least two agreeing unmanaged
-retained menus per configured language. Unrelated menus are ignored; missing,
-ambiguous, conflicting, or changed evidence rejects before pending mutation.
+retained menus per configured language. When the operator supplies a complete
+explicit authority set for a target language, only that set is evaluated; it
+is never mixed with unrelated retained menus. Exact source menu-item identity
+or one valid stored stable source-item identity takes precedence over page/URL
+fallback and must also match the requested-language relation, so deliberate
+duplicate links remain independently owned. Only complete absence of stable
+identity metadata permits legacy relation fallback; duplicate, invalid,
+foreign, or relation-conflicting persisted identity fails closed. Unrelated
+menus are ignored; missing, ambiguous, conflicting, or changed evidence rejects
+before pending mutation. Accepted intake evidence carries a temporary canonical
+receipt that binds the manifest revision, every candidate menu revision, and
+the exact fresh page/custom relation observed with each editorial label.
+Projection staging consumes those bound relations instead of resolving them
+again, revalidates the complete receipt before and after staging and at the
+locked activation boundary, and strips the one-time receipt before the schema-2
+manifest becomes active reader authority. Every member of an explicit authority
+set is mandatory; invalid or managed members cannot be silently omitted.
 Activation enters the ordinary atomic all-language Interface, and any failed
 attempt restores the exact four-option pre-intake state so enrollment is safely
 retryable.

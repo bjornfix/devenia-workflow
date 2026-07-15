@@ -74,6 +74,19 @@ assert.match(publication, /public_header_source_manifest_from_menu/);
 assert.match(publication, /get_nav_menu_locations[\s\S]*public_header_source_menu_not_primary/);
 assert.match(publication, /insufficient_independent_authority_candidates/);
 assert.match(publication, /public_header_enrollment_authority_changed/);
+assert.match(enrollmentInterface, /\$source_language !== \$language && empty\( \$explicit_ids \)[\s\S]*foreach \( \$retained_menus as \$retained_menu \)/, "a complete explicit target authority set must replace broad retained-menu discovery");
+assert.match(migrationInterface, /\$explicit_ids[\s\S]*\$candidate_ids = \$explicit_ids[\s\S]*if \( empty\( \$explicit_ids \) \)[\s\S]*wp_get_nav_menus/, "schema-1 migration must also treat a supplied authority set as closed");
+assert.match(publication, /public_header_editorial_label_snapshot[\s\S]*public_header_menu_item_source_identity[\s\S]*\$matches_source_item[\s\S]*\$matches_stable[\s\S]*\$matches_relation[\s\S]*stable_identity_relation_mismatch[\s\S]*\$identity_observed \? \$identity_candidates : \$fallback_candidates/, "exact source-item identity must match the requested-language relation and win before page or URL fallback");
+assert.match(publication, /public_header_menu_item_source_identity[\s\S]*metadata_exists\( 'post'[\s\S]*get_post_meta\( \$item_id, self::MENU_ITEM_META_SOURCE_ITEM_ID, false \)[\s\S]*stable_identity_row_count_invalid[\s\S]*stable_identity_value_invalid/, "only truly absent stable identity metadata may enable legacy relation fallback");
+assert.match(publication, /\$manifest_source_item_ids[\s\S]*foreign_stable_identity/, "every persisted stable identity in one candidate menu must belong to the exact manifest authority set");
+assert.match(publication, /public_header_fresh_relation_snapshot[\s\S]*localized_internal_link_map\( \$language, true \)[\s\S]*public_header_fresh_page_relation/, "authority relations must bypass request-static link and translation resolution");
+assert.match(publication, /public_header_authority_receipts[\s\S]*manifest_revision[\s\S]*relation_revision[\s\S]*candidates[\s\S]*receipt_revision/, "temporary authority receipts must bind manifest, relation, candidates, and their canonical receipt revision");
+assert.match(publication, /validate_public_header_authority_receipts[\s\S]*array_key_exists\( 'authority_receipts'[\s\S]*public_header_authority_receipts_invalid[\s\S]*public_header_authority_receipt_language_set_invalid[\s\S]*public_header_authority_receipt_revision_invalid/, "malformed or incomplete authority receipts must fail closed rather than fall back dynamically");
+assert.match(publication, /sync_public_header_projection[\s\S]*validate_public_header_authority_receipts[\s\S]*devenia_workflow_public_header_authority_before_final_revalidation[\s\S]*public_header_authority_changed_before_activation/, "authority receipts must be validated before and after complete-set staging");
+assert.match(publication, /public_header_projection_plan[\s\S]*relation_authority_present[\s\S]*\$relation_authority[\s\S]*page_relation_authority_missing[\s\S]*custom_relation_authority_missing/, "projection staging must consume exact receipt-bound page and custom relations without fallback");
+assert.match(publication, /activate_public_header_projection_set[\s\S]*unset\( \$active_manifest\['authority_receipts'\] \)/, "one-time intake receipts must never persist as active reader authority");
+assert.match(migrationInterface, /devenia_workflow_public_header_migration_before_final_authority_revalidation[\s\S]*public_header_manifest\(\)[\s\S]*validate_public_header_authority_receipts/, "schema-1 migration must revalidate exact active and intake authority before staging");
+assert.match(plugin, /localized_link_expected_target_map[\s\S]*source_language_code\(\) === \$language/, "localized link relation logic must use configured source-language authority");
 assert.match(publication, /intake_state_restore/);
 assert.match(publication, /stage_first_public_header_enrollment_transaction[\s\S]*lock_localized_menu_projection_surface[\s\S]*theme_mods_[\s\S]*FOR UPDATE[\s\S]*devenia_workflow_public_header_enrollment_before_locked_stage_revalidation/);
 assert.match(publication, /reconcile_first_public_header_enrollment_commit_outcome[\s\S]*! \$pre_state_proven && \$applied_state_proven[\s\S]*foreign_state_observed[\s\S]*public_header_enrollment_commit_reconciliation_conflict[\s\S]*public_header_enrollment_commit_outcome_unknown_conflict[\s\S]*public_header_enrollment_commit_reconciliation_failed/, "reconciliation may restore only this operation's exact expected-after state and must preserve foreign state");
@@ -143,6 +156,17 @@ assert.match(plugin, /frontend_integrity_language_filter[\s\S]*source_language_c
 assert.match(plugin, /frontend_integrity_surface_filter[\s\S]*blog_archives/);
 
 for (const evidence of [
+	"duplicate_source_page_references_disambiguated_by_item_identity",
+	"duplicate_target_page_references_disambiguated_by_stable_identity",
+	"wrong_language_stable_identity_rejected",
+	"duplicate_exact_stable_identity_ambiguous",
+	"duplicate_stable_identity_rows_rejected",
+	"foreign_stable_identity_cannot_fallback",
+	"mixed_foreign_identity_cannot_hide_behind_legacy_fallback",
+	"absent_stable_identity_legacy_relation_fallback_verified",
+	"single_explicit_authority_not_auto_supplemented",
+	"explicit_authority_sets_all_or_nothing",
+	"complete_explicit_authority_isolated_from_retained_conflicts",
 	"real_theme_location_pre_enrollment_preserved",
 	"real_theme_location_managed_source_exercised",
 	"wp_nav_menu_args_managed_source_exercised",
@@ -153,7 +177,12 @@ for (const evidence of [
 	"missing_label_authority_preserved_old_active_set",
 	"schema1_managed_label_runtime_override_bypassed",
 	"schema1_label_authority_conflict_failed_closed",
+	"schema1_explicit_authority_sets_all_or_nothing",
+	"schema1_authority_revision_race_rejected",
 	"schema1_to_schema2_migration_draft_created",
+	"schema1_relation_receipt_race_rejected_before_activation",
+	"relation_authority_consumed_by_staging",
+	"authority_receipts_not_persisted_in_active_manifest",
 	"schema1_post_activation_rollback_verified",
 	"schema1_to_schema2_repair_activated",
 	"unenrolled_authority_draft_mutation_free",

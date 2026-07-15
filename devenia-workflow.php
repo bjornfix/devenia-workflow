@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.614
+ * Version: 0.1.615
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -67,7 +67,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.614';
+	const VERSION = '0.1.615';
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -9484,7 +9484,7 @@ final class Devenia_Workflow {
 				'stage' => array( 'type' => 'boolean', 'default' => false ),
 				'authority_menus' => array(
 					'type'        => 'array',
-					'description' => 'Optional known pre-managed or explicitly verified menu identities keyed by configured language. Labels are read from these menus, never supplied by the caller.',
+					'description' => 'Optional complete verified authority set keyed by configured language. When supplied for a language, only those menu identities are evaluated and at least two must agree; labels are read from the menus, never supplied by the caller.',
 					'items'       => array(
 						'type'                 => 'object',
 						'required'             => array( 'language', 'menu_id' ),
@@ -9511,7 +9511,7 @@ final class Devenia_Workflow {
 				'timeout'        => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
 				'authority_menus' => array(
 					'type'        => 'array',
-					'description' => 'Optional additional verified retained menu identities. Target discovery otherwise requires two agreeing unmanaged menus mapped by stable relations.',
+					'description' => 'Optional complete verified authority set. When a target language is supplied, exactly those menu identities are evaluated and at least two must agree; otherwise discovery requires two agreeing unmanaged menus mapped by stable relations.',
 					'items'       => array(
 						'type'                 => 'object',
 						'required'             => array( 'language', 'menu_id' ),
@@ -17112,7 +17112,7 @@ final class Devenia_Workflow {
 					continue;
 				}
 
-				$target_url = 'en' === $language ? $source_url : ( (string) ( $published_by_source[ $source_id ][ $language ]['target_url'] ?? $source_url ) );
+				$target_url = self::source_language_code() === $language ? $source_url : ( (string) ( $published_by_source[ $source_id ][ $language ]['target_url'] ?? $source_url ) );
 				if ( ! $source_url || ! $target_url ) {
 					continue;
 				}
@@ -17166,7 +17166,7 @@ final class Devenia_Workflow {
 				continue;
 			}
 
-			$target_url = 'en' === $language ? $source_url : ( (string) ( $published_by_source[ $source_id ][ $language ]['target_url'] ?? $source_url ) );
+			$target_url = self::source_language_code() === $language ? $source_url : ( (string) ( $published_by_source[ $source_id ][ $language ]['target_url'] ?? $source_url ) );
 			if ( ! $source_url || ! $target_url ) {
 				continue;
 			}
@@ -17690,6 +17690,8 @@ final class Devenia_Workflow {
 			'previous_menu_id'=> $previous_menu_id,
 			'previous_menu_surface_revision' => $previous_menu_surface_revision,
 			'menu_surface_revision' => $menu_surface_revision,
+			'relation_authority_consumed' => ! empty( $plan['relation_authority_consumed'] ),
+			'relation_authority_revision' => (string) ( $plan['relation_authority_revision'] ?? '' ),
 		);
 		$base_result['staged_only'] = true;
 		return $base_result;
