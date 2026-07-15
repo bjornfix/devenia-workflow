@@ -319,7 +319,7 @@ trait Devenia_Workflow_Public_Header_Relation_Authority {
 		$meta_rows = $wpdb->get_results( $wpdb->prepare( $meta_sql, array_merge( $post_ids, array( self::META_LOCALIZED_PATH, self::META_CANONICAL_ROUTE ) ) ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Canonical route metadata.
 		$meta = array();
 		foreach ( is_array( $meta_rows ) ? $meta_rows : array() as $row ) { $meta[ absint( $row['post_id'] ?? 0 ) ][ (string) ( $row['meta_key'] ?? '' ) ][] = array( 'meta_id' => absint( $row['meta_id'] ?? 0 ), 'value' => (string) ( $row['meta_value'] ?? '' ) ); }
-		foreach ( $meta as $post_id => $keys ) { foreach ( $keys as $key => $rows ) { if ( count( $rows ) > 1 ) { return array( 'success' => false, 'code' => 'public_header_route_meta_ambiguous', 'post_id' => (int) $post_id, 'meta_key' => (string) $key ); } } }
+		foreach ( $meta as $post_id => $keys ) { foreach ( $keys as $key => $rows ) { if ( count( $rows ) > 1 ) { return array( 'success' => false, 'code' => 'public_header_route_meta_ambiguous', 'post_id' => (int) $post_id, 'identity_key' => (string) $key ); } } }
 		$urls = array();
 		foreach ( $requested_ids as $post_id ) {
 			$canonical_raw = (string) ( $meta[ $post_id ][ self::META_CANONICAL_ROUTE ][0]['value'] ?? '' );
