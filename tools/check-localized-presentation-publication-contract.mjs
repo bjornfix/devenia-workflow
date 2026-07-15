@@ -528,6 +528,8 @@ const queryIdentityLinkAuthorityPasses = (pluginSource, readModelSource, runtime
 	const packetRuntime = boundedSource(runtimeSource, "$packet = $call( 'translation_job_fetch_packet'", "$pre_submit_surface_revision =");
 	return /array_merge\([\s\S]*\$source_variants\[ \$source_id \][\s\S]*content_shortlink_variants\( \(int\) \$source_id \)/.test(indexedMap)
 		&& /frontend_row_target_link_variants\( \$row, false \)[\s\S]*content_shortlink_variants\( \$translation_id, \$lang \)/.test(indexedMap)
+		&& /\$indexed_rows\s*=\s*self::normalize_translation_index_rows\(/.test(indexedMap)
+		&& !/frontend_rows_from_index_rows\(/.test(indexedMap)
 		&& /if \( ! \$post_id \)[\s\S]*foreach \( array\( 'page_id', 'p', 'post_id' \)/.test(shortlinks)
 		&& !/get_post\(/.test(shortlinks)
 		&& (target.match(/\$candidates\s*=/g) || []).length === 2
@@ -541,6 +543,9 @@ const queryIdentityLinkAuthorityPasses = (pluginSource, readModelSource, runtime
 		&& /\$refresh_link_rows[\s\S]*\$linked_source_id === absint\( \$row\['source_post_id'\][\s\S]*\$linked_source_id !== absint\( \$refresh_link_row\['target_post_id'\][\s\S]*published_target_available[\s\S]*retain_source_url_until_localized_target_is_published[\s\S]*Untranslated query-ID source link was aliased/.test(refreshRuntime);
 };
 assert.equal(queryIdentityLinkAuthorityPasses(plugin, indexReadModel, runtime), true, "query-ID links must resolve only through their exact content identity, never a generic path candidate, and the real packet must retain an untranslated source");
+const inflatedFrontendLinkMap = plugin.replace("$indexed_rows = self::normalize_translation_index_rows(", "$indexed_rows = self::frontend_rows_from_index_rows( self::normalize_translation_index_rows(");
+assert.notEqual(inflatedFrontendLinkMap, plugin, "the frontend link-map inflation mutation fixture must alter production source");
+assert.equal(queryIdentityLinkAuthorityPasses(inflatedFrontendLinkMap, indexReadModel, runtime), false, "the frontend link map must reject per-object route observation across the complete Translation Index");
 const missingIndexedSourceShortlinks = plugin.replace("self::content_shortlink_variants( (int) $source_id )", "array()");
 assert.notEqual(missingIndexedSourceShortlinks, plugin, "the indexed-source-shortlink mutation fixture must alter production source");
 assert.equal(queryIdentityLinkAuthorityPasses(missingIndexedSourceShortlinks, indexReadModel, runtime), false, "the query-ID gate must reject removal of indexed source shortlink identities");

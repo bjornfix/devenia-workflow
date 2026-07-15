@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.621
+ * Version: 0.1.622
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -69,7 +69,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.621';
+	const VERSION = '0.1.622';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -17073,8 +17073,14 @@ final class Devenia_Workflow {
 				),
 				ARRAY_A
 			);
-			$indexed_rows = self::frontend_rows_from_index_rows(
-				self::normalize_translation_index_rows( is_array( $indexed_rows ) ? $indexed_rows : array(), self::translation_workflow_post_statuses( false ) )
+			// This map is a frontend read model, so consume the persisted Translation
+			// Index routes directly. The deep publication read model intentionally
+			// observes WordPress objects and post meta for integrity work;
+			// applying it to every indexed translation on each cache-cold frontend
+			// request turns one registry read into thousands of database queries.
+			$indexed_rows = self::normalize_translation_index_rows(
+				is_array( $indexed_rows ) ? $indexed_rows : array(),
+				self::translation_workflow_post_statuses( false )
 			);
 		} else {
 			$indexed_rows = array();
