@@ -109,6 +109,8 @@ foreach ( $languages as $language ) {
 $expected_coordinates = count( $languages ) * 4;
 $result = array(
 	'success' => $coordinates === $expected_coordinates && $http_200 === $expected_coordinates && $parser_pass === $expected_coordinates && empty( $failures ),
+	'evidence_scope' => empty( $matrix ) ? 'authoritative_installed_site' : 'supplemental_explicit_matrix',
+	'production_self_fetch_proven' => empty( $matrix ),
 	'version' => Devenia_Workflow::VERSION,
 	'languages' => count( $languages ),
 	'coordinates' => $coordinates,
