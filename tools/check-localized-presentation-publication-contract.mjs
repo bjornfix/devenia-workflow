@@ -631,6 +631,7 @@ assert.match(publication, /array\( 'origin', 'canonical' \)/);
 assert.match(publication, /Live HTTP verification is deliberately separate[\s\S]*if \( ! empty\( \$input\['verify_live'\] \) \)[\s\S]*\$live = self::verify_live_translation/);
 assert.match(jobs, /'verify_live'\s*=> false/, "Translation Job publication must release before live HTTP verification");
 assert.match(jobs, /translation-job-verify-live[\s\S]*translation_job_verify_live_schema[\s\S]*translation_job_verify_live/, "the bounded Translation Job lifecycle must expose explicit post-publication live verification");
+assert.match(runtime, /translation_job_verify_live[\s\S]*live_verification_passed[\s\S]*verify_live_header_before[\s\S]*verify_live_menu_before/, "the real WordPress runtime must prove separate live verification records its receipt without changing Public Header state");
 assert.match(publication, /'cf_cache_status'/);
 assert.match(publication, /'age'/);
 assert.match(publication, /frontend_primary_menu_projection_mismatch/);

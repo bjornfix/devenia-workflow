@@ -1392,12 +1392,11 @@ try {
 		throw new RuntimeException( 'Final Quality Decision failed: ' . wp_json_encode( $third_quality ) );
 	}
 
-	// Ordinary Translation Job publication must mint fresh all-language relation
-	// receipts before it writes pending header state. Let pre-publication reader
-	// verification observe the intact active relation, then remove one exact
-	// read-model row only after the real content COMMIT and before manifest
-	// staging. This models concurrent Index loss without making the stronger
-	// frontend-integrity gate pre-empt the publication-boundary oracle.
+	// Ordinary Translation Job publication owns only its exact content and its own
+	// Translation Index row. Remove a different translation's row immediately after
+	// the real content COMMIT and prove publication neither observes nor mutates any
+	// Public Header surface. The fixture restores its own content and unrelated row
+	// afterward so later bounded-attempt cases start from the original baseline.
 	$wrong_index_job_key = 'devenia_workflow_translation_job_' . $job_id;
 	$wrong_index_artifact_key = 'devenia_workflow_translation_artifact_' . (string) $third_artifact['artifact_revision'];
 	$wrong_index_quality_revision = (string) ( $third_quality['quality_decision']['quality_revision'] ?? '' );
@@ -1448,6 +1447,7 @@ try {
 		foreach ( (array) $wrong_index_rows_before as $wrong_index_row ) {
 			if ( false === $wpdb->insert( $wrong_index_table, $wrong_index_row ) ) { $wrong_index_restore_success = false; } // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Restore every original persisted column exactly, including original timestamps.
 		}
+		$wrong_index_surface_snapshot['rollback_expected_surface_revision'] = $call( 'translation_job_rollback_cas_revision', $translation_id, (array) ( $wrong_index_surface_snapshot['term_scope'] ?? array() ), (array) ( $wrong_index_surface_snapshot['identity_scope'] ?? array() ) );
 		$wrong_index_fixture_restore = $call( 'translation_job_restore_surface_snapshot', $wrong_index_surface_snapshot, $translation_id );
 		update_option( $wrong_index_job_key, $wrong_index_job_before, false );
 		$call( 'sync_translation_index_row', $translation_id );
@@ -1497,6 +1497,7 @@ try {
 			'nested_code_exact'         => 'public_header_relation_receipt_build_failed' === (string) ( $wrong_index_nested_failure['code'] ?? '' ),
 			'index_mismatch_present'    => false !== strpos( wp_json_encode( $wrong_index_nested_failure ), 'public_header_page_relation_index_mismatch' ),
 			'row_restore_success'       => $wrong_index_restore_success,
+			'fixture_restore'           => $wrong_index_fixture_restore,
 			'rows_restored_exact'       => $wrong_index_rows_before === $wrong_index_rows_after,
 			'authority_options_exact'   => $wrong_index_authority_options === $raw_option_records( array( $wrong_index_job_key, $wrong_index_artifact_key, $wrong_index_quality_key, $wrong_index_evidence_key ) ),
 			'content_authority_exact'   => $wrong_index_content_authority_exact,
@@ -2561,6 +2562,21 @@ try {
 	// Source Publication Surface: timestamps are diagnostic, bytes are authority.
 	$source_surface_a = $call( 'source_publication_surface_revision', get_post( $source_id ) );
 	$source_media_a = $call( 'publication_featured_image_revision_identity', $source_id );
+	$verify_live_header_before = $raw_option_records( $wrong_index_header_options );
+	$verify_live_menu_before = $raw_nav_menu_surface( $wrong_index_menu_ids );
+	$verify_live_menu_inventory_before = $raw_nav_menu_inventory();
+	$explicit_live_verification = $call( 'translation_job_verify_live', array( 'job_id' => $job_id, 'timeout' => 15 ) );
+	if (
+		empty( $explicit_live_verification['success'] )
+		|| empty( $explicit_live_verification['passed'] )
+		|| empty( $explicit_live_verification['job']['live_verification_passed'] )
+		|| 'published' !== (string) ( $explicit_live_verification['job']['status'] ?? '' )
+		|| $verify_live_header_before !== $raw_option_records( $wrong_index_header_options )
+		|| $verify_live_menu_before !== $raw_nav_menu_surface( $wrong_index_menu_ids )
+		|| $verify_live_menu_inventory_before !== $raw_nav_menu_inventory()
+	) {
+		throw new RuntimeException( 'Explicit post-publication live verification did not record its receipt without changing Public Header state: ' . wp_json_encode( $explicit_live_verification ) );
+	}
 	$published_authority_job = get_option( 'devenia_workflow_translation_job_' . $job_id );
 	$published_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a );
 	$published_quality = get_option( 'devenia_workflow_translation_quality_' . (string) ( $published_authority_job['quality_revision'] ?? '' ) );
