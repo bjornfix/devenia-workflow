@@ -23,6 +23,17 @@ const migrationInterface = publication.slice(migrationStart, migrationEnd);
 const enrollmentStart = publication.indexOf("private static function enroll_public_header_from_existing_menus");
 assert.ok(enrollmentStart > 0 && migrationStart > enrollmentStart, "first enrollment must remain a bounded explicit Interface");
 const enrollmentInterface = publication.slice(enrollmentStart, migrationStart);
+const relationStart = publication.indexOf("private static function public_header_fresh_page_relations");
+const relationEnd = publication.indexOf("private static function public_header_translation_index_relation_cross_check", relationStart);
+const indexCrossCheckEnd = publication.indexOf("private static function lock_public_header_authority_surface", relationEnd);
+const authorityLockEnd = publication.indexOf("private static function public_header_authority_receipts", indexCrossCheckEnd);
+assert.ok(relationStart > 0 && relationEnd > relationStart && indexCrossCheckEnd > relationEnd && authorityLockEnd > indexCrossCheckEnd, "Relation Authority modules must remain independently inspectable");
+const canonicalPageRelations = publication.slice(relationStart, relationEnd);
+const indexCrossCheck = publication.slice(relationEnd, indexCrossCheckEnd);
+const authorityLock = publication.slice(indexCrossCheckEnd, authorityLockEnd);
+const stateReplaceStart = publication.indexOf("private static function replace_public_header_state_transaction");
+const stateReplaceEnd = publication.indexOf("private static function reconcile_public_header_state_commit_outcome", stateReplaceStart);
+const stateReplace = publication.slice(stateReplaceStart, stateReplaceEnd);
 
 assert.match(publication, /publish_localized_presentation[\s\S]*apply_translation_publish_transition[\s\S]*refresh_public_header_projection_for_publication[\s\S]*devenia_workflow_frontend_cache_invalidation_result[\s\S]*verify_live_translation/);
 assert.doesNotMatch(publication.slice(publication.indexOf("private static function publish_localized_presentation"), publication.indexOf("private static function rollback_localized_menu_projection")), /sync_language_menu\s*\(/, "normal publication must not activate one language directly");
@@ -80,10 +91,18 @@ assert.match(publication, /public_header_editorial_label_snapshot[\s\S]*public_h
 assert.match(publication, /public_header_menu_item_source_identity[\s\S]*metadata_exists\( 'post'[\s\S]*get_post_meta\( \$item_id, self::MENU_ITEM_META_SOURCE_ITEM_ID, false \)[\s\S]*stable_identity_row_count_invalid[\s\S]*stable_identity_value_invalid/, "only truly absent stable identity metadata may enable legacy relation fallback");
 assert.match(publication, /\$manifest_source_item_ids[\s\S]*foreign_stable_identity/, "every persisted stable identity in one candidate menu must belong to the exact manifest authority set");
 assert.match(publication, /public_header_fresh_relation_snapshot[\s\S]*localized_internal_link_map\( \$language, true \)[\s\S]*public_header_fresh_page_relation/, "authority relations must bypass request-static link and translation resolution");
+assert.match(canonicalPageRelations, /FROM \{\$wpdb->posts\}[\s\S]*FROM \{\$wpdb->postmeta\}[\s\S]*page_relation_source_translation_identity_present[\s\S]*INNER JOIN \{\$wpdb->postmeta\} source_meta[\s\S]*INNER JOIN \{\$wpdb->postmeta\} language_meta[\s\S]*1 !== count\( \$ids \)[\s\S]*public_header_translation_index_relation_cross_check/, "canonical posts and exact source/language metadata must choose the sole relation before the optional index cross-check");
+assert.doesNotMatch(canonicalPageRelations, /translation_index_available|translation_index_table/, "Translation Index must never select Public Header relation candidates");
+assert.match(indexCrossCheck, /translation_index_available[\s\S]*source_page_classified_as_translation[\s\S]*canonical_relation_disagrees_with_index/, "the optional Translation Index must fail closed only as a source/target disagreement cross-check");
+assert.match(authorityLock, /lock_localized_menu_projection_surface[\s\S]*\{\$wpdb->posts\}[\s\S]*FOR UPDATE[\s\S]*\{\$wpdb->postmeta\}[\s\S]*FOR UPDATE[\s\S]*canonical_meta_predicate_locked/, "candidate menus, canonical post rows, and the full translation-identity predicate must be explicitly locked");
+assert.match(authorityLock, /\{\$wpdb->postmeta\}[\s\S]*self::META_SOURCE_ID, self::META_LANGUAGE/, "the locked metadata predicate must cover both canonical translation identity keys");
+assert.match(stateReplace, /lock_public_header_authority_surface[\s\S]*devenia_workflow_public_header_authority_after_locked_surface[\s\S]*validate_public_header_authority_receipts/, "the deterministic final-boundary race Seam must run only after authority locks and before revalidation");
 assert.match(publication, /public_header_authority_receipts[\s\S]*manifest_revision[\s\S]*relation_revision[\s\S]*candidates[\s\S]*receipt_revision/, "temporary authority receipts must bind manifest, relation, candidates, and their canonical receipt revision");
 assert.match(publication, /validate_public_header_authority_receipts[\s\S]*array_key_exists\( 'authority_receipts'[\s\S]*public_header_authority_receipts_invalid[\s\S]*public_header_authority_receipt_language_set_invalid[\s\S]*public_header_authority_receipt_revision_invalid/, "malformed or incomplete authority receipts must fail closed rather than fall back dynamically");
 assert.match(publication, /sync_public_header_projection[\s\S]*validate_public_header_authority_receipts[\s\S]*devenia_workflow_public_header_authority_before_final_revalidation[\s\S]*public_header_authority_changed_before_activation/, "authority receipts must be validated before and after complete-set staging");
 assert.match(publication, /public_header_projection_plan[\s\S]*relation_authority_present[\s\S]*\$relation_authority[\s\S]*page_relation_authority_missing[\s\S]*custom_relation_authority_missing/, "projection staging must consume exact receipt-bound page and custom relations without fallback");
+assert.match(publicHeaderRuntime, /wp_get_nav_menu_items\( absint\( \$projection\['target_menu'\]\['id'\][\s\S]*_devenia_translation_source_menu_item_id[\s\S]*\$relation\['object_id'\][\s\S]*normalize_primary_navigation_url[\s\S]*staged_receipt_surface_exact/, "runtime evidence must compare actual staged object IDs and custom URLs directly with receipt relations");
+assert.match(publicHeaderRuntime, /extra_meta_candidate[\s\S]*add_post_meta[\s\S]*authority_menu[\s\S]*wp_update_post[\s\S]*devenia_workflow_public_header_authority_after_locked_surface/, "runtime must inject real relation and authority-menu mutations at the locked final boundary");
 assert.match(publication, /activate_public_header_projection_set[\s\S]*unset\( \$active_manifest\['authority_receipts'\] \)/, "one-time intake receipts must never persist as active reader authority");
 assert.match(migrationInterface, /devenia_workflow_public_header_migration_before_final_authority_revalidation[\s\S]*public_header_manifest\(\)[\s\S]*validate_public_header_authority_receipts/, "schema-1 migration must revalidate exact active and intake authority before staging");
 assert.match(plugin, /localized_link_expected_target_map[\s\S]*source_language_code\(\) === \$language/, "localized link relation logic must use configured source-language authority");
@@ -182,6 +201,12 @@ for (const evidence of [
 	"schema1_to_schema2_migration_draft_created",
 	"schema1_relation_receipt_race_rejected_before_activation",
 	"relation_authority_consumed_by_staging",
+	"source_translation_meta_identity_rejected",
+	"source_translation_index_identity_rejected",
+	"meta_only_target_relation_rejected_at_locked_boundary",
+	"staged_object_ids_and_custom_urls_equal_receipts",
+	"authority_menu_changed_at_locked_boundary_rejected",
+	"canonical_relation_predicate_locked_before_activation",
 	"authority_receipts_not_persisted_in_active_manifest",
 	"schema1_post_activation_rollback_verified",
 	"schema1_to_schema2_repair_activated",

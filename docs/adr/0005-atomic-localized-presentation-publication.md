@@ -102,6 +102,19 @@ boundary, then removes the intake receipt from the active manifest. Explicit
 authority sets are all-or-nothing; a missing, managed, wrong-language, or
 otherwise invalid member rejects the whole operation even when two other
 candidates agree.
+Page Relation Authority remains in canonical WordPress posts and postmeta. A
+source page is valid only while it is published and has no source or language
+translation identity. A target relation is valid only when exactly one
+published page has exactly one source-meta row and one requested-language row.
+The Translation Index may cross-check that canonical relation, but it cannot
+choose the candidate; an index-only source identity, missing index row, stale
+status, or different target is a fail-closed disagreement. The final activation
+transaction explicitly locks every receipt candidate menu, every canonical
+source and target post row, and the complete source/language metadata-key range
+before revalidation. These core-table predicate locks, under the already-proven
+serializable InnoDB recovery boundary, prevent a meta-only relation from being
+inserted between the final authority read and COMMIT without depending on the
+custom index table's storage engine.
 The complete schema-2 draft then enters the same atomic activation Interface.
 Any failed first activation restores and verifies the exact four-option state
 captured before intake, leaving no orphan pending manifest.

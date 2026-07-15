@@ -114,6 +114,17 @@ again, revalidates the complete receipt before and after staging and at the
 locked activation boundary, and strips the one-time receipt before the schema-2
 manifest becomes active reader authority. Every member of an explicit authority
 set is mandatory; invalid or managed members cannot be silently omitted.
+The Public Header Relation Authority Module chooses page relations only from
+canonical WordPress post and postmeta rows. A source page must be published and
+have no source/language translation identity. A target relation requires exactly
+one published page with exactly one matching source row and one matching
+language row. The Translation Index Adapter is an optional read-model
+cross-check only: it never selects a candidate, and any source classification or
+target mapping disagreement fails closed. At final activation, every authority
+candidate menu, canonical source/target post row, and the complete
+source/language metadata predicate are locked and revalidated inside the owned
+serializable transaction, so a new meta-only candidate cannot appear between
+the final authority read and COMMIT.
 Activation enters the ordinary atomic all-language Interface, and any failed
 attempt restores the exact four-option pre-intake state so enrollment is safely
 retryable.

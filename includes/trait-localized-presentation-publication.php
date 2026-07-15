@@ -237,6 +237,9 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		try {
 			global $wpdb;
 			$pending_authority = isset( $expected['pending'] ) && is_array( $expected['pending'] ) ? $expected['pending'] : array();
+			$authority_lock = empty( $staged ) || empty( $pending_authority ) ? array( 'success' => true, 'present' => false ) : self::lock_public_header_authority_surface( $pending_authority );
+			if ( empty( $authority_lock['success'] ) ) { self::rollback_public_header_state_transaction(); return array( 'success' => false, 'code' => 'public_header_authority_lock_failed', 'authority_lock' => $authority_lock ); }
+			if ( ! empty( $authority_lock['present'] ) ) { do_action( 'devenia_workflow_public_header_authority_after_locked_surface', $pending_authority, $authority_lock ); }
 			$authority_validation = empty( $staged ) || empty( $pending_authority ) ? array( 'success' => true, 'present' => false ) : self::validate_public_header_authority_receipts( $pending_authority );
 			if ( empty( $authority_validation['success'] ) ) { self::rollback_public_header_state_transaction(); return array( 'success' => false, 'code' => 'public_header_authority_changed_at_locked_boundary', 'authority_validation' => $authority_validation ); }
 			foreach ( $staged as $language => $projection ) {
@@ -1488,36 +1491,35 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		if ( empty( $source_ids ) ) { return array( 'success' => true, 'relations' => array() ); }
 		global $wpdb;
 		$id_placeholders = implode( ', ', array_fill( 0, count( $source_ids ), '%d' ) );
+		$post_sql = "SELECT ID, post_type, post_status FROM {$wpdb->posts} WHERE ID IN ({$id_placeholders}) ORDER BY ID ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
+		$post_rows = $wpdb->get_results( $wpdb->prepare( $post_sql, $source_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Canonical WordPress post rows are the relation authority.
+		$posts_by_id = array();
+		foreach ( is_array( $post_rows ) ? $post_rows : array() as $row ) { $posts_by_id[ absint( $row['ID'] ?? 0 ) ] = $row; }
 		if ( $is_source ) {
-			$sql = "SELECT ID, post_type, post_status FROM {$wpdb->posts} WHERE ID IN ({$id_placeholders}) ORDER BY ID ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-			$rows = $wpdb->get_results( $wpdb->prepare( $sql, $source_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Every source ID uses a generated integer placeholder in one uncached authority snapshot.
-			$by_id = array();
-			foreach ( is_array( $rows ) ? $rows : array() as $row ) { $by_id[ absint( $row['ID'] ?? 0 ) ] = $row; }
+			$meta_sql = "SELECT post_id, meta_key AS identity_key, meta_value AS identity_value FROM {$wpdb->postmeta} WHERE post_id IN ({$id_placeholders}) AND meta_key IN (%s, %s) ORDER BY post_id ASC, meta_id ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
+			$meta_args = array_merge( $source_ids, array( self::META_SOURCE_ID, self::META_LANGUAGE ) );
+			$meta_rows = $wpdb->get_results( $wpdb->prepare( $meta_sql, $meta_args ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact source identity rows must be absent in canonical WordPress metadata.
+			$translation_identity = array();
+			foreach ( is_array( $meta_rows ) ? $meta_rows : array() as $row ) { $translation_identity[ absint( $row['post_id'] ?? 0 ) ][] = array( 'identity_key' => (string) ( $row['identity_key'] ?? '' ), 'identity_value' => (string) ( $row['identity_value'] ?? '' ) ); }
 			$relations = array(); $missing = array();
 			foreach ( $source_ids as $source_id ) {
-				$row = (array) ( $by_id[ $source_id ] ?? array() );
+				$row = (array) ( $posts_by_id[ $source_id ] ?? array() );
 				if ( 'page' !== (string) ( $row['post_type'] ?? '' ) || 'publish' !== (string) ( $row['post_status'] ?? '' ) ) { $missing[] = array( 'source_id' => $source_id, 'reason' => 'page_relation_source_not_published' ); continue; }
+				if ( ! empty( $translation_identity[ $source_id ] ) ) { $missing[] = array( 'source_id' => $source_id, 'reason' => 'page_relation_source_translation_identity_present', 'identity' => $translation_identity[ $source_id ] ); continue; }
 				$relations[ $source_id ] = $source_id;
 			}
-			return empty( $missing ) ? array( 'success' => true, 'relations' => $relations ) : array( 'success' => false, 'code' => 'public_header_page_relation_authority_incomplete', 'missing' => $missing );
+			if ( ! empty( $missing ) ) { return array( 'success' => false, 'code' => 'public_header_page_relation_authority_incomplete', 'missing' => $missing ); }
+			$index_check = self::public_header_translation_index_relation_cross_check( $source_ids, $language, true, $relations );
+			return empty( $index_check['success'] ) ? $index_check : array( 'success' => true, 'relations' => $relations, 'index_cross_check' => $index_check );
 		}
 
 		$language = sanitize_key( $language );
-		if ( self::translation_index_available() ) {
-			$sql = "SELECT source_post_id, translation_post_id FROM %i WHERE source_post_id IN ({$id_placeholders}) AND language = %s AND post_status = %s ORDER BY source_post_id ASC, translation_post_id ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-			$args = array_merge( array( self::translation_index_table() ), $source_ids, array( $language, 'publish' ) );
-			$relation_rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Uncached registry authority snapshot.
-				$wpdb->prepare( $sql, $args ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- The dynamic statement contains only generated placeholders and all values are passed here.
-				ARRAY_A
-			);
-		} else {
-			$sql = "SELECT source_meta.meta_value AS source_post_id, p.ID AS translation_post_id FROM {$wpdb->posts} p INNER JOIN {$wpdb->postmeta} source_meta ON source_meta.post_id = p.ID AND source_meta.meta_key = %s INNER JOIN {$wpdb->postmeta} language_meta ON language_meta.post_id = p.ID AND language_meta.meta_key = %s AND language_meta.meta_value = %s WHERE CAST(source_meta.meta_value AS UNSIGNED) IN ({$id_placeholders}) AND p.post_type = %s AND p.post_status = %s ORDER BY source_meta.meta_value ASC, p.ID ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-			$args = array_merge( array( self::META_SOURCE_ID, self::META_LANGUAGE, $language ), $source_ids, array( 'page', 'publish' ) );
-			$relation_rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Legacy canonical post/meta authority snapshot.
-				$wpdb->prepare( $sql, $args ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- The dynamic statement contains only generated placeholders and all values are passed here.
-				ARRAY_A
-			);
-		}
+		$sql = "SELECT source_meta.meta_value AS source_post_id, p.ID AS translation_post_id FROM {$wpdb->posts} p INNER JOIN {$wpdb->postmeta} source_meta ON source_meta.post_id = p.ID AND source_meta.meta_key = %s INNER JOIN {$wpdb->postmeta} language_meta ON language_meta.post_id = p.ID AND language_meta.meta_key = %s AND language_meta.meta_value = %s WHERE CAST(source_meta.meta_value AS UNSIGNED) IN ({$id_placeholders}) AND p.post_type = %s AND p.post_status = %s ORDER BY source_meta.meta_value ASC, p.ID ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
+		$args = array_merge( array( self::META_SOURCE_ID, self::META_LANGUAGE, $language ), $source_ids, array( 'page', 'publish' ) );
+		$relation_rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Canonical WordPress posts and exact source/language metadata are the only candidate authority.
+			$wpdb->prepare( $sql, $args ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- The dynamic statement contains only generated placeholders and all values are passed here.
+			ARRAY_A
+		);
 		$candidates = array(); $translation_ids = array();
 		foreach ( is_array( $relation_rows ) ? $relation_rows : array() as $row ) {
 			$source_id = absint( $row['source_post_id'] ?? 0 ); $translation_id = absint( $row['translation_post_id'] ?? 0 );
@@ -1526,13 +1528,13 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$translation_ids = array_keys( $translation_ids );
 		$translation_query_ids = empty( $translation_ids ) ? array( 0 ) : array_values( array_map( 'absint', $translation_ids ) );
 		$translation_placeholders = implode( ', ', array_fill( 0, count( $translation_query_ids ), '%d' ) );
-		$post_sql = "SELECT ID, post_type, post_status FROM {$wpdb->posts} WHERE ID IN ({$translation_placeholders}) ORDER BY ID ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
-		$post_rows = $wpdb->get_results( $wpdb->prepare( $post_sql, $translation_query_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Every registry-owned ID uses an integer placeholder.
+		$translation_post_sql = "SELECT ID, post_type, post_status FROM {$wpdb->posts} WHERE ID IN ({$translation_placeholders}) ORDER BY ID ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
+		$translation_post_rows = $wpdb->get_results( $wpdb->prepare( $translation_post_sql, $translation_query_ids ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Every canonical relation candidate uses an integer placeholder.
 		$meta_sql = "SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ({$translation_placeholders}) AND meta_key IN (%s, %s) ORDER BY post_id ASC, meta_id ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
 		$meta_args = array_merge( $translation_query_ids, array( self::META_SOURCE_ID, self::META_LANGUAGE ) );
 		$meta_rows = $wpdb->get_results( $wpdb->prepare( $meta_sql, $meta_args ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact identity row-count validation with prepared values.
 		$posts_by_id = array(); $meta_by_id = array();
-		foreach ( is_array( $post_rows ) ? $post_rows : array() as $row ) { $posts_by_id[ absint( $row['ID'] ?? 0 ) ] = $row; }
+		foreach ( is_array( $translation_post_rows ) ? $translation_post_rows : array() as $row ) { $posts_by_id[ absint( $row['ID'] ?? 0 ) ] = $row; }
 		foreach ( is_array( $meta_rows ) ? $meta_rows : array() as $row ) { $meta_by_id[ absint( $row['post_id'] ?? 0 ) ][ (string) ( $row['meta_key'] ?? '' ) ][] = (string) ( $row['meta_value'] ?? '' ); }
 		$relations = array(); $missing = array();
 		foreach ( $source_ids as $source_id ) {
@@ -1543,7 +1545,85 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			if ( 'page' !== (string) ( $post_row['post_type'] ?? '' ) || 'publish' !== (string) ( $post_row['post_status'] ?? '' ) || 1 !== count( $source_rows ) || (string) $source_id !== (string) $source_rows[0] || 1 !== count( $language_rows ) || $language !== sanitize_key( (string) $language_rows[0] ) ) { $missing[] = array( 'source_id' => $source_id, 'reason' => 'page_relation_translation_identity_invalid' ); continue; }
 			$relations[ $source_id ] = $translation_id;
 		}
-		return empty( $missing ) ? array( 'success' => true, 'relations' => $relations ) : array( 'success' => false, 'code' => 'public_header_page_relation_authority_incomplete', 'missing' => $missing );
+		if ( ! empty( $missing ) ) { return array( 'success' => false, 'code' => 'public_header_page_relation_authority_incomplete', 'missing' => $missing ); }
+		$index_check = self::public_header_translation_index_relation_cross_check( $source_ids, $language, false, $relations );
+		return empty( $index_check['success'] ) ? $index_check : array( 'success' => true, 'relations' => $relations, 'index_cross_check' => $index_check );
+	}
+
+	/** Cross-check canonical WordPress page relations against the optional read model. */
+	private static function public_header_translation_index_relation_cross_check( array $source_ids, string $language, bool $is_source, array $canonical_relations ): array {
+		if ( ! self::translation_index_available() ) { return array( 'success' => true, 'present' => false ); }
+		global $wpdb;
+		$source_ids = array_values( array_unique( array_filter( array_map( 'absint', $source_ids ) ) ) );
+		$id_placeholders = implode( ', ', array_fill( 0, count( $source_ids ), '%d' ) );
+		if ( $is_source ) {
+			$sql = "SELECT source_post_id, translation_post_id, language, post_status FROM %i WHERE translation_post_id IN ({$id_placeholders}) ORDER BY translation_post_id ASC, source_post_id ASC, language ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
+			$args = array_merge( array( self::translation_index_table() ), $source_ids );
+			$rows = $wpdb->get_results( $wpdb->prepare( $sql, $args ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The optional index is read only as a mismatch cross-check.
+			if ( ! is_array( $rows ) ) { return array( 'success' => false, 'code' => 'public_header_page_relation_index_unavailable' ); }
+			return empty( $rows )
+				? array( 'success' => true, 'present' => true )
+				: array( 'success' => false, 'code' => 'public_header_page_relation_index_mismatch', 'reason' => 'source_page_classified_as_translation', 'rows' => $rows );
+		}
+		$language = sanitize_key( $language );
+		$sql = "SELECT source_post_id, translation_post_id, language, post_status FROM %i WHERE source_post_id IN ({$id_placeholders}) AND language = %s ORDER BY source_post_id ASC, translation_post_id ASC"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
+		$args = array_merge( array( self::translation_index_table() ), $source_ids, array( $language ) );
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $args ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The optional index cannot select candidates; disagreement with canonical WordPress authority fails closed.
+		if ( ! is_array( $rows ) ) { return array( 'success' => false, 'code' => 'public_header_page_relation_index_unavailable' ); }
+		$by_source = array();
+		foreach ( is_array( $rows ) ? $rows : array() as $row ) { $by_source[ absint( $row['source_post_id'] ?? 0 ) ][] = $row; }
+		$mismatches = array();
+		foreach ( $source_ids as $source_id ) {
+			$indexed = (array) ( $by_source[ $source_id ] ?? array() );
+			$canonical_id = absint( $canonical_relations[ $source_id ] ?? 0 );
+			if ( 1 !== count( $indexed ) || $canonical_id < 1 || $canonical_id !== absint( $indexed[0]['translation_post_id'] ?? 0 ) || $language !== sanitize_key( (string) ( $indexed[0]['language'] ?? '' ) ) || 'publish' !== (string) ( $indexed[0]['post_status'] ?? '' ) ) {
+				$mismatches[] = array( 'source_id' => $source_id, 'canonical_translation_id' => $canonical_id, 'index_rows' => $indexed );
+			}
+		}
+		return empty( $mismatches )
+			? array( 'success' => true, 'present' => true )
+			: array( 'success' => false, 'code' => 'public_header_page_relation_index_mismatch', 'reason' => 'canonical_relation_disagrees_with_index', 'mismatches' => $mismatches );
+	}
+
+	/**
+	 * Lock every candidate menu and the complete canonical relation predicate.
+	 * The translation index is deliberately not locked: it is an optional read
+	 * model, never the authority which this serializable boundary protects.
+	 */
+	private static function lock_public_header_authority_surface( array $manifest ): array {
+		$receipts = isset( $manifest['authority_receipts'] ) && is_array( $manifest['authority_receipts'] ) ? $manifest['authority_receipts'] : array();
+		if ( empty( $receipts ) ) { return array( 'success' => true, 'present' => false ); }
+		$menu_ids = array(); $post_ids = array();
+		foreach ( (array) ( $manifest['items'] ?? array() ) as $item ) {
+			if ( is_array( $item ) && 'page' === sanitize_key( (string) ( $item['type'] ?? '' ) ) ) { $post_ids[ absint( $item['object_id'] ?? 0 ) ] = true; }
+		}
+		foreach ( $receipts as $receipt ) {
+			if ( ! is_array( $receipt ) ) { return array( 'success' => false, 'code' => 'public_header_authority_lock_receipt_invalid' ); }
+			foreach ( (array) ( $receipt['candidates'] ?? array() ) as $candidate ) { $menu_ids[ absint( is_array( $candidate ) ? ( $candidate['menu_id'] ?? 0 ) : 0 ) ] = true; }
+			foreach ( (array) ( $receipt['relations'] ?? array() ) as $relation ) {
+				if ( is_array( $relation ) && 'page' === sanitize_key( (string) ( $relation['type'] ?? '' ) ) ) { $post_ids[ absint( $relation['object_id'] ?? 0 ) ] = true; }
+			}
+		}
+		unset( $menu_ids[0], $post_ids[0] );
+		$menu_ids = array_keys( $menu_ids ); $post_ids = array_keys( $post_ids );
+		sort( $menu_ids, SORT_NUMERIC ); sort( $post_ids, SORT_NUMERIC );
+		foreach ( $menu_ids as $menu_id ) {
+			$locked = self::lock_localized_menu_projection_surface( (int) $menu_id );
+			if ( empty( $locked['success'] ) ) { return array( 'success' => false, 'code' => 'public_header_authority_menu_lock_failed', 'menu_id' => (int) $menu_id, 'lock' => $locked ); }
+		}
+		global $wpdb;
+		if ( ! empty( $post_ids ) ) {
+			$post_placeholders = implode( ', ', array_fill( 0, count( $post_ids ), '%d' ) );
+			$sql = "SELECT ID FROM {$wpdb->posts} WHERE ID IN ({$post_placeholders}) ORDER BY ID ASC FOR UPDATE"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only generated %d placeholders are interpolated.
+			if ( false === $wpdb->query( $wpdb->prepare( $sql, $post_ids ) ) ) { // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Canonical source and target status rows are locked inside the owned transaction.
+				return array( 'success' => false, 'code' => 'public_header_authority_post_lock_failed' );
+			}
+		}
+		$meta_lock = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Locking each complete identity-key range prevents a new meta-only candidate or source identity from appearing before COMMIT.
+			$wpdb->prepare( "SELECT meta_id FROM {$wpdb->postmeta} WHERE meta_key IN (%s, %s) ORDER BY meta_key ASC, meta_id ASC FOR UPDATE", self::META_SOURCE_ID, self::META_LANGUAGE )
+		);
+		if ( false === $meta_lock ) { return array( 'success' => false, 'code' => 'public_header_authority_meta_predicate_lock_failed' ); }
+		return array( 'success' => true, 'present' => true, 'menu_ids' => $menu_ids, 'post_ids' => $post_ids, 'canonical_meta_predicate_locked' => true );
 	}
 
 	/** Convert accepted menu snapshots into the temporary authority receipt carried by pending state. */
