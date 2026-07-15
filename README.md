@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.618
+**Stable tag:** 0.1.619
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.619
+
+- Bound every same-site Public Header verification request under one absolute concurrency limit, including canonical cacheable URLs that can miss or revalidate against WordPress, while reclaiming unused fast-group time inside the existing hard wall deadline.
 
 ### 0.1.618
 

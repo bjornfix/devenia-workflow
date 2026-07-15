@@ -2454,6 +2454,13 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		return $responses;
 	}
 
+	/** Allocate one timeout while reserving a viable minimum for every later dispatch. */
+	private static function public_header_dispatch_timeout( int $requested_timeout, int $remaining_dispatches, int $wall_remaining, int $minimum_timeout ): int {
+		if ( $remaining_dispatches < 1 || $wall_remaining < 1 || $minimum_timeout < 1 ) { return 0; }
+		$reserved_for_later = ( $remaining_dispatches - 1 ) * $minimum_timeout;
+		return min( $requested_timeout, max( 0, $wall_remaining - $reserved_for_later ) );
+	}
+
 	/**
 	 * Fetch explicit cache surfaces through a bounded WordPress Requests plan.
 	 *
@@ -2504,27 +2511,14 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				'headers' => $canonical ? array() : array( 'Cache-Control' => 'no-cache, no-store, max-age=0' ),
 			);
 		}
-		$canonical_dispatch = array();
-		$origin_dispatch = array();
-		foreach ( $native as $key => $request ) {
-			if ( 'canonical' === $normalized[ $key ]['surface'] ) {
-				$canonical_dispatch[ $key ] = $request;
-			} else {
-				$origin_dispatch[ $key ] = $request;
-			}
-		}
-		$origin_limit = absint( apply_filters( 'devenia_workflow_public_header_origin_concurrency_limit', self::PUBLIC_HEADER_ORIGIN_CONCURRENCY_LIMIT, count( $origin_dispatch ) ) );
-		$origin_limit = max( 1, min( self::PUBLIC_HEADER_ORIGIN_CONCURRENCY_LIMIT, $origin_limit ) );
-		$dispatches = empty( $canonical_dispatch ) ? array() : array( $canonical_dispatch );
-		foreach ( array_chunk( $origin_dispatch, $origin_limit, true ) as $origin_chunk ) {
-			$dispatches[] = $origin_chunk;
-		}
+		$concurrency_limit = absint( apply_filters( 'devenia_workflow_public_header_self_fetch_concurrency_limit', self::PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT, count( $native ) ) );
+		$concurrency_limit = max( 1, min( self::PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT, $concurrency_limit ) );
+		$dispatches = array_chunk( $native, $concurrency_limit, true );
 		$minimum_timeout = 3;
 		if ( count( $dispatches ) * $minimum_timeout > self::PUBLIC_HEADER_BATCH_BUDGET_SECONDS ) {
 			return $fail_all( $normalized, $native, 'public_header_batch_budget_exceeded', 'The complete frontend cache request plan exceeds its bounded runtime budget.' );
 		}
 		$requested_timeout = max( $minimum_timeout, min( 30, $timeout ) );
-		$remaining_budget = self::PUBLIC_HEADER_BATCH_BUDGET_SECONDS;
 		$deadline = microtime( true ) + self::PUBLIC_HEADER_BATCH_BUDGET_SECONDS;
 		$options = array(
 			'timeout' => $requested_timeout,
@@ -2545,11 +2539,10 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				foreach ( $dispatches as $dispatch_index => $dispatch ) {
 					$remaining_dispatches = $dispatch_count - $dispatch_index;
 					$wall_remaining = (int) floor( $deadline - microtime( true ) );
-					$dispatch_timeout = min( $requested_timeout, intdiv( $remaining_budget, $remaining_dispatches ), $wall_remaining );
+					$dispatch_timeout = self::public_header_dispatch_timeout( $requested_timeout, $remaining_dispatches, $wall_remaining, $minimum_timeout );
 					if ( $dispatch_timeout < $minimum_timeout ) {
 						return $fail_all( $normalized, $native, 'public_header_batch_budget_exhausted', 'The complete frontend cache request plan exhausted its bounded runtime budget.' );
 					}
-					$remaining_budget -= $dispatch_timeout;
 					$dispatch_options = array_merge( $options, array( 'timeout' => $dispatch_timeout, 'connect_timeout' => $dispatch_timeout ) );
 					$partial = $requests_class::request_multiple( $dispatch, $dispatch_options );
 					if ( ! is_array( $partial ) || ! empty( array_diff_key( $partial, $dispatch ) ) || ! empty( array_diff_key( $dispatch, $partial ) ) || ! empty( array_intersect_key( $batch, $partial ) ) ) {

@@ -41,6 +41,13 @@ Module. Its Interface does not succeed until all of these invariants hold:
    the expected language, primary-menu labels, and localized targets on the
    language homepage and blog archive.
 
+The complete keyed origin/canonical matrix is dispatched under one absolute
+same-site concurrency cap. A canonical URL is cacheable evidence, not proof of
+a cache hit: a miss or revalidation can still reach the same WordPress origin.
+The hard wall deadline reserves a viable minimum for every remaining group and
+reclaims time from groups that finish early; configured timeout maxima are not
+debited as if they were elapsed time.
+
 Any failure after activation restores the prior manifest and identity set from
 the pre-activation receipt. Before restoration, every prior menu term is locked
 and must still match that receipt; a changed prior term is never reactivated.
