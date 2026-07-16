@@ -25,6 +25,7 @@ function functionBody(name) {
 
 const normalize = functionBody("translation_job_normalized_presentation_fragments");
 const stage = functionBody("translation_job_stage_artifact");
+const apply = functionBody("translation_job_apply_staged_artifact_uncommitted");
 const verify = functionBody("translation_job_verify_applied_surface");
 
 assert.match(
@@ -51,6 +52,11 @@ assert.doesNotMatch(
 	stage,
 	/'source_design_hash'\s*=>[\s\S]*self::source_design_contract\s*\(\s*\$source\s*\)\s*\['design_hash'\]/,
 	"Staging must not bind RTL artifacts to the raw LTR source-design hash",
+);
+assert.match(
+	apply,
+	/\$staged_design_hash[\s\S]*expected_source_design_signature_hash\s*\([\s\S]*\$job\['target_language'\][\s\S]*hash_equals\s*\(\s*\$expected_design_hash\s*,\s*\$staged_design_hash\s*\)[\s\S]*'code'\s*=>\s*'staged_surface_drifted'[\s\S]*'mutation_started'\s*=>\s*false/,
+	"Legacy staged presentation authority must reopen fail-closed before any WordPress mutation",
 );
 assert.doesNotMatch(
 	stage,

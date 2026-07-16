@@ -1302,6 +1302,11 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		if ( ! $source instanceof WP_Post ) {
 			return array( 'success' => false, 'code' => 'job_source_missing', 'message' => 'Translation Job source is unavailable.' );
 		}
+		$staged_design_hash = (string) ( $artifact_record['surface_manifest']['presentation']['source_design_hash'] ?? '' );
+		$expected_design_hash = self::expected_source_design_signature_hash( (string) $source->post_content, (string) ( $job['target_language'] ?? '' ) );
+		if ( '' === $staged_design_hash || '' === $expected_design_hash || ! hash_equals( $expected_design_hash, $staged_design_hash ) ) {
+			return array( 'success' => false, 'code' => 'staged_surface_drifted', 'message' => 'The staged presentation authority no longer matches the target-language design contract.', 'mutation_started' => false );
+		}
 		$current_surface_revision = $translation_id ? self::translation_job_current_surface_revision( $translation_id ) : '';
 		$already_applied_verification = $translation_id
 			? self::translation_job_verify_applied_surface( $source, $translation_id, (array) $artifact_record['surface_manifest'] )
