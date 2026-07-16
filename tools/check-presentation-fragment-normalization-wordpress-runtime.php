@@ -46,7 +46,7 @@ $update_internal_post = static function ( array $post_data ) use ( $call ) {
 
 try {
 	$assert( class_exists( Devenia_Workflow::class ), 'Devenia Workflow is not active.' );
-	$assert( '0.1.612' === (string) Devenia_Workflow::VERSION, 'The active dev plugin is not the exact 0.1.612 candidate.' );
+	$assert( '0.1.623' === (string) Devenia_Workflow::VERSION, 'The active dev plugin is not the exact 0.1.623 candidate.' );
 
 	$languages = $call( 'target_languages' );
 	$assert( is_array( $languages ) && isset( $languages['nb'] ), 'The dev language registry must include Norwegian Bokmal (nb).' );
@@ -59,7 +59,7 @@ try {
 			'post_title'   => 'Presentation normalization source ' . $fixture_token,
 			'post_excerpt' => 'A bounded source fixture for exact presentation verification.',
 			'post_name'    => $source_fixture_slug,
-			'post_content' => "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Storage representation</h2>\n<!-- /wp:heading -->\n\n<!-- wp:paragraph -->\n<p>Verify mixed presentation fragments without weakening exact values.</p>\n<!-- /wp:paragraph -->",
+			'post_content' => "<!-- wp:generateblocks/container {\"uniqueId\":\"rtl-hash-fixture\",\"spacing\":{\"paddingLeft\":\"24px\",\"paddingRight\":\"0px\"},\"borders\":{\"borderLeftWidth\":\"2px\",\"borderRightWidth\":\"0px\"}} -->\n<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Storage representation</h2>\n<!-- /wp:heading -->\n\n<!-- wp:paragraph -->\n<p>Verify mixed presentation fragments without weakening exact values.</p>\n<!-- /wp:paragraph -->\n<!-- /wp:generateblocks/container -->",
 		),
 		true
 	);
@@ -167,6 +167,42 @@ try {
 		'Staging did not produce complete key/html rows sorted by logical key.'
 	);
 
+	$rtl_job = array_merge(
+		$job,
+		array(
+			'job_id'          => 'tj_runtime_presentation_rtl_' . $fixture_token,
+			'target_language' => 'ar',
+		)
+	);
+	$rtl_fragments = array();
+	foreach ( $source_fragments as $index => $fragment ) {
+		$rtl_fragments[] = array(
+			'key'  => (string) ( $fragment['key'] ?? '' ),
+			'text' => 'نص عربي مضبوط للفقرة ' . ( $index + 1 ),
+		);
+	}
+	$rtl_artifact = array_merge(
+		$artifact,
+		array(
+			'title'                 => 'اختبار تطبيع العرض',
+			'excerpt'               => 'اختبار محدود لتطبيع العرض وتخزينه بصورة متوقعة.',
+			'localized_slug'        => 'ikhtibar-altatbie-' . $fixture_token,
+			'localized_path'        => 'ar/ikhtibar-altatbie-' . $fixture_token,
+			'localized_fragments'   => $rtl_fragments,
+			'seo'                   => array(
+				'title'       => 'اختبار تطبيع العرض',
+				'description' => 'اختبار محدود للتحقق من تطبيع العرض العربي بصورة صحيحة.',
+			),
+		)
+	);
+	$rtl_staging = $call( 'translation_job_stage_artifact', $rtl_job, $rtl_artifact );
+	$assert( ! empty( $rtl_staging['success'] ), 'RTL staging failed: ' . wp_json_encode( $rtl_staging ) );
+	$raw_source_design_hash = (string) ( $source_design['design_hash'] ?? '' );
+	$expected_rtl_design_hash = (string) $call( 'expected_source_design_signature_hash', (string) $source->post_content, 'ar' );
+	$staged_rtl_design_hash = (string) ( $rtl_staging['manifest']['presentation']['source_design_hash'] ?? '' );
+	$assert( '' !== $expected_rtl_design_hash && $raw_source_design_hash !== $expected_rtl_design_hash, 'The directional fixture did not produce a distinct RTL design hash.' );
+	$assert( $expected_rtl_design_hash === $staged_rtl_design_hash, 'RTL staging did not bind the same target-language design hash used by durable storage.' );
+
 	$content = isset( $manifest['content'] ) && is_array( $manifest['content'] ) ? $manifest['content'] : array();
 	$route = isset( $manifest['route'] ) && is_array( $manifest['route'] ) ? $manifest['route'] : array();
 	$translation_insert = wp_insert_post(
@@ -246,6 +282,7 @@ try {
 		'reordered_equivalent_fragments_accepted'   => true,
 		'genuine_fragment_change_rejected'          => true,
 		'genuine_design_hash_change_rejected'       => true,
+		'rtl_staged_and_stored_design_hash_aligned' => true,
 		'missing_extra_duplicate_keys_rejected'     => true,
 		'fixture_token'                             => $fixture_token,
 	);

@@ -42,6 +42,16 @@ assert.match(
 	/'localized_fragments'\s*=>\s*self::translation_job_normalized_presentation_fragments\s*\(/,
 	"New surface manifests must stage storage-normalized presentation fragments",
 );
+assert.match(
+	stage,
+	/'source_design_hash'\s*=>\s*self::expected_source_design_signature_hash\s*\(\s*\(string\)\s*\$source->post_content\s*,\s*\$language\s*\)/,
+	"Staged presentation authority must use the same target-language design hash as durable storage",
+);
+assert.doesNotMatch(
+	stage,
+	/'source_design_hash'\s*=>[\s\S]*self::source_design_contract\s*\(\s*\$source\s*\)\s*\['design_hash'\]/,
+	"Staging must not bind RTL artifacts to the raw LTR source-design hash",
+);
 assert.doesNotMatch(
 	stage,
 	/'localized_fragments'\s*=>\s*self::translation_job_canonicalize\s*\(/,

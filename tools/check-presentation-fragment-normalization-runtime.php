@@ -120,6 +120,12 @@ final class Devenia_Workflow_Presentation_Normalization_Runtime_Test {
 		$value = get_post_meta( $post_id, $meta_key, true );
 		return is_array( $value ) ? $value : array();
 	}
+
+	/** @return array<string,mixed> */
+	private static function publication_featured_image_revision_identity( int $post_id ): array {
+		unset( $post_id );
+		return array();
+	}
 }
 
 function devenia_presentation_assert( bool $condition, string $message ): void {
