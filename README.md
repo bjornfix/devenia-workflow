@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.624
+**Stable tag:** 0.1.625
 
 **License:** GPLv2 or later
 

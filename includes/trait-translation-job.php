@@ -1768,10 +1768,7 @@ trait Devenia_Workflow_Translation_Job {
 		$translation_id = self::translation_job_resolve_publication_translation_id( $job, $artifact );
 		$current_surface_revision = $translation_id ? self::translation_job_current_surface_revision( $translation_id ) : '';
 		$baseline_surface_revision = (string) ( $artifact['baseline_surface_revision'] ?? '' );
-		if ( hash_equals( $baseline_surface_revision, $current_surface_revision ) ) {
-			return array( 'success' => true, 'refreshed' => false, 'job' => $job, 'baseline_surface_revision' => $baseline_surface_revision, 'current_surface_revision' => $current_surface_revision );
-		}
-
+		$publication_refresh_required = false;
 		if ( 'publish_baseline_mismatch' === $reason ) {
 			$rollback = isset( $publication_failure['transaction_rollback'] ) && is_array( $publication_failure['transaction_rollback'] ) ? $publication_failure['transaction_rollback'] : array();
 			if (
@@ -1782,6 +1779,14 @@ trait Devenia_Workflow_Translation_Job {
 			) {
 				return array( 'success' => false, 'code' => 'surface_refresh_proof_missing', 'message' => 'Publication may reopen a Job only after zero mutation and a proven successful transaction rollback.', 'job' => self::translation_job_public_job( $job ) );
 			}
+			// A publish-time authority failure can be intrinsic to the immutable
+			// staged manifest (for example, a legacy LTR hash on an RTL artifact).
+			// In that case the public WordPress surface is correctly unchanged, so
+			// equality with the artifact baseline must not suppress regeneration.
+			$publication_refresh_required = true;
+		}
+		if ( ! $publication_refresh_required && hash_equals( $baseline_surface_revision, $current_surface_revision ) ) {
+			return array( 'success' => true, 'refreshed' => false, 'job' => $job, 'baseline_surface_revision' => $baseline_surface_revision, 'current_surface_revision' => $current_surface_revision );
 		}
 
 		$generation = self::translation_job_submission_generation( $job );

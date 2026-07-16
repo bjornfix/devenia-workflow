@@ -33,6 +33,16 @@ assert.match(moduleSource, /'prior_artifact_revision'[\s\S]*'prior_content_revis
 assert.match(moduleSource, /'surface_refresh_generation_limit'[\s\S]*'status' => 'failed_technical'/);
 assert.match(moduleSource, /in_array\( \(string\) \( \$staged_apply\['code'\][\s\S]*TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES, true \)/);
 assert.match(moduleSource, /! in_array\( \(string\) \( \$publication_failure\['code'\][\s\S]*TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES, true \)[\s\S]*\$publication_failure\['mutation_started'\][\s\S]*\$rollback\['success'\][\s\S]*\$rollback\['rolled_back'\]/);
+assert.match(
+	moduleSource,
+	/\$publication_refresh_required = false;[\s\S]*'publish_baseline_mismatch' === \$reason[\s\S]*surface_refresh_proof_missing[\s\S]*\$publication_refresh_required = true;[\s\S]*! \$publication_refresh_required && hash_equals\( \$baseline_surface_revision, \$current_surface_revision \)/,
+	"a proven publish-time staged-authority failure must reopen even when the public surface still equals the artifact baseline",
+);
+assert.doesNotMatch(
+	moduleSource,
+	/if \( hash_equals\( \$baseline_surface_revision, \$current_surface_revision \) \) \{\s*return array\( 'success' => true, 'refreshed' => false/,
+	"baseline equality must not short-circuit before publish-time authority proof is classified",
+);
 assert.match(moduleSource, /'claim_baseline_mismatch'/);
 assert.match(moduleSource, /'quality_packet_baseline_mismatch'/);
 assert.match(moduleSource, /'quality_submission_baseline_mismatch'/);

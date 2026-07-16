@@ -20,6 +20,7 @@ $fixture_slug = 'presentasjonsnormalisering-' . $fixture_token;
 $source_fixture_slug = 'workflow-presentation-normalization-source-' . $fixture_token;
 $missing_option_marker = '__devenia_missing_' . $fixture_token;
 $inventory_dirty_before = get_option( Devenia_Workflow::OPTION_SOURCE_INVENTORY_DIRTY, $missing_option_marker );
+$owned_option_keys = array();
 $runtime_error = null;
 $runtime_result = null;
 
@@ -46,7 +47,7 @@ $update_internal_post = static function ( array $post_data ) use ( $call ) {
 
 try {
 	$assert( class_exists( Devenia_Workflow::class ), 'Devenia Workflow is not active.' );
-	$assert( '0.1.624' === (string) Devenia_Workflow::VERSION, 'The active dev plugin is not the exact 0.1.624 candidate.' );
+	$assert( '0.1.625' === (string) Devenia_Workflow::VERSION, 'The active dev plugin is not the exact 0.1.625 candidate.' );
 
 	$languages = $call( 'target_languages' );
 	$assert( is_array( $languages ) && isset( $languages['nb'] ), 'The dev language registry must include Norwegian Bokmal (nb).' );
@@ -275,6 +276,84 @@ try {
 		'A genuine source-design hash change did not fail presentation verification.'
 	);
 
+	// A legacy immutable manifest can carry invalid presentation authority while
+	// the public surface still exactly equals its captured baseline. A proven
+	// zero-mutation publish failure must reopen it instead of returning a false
+	// "no refresh" result merely because those two public revisions are equal.
+	$legacy_refresh_job_id = 'tj_runtime_legacy_authority_' . $fixture_token;
+	$legacy_refresh_job_key = 'devenia_workflow_translation_job_' . $legacy_refresh_job_id;
+	$legacy_refresh_artifact_revision = 'a_' . substr( hash( 'sha256', $legacy_refresh_job_id ), 0, 32 );
+	$legacy_refresh_artifact_key = 'devenia_workflow_translation_artifact_' . $legacy_refresh_artifact_revision;
+	$legacy_refresh_baseline = (string) $call( 'translation_job_current_surface_revision', $translation_id );
+	$legacy_refresh_manifest = $manifest;
+	$legacy_refresh_manifest['presentation']['source_design_hash'] = hash( 'sha256', 'legacy-invalid-presentation-authority-' . $fixture_token );
+	$legacy_refresh_artifact = $call(
+		'translation_job_pack_artifact_record',
+		array(
+			'state' => 'staged',
+			'artifact_revision' => $legacy_refresh_artifact_revision,
+			'job_id' => $legacy_refresh_job_id,
+			'source_revision' => (string) $call( 'source_publication_surface_revision', $source ),
+			'translation_id' => $translation_id,
+			'content_revision' => (string) $call( 'translation_job_translation_revision', $translation_id ),
+			'surface_revision' => (string) $call( 'translation_job_surface_revision', $legacy_refresh_manifest ),
+			'surface_manifest' => $legacy_refresh_manifest,
+			'baseline_surface_revision' => $legacy_refresh_baseline,
+			'submission_generation' => 1,
+			'staged' => true,
+			'artifact' => $artifact,
+		)
+	);
+	$legacy_refresh_job = array(
+		'schema_version' => 3,
+		'job_id' => $legacy_refresh_job_id,
+		'source_id' => $source_id,
+		'source_revision' => (string) $call( 'source_publication_surface_revision', $source ),
+		'target_language' => $language,
+		'submission_generation' => 1,
+		'status' => 'ready_to_publish',
+		'artifact_revision' => $legacy_refresh_artifact_revision,
+		'content_revision' => (string) $legacy_refresh_artifact['content_revision'],
+		'surface_revision' => (string) $legacy_refresh_artifact['surface_revision'],
+		'quality_revision' => 'a_runtime_legacy_quality_' . $fixture_token,
+		'translation_id' => $translation_id,
+		'active_run_id' => '',
+		'run_ids' => array(),
+		'surface_refresh_history' => array(),
+	);
+	update_option( $legacy_refresh_artifact_key, $legacy_refresh_artifact, false );
+	update_option( $legacy_refresh_job_key, $legacy_refresh_job, false );
+	$owned_option_keys[] = $legacy_refresh_artifact_key;
+	$owned_option_keys[] = $legacy_refresh_job_key;
+	$legacy_refresh_artifact_bytes = maybe_serialize( get_option( $legacy_refresh_artifact_key ) );
+	$legacy_refresh_surface_before = (string) $call( 'translation_job_current_surface_revision', $translation_id );
+	$legacy_refresh = $call(
+		'translation_job_refresh_drifted_surface',
+		$legacy_refresh_job,
+		'publish_baseline_mismatch',
+		array(
+			'code' => 'staged_surface_drifted',
+			'mutation_started' => false,
+			'transaction_rollback' => array( 'success' => true, 'rolled_back' => true ),
+		)
+	);
+	$legacy_refresh_stored_job = get_option( $legacy_refresh_job_key );
+	$legacy_refresh_history = (array) ( $legacy_refresh_stored_job['surface_refresh_history'] ?? array() );
+	$legacy_refresh_latest = $legacy_refresh_history ? (array) end( $legacy_refresh_history ) : array();
+	$assert(
+		! empty( $legacy_refresh['success'] )
+		&& ! empty( $legacy_refresh['refreshed'] )
+		&& 'changes_requested' === (string) ( $legacy_refresh_stored_job['status'] ?? '' )
+		&& 2 === absint( $legacy_refresh_stored_job['submission_generation'] ?? 0 )
+		&& '' === (string) ( $legacy_refresh_stored_job['artifact_revision'] ?? '' )
+		&& '' === (string) ( $legacy_refresh_stored_job['quality_revision'] ?? '' )
+		&& 'staged_surface_drifted' === (string) ( $legacy_refresh_latest['publication_failure_code'] ?? '' )
+		&& $legacy_refresh_baseline === (string) ( $legacy_refresh_latest['current_surface_revision'] ?? '' )
+		&& $legacy_refresh_artifact_bytes === maybe_serialize( get_option( $legacy_refresh_artifact_key ) )
+		&& $legacy_refresh_surface_before === (string) $call( 'translation_job_current_surface_revision', $translation_id ),
+		'Equal-baseline legacy staged authority did not reopen immutably after proven zero-mutation publication failure: ' . wp_json_encode( array( 'refresh' => $legacy_refresh, 'job' => $legacy_refresh_stored_job ) )
+	);
+
 	$runtime_result = array(
 		'success'                                   => true,
 		'staging_storage_canonical'                 => true,
@@ -283,12 +362,16 @@ try {
 		'genuine_fragment_change_rejected'          => true,
 		'genuine_design_hash_change_rejected'       => true,
 		'rtl_staged_and_stored_design_hash_aligned' => true,
+		'equal_baseline_legacy_authority_reopened'  => true,
 		'missing_extra_duplicate_keys_rejected'     => true,
 		'fixture_token'                             => $fixture_token,
 	);
 } catch ( Throwable $error ) {
 	$runtime_error = $error;
 } finally {
+	foreach ( $owned_option_keys as $option_key ) {
+		delete_option( $option_key );
+	}
 	foreach ( array_filter( array( $translation_id, $source_id ) ) as $post_id ) {
 		if ( get_post( (int) $post_id ) ) {
 			wp_delete_post( (int) $post_id, true );
