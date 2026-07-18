@@ -803,8 +803,9 @@ trait Devenia_Workflow_Translation_Job {
 			return array( 'success' => false, 'code' => 'quality_pass_rejected', 'message' => 'A passing Quality Decision requires server-bound evidence receipts, staged deterministic QA, and source publication experience to pass.', 'evidence_receipts' => $evidence_receipts, 'qa' => $qa, 'publication_experience' => $publication_experience );
 		}
 		$evidence_record = ! empty( $evidence_receipts['record'] ) && is_array( $evidence_receipts['record'] ) ? $evidence_receipts['record'] : array();
+		$corrections = array_values( array_map( 'sanitize_text_field', is_array( $input['corrections'] ?? null ) ? $input['corrections'] : array() ) );
 		$quality = array(
-			'quality_revision' => self::translation_job_revision( array( $job['artifact_revision'], $artifact_record['surface_revision'], $decision, $evidence_record['evidence_revision'] ?? '', $evidence, $input['corrections'] ?? array() ) ),
+			'quality_revision' => self::translation_job_revision( array( $job['artifact_revision'], $artifact_record['surface_revision'], $decision, $evidence_record['evidence_revision'] ?? '', $evidence, $corrections ) ),
 			'job_id' => (string) $job['job_id'],
 			'artifact_revision' => (string) $job['artifact_revision'],
 			'content_revision' => (string) $job['content_revision'],
@@ -818,7 +819,7 @@ trait Devenia_Workflow_Translation_Job {
 			'evidence_revision' => (string) ( $evidence_record['evidence_revision'] ?? '' ),
 			'usage' => $usage['usage'],
 			'reviewer_principal' => $reviewer_principal,
-			'corrections' => array_values( array_map( 'sanitize_text_field', is_array( $input['corrections'] ?? null ) ? $input['corrections'] : array() ) ),
+			'corrections' => $corrections,
 			'coordinator_id' => (string) $run['coordinator_id'],
 			'run_id' => (string) $run['run_id'],
 			'submission_generation' => self::translation_job_submission_generation( $job ),
@@ -838,7 +839,8 @@ trait Devenia_Workflow_Translation_Job {
 			$quality = $existing_quality;
 		}
 		self::translation_job_finish_run( $run, $decision, $usage['usage'] );
-		$status = 'pass' === $decision ? 'ready_to_publish' : ( 'revise' === $decision ? 'changes_requested' : 'rejected' );
+		$is_substantive_revise = 'revise' === $decision && ! empty( $corrections );
+		$status = 'pass' === $decision || ( 'revise' === $decision && ! $is_substantive_revise && ! empty( $qa['passed'] ) ) ? 'ready_to_publish' : ( $is_substantive_revise ? 'changes_requested' : 'rejected' );
 		$next = self::translation_job_transition( $job, array( 'status' => $status, 'quality_revision' => $quality['quality_revision'], 'active_run_id' => '' ) );
 		self::translation_job_release_claim( (string) $job['job_id'] );
 		if ( empty( $next['success'] ) ) {
