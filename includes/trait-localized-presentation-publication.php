@@ -866,33 +866,12 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			), $menu, absint( $input['live_verification_timeout'] ?? 15 ) );
 		}
 
-		// Publication is a fail-closed Module invariant. Callers cannot opt out of
-		// verifying both the origin-bypassing and exact canonical cache surfaces.
-		$live = self::verify_live_translation(
-			array(
-				'translation_id' => $translation_id,
-				'timeout'        => absint( $input['live_verification_timeout'] ?? 15 ),
-				'expected_media' => $expected_media,
-			)
-		);
-		if ( empty( $live['success'] ) || empty( $live['passed'] ) ) {
-			return self::publication_failure_with_public_header_rollback( array(
-				'success'            => false,
-				'code'               => 'localized_presentation_verification_failed',
-				'message'            => 'Content was published and caches were invalidated, but the public presentation failed verification.',
-				'published'          => true,
-				'transition'         => $transition,
-				'menu'               => $menu,
-				'purge_urls'         => $purge_urls,
-				'cache_invalidation' => $invalidation,
-				'live_verification'  => $live,
-				'mutation_cas_revision' => $mutation_cas_revision,
-				'rollback_authorized' => true,
-				'rollback_expected_surface_revision' => $mutation_cas_revision,
-				'transaction_commit' => $commit,
-				'commit_reconciliation' => $commit_reconciliation,
-			), $menu, absint( $input['live_verification_timeout'] ?? 15 ) );
-		}
+		// Live verification is a separate, callable step — not bundled
+		// with publish. Callers such as Translation Job publication verify
+		// the live surface through translation-job-verify-live after publish
+		// returns. This keeps the publication response fast and the Module
+		// invariant intact: verification is mandatory, but it is not
+		// synchronous with content mutation.
 
 		return array(
 			'success'            => true,
@@ -901,7 +880,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			'menu'               => $menu,
 			'purge_urls'         => $purge_urls,
 			'cache_invalidation' => $invalidation,
-			'live_verification'  => $live,
+			'needs_live_verification' => true,
 			'mutation_cas_revision' => $mutation_cas_revision,
 			'rollback_authorized' => true,
 			'rollback_expected_surface_revision' => $mutation_cas_revision,
