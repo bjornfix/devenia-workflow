@@ -839,8 +839,7 @@ trait Devenia_Workflow_Translation_Job {
 			$quality = $existing_quality;
 		}
 		self::translation_job_finish_run( $run, $decision, $usage['usage'] );
-		$is_substantive_revise = 'revise' === $decision && ! empty( $corrections );
-		$status = 'pass' === $decision || ( 'revise' === $decision && ! $is_substantive_revise && ! empty( $qa['passed'] ) ) ? 'ready_to_publish' : ( $is_substantive_revise ? 'changes_requested' : 'rejected' );
+		$status = 'pass' === $decision ? 'ready_to_publish' : ( 'revise' === $decision ? 'changes_requested' : 'rejected' );
 		$next = self::translation_job_transition( $job, array( 'status' => $status, 'quality_revision' => $quality['quality_revision'], 'active_run_id' => '' ) );
 		self::translation_job_release_claim( (string) $job['job_id'] );
 		if ( empty( $next['success'] ) ) {
