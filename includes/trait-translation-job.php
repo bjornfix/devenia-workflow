@@ -254,7 +254,7 @@ trait Devenia_Workflow_Translation_Job {
 				'coordinator_id' => array( 'type' => 'string', 'description' => 'Deprecated compatibility label. It grants no publication authority.' ),
 				'sync_menu' => array( 'type' => 'boolean', 'default' => true ),
 				'verify_live' => array( 'type' => 'boolean', 'default' => true, 'description' => 'Deprecated compatibility input. Publication always verifies origin and canonical cache surfaces.' ),
-				'live_verification_timeout' => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
+				'live_verification_timeout' => array( 'type' => 'integer', 'minimum' => 2, 'maximum' => 30, 'default' => 5 ),
 			),
 			'additionalProperties' => false,
 		);
@@ -970,7 +970,7 @@ trait Devenia_Workflow_Translation_Job {
 				'sync_menu'                 => ! array_key_exists( 'sync_menu', $input ) || ! empty( $input['sync_menu'] ),
 				'include_custom_links'      => true,
 				'verify_live'               => true,
-				'live_verification_timeout' => absint( $input['live_verification_timeout'] ?? 15 ),
+				'live_verification_timeout' => absint( $input['live_verification_timeout'] ?? 5 ),
 				'rollback_term_scope'        => is_array( $surface_snapshot ) ? (array) ( $surface_snapshot['term_scope'] ?? array() ) : array(),
 				'rollback_identity_scope'    => is_array( $surface_snapshot ) ? (array) ( $surface_snapshot['identity_scope'] ?? array() ) : array(),
 				'expected_mutation_cas_revision' => $prepublication_cas_revision,
