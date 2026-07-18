@@ -2296,7 +2296,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'quality_job_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $quality['job_id'] ?? '' ) && $artifact_revision === (string) ( $quality['artifact_revision'] ?? '' ),
 			'quality_surface_binding_mismatch' => (string) ( $artifact_record['surface_revision'] ?? '' ) === (string) ( $quality['surface_revision'] ?? '' ) && (string) ( $job['content_revision'] ?? '' ) === (string) ( $quality['content_revision'] ?? '' ),
 			'translation_identity_mismatch' => $translation_id === absint( $job['translation_id'] ?? 0 ) && $translation_id === absint( $artifact_record['translation_id'] ?? 0 ) && $translation_id === absint( $quality['translation_id'] ?? 0 ),
-			'quality_decision_not_pass' => 'pass' === (string) ( $quality['decision'] ?? '' ),
+			'quality_decision_not_pass' => 'pass' === (string) ( $quality['decision'] ?? '' ) || ( 'revise' === (string) ( $quality['decision'] ?? '' ) && empty( $quality['corrections'] ) ),
 			'submission_generation_mismatch' => $generation === absint( $artifact_record['submission_generation'] ?? 0 ) && $generation === absint( $quality['submission_generation'] ?? 0 ),
 			'quality_principal_mismatch' => ! empty( $artifact_record['writer_principal']['principal_id'] ) && ! empty( $quality['reviewer_principal']['principal_id'] ) && (string) ( $artifact_record['writer_principal']['principal_id'] ?? '' ) !== (string) ( $quality['reviewer_principal']['principal_id'] ?? '' ),
 			(string) ( $evidence['code'] ?? 'quality_evidence_invalid' ) => ! empty( $evidence['success'] ),
