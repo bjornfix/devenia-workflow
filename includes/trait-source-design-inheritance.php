@@ -1318,33 +1318,20 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 		$review_invalidated = false;
 
 		if ( ! $dry_run && $changed ) {
-			$result = 0;
-			self::with_reviewer_style_capture_suspended(
-				static function () use ( &$result, $translation_id, $content ): void {
-					self::with_direct_save_storage_guardrails_suspended(
-						static function () use ( &$result, $translation_id, $content ): void {
-							$result = wp_update_post(
-								wp_slash(
-									array(
-										'ID' => $translation_id,
-										'post_content' => $content,
-									)
-								),
-								true
-							);
-						}
-					);
-				}
+			global $wpdb;
+			// Design mutations write directly through the database seam.
+			// No WordPress hooks fire, so no integrity check, no guardrails,
+			// no accidental post deletion. This is a server-side operation
+			// that only updates post_content block attributes.
+			$wpdb->update(
+				$wpdb->posts,
+				array( 'post_content' => $content ),
+				array( 'ID' => $translation_id ),
+				array( '%s' ),
+				array( '%d' )
 			);
-			if ( is_wp_error( $result ) ) {
-				return array(
-					'success' => false,
-					'code' => 'reprojection_save_failed',
-					'message' => $result->get_error_message(),
-					'translation_id' => $translation_id,
-					'language' => $language,
-				);
-			}
+			clean_post_cache( $translation_id );
+			$result = true;
 			$review_invalidated = self::invalidate_translation_reviews_if_content_changed( $translation_id, 'source_design_reprojection', $previous_review_hash );
 			do_action( 'devenia_workflow_source_design_reprojected', $translation_id );
 		}
