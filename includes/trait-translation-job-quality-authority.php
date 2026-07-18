@@ -849,7 +849,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function translation_job_quality_evidence_receipts( array $job, array $artifact_record, array $input, array $reviewer_principal ): array {
+	private static function translation_job_quality_evidence_receipts( array $job, array $artifact_record, array $input, array $reviewer_principal, string $decision ): array {
 		$required_kinds = array( 'deterministic_structure', 'source_coverage', 'localized_route_links', 'seo_taxonomy', 'offer_contact', 'http_live_dom' );
 		$receipt_ids = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', (array) ( $input['evidence_receipt_ids'] ?? array() ) ) ) ) );
 		$resolved = array();
@@ -898,7 +898,9 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		if ( array_diff( array( 'natural_language', 'factual_accuracy' ), array_keys( $attestations ) ) ) {
 			return array( 'success' => false, 'code' => 'reviewer_attestations_incomplete', 'message' => 'Quality requires concrete natural-language and factual-accuracy attestations.' );
 		}
-		$browser = self::translation_job_browser_receipt( $job, $artifact_record, $input['browser_receipts'] ?? array(), $reviewer_principal, $input['browser_adapter_receipt_ids'] ?? array() );
+		$browser = 'pass' === $decision
+			? self::translation_job_browser_receipt( $job, $artifact_record, $input['browser_receipts'] ?? array(), $reviewer_principal, $input['browser_adapter_receipt_ids'] ?? array() )
+			: array( 'success' => true, 'receipts' => $input['browser_receipts'] ?? array() );
 		if ( empty( $browser['success'] ) ) { return $browser; }
 		$record = array(
 			'job_id'           => (string) $job['job_id'],

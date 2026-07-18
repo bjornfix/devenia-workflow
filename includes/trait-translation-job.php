@@ -790,7 +790,7 @@ trait Devenia_Workflow_Translation_Job {
 		if ( $translation_id && ! hash_equals( (string) ( $artifact_record['baseline_surface_revision'] ?? '' ), self::translation_job_current_surface_revision( $translation_id ) ) ) {
 			return array( 'success' => false, 'code' => 'staged_surface_drifted', 'message' => 'The public translation surface changed after artifact submission.' );
 		}
-		$evidence_receipts = self::translation_job_quality_evidence_receipts( $job, $artifact_record, $input, $reviewer_principal );
+		$evidence_receipts = self::translation_job_quality_evidence_receipts( $job, $artifact_record, $input, $reviewer_principal, $decision );
 		$qa = array(
 			'success' => ! empty( $artifact_record['staged_validation']['passed'] ),
 			'passed' => ! empty( $artifact_record['staged_validation']['passed'] ),

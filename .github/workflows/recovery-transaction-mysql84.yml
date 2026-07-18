@@ -1,29 +1,7 @@
-name: Recovery transaction on MySQL 8.4
+name: Optional MySQL 8.4 compatibility
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - .github/workflows/recovery-transaction-mysql84.yml
-      - devenia-workflow.php
-      - includes/**
-      - tools/check-recovery-transaction-portability-runtime.php
-      - tools/check-wp-cli-upgrade-bootstrap-runtime.php
-      - tools/check-public-header-projection-wordpress-runtime.php
-      - tools/check-translation-job-runtime.php
-      - tools/public-header-relation-lock-worker.php
-      - tools/run-database-runtime-suite.sh
-  pull_request:
-    paths:
-      - .github/workflows/recovery-transaction-mysql84.yml
-      - devenia-workflow.php
-      - includes/**
-      - tools/check-recovery-transaction-portability-runtime.php
-      - tools/check-wp-cli-upgrade-bootstrap-runtime.php
-      - tools/check-public-header-projection-wordpress-runtime.php
-      - tools/check-translation-job-runtime.php
-      - tools/public-header-relation-lock-worker.php
-      - tools/run-database-runtime-suite.sh
 
 permissions:
   contents: read

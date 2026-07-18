@@ -17,6 +17,44 @@ rules, translation provenance, and translation read models. Translation
 specific Interfaces retain `Translation` in their functional names while using
 the shared `Devenia_Workflow` product namespace.
 
+## Translation Index Readiness
+
+The deep Module that makes the derived Translation Index safe to consume and
+mutate. Its Interface owns physical InnoDB schema proof, one expiring database
+lease shared by rebuilds and writers, canonical WordPress-to-Index semantic
+parity, isolated shadow construction, atomic table identity swap, exact schema
+and readiness receipts, and fail-closed recovery. Readers continue on the last
+ready canonical table while a shadow is built. Every standalone Index mutation
+and every publication recovery transaction acquires the same writer lease, so a
+rebuild cannot replace a table while an Index writer is active. The Module never
+truncates or alters the canonical table in place, and plugin-version finalization
+cannot precede a freshly proved ready state. A monotonic canonical revision makes
+an older receipt stale before any canonical WordPress mutation. Mutations in one
+request are projected together, but the read Interface flushes that request-owned
+projection before evaluating readiness, so Index consumers always get
+read-your-writes semantics without knowing the batching implementation. Every
+request-local Index reader cache is bound to the same canonical-revision and
+readiness-receipt epoch; an unavailable or newer revision cannot reuse an old
+positive or empty result. Composite Index-derived readers cross one shared
+epoch-aware cache Interface: the epoch is established before lookup, canonical
+fallbacks are never cached while readiness is unavailable, and a revision that
+changes during construction forces an uncached rebuild. Shallow caller caches
+and manual refresh flags are not part of the Interface. The mutable Language
+Registry and its runtime text projections rely on WordPress option caching only,
+so their callers cannot preserve a stale registry behind an unrelated static
+cache. A fresh readiness read invalidates the complete schema, receipt, and
+canonical-revision option tuple before reading any field, so a separate writer
+cannot make one request compare mixed old and new authority.
+
+## Recovery Table Portfolio
+
+The closed Module that names every semantic table role participating in a
+Localized Presentation Publication recovery transaction. Its Interface returns
+the seven WordPress content, taxonomy, metadata and option tables plus the
+Translation Index. Engine proof, SQL placeholder count and completeness are
+derived from those roles; callers never coordinate a literal table count and no
+filter or external Adapter can expand the transaction authority surface.
+
 ## Localized Presentation Publication
 
 The deep Module that turns one approved Translation Job into a stable public
@@ -167,16 +205,19 @@ workflow is merely one replaceable Adapter that may invoke that mode. Local
 contract checks never read workflow files as authority. The
 Translation Index Adapter is a fail-closed read-model cross-check only: it never
 selects a candidate, and unavailable, missing, stale, or disagreeing rows reject
-publication. Internal custom links bind canonical source and target post IDs,
+publication. Its schema is an owned InnoDB recovery surface; the shared
+eight-table transaction preflight, exact recovery snapshot/CAS, and Relation
+Authority locks include its present-or-absent source/language and
+translation-post predicates. Internal custom links bind canonical source and target post IDs,
 source URL, target URL, normalized staged URL, every route-bearing ancestor row,
 canonical route metadata, and a route revision; external links remain URL-only.
 At final activation, authority/current/staged menus, canonical source/target and
 route post rows, the complete source/language metadata predicate, and route-meta
 predicates are sorted, locked, and revalidated inside the owned serializable
 transaction. Separate-process InnoDB runtime oracles use distinct database
-connections and exact before/under/after writes to prove both the route post row
-and translation-identity predicate return lock-wait timeout 1205 while the owner
-transaction is open. The identity proof performs a real absent-row insert and
+connections and exact before/under/after writes to prove the route post row,
+translation-identity predicate, and Translation Index identity predicates return
+lock-wait timeout 1205 while the owner transaction is open. The identity proof performs a real absent-row insert and
 exact compare-and-delete restoration for both the canonical source-ID and
 language keys; it never substitutes an update of an existing metadata row.
 Every surface restores byte-exact state twice afterward to prove cleanup is
