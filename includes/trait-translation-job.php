@@ -18,7 +18,7 @@ trait Devenia_Workflow_Translation_Job {
 		unset( $source_id, $language, $claim_token, $input );
 		return array();
 	}
-	const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 3;
+	const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 6;
 	const TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS = 3;
 	const TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES = array(
 		'staged_surface_drifted',
