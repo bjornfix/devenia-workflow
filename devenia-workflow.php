@@ -18373,6 +18373,16 @@ final class Devenia_Workflow {
 			return $items;
 		}
 
+		// Batch-load all menu item translations in one index query instead of
+		// N individual find_translation_id calls (one per menu item).
+		$menu_source_ids = array();
+		foreach ( $items as $item ) {
+			if ( isset( $item->type, $item->object ) && 'post_type' === $item->type && 'page' === $item->object && ! empty( $item->object_id ) ) {
+				$menu_source_ids[] = absint( self::source_id_for_context( (int) $item->object_id ) );
+			}
+		}
+		$translation_map = self::batch_translation_index_ids( array_unique( $menu_source_ids ), $language, array( 'publish' ) );
+
 		foreach ( $items as $item ) {
 			if ( ! is_object( $item ) ) {
 				continue;
@@ -18383,7 +18393,7 @@ final class Devenia_Workflow {
 				$source_item            = clone $item;
 				$source_item->object_id = (string) $source_id;
 
-				$translation_id = self::find_translation_id( $source_id, $language, array( 'publish' ) );
+				$translation_id = $translation_map[ $source_id ] ?? 0;
 				if ( ! $translation_id ) {
 					$localized_url = self::localized_internal_link_target( (string) $item->url, self::localized_internal_link_map( $language ) );
 					if ( $localized_url ) {
@@ -20546,6 +20556,39 @@ final class Devenia_Workflow {
 		}
 
 		return $cache[ $cache_key ];
+	}
+
+	/**
+	 * Batch-load translation IDs for many source posts in one query.
+	 */
+	private static function batch_translation_index_ids( array $source_ids, string $language, array $post_status = array() ): array {
+		$map = array();
+		if ( empty( $source_ids ) || ! self::translation_index_available() ) {
+			return $map;
+		}
+
+		$source_ids = array_map( 'absint', $source_ids );
+		$source_ids = array_unique( array_filter( $source_ids, static fn( int $id ): bool => $id > 0 ) );
+		if ( empty( $source_ids ) ) {
+			return $map;
+		}
+
+		global $wpdb;
+		$placeholders = implode( ',', array_fill( 0, count( $source_ids ), '%d' ) );
+		$sql = $wpdb->prepare(
+			"SELECT source_post_id, translation_post_id FROM %i WHERE source_post_id IN ($placeholders) AND language = %s ORDER BY translation_post_id DESC",
+			array_merge( array( self::translation_index_table() ), $source_ids, array( sanitize_key( $language ) ) )
+		);
+
+		$rows = $wpdb->get_results( $sql, ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		foreach ( $rows as $row ) {
+			$sid = (int) ( $row['source_post_id'] ?? 0 );
+			if ( $sid > 0 && ! isset( $map[ $sid ] ) ) {
+				$map[ $sid ] = (int) ( $row['translation_post_id'] ?? 0 );
+			}
+		}
+
+		return $map;
 	}
 
 	/**
