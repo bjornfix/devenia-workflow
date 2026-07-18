@@ -22,6 +22,7 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 		add_filter( 'devenia_workflow_normalize_gutenberg_content_for_storage', array( __CLASS__, 'normalize_gutenberg_content_for_storage' ) );
 		add_filter( 'devenia_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 		add_filter( 'devenia_workflow_gutenberg_guardrails', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
+		add_action( 'devenia_workflow_source_design_reprojected', array( __CLASS__, 'on_source_design_reprojected' ) );
 	}
 
 	/**
@@ -101,6 +102,25 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 
 		$element = isset( $attrs['element'] ) ? strtolower( (string) $attrs['element'] ) : '';
 		return 1 === preg_match( '/^h[1-6]$/', $element );
+	}
+
+	/**
+	 * Regenerate GenerateBlocks dynamic CSS after source-design reprojection.
+	 *
+	 * GenerateBlocks hooks save_post to update _generateblocks_dynamic_css_version,
+	 * but it bails when current_user_can('edit_post') is false (common during
+	 * MCP-triggered server operations). This hook runs inside the workflow's
+	 * own design-reprojection seam and updates the CSS version meta directly.
+	 */
+	public static function on_source_design_reprojected( int $translation_id ): void {
+		if ( ! defined( 'GENERATEBLOCKS_VERSION' ) ) {
+			return;
+		}
+		$post = get_post( $translation_id );
+		if ( ! $post || false === strpos( $post->post_content, 'wp:generateblocks' ) ) {
+			return;
+		}
+		update_post_meta( $translation_id, '_generateblocks_dynamic_css_version', sanitize_text_field( GENERATEBLOCKS_VERSION ) );
 	}
 
 	/**
