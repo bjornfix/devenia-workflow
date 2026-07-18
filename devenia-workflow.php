@@ -533,8 +533,8 @@ final class Devenia_Workflow {
 	/**
 	 * Return localized permalinks for translated blog posts.
 	 */
-	public static function filter_translated_post_link( string $permalink, WP_Post $post ): string {
-		if ( 'post' !== $post->post_type || ! self::is_translation_post( (int) $post->ID ) ) {
+	public static function filter_translated_post_link( string $permalink, $post ): string {
+		if ( ! $post instanceof WP_Post || 'post' !== $post->post_type || ! self::is_translation_post( (int) $post->ID ) ) {
 			return $permalink;
 		}
 
