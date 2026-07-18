@@ -1346,6 +1346,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				);
 			}
 			$review_invalidated = self::invalidate_translation_reviews_if_content_changed( $translation_id, 'source_design_reprojection', $previous_review_hash );
+			do_action( 'save_post', $translation_id, get_post( $translation_id ), true );
 		}
 
 		if ( ! $dry_run ) {
