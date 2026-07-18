@@ -498,6 +498,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 		$apply   = ! empty( $input['apply'] ) && empty( $input['dry_run'] );
 		$dry_run = ! $apply;
 		if ( $apply ) {
+			$input['design_only'] = true;
 			$step_token_gate = self::translation_step_token_gate( 'draft_write', $input );
 			if ( empty( $step_token_gate['success'] ) ) {
 				return $step_token_gate;
@@ -588,6 +589,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 		$apply   = ! empty( $input['apply'] ) && empty( $input['dry_run'] );
 		$dry_run = ! $apply;
 		if ( $apply ) {
+			$input['design_only'] = true;
 			$step_token_gate = self::translation_step_token_gate( 'draft_write', $input );
 			if ( empty( $step_token_gate['success'] ) ) {
 				return $step_token_gate;

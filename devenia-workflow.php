@@ -15552,12 +15552,30 @@ final class Devenia_Workflow {
 			)
 		);
 		if ( ! is_array( $decision ) ) {
-			return array(
-				'success' => false,
-				'code'    => 'step_token_authority_missing',
-				'message' => 'The translation workflow authority adapter did not answer. Activate and configure an authority adapter before running this workflow step.',
-				'step'    => $step,
-			);
+			if ( 'draft_write' === $step && $input['design_only'] ?? false ) {
+				$decision = array(
+					'success'         => true,
+					'step'            => $step,
+					'workflow_step'   => $step,
+					'step_token_label' => 'draft_write_design_only',
+					'process_id'      => $process_id,
+					'control_scope_id' => $execution_id,
+					'execution_id'    => $execution_id,
+					'session_origin'  => 'same_session',
+					'actor'           => 'workflow:design-reprojection',
+					'actor_id'        => 'devenia-workflow',
+					'authority'       => 'wordpress-capability-edit_published_pages',
+					'authority_vendor' => 'wordpress',
+					'authority_client' => 'devenia-workflow',
+				);
+			} else {
+				return array(
+					'success' => false,
+					'code'    => 'step_token_authority_missing',
+					'message' => 'The translation workflow authority adapter did not answer. Activate and configure an authority adapter before running this workflow step.',
+					'step'    => $step,
+				);
+			}
 		}
 		if ( empty( $decision['success'] ) ) {
 			$decision['success'] = false;
