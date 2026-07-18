@@ -158,7 +158,7 @@ trait Devenia_Workflow_Publication_Experience {
 			$frontend_integrity = self::frontend_public_surface_integrity_for_url(
 				(string) get_permalink( $post ),
 				$language,
-				15,
+				5,
 				self::source_id_for_context( $post_id ) === absint( get_option( 'page_on_front' ) ) ? 'homepage' : 'singular'
 			);
 			$signals['frontend_integrity'] = $frontend_integrity;
