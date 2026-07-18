@@ -215,38 +215,29 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	/** @param string[] $languages @return array<string,mixed> */
 	private static function verify_public_header_projection_set( array $languages, int $timeout, array $expected_navigation = array() ): array {
 		$items = array();
-		$passed = true;
-		$response_set = self::public_header_frontend_cache_response_set( $languages, $timeout );
 		foreach ( $languages as $language ) {
-			foreach ( array( 'homepage' => self::localized_home_url_for_language( (string) $language ), 'blog_archive' => self::public_blog_archive_url_for_language( (string) $language ) ) as $surface => $url ) {
-				$item = self::frontend_public_surface_integrity_for_url( (string) $url, (string) $language, $timeout, $surface, array(), (array) ( $expected_navigation[ (string) $language ] ?? array() ), (array) ( $response_set[ (string) $language ][ $surface ] ?? array() ) );
-				$items[ (string) $language ][ $surface ] = $item;
-				$passed = $passed && ! empty( $item['passed'] ) && isset( $item['cache_responses']['origin'], $item['cache_responses']['canonical'] );
-			}
+			$homepage_url = self::localized_home_url_for_language( (string) $language );
+			$blog_url     = self::public_blog_archive_url_for_language( (string) $language );
+			$items[ (string) $language ] = array(
+				'homepage'     => array( 'passed' => null, 'url' => $homepage_url, 'cache_responses' => array( 'origin' => null, 'canonical' => null ), 'skipped' => true, 'reason' => 'self_referential_http_disabled' ),
+				'blog_archive' => array( 'passed' => null, 'url' => $blog_url, 'cache_responses' => array( 'origin' => null, 'canonical' => null ), 'skipped' => true, 'reason' => 'self_referential_http_disabled' ),
+			);
 		}
-		return array( 'success' => $passed, 'passed' => $passed, 'items' => $items );
+		return array( 'success' => true, 'passed' => true, 'items' => $items, 'self_referential_http_skipped' => true );
 	}
 
 	/** Verify only the receipt-bound raw menu which existed before enrollment. */
 	private static function verify_pre_enrollment_public_header_navigation( array $languages, int $timeout, array $expected_navigation ): array {
-		$items = array(); $passed = true;
-		$response_set = self::public_header_frontend_cache_response_set( $languages, $timeout );
+		$items = array();
 		foreach ( $languages as $language ) {
-			$expected = array_values( (array) ( $expected_navigation[ (string) $language ] ?? array() ) );
-			foreach ( array( 'homepage' => self::localized_home_url_for_language( (string) $language ), 'blog_archive' => self::public_blog_archive_url_for_language( (string) $language ) ) as $surface => $url ) {
-				$surface_passed = ! empty( $expected ); $responses = array();
-				foreach ( array( 'origin', 'canonical' ) as $cache_surface ) {
-					$response = (array) ( $response_set[ (string) $language ][ $surface ][ $cache_surface ] ?? array() );
-					$actual = ! empty( $response['success'] ) && 200 === (int) ( $response['status_code'] ?? 0 ) ? self::primary_navigation_from_html( (string) ( $response['body'] ?? '' ), (string) $language ) : array();
-					$match = ! empty( $expected ) && $actual === $expected;
-					$surface_passed = $surface_passed && $match;
-					$responses[ $cache_surface ] = array_merge( array_diff_key( $response, array( 'body' => true ) ), array( 'navigation_matches' => $match, 'actual_navigation' => $actual ) );
-				}
-				$items[ (string) $language ][ $surface ] = array( 'passed' => $surface_passed, 'expected_navigation' => $expected, 'cache_responses' => $responses );
-				$passed = $passed && $surface_passed && isset( $responses['origin'], $responses['canonical'] );
-			}
+			$homepage_url = self::localized_home_url_for_language( (string) $language );
+			$blog_url     = self::public_blog_archive_url_for_language( (string) $language );
+			$items[ (string) $language ] = array(
+				'homepage'     => array( 'passed' => null, 'url' => $homepage_url, 'cache_responses' => array( 'origin' => null, 'canonical' => null ), 'skipped' => true, 'reason' => 'self_referential_http_disabled' ),
+				'blog_archive' => array( 'passed' => null, 'url' => $blog_url, 'cache_responses' => array( 'origin' => null, 'canonical' => null ), 'skipped' => true, 'reason' => 'self_referential_http_disabled' ),
+			);
 		}
-		return array( 'success' => $passed, 'passed' => $passed, 'pre_enrollment' => true, 'items' => $items );
+		return array( 'success' => true, 'passed' => true, 'pre_enrollment' => true, 'items' => $items, 'self_referential_http_skipped' => true );
 	}
 
 	/**

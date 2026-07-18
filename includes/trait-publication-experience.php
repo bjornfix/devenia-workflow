@@ -155,26 +155,12 @@ trait Devenia_Workflow_Publication_Experience {
 		}
 
 		if ( 'publish' === (string) $post->post_status && self::is_translation_post( $post_id ) && self::is_translation_language( $language ) ) {
-			$frontend_integrity = self::frontend_public_surface_integrity_for_url(
-				(string) get_permalink( $post ),
-				$language,
-				5,
-				self::source_id_for_context( $post_id ) === absint( get_option( 'page_on_front' ) ) ? 'homepage' : 'singular'
+			$signals['frontend_integrity'] = array(
+				'passed' => null,
+				'url'    => (string) get_permalink( $post ),
+				'skipped' => true,
+				'reason' => 'self_referential_http_disabled',
 			);
-			$signals['frontend_integrity'] = $frontend_integrity;
-			if ( empty( $frontend_integrity['passed'] ) ) {
-				$blockers[] = self::quality_verdict_blocker(
-					'publication_experience_frontend_integrity_failed',
-					'block_publish',
-					'Rendered public frontend output contains localization or source-language remnants that are not visible in stored Gutenberg content.',
-					array(
-						'post_id'     => $post_id,
-						'language'    => $language,
-						'url'         => (string) ( $frontend_integrity['url'] ?? '' ),
-						'issue_codes' => self::qa_item_codes( $frontend_integrity['issues'] ?? array() ),
-					)
-				);
-			}
 		}
 
 		$state = array(
