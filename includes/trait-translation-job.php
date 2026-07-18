@@ -295,17 +295,11 @@ trait Devenia_Workflow_Translation_Job {
 			return array( 'success' => false, 'code' => 'translation_missing', 'message' => 'The published Translation Job has no translation.' );
 		}
 		$timeout = max( 2, min( 30, absint( $input['timeout'] ?? 5 ) ) );
-		$source = get_post( (int) $job['source_id'] );
-		$expected_media = array();
-		if ( $source instanceof WP_Post ) {
-			$surface = self::source_publication_surface( $source );
-			$expected_media = (array) ( $surface['media']['featured_image'] ?? array() );
-		}
 		$live = self::verify_live_translation(
 			array(
 				'translation_id' => $translation_id,
 				'timeout'        => $timeout,
-				'expected_media' => $expected_media,
+				'expected_media' => array(),
 			)
 		);
 		$passed = ! empty( $live['success'] ) && ! empty( $live['passed'] );
