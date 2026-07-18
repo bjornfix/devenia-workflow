@@ -635,50 +635,24 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 			$source_id      = absint( $row['source_id'] ?? 0 );
 			$translation_id = absint( $row['id'] ?? 0 );
 			$source_path    = trim( (string) ( $row['source_path'] ?? '' ), '/' );
-			$source_url     = '';
+			$source_url     = '' === $source_path ? '' : home_url( '/' . $source_path . '/' );
 			$stored_target_path = trim( (string) ( $row['target_path'] ?? '' ), '/' );
 			$target_path    = $stored_target_path;
 			$target_url     = esc_url_raw( (string) ( $row['target_url'] ?? '' ) );
-			$observed_target_url = '';
-			$observed_target_path = '';
-			$canonical_route_contract = array();
-			if ( '' === $source_path && $source_id ) {
-				$source_url  = esc_url_raw( (string) get_permalink( $source_id ) );
-				$source_path = $source_url ? trim( self::normalized_url_path( $source_url ), '/' ) : '';
-			}
-			if ( $translation_id ) {
-				$current_target_url = esc_url_raw( (string) get_permalink( $translation_id ) );
-				if ( '' !== $current_target_url ) {
-					$observed_target_url  = $current_target_url;
-					$observed_target_path = self::normalized_url_path( $current_target_url );
-					$target_url            = $current_target_url;
-					$target_path           = $observed_target_path;
-				}
-				$canonical_route_contract = get_post_meta( $translation_id, self::META_CANONICAL_ROUTE, true );
-				if ( is_array( $canonical_route_contract ) && ! empty( $canonical_route_contract['path'] ) ) {
-					$target_path = trim( (string) $canonical_route_contract['path'], '/' );
-					$target_url  = ! empty( $canonical_route_contract['url'] )
-						? esc_url_raw( (string) $canonical_route_contract['url'] )
-						: home_url( '/' . $target_path . '/' );
-				}
-			}
-			if ( '' === $target_path && $target_url ) {
+
+			if ( '' === $target_path && '' !== $target_url ) {
 				$target_path = self::normalized_url_path( $target_url );
 			}
-			if ( ( '' === $source_url && '' === $source_path ) || '' === $target_url || '' === $target_path ) {
+			if ( '' === $target_url || '' === $target_path || ( '' === $source_url && '' === $source_path ) ) {
 				continue;
 			}
 
 			$stored_localized_path = trim( (string) ( $row['localized_path'] ?? '' ), '/' );
-			$meta_localized_path   = '';
-			if ( $translation_id ) {
-				$meta_localized_path = trim( (string) get_post_meta( $translation_id, self::META_LOCALIZED_PATH, true ), '/' );
-			}
 			$canonical_path        = trim( (string) $target_path, '/' );
 			$localized_variants    = array_values(
 				array_unique(
 					array_filter(
-						array( $stored_localized_path, $meta_localized_path, $stored_target_path, $canonical_path ),
+						array( $stored_localized_path, $stored_target_path, $canonical_path ),
 						static function ( string $path ): bool {
 							return '' !== $path;
 						}
@@ -686,17 +660,17 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 				)
 			);
 
-			$row['source_url'] = '' !== $source_url ? $source_url : home_url( '/' . trim( $source_path, '/' ) . '/' );
-			$row['url']        = (string) $target_url;
-			$row['target_url'] = (string) $target_url;
+			$row['source_url']  = $source_url;
+			$row['url']         = (string) $target_url;
+			$row['target_url']  = (string) $target_url;
 			$row['source_path'] = $source_path;
 			$row['target_path'] = $target_path;
 			$row['localized_path'] = $canonical_path ?: $stored_localized_path;
 			$row['localized_path_variants'] = $localized_variants;
-			$row['established_canonical_route'] = is_array( $canonical_route_contract ) ? $canonical_route_contract : array();
-			$row['observed_target_url'] = $observed_target_url;
-			$row['observed_target_path'] = $observed_target_path;
-			$row['route_drift'] = '' !== $observed_target_path && '' !== $canonical_path && trim( $observed_target_path, '/' ) !== trim( $canonical_path, '/' );
+			$row['established_canonical_route'] = array();
+			$row['observed_target_url'] = '';
+			$row['observed_target_path'] = '';
+			$row['route_drift'] = false;
 
 			$frontend_rows[] = $row;
 		}
