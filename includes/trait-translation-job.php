@@ -1806,8 +1806,8 @@ trait Devenia_Workflow_Translation_Job {
 
 	private static function translation_job_budget( string $role ): array {
 		return 'quality' === $role
-			? array( 'input_token_limit' => 40000, 'output_token_limit' => 10000, 'total_token_limit' => 50000, 'max_attempts' => 2 )
-			: array( 'input_token_limit' => 40000, 'output_token_limit' => 30000, 'total_token_limit' => 70000, 'max_attempts' => 2 );
+			? array( 'input_token_limit' => 50000, 'output_token_limit' => 10000, 'total_token_limit' => 60000, 'max_attempts' => 2 )
+			: array( 'input_token_limit' => 50000, 'output_token_limit' => 30000, 'total_token_limit' => 80000, 'max_attempts' => 2 );
 	}
 
 	private static function translation_job_source_is_stale( array $job ): bool {
