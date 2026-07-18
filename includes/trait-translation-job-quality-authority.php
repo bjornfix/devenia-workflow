@@ -1045,7 +1045,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$dom = strtolower( sanitize_text_field( (string) ( $row['response_digest'] ?? '' ) ) );
 			$layout = strtolower( sanitize_text_field( (string) ( $row['layout_digest'] ?? '' ) ) );
 			$dimensions = is_array( $row['viewport'] ?? null ) ? $row['viewport'] : array();
-			$policy_dimensions = 'desktop' === $viewport ? array( 1440, 1100, 1 ) : array( 390, 844, 1 );
+			$policy_dimensions = 'desktop' === $viewport ? array( 1140, 800, 1 ) : array( 390, 844, 1 );
 			if (
 				! in_array( $key, $required, true )
 				|| (string) $artifact_record['artifact_revision'] !== (string) ( $row['artifact_revision'] ?? '' )
