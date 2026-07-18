@@ -23,6 +23,7 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 		add_filter( 'devenia_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 		add_filter( 'devenia_workflow_gutenberg_guardrails', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 		add_action( 'devenia_workflow_source_design_reprojected', array( __CLASS__, 'on_source_design_reprojected' ) );
+		add_action( 'save_post', array( __CLASS__, 'on_save_post_regenerate_css' ), 100, 1 );
 	}
 
 	/**
@@ -121,6 +122,24 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 			return;
 		}
 		update_post_meta( $translation_id, '_generateblocks_dynamic_css_version', sanitize_text_field( GENERATEBLOCKS_VERSION ) );
+	}
+
+	/**
+	 * Force GenerateBlocks CSS regeneration on save_post when the
+	 * current_user_can check would normally block it (server-side saves).
+	 */
+	public static function on_save_post_regenerate_css( int $post_id ): void {
+		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+			return;
+		}
+		if ( ! defined( 'GENERATEBLOCKS_VERSION' ) ) {
+			return;
+		}
+		$post = get_post( $post_id );
+		if ( ! $post || false === strpos( $post->post_content, 'wp:generateblocks' ) ) {
+			return;
+		}
+		update_post_meta( $post_id, '_generateblocks_dynamic_css_version', sanitize_text_field( GENERATEBLOCKS_VERSION ) );
 	}
 
 	/**
