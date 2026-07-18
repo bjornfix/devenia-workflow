@@ -1318,23 +1318,14 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 		$review_invalidated = false;
 
 		if ( ! $dry_run && $changed ) {
-			$result = 0;
-			self::with_reviewer_style_capture_suspended(
-				static function () use ( &$result, $translation_id, $content ): void {
-					self::with_direct_save_storage_guardrails_suspended(
-						static function () use ( &$result, $translation_id, $content ): void {
-							$result = wp_update_post(
-								wp_slash(
-									array(
-										'ID' => $translation_id,
-										'post_content' => $content,
-									)
-								),
-								true
-							);
-						}
-					);
-				}
+			$result = wp_update_post(
+				wp_slash(
+					array(
+						'ID' => $translation_id,
+						'post_content' => $content,
+					)
+				),
+				true
 			);
 			if ( is_wp_error( $result ) ) {
 				return array(
@@ -1346,7 +1337,6 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				);
 			}
 			$review_invalidated = self::invalidate_translation_reviews_if_content_changed( $translation_id, 'source_design_reprojection', $previous_review_hash );
-			do_action( 'save_post', $translation_id, get_post( $translation_id ), true );
 		}
 
 		if ( ! $dry_run ) {
