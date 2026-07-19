@@ -424,7 +424,7 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 			$sql = "SELECT source_post_id, translation_post_id FROM %i WHERE language = %s AND source_post_id IN ({$source_placeholders}) AND post_status IN ({$status_placeholders}) ORDER BY source_post_id ASC";
 			$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact bounded read from the plugin-owned translation registry.
 				$wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- Placeholders are generated only from bounded sanitized ID/status arrays.
-					$sql,
+					$sql, // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- The bounded placeholder template is assembled immediately above and every value is passed to prepare().
 					array_merge( array( self::translation_index_table(), $language ), $source_chunk, $statuses )
 				),
 				ARRAY_A
