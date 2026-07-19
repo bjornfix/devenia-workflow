@@ -20591,18 +20591,28 @@ final class Devenia_Workflow {
 			return $map;
 		}
 
+		$cache_key = 'batch_trans_index:' . md5( implode( ',', $source_ids ) . ':' . $language );
+		$cached    = wp_cache_get( $cache_key, 'devenia_workflow' );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
 		global $wpdb;
-		$table           = self::translation_index_table();
-		$placeholders    = implode( ',', array_fill( 0, count( $source_ids ), '%d' ) );
-		$wpdb->suppress_errors( true );
-		$rows = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT source_post_id, translation_post_id FROM %i WHERE source_post_id IN ($placeholders) AND language = %s ORDER BY translation_post_id DESC",
-				array_merge( array( $table ), $source_ids, array( sanitize_key( $language ) ) )
-			),
-			ARRAY_A
+		$table     = self::translation_index_table();
+		$values    = array( $table );
+		$formats   = array();
+		foreach ( $source_ids as $source_id ) {
+			$formats[] = '%d';
+			$values[]  = $source_id;
+		}
+		$values[]  = sanitize_key( $language );
+		$formats[] = '%s';
+
+		$sql = $wpdb->prepare(
+			'SELECT source_post_id, translation_post_id FROM %i WHERE source_post_id IN (' . implode( ',', $formats ) . ') AND language = %s ORDER BY translation_post_id DESC',
+			...$values
 		);
-		$wpdb->suppress_errors( false );
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
 		foreach ( $rows as $row ) {
 			$sid = (int) ( $row['source_post_id'] ?? 0 );
 			if ( $sid > 0 && ! isset( $map[ $sid ] ) ) {
@@ -20610,6 +20620,7 @@ final class Devenia_Workflow {
 			}
 		}
 
+		wp_cache_set( $cache_key, $map, 'devenia_workflow', 300 );
 		return $map;
 	}
 

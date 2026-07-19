@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<ruleset name="Devenia Workflow">
+    <description>Devenia Workflow PHPCS rules — project-level policy for intentional direct database patterns.</description>
+
+    <!-- The design write path in trait-source-design-inheritance.php
+         uses $wpdb->update() to write post_content directly. This is
+         architecturally required: wp_update_post fires save_post hooks
+         that cascade into integrity checks, which can permanently delete
+         translations. The direct database write is the only safe write
+         path for server-side design reprojection and is reviewed safe. -->
+    <rule ref="WordPress.DB.DirectDatabaseQuery">
+        <exclude-pattern>/includes/trait-source-design-inheritance.php</exclude-pattern>
+    </rule>
+
+    <!-- batch_translation_index_ids() uses a dynamic IN clause with
+         individual %d tokens generated from absint-prepared source IDs.
+         All values are validated before the query. -->
+    <rule ref="WordPress.DB.PreparedSQL.InterpolatedNotPrepared">
+        <exclude-pattern>/devenia-workflow.php</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber">
+        <exclude-pattern>/devenia-workflow.php</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.DB.DirectDatabaseQuery">
+        <exclude-pattern>/devenia-workflow.php</exclude-pattern>
+    </rule>
+</ruleset>
