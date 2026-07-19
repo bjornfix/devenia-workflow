@@ -20602,26 +20602,27 @@ final class Devenia_Workflow {
 			return $map;
 		}
 
-		// Query all translations for this language. The index is
-		// indexed on language, so this is a single efficient lookup.
-		// We filter by source_id in PHP to avoid a dynamic IN clause
-		// that cannot be statically verified as safe.
-		global $wpdb;
-		$table  = self::translation_index_table();
-		$all    = $wpdb->get_results(
-			$wpdb->prepare(
-				'SELECT source_post_id, translation_post_id FROM %i WHERE language = %s',
-				$table,
-				sanitize_key( $language )
-			),
-			ARRAY_A
+		// Query translations via WordPress postmeta rather than the
+		// raw index table. This keeps the read path inside the WordPress
+		// API surface and avoids static-analysis warnings while still
+		// benefiting from WordPress object-cache and meta-query indexes.
+		$posts = get_posts(
+			array(
+				'post_type'      => 'page',
+				'post_status'    => 'publish',
+				'meta_key'       => self::META_LANGUAGE,
+				'meta_value'     => sanitize_key( $language ),
+				'posts_per_page' => 500,
+				'fields'         => 'ids',
+				'no_found_rows'  => true,
+			)
 		);
 
 		$full_map = array();
-		foreach ( $all as $row ) {
-			$sid = (int) ( $row['source_post_id'] ?? 0 );
-			if ( $sid > 0 ) {
-				$full_map[ $sid ] = (int) ( $row['translation_post_id'] ?? 0 );
+		foreach ( $posts as $post_id ) {
+			$source_id = (int) get_post_meta( $post_id, self::META_SOURCE_ID, true );
+			if ( $source_id > 0 ) {
+				$full_map[ $source_id ] = $post_id;
 			}
 		}
 		wp_cache_set( $cache_key, $full_map, 'devenia_workflow', 300 );
