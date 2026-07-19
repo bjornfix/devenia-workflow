@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.632
+ * Version: 0.1.633
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -69,7 +69,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.632';
+	const VERSION = '0.1.633';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -20633,49 +20633,16 @@ final class Devenia_Workflow {
 			return $map;
 		}
 
-		$cache_key = 'batch_trans_index:' . $language;
+		$statuses  = self::translation_index_statuses( $post_status );
+		sort( $source_ids, SORT_NUMERIC );
+		$cache_key = 'batch_trans_index:' . sanitize_key( $language ) . ':' . hash( 'sha256', implode( ',', $source_ids ) . '|' . implode( ',', $statuses ) );
 		$cached    = wp_cache_get( $cache_key, 'devenia_workflow' );
 		if ( is_array( $cached ) ) {
-			foreach ( $cached as $sid => $tid ) {
-				if ( in_array( $sid, $source_ids, true ) ) {
-					$map[ $sid ] = $tid;
-				}
-			}
-			return $map;
+			return $cached;
 		}
 
-		// Query all published pages and filter by language in PHP.
-		// This avoids meta_key/meta_value parameters that trigger
-		// slow-query static-analysis warnings. WordPress object-cache
-		// makes get_post_meta() calls free after the first request.
-		$posts = get_posts(
-			array(
-				'post_type'      => 'page',
-				'post_status'    => 'publish',
-				'posts_per_page' => 500,
-				'fields'         => 'ids',
-				'no_found_rows'  => true,
-			)
-		);
-
-		$full_map = array();
-		foreach ( $posts as $post_id ) {
-			$lang_match = get_post_meta( $post_id, self::META_LANGUAGE, true );
-			if ( sanitize_key( $language ) !== sanitize_key( (string) $lang_match ) ) {
-				continue;
-			}
-			$source_id = (int) get_post_meta( $post_id, self::META_SOURCE_ID, true );
-			if ( $source_id > 0 ) {
-				$full_map[ $source_id ] = $post_id;
-			}
-		}
-		wp_cache_set( $cache_key, $full_map, 'devenia_workflow', 300 );
-
-		foreach ( $full_map as $sid => $tid ) {
-			if ( in_array( $sid, $source_ids, true ) ) {
-				$map[ $sid ] = $tid;
-			}
-		}
+		$map = self::translation_index_ids_for_sources_language( $source_ids, $language, $statuses );
+		wp_cache_set( $cache_key, $map, 'devenia_workflow', 300 );
 		return $map;
 	}
 

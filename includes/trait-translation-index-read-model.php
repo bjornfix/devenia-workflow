@@ -393,6 +393,56 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 	}
 
 	/**
+	 * Batch-load translation IDs for exact source IDs and one language.
+	 *
+	 * Each physical query is capped at 100 source IDs. This keeps frontend menu
+	 * projection on the indexed registry seam instead of scanning WordPress
+	 * posts and inflating per-post metadata caches.
+	 *
+	 * @param array<int,int>    $source_ids  Source post IDs.
+	 * @param string            $language    Target language.
+	 * @param array<int,string> $post_status Accepted post statuses.
+	 * @return array<int,int> Source ID to translation ID map.
+	 */
+	private static function translation_index_ids_for_sources_language( array $source_ids, string $language, array $post_status ): array {
+		if ( ! self::translation_index_available() ) {
+			return array();
+		}
+
+		$source_ids = array_values( array_unique( array_filter( array_map( 'absint', $source_ids ) ) ) );
+		$language   = sanitize_key( $language );
+		$statuses   = self::translation_index_statuses( $post_status );
+		if ( empty( $source_ids ) || '' === $language || empty( $statuses ) ) {
+			return array();
+		}
+
+		global $wpdb;
+		$map = array();
+		foreach ( array_chunk( $source_ids, 100 ) as $source_chunk ) {
+			$source_placeholders = implode( ', ', array_fill( 0, count( $source_chunk ), '%d' ) );
+			$status_placeholders = implode( ', ', array_fill( 0, count( $statuses ), '%s' ) );
+			$sql = "SELECT source_post_id, translation_post_id FROM %i WHERE language = %s AND source_post_id IN ({$source_placeholders}) AND post_status IN ({$status_placeholders}) ORDER BY source_post_id ASC";
+			$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact bounded read from the plugin-owned translation registry.
+				$wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- Placeholders are generated only from bounded sanitized ID/status arrays.
+					$sql,
+					array_merge( array( self::translation_index_table(), $language ), $source_chunk, $statuses )
+				),
+				ARRAY_A
+			);
+
+			foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+				$source_id      = absint( $row['source_post_id'] ?? 0 );
+				$translation_id = absint( $row['translation_post_id'] ?? 0 );
+				if ( $source_id && $translation_id ) {
+					$map[ $source_id ] = $translation_id;
+				}
+			}
+		}
+
+		return $map;
+	}
+
+	/**
 	 * Look up all indexed translation IDs.
 	 *
 	 * @return array<int,int>
