@@ -20608,12 +20608,14 @@ final class Devenia_Workflow {
 		// that cannot be statically verified as safe.
 		global $wpdb;
 		$table  = self::translation_index_table();
-		$sql    = $wpdb->prepare(
-			'SELECT source_post_id, translation_post_id FROM %i WHERE language = %s',
-			$table,
-			sanitize_key( $language )
+		$all    = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT source_post_id, translation_post_id FROM %i WHERE language = %s',
+				$table,
+				sanitize_key( $language )
+			),
+			ARRAY_A
 		);
-		$all    = $wpdb->get_results( $sql, ARRAY_A );
 
 		$full_map = array();
 		foreach ( $all as $row ) {
