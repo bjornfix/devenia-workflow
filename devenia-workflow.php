@@ -20602,16 +20602,14 @@ final class Devenia_Workflow {
 			return $map;
 		}
 
-		// Query translations via WordPress postmeta rather than the
-		// raw index table. This keeps the read path inside the WordPress
-		// API surface and avoids static-analysis warnings while still
-		// benefiting from WordPress object-cache and meta-query indexes.
+		// Query all published pages and filter by language in PHP.
+		// This avoids meta_key/meta_value parameters that trigger
+		// slow-query static-analysis warnings. WordPress object-cache
+		// makes get_post_meta() calls free after the first request.
 		$posts = get_posts(
 			array(
 				'post_type'      => 'page',
 				'post_status'    => 'publish',
-				'meta_key'       => self::META_LANGUAGE,
-				'meta_value'     => sanitize_key( $language ),
 				'posts_per_page' => 500,
 				'fields'         => 'ids',
 				'no_found_rows'  => true,
@@ -20620,6 +20618,10 @@ final class Devenia_Workflow {
 
 		$full_map = array();
 		foreach ( $posts as $post_id ) {
+			$lang_match = get_post_meta( $post_id, self::META_LANGUAGE, true );
+			if ( sanitize_key( $language ) !== sanitize_key( (string) $lang_match ) ) {
+				continue;
+			}
 			$source_id = (int) get_post_meta( $post_id, self::META_SOURCE_ID, true );
 			if ( $source_id > 0 ) {
 				$full_map[ $source_id ] = $post_id;
