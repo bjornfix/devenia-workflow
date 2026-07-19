@@ -356,7 +356,9 @@ const publicationStageEnd = publication.indexOf("private static function refresh
 assert.ok(publicationStageStart > 0 && publicationStageEnd > publicationStageStart, "ordinary publication staging must remain a bounded ownership Interface");
 const publicationStage = publication.slice(publicationStageStart, publicationStageEnd);
 
-assert.match(publication, /publish_localized_presentation[\s\S]*apply_translation_publish_transition[\s\S]*refresh_public_header_projection_for_publication[\s\S]*devenia_workflow_frontend_cache_invalidation_result[\s\S]*verify_live_translation/);
+assert.match(publication, /private static function verify_live_translation[\s\S]*private static function publish_localized_presentation/, "live verification must remain a separate callable Interface before publication");
+assert.match(publication, /publish_localized_presentation[\s\S]*apply_translation_publish_transition[\s\S]*refresh_public_header_projection_for_publication[\s\S]*devenia_workflow_frontend_cache_invalidation_result/);
+assert.doesNotMatch(publication.slice(publication.indexOf("private static function publish_localized_presentation"), publication.indexOf("private static function rollback_localized_menu_projection")), /self::verify_live_translation\s*\(/, "publication must not synchronously self-fetch the live surface");
 assert.doesNotMatch(publication.slice(publication.indexOf("private static function publish_localized_presentation"), publication.indexOf("private static function rollback_localized_menu_projection")), /sync_language_menu\s*\(/, "normal publication must not activate one language directly");
 assert.match(jobs, /translation_job_publish[\s\S]*publish_localized_presentation/);
 assert.match(plugin, /private static function publish_translation[\s\S]*publish_localized_presentation/);
@@ -369,7 +371,7 @@ assert.match(publicHeaderRuntime, /array_key_exists\( 'published', \$content_att
 assert.doesNotMatch(publicHeaderRuntime, /null !== \( \$content_attempt\['published'\] \?\? false \)/, "null coalescing must not erase the explicit published=null foreign receipt");
 assert.match(publication, /'rollback_authorized' => true[\s\S]*'rollback_expected_surface_revision' => \$mutation_cas_revision/, "only an exact owned replacement receipt may authorize caller rollback");
 assert.match(publication, /catch \( Throwable \$error \)[\s\S]*observed_after_exception[\s\S]*publication_transaction_exception_unapplied[\s\S]*publication_transaction_exception_applied[\s\S]*publication_transaction_exception_reconciliation_conflict/, "transaction Adapter exceptions must reconcile exact unapplied, applied, or foreign state instead of collapsing to unpublished");
-assert.match(publication, /public_header_projection_publication_failed[\s\S]*commit_reconciliation[\s\S]*frontend_cache_adapter_missing[\s\S]*commit_reconciliation[\s\S]*localized_presentation_verification_failed[\s\S]*commit_reconciliation/, "every post-commit failure must preserve commit reconciliation and the exact mutation receipt");
+assert.match(publication, /public_header_projection_publication_failed[\s\S]*commit_reconciliation[\s\S]*frontend_cache_adapter_missing[\s\S]*commit_reconciliation[\s\S]*frontend_cache_invalidation_failed[\s\S]*commit_reconciliation/, "every synchronous post-commit failure must preserve commit reconciliation and the exact mutation receipt");
 
 assert.match(sync, /wp_create_nav_menu\( \$staging_name \)/);
 assert.match(sync, /validate_localized_menu_projection[\s\S]*devenia_workflow_public_header_projection_receipt[\s\S]*'staged_only'\] = true[\s\S]*return \$base_result/, "single-language projection may only return a validated staged receipt");
@@ -531,7 +533,8 @@ const queryIdentityLinkAuthorityPasses = (pluginSource, readModelSource, runtime
 		&& /\$candidates = self::content_shortlink_variants\( \$content_query_id \)/.test(queryBranch)
 		&& !/\$path|trailingslashit|untrailingslashit/.test(queryBranch)
 		&& /} else \{[\s\S]*\$path[\s\S]*trailingslashit\( \$path \)/.test(target)
-		&& /\$source_url\s*= '';[\s\S]*get_permalink\( \$source_id \)[\s\S]*\( '' === \$source_url && '' === \$source_path \)[\s\S]*'' !== \$source_url \? \$source_url : home_url/.test(frontendRows)
+		&& /\$source_url\s*= '' === \$source_path \? '' : home_url\( '\/' \. \$source_path \. '\/' \)[\s\S]*\( '' === \$source_url && '' === \$source_path \)/.test(frontendRows)
+		&& !/get_permalink\(|get_post\(/.test(frontendRows)
 		&& /\$query_identity_root_map[\s\S]*array\( 'page_id', 'p', 'post_id' \)[\s\S]*home_url\([\s\S]*'\/\?'[\s\S]*null !== \$call\( 'localized_internal_link_target'[\s\S]*Unknown WordPress query-ID link fell through/.test(unknownQueryRuntime)
 		&& /\$untranslated_packet_link_rows[\s\S]*\$localized_packet_link_rows[\s\S]*2 !== count\( \$links \)[\s\S]*false !== \( \$untranslated_packet_link\['published_target_available'\][\s\S]*retain_source_url_until_localized_target_is_published[\s\S]*true !== \( \$localized_packet_link\['published_target_available'\][\s\S]*use_published_localized_target[\s\S]*\$localized_packet_link\['source_url'\][\s\S]*=== \$call\( 'normalized_comparable_url', \$expected_localized_packet_link_url \)/.test(packetRuntime)
 		&& /\$refresh_link_rows[\s\S]*\$linked_source_id === absint\( \$row\['source_post_id'\][\s\S]*\$linked_source_id !== absint\( \$refresh_link_row\['target_post_id'\][\s\S]*published_target_available[\s\S]*retain_source_url_until_localized_target_is_published[\s\S]*Untranslated query-ID source link was aliased/.test(refreshRuntime);
@@ -547,7 +550,9 @@ assert.equal(queryIdentityLinkAuthorityPasses(plugin.replace("$candidates = self
 const appendedQueryPathFallback = plugin.replace("\t\t}\n\n\t\tforeach ( $candidates as $candidate ) {", "\t\t}\n\t\tif ( $content_query_id ) { $candidates[] = $path; }\n\n\t\tforeach ( $candidates as $candidate ) {");
 assert.notEqual(appendedQueryPathFallback, plugin, "the post-branch path-fallback mutation fixture must alter production source");
 assert.equal(queryIdentityLinkAuthorityPasses(appendedQueryPathFallback, indexReadModel, runtime), false, "the query-ID gate must reject a generic path candidate appended after the protected query branch");
-assert.equal(queryIdentityLinkAuthorityPasses(plugin, indexReadModel.replace("$row['source_url'] = '' !== $source_url ? $source_url : home_url( '/' . trim( $source_path, '/' ) . '/' );", "$row['source_url'] = home_url( '/' . trim( $source_path, '/' ) . '/' );"), runtime), false, "the query-ID gate must reject collapsing a query permalink into root-path authority");
+const collapsedEmptySourcePath = indexReadModel.replace("$source_url     = '' === $source_path ? '' : home_url( '/' . $source_path . '/' );", "$source_url     = home_url( '/' . $source_path . '/' );");
+assert.notEqual(collapsedEmptySourcePath, indexReadModel, "the empty-source-path mutation fixture must alter production source");
+assert.equal(queryIdentityLinkAuthorityPasses(plugin, collapsedEmptySourcePath, runtime), false, "the query-ID gate must reject collapsing an empty source path into root-path authority");
 assert.equal(queryIdentityLinkAuthorityPasses(plugin, indexReadModel, runtime.replace("$linked_source_id !== absint( $refresh_link_row['target_post_id'] ?? 0 )", "$linked_source_id < 1")), false, "the runtime oracle must bind the packet target to the exact untranslated source identity");
 assert.match(publication, /intake_state_restore/);
 assert.match(enrollmentInterface, /stage_first_public_header_enrollment_transaction[\s\S]*lock_public_header_relation_authority_surface[\s\S]*theme_mods_[\s\S]*FOR UPDATE[\s\S]*devenia_workflow_public_header_enrollment_before_locked_stage_revalidation/);
@@ -587,7 +592,8 @@ assert.match(publicHeaderRuntime, /<nav id="site-navigation"><ul class="menu">/,
 assert.match(publicHeaderRuntime, /devenia_workflow_frontend_cache_batch_adapter_result/, "the exact WordPress Public Header runtime must inject its complete keyed oracle through the plugin-owned batch Adapter seam");
 assert.match(runtime, /\$runtime_batch_http[\s\S]*devenia_workflow_frontend_cache_batch_adapter_result[\s\S]*sync_public_header_projection[\s\S]*remove_filter\( 'devenia_workflow_frontend_cache_batch_adapter_result'/, "the exact Translation Job runtime must keep Public Header verification deterministic through the same whole-batch Adapter while retaining its separate single-request media fixture");
 assert.match(runtime, /<nav id="site-navigation"><ul class="menu">/, "the exact Translation Job runtime must render the owned primary menu-list boundary consumed by the production parser");
-assert.match(publication, /verify_public_header_projection_set[\s\S]*public_header_frontend_cache_response_set[\s\S]*frontend_public_surface_integrity_for_url[\s\S]*verify_pre_enrollment_public_header_navigation[\s\S]*public_header_frontend_cache_response_set[\s\S]*pre_enrollment_public_header_recovery_snapshot[\s\S]*public_header_frontend_cache_response_set/, "forward verification, pre-enrollment verification, and recovery snapshot must consume the same complete batched response set");
+assert.match(publication, /verify_public_header_projection_set[\s\S]*self_referential_http_disabled[\s\S]*verify_pre_enrollment_public_header_navigation[\s\S]*self_referential_http_disabled/, "ordinary same-request forward checks must not self-fetch the WordPress origin");
+assert.match(publication, /pre_enrollment_public_header_recovery_snapshot[\s\S]*public_header_frontend_cache_response_set/, "the explicit recovery snapshot must consume one complete bounded response set");
 assert.match(publication, /frontend_public_surface_integrity_for_url[\s\S]*\?array \$provided_responses = null[\s\S]*null !== \$provided_responses[\s\S]*\$provided_responses\[ \$cache_surface \] \?\? array\(\)[\s\S]*fetch_frontend_cache_surface/, "a supplied Public Header batch must fail closed on a missing coordinate instead of silently retrying the old sequential path");
 assert.match(publication, /public_header_pre_enrollment_oracle_missing[\s\S]*response_evidence[\s\S]*body_length/, "pre-enrollment failures must expose structured member and body evidence instead of hiding transport exhaustion behind an empty-oracle code");
 assert.match(publication, /\$rollback_receipts\['pre_enrollment'\][\s\S]*verify_pre_enrollment_public_header_navigation[\s\S]*verify_public_header_projection_set/, "only pre-enrollment rollback may bypass forward managed-menu integrity rules");
@@ -624,9 +630,9 @@ assert.match(plugin, /\$language_menu_already_selected[\s\S]*return \$items;/, "
 assert.doesNotMatch(plugin.slice(plugin.indexOf("public static function use_language_primary_menu"), plugin.indexOf("public static function localize_nav_menu_objects")), /['"]en['"]\s*===|===\s*['"]en['"]/, "source menu selection must be registry-driven");
 
 assert.match(publication, /array\( 'origin', 'canonical' \)/);
-assert.match(publication, /Callers cannot opt out[\s\S]*\$live = self::verify_live_translation/);
-assert.doesNotMatch(publication, /if \( ! empty\( \$input\['verify_live'\] \) \)/, "localized publication must not permit verification opt-out");
-assert.match(jobs, /'verify_live'\s*=> true/);
+assert.match(publication, /Live verification is a separate, callable step[\s\S]*'needs_live_verification' => true/, "publication must return an explicit incomplete live-verification invariant");
+assert.doesNotMatch(publication, /\$input\['verify_live'\]/, "localized publication must not accept a synchronous verification switch");
+assert.match(jobs, /'translation-job-verify-live'[\s\S]*translation_job_verify_live/, "Translation Job must expose the separate mandatory live-verification operation");
 assert.match(publication, /'cf_cache_status'/);
 assert.match(publication, /'age'/);
 assert.match(publication, /frontend_primary_menu_projection_mismatch/);

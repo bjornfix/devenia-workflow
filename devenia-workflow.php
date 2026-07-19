@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.631
+ * Version: 0.1.632
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -69,13 +69,16 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.619';
+	const VERSION = '0.1.632';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
 
 	/** Maximum cumulative timeout budget for the complete Public Header HTTP plan. */
 	private const PUBLIC_HEADER_BATCH_BUDGET_SECONDS = 75;
+
+	/** Maximum HTML bytes retained from one same-site frontend evidence request. */
+	private const FRONTEND_EVIDENCE_MAX_BYTES = 2097152;
 
 	/**
 	 * Request-local analysis cache for one WordPress/MCP request.
@@ -213,11 +216,14 @@ final class Devenia_Workflow {
 	private static $suspend_source_stale_marking = false;
 
 	/**
-	 * Whether direct-save storage guardrails should ignore trusted internal repairs.
+	 * Post-bound storage guardrail bypasses for trusted internal mutations.
 	 *
-	 * @var bool
+	 * Counts make nested mutation contexts safe while preventing a callback from
+	 * disabling storage protection for unrelated posts written by WordPress hooks.
+	 *
+	 * @var array<int,int>
 	 */
-	private static $suspend_direct_save_storage_guardrails = false;
+	private static $direct_save_storage_guardrail_context = array();
 
 	/**
 	 * Bootstrap hooks.
@@ -254,6 +260,7 @@ final class Devenia_Workflow {
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_start_author_archive_url_localization' ), 98 );
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_start_frontend_text_localization' ), 99 );
 		add_action( 'shutdown', array( __CLASS__, 'record_slow_frontend_request' ), 0 );
+		add_action( 'wp_abilities_api_categories_init', array( __CLASS__, 'register_ability_categories' ) );
 		add_action( 'wp_abilities_api_init', array( __CLASS__, 'register_abilities' ) );
 		add_action( 'url_lockdown_public_route_migrated', array( __CLASS__, 'handle_explicit_translation_url_migration' ), 10, 4 );
 		add_filter( 'url_lockdown_finalize_post_migration', array( __CLASS__, 'finalize_explicit_translation_url_migration' ), 10, 2 );
@@ -1234,14 +1241,28 @@ final class Devenia_Workflow {
 		}
 	}
 
-	private static function with_direct_save_storage_guardrails_suspended( callable $callback ): void {
-		$previous = self::$suspend_direct_save_storage_guardrails;
-		self::$suspend_direct_save_storage_guardrails = true;
+	private static function with_direct_save_storage_guardrails_suspended( int $post_id, callable $callback ): void {
+		$post_id = absint( $post_id );
+		if ( $post_id > 0 ) {
+			self::$direct_save_storage_guardrail_context[ $post_id ] = ( self::$direct_save_storage_guardrail_context[ $post_id ] ?? 0 ) + 1;
+		}
 		try {
 			$callback();
 		} finally {
-			self::$suspend_direct_save_storage_guardrails = $previous;
+			if ( $post_id > 0 ) {
+				$remaining = ( self::$direct_save_storage_guardrail_context[ $post_id ] ?? 1 ) - 1;
+				if ( $remaining > 0 ) {
+					self::$direct_save_storage_guardrail_context[ $post_id ] = $remaining;
+				} else {
+					unset( self::$direct_save_storage_guardrail_context[ $post_id ] );
+				}
+			}
 		}
+	}
+
+	/** Whether the current internal mutation owns a guardrail bypass for one post. */
+	private static function direct_save_storage_guardrails_suspended_for( int $post_id ): bool {
+		return $post_id > 0 && ! empty( self::$direct_save_storage_guardrail_context[ $post_id ] );
 	}
 
 
@@ -1850,6 +1871,7 @@ final class Devenia_Workflow {
 						self::with_reviewer_style_capture_suspended(
 							static function () use ( &$result, $post, $safety ): void {
 								self::with_direct_save_storage_guardrails_suspended(
+									(int) $post->ID,
 									static function () use ( &$result, $post, $safety ): void {
 										$result = wp_update_post(
 											wp_slash(
@@ -6543,9 +6565,23 @@ final class Devenia_Workflow {
 		}
 
 		foreach ( self::ability_catalogue() as $name => $args ) {
-			$args['permission_callback'] = array( __CLASS__, 'ability_permission_callback' );
 			self::register_ability( $name, $args );
 		}
+	}
+
+	/** Register the single public category owned by this Workflow module. */
+	public static function register_ability_categories(): void {
+		if ( ! function_exists( 'wp_register_ability_category' ) ) {
+			return;
+		}
+
+		wp_register_ability_category(
+			'devenia-workflow',
+			array(
+				'label' => __( 'Devenia Workflow', 'devenia-workflow' ),
+				'description' => __( 'Controlled content quality, translation, review, and publication workflow operations.', 'devenia-workflow' ),
+			)
+		);
 	}
 
 	/**
@@ -11129,6 +11165,7 @@ final class Devenia_Workflow {
 		$result = 0;
 		$creating_translation = ! $translation_id;
 		self::with_direct_save_storage_guardrails_suspended(
+			$translation_id,
 			static function () use ( &$result, $translation_id, $postarr ): void {
 				self::with_reviewer_style_capture_suspended(
 					static function () use ( &$result, $translation_id, $postarr ): void {
@@ -11293,6 +11330,7 @@ final class Devenia_Workflow {
 
 		$result = 0;
 		self::with_direct_save_storage_guardrails_suspended(
+			$translation_id,
 			static function () use ( &$result, $translation_id, $target_author_id ): void {
 				self::with_reviewer_style_capture_suspended(
 					static function () use ( &$result, $translation_id, $target_author_id ): void {
@@ -13644,6 +13682,7 @@ final class Devenia_Workflow {
 		$result = null;
 		try {
 			self::with_direct_save_storage_guardrails_suspended(
+				$translation_id,
 				static function () use ( &$result, $postarr ): void {
 					$result = wp_update_post(
 						wp_slash( $postarr ),
@@ -14677,6 +14716,7 @@ final class Devenia_Workflow {
 			if ( ! $dry_run ) {
 				$result = 0;
 				self::with_direct_save_storage_guardrails_suspended(
+					$translation_id,
 					static function () use ( &$result, $translation_id, $target_parent ): void {
 						$result = wp_update_post(
 							wp_slash(
@@ -14825,6 +14865,7 @@ final class Devenia_Workflow {
 				self::with_reviewer_style_capture_suspended(
 					static function () use ( &$result, $translation_id, $updated ): void {
 						self::with_direct_save_storage_guardrails_suspended(
+							$translation_id,
 							static function () use ( &$result, $translation_id, $updated ): void {
 								$result = wp_update_post(
 									wp_slash(
@@ -16951,6 +16992,7 @@ final class Devenia_Workflow {
 		self::with_reviewer_style_capture_suspended(
 			static function () use ( $translation_id, $updated ): void {
 				self::with_direct_save_storage_guardrails_suspended(
+					$translation_id,
 					static function () use ( $translation_id, $updated ): void {
 						wp_update_post(
 							wp_slash(
@@ -20092,7 +20134,7 @@ final class Devenia_Workflow {
 		$data['post_content'] = self::normalize_gutenberg_content_for_storage( (string) $data['post_content'] );
 
 		$post_id = isset( $postarr['ID'] ) ? absint( $postarr['ID'] ) : 0;
-		if ( $post_id > 0 && self::is_translation_post( $post_id ) && ! self::$suspend_direct_save_storage_guardrails ) {
+		if ( $post_id > 0 && self::is_translation_post( $post_id ) && ! self::direct_save_storage_guardrails_suspended_for( $post_id ) ) {
 			$language = sanitize_key( (string) get_post_meta( $post_id, self::META_LANGUAGE, true ) );
 			$issues   = self::hard_invalid_link_issues_for_content( (string) $data['post_content'], $language );
 			if ( ! empty( $issues ) ) {
@@ -20325,7 +20367,7 @@ final class Devenia_Workflow {
 		if ( ! $post || ! self::is_translatable_post_type( (string) $post->post_type ) ) {
 			return;
 		}
-		if ( self::$suspend_direct_save_storage_guardrails ) {
+		if ( self::direct_save_storage_guardrails_suspended_for( $post_id ) ) {
 			return;
 		}
 
@@ -23698,6 +23740,7 @@ final class Devenia_Workflow {
 
 		$result = 0;
 		self::with_direct_save_storage_guardrails_suspended(
+			$translation_id,
 			static function () use ( &$result, $translation_id, $target_slug ): void {
 				$result = wp_update_post(
 					wp_slash(

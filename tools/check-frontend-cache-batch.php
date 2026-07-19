@@ -96,8 +96,17 @@ namespace {
 		return abs( (int) $value );
 	}
 
-	function esc_url_raw( $url ) {
+	function esc_url_raw( $url, $protocols = null ) {
+		unset( $protocols );
 		return $url;
+	}
+
+	function wp_http_validate_url( $url ) {
+		return false !== filter_var( $url, FILTER_VALIDATE_URL );
+	}
+
+	function wp_parse_url( $url, $component = -1 ) {
+		return parse_url( $url, $component );
 	}
 
 	function is_wp_error( $value ) {
@@ -139,6 +148,7 @@ namespace {
 		use \Devenia_Workflow_Localized_Presentation_Publication;
 		private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
 		private const PUBLIC_HEADER_BATCH_BUDGET_SECONDS = 75;
+		private const FRONTEND_EVIDENCE_MAX_BYTES = 2097152;
 
 		public static function fetch( array $requests, int $timeout ): array {
 			return self::fetch_frontend_cache_surfaces( $requests, $timeout );
@@ -161,6 +171,16 @@ namespace {
 		);
 	}
 	$responses = Devenia_Workflow_Frontend_Cache_Batch_Harness::fetch( $requests, 9 );
+	$offsite = Devenia_Workflow_Frontend_Cache_Batch_Harness::fetch( array( 'offsite' => array( 'url' => 'https://attacker.example/surface/', 'surface' => 'canonical' ) ), 9 );
+	if ( array() !== $offsite ) {
+		fwrite( STDERR, "Off-site frontend evidence did not fail closed before transport.\n" );
+		exit( 1 );
+	}
+	$alternate_origin = Devenia_Workflow_Frontend_Cache_Batch_Harness::fetch( array( 'alternate_origin' => array( 'url' => 'https://example.test:8080/surface/', 'surface' => 'canonical' ) ), 9 );
+	if ( array() !== $alternate_origin ) {
+		fwrite( STDERR, "Alternate-port frontend evidence did not fail closed before transport.\n" );
+		exit( 1 );
+	}
 	$batch_sizes = array_map( static fn( array $call ): int => count( $call['requests'] ), \WpOrg\Requests\Requests::$calls );
 	if ( array( 8, 8, 8, 8, 8, 8, 8, 4 ) !== $batch_sizes ) {
 		fwrite( STDERR, 'Expected one complete bounded dispatch plan: ' . json_encode( $batch_sizes ) . PHP_EOL );
@@ -230,7 +250,7 @@ namespace {
 		}
 	}
 	foreach ( array_slice( \WpOrg\Requests\Requests::$calls, 0, count( $batch_sizes ) ) as $call ) {
-		if ( 9 !== ( $call['options']['timeout'] ?? null ) || 9 !== ( $call['options']['connect_timeout'] ?? null ) || 3 !== ( $call['options']['redirects'] ?? null ) || ABSPATH . WPINC . '/certificates/ca-bundle.crt' !== ( $call['options']['verify'] ?? null ) || \WpOrg\Requests\Transport\Curl::class !== ltrim( (string) ( $call['options']['transport'] ?? '' ), '\\' ) ) {
+		if ( 9 !== ( $call['options']['timeout'] ?? null ) || 9 !== ( $call['options']['connect_timeout'] ?? null ) || 0 !== ( $call['options']['redirects'] ?? null ) || 2097152 !== ( $call['options']['max_bytes'] ?? null ) || ABSPATH . WPINC . '/certificates/ca-bundle.crt' !== ( $call['options']['verify'] ?? null ) || \WpOrg\Requests\Transport\Curl::class !== ltrim( (string) ( $call['options']['transport'] ?? '' ), '\\' ) ) {
 			fwrite( STDERR, "Batch transport options changed.\n" );
 			exit( 1 );
 		}

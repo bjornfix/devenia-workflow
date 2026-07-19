@@ -121,6 +121,13 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 		if ( ! $post || false === strpos( $post->post_content, 'wp:generateblocks' ) ) {
 			return;
 		}
+		$upload_dir = wp_upload_dir();
+		if ( ! empty( $upload_dir['basedir'] ) ) {
+			$css_file = $upload_dir['basedir'] . '/generateblocks/style-' . absint( $translation_id ) . '.css';
+			if ( file_exists( $css_file ) ) {
+				wp_delete_file( $css_file );
+			}
+		}
 		update_post_meta( $translation_id, '_generateblocks_dynamic_css_version', sanitize_text_field( GENERATEBLOCKS_VERSION ) );
 	}
 

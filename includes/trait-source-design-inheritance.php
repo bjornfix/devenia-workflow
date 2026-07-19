@@ -1322,6 +1322,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 			self::with_reviewer_style_capture_suspended(
 				static function () use ( &$result, $translation_id, $content ): void {
 					self::with_direct_save_storage_guardrails_suspended(
+						$translation_id,
 						static function () use ( &$result, $translation_id, $content ): void {
 							$result = wp_update_post(
 								wp_slash(
@@ -1346,7 +1347,6 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				);
 			}
 			clean_post_cache( $translation_id );
-			self::invalidate_design_css_cache( $translation_id );
 			$result = true;
 			$review_invalidated = self::invalidate_translation_reviews_if_content_changed( $translation_id, 'source_design_reprojection', $previous_review_hash );
 			do_action( 'devenia_workflow_source_design_reprojected', $translation_id );
@@ -2528,26 +2528,4 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 		return $value;
 	}
 
-	/**
-	 * Invalidate GenerateBlocks CSS cache after a design write through the
-	 * database seam. The CSS file on disk (style-{post_id}.css) is deleted
-	 * so GenerateBlocks regenerates it fresh on the next page load. The
-	 * _generateblocks_dynamic_css_version meta is also bumped so GB detects
-	 * the stale cache even if the file somehow survives.
-	 *
-	 * @param int $post_id Translation post ID that was just updated.
-	 */
-	private static function invalidate_design_css_cache( int $post_id ): void {
-		$upload_dir = wp_upload_dir();
-		if ( empty( $upload_dir['basedir'] ) ) {
-			return;
-		}
-		$css_file = $upload_dir['basedir'] . '/generateblocks/style-' . absint( $post_id ) . '.css';
-		if ( file_exists( $css_file ) ) {
-			wp_delete_file( $css_file );
-		}
-		if ( defined( 'GENERATEBLOCKS_VERSION' ) ) {
-			update_post_meta( $post_id, '_generateblocks_dynamic_css_version', sanitize_text_field( GENERATEBLOCKS_VERSION ) );
-		}
-	}
 }

@@ -103,13 +103,13 @@ if (!fs.existsSync(path.join(base, ".gitattributes"))) {
   issue(".gitattributes", "missing_export_rules", "Public release packages need explicit git archive export-ignore rules.");
 } else {
   const attributes = read(".gitattributes");
-  if (!/^tools\/\s+export-ignore$/m.test(attributes)) {
+  if (!/^\/?tools\/?\s+export-ignore$/m.test(attributes)) {
     issue(".gitattributes", "missing_tools_export_ignore", "Development tools must be excluded from git archive release packages.");
   }
-  if (!/^\.gitattributes\s+export-ignore$/m.test(attributes)) {
+  if (!/^\/?\.gitattributes\s+export-ignore$/m.test(attributes)) {
     issue(".gitattributes", "missing_self_export_ignore", "Git archive release packages must not include .gitattributes.");
   }
-  if (!/^README\.md\s+export-ignore$/m.test(attributes)) {
+  if (!/^\/?README\.md\s+export-ignore$/m.test(attributes)) {
     issue(".gitattributes", "missing_readme_md_export_ignore", "Git archive release packages must not include GitHub/development README.md when readme.txt is the public WordPress readme.");
   }
 }
@@ -163,7 +163,7 @@ for (const file of gitFiles()) {
   }
 
   const basename = path.basename(file);
-  if (basename.startsWith(".") && ".gitattributes" !== basename) {
+  if (basename.startsWith(".") && !new Set([".gitattributes", ".phpcs.xml.dist"]).has(basename)) {
     issue(file, "hidden_file_tracked", "Hidden files must not be part of the distributable plugin ZIP.");
   }
 

@@ -99,12 +99,36 @@ trait Devenia_Workflow_Ability_Platform {
 		foreach ( $catalogue as $name => $args ) {
 			$operation = self::ability_operation_from_name( (string) $name );
 			if ( isset( $handlers[ $operation ] ) ) {
-				$args['operation']        = $operation;
 				$args['execute_callback'] = self::ability_operation_callback( $operation );
+				$args['permission_callback'] = static function ( $input = null ) use ( $operation ): bool {
+					unset( $input );
+					return self::ability_operation_permission( $operation );
+				};
+				$args['category'] = 'devenia-workflow';
+
+				$annotations = isset( $args['meta']['annotations'] ) && is_array( $args['meta']['annotations'] )
+					? $args['meta']['annotations']
+					: array();
+				$readonly = ! empty( $annotations['readonly'] );
+				$annotations['readonly'] = $readonly;
+				$annotations['destructive'] = ! $readonly;
+				$annotations['idempotent'] = ! empty( $annotations['idempotent'] );
+				$args['meta']['annotations'] = $annotations;
 			}
 			$catalogue[ $name ] = $args;
 		}
 
 		return $catalogue;
+	}
+
+	/**
+	 * Authorize one registered operation through the owning policy seam.
+	 *
+	 * Unknown operations fail closed even if a malformed catalogue entry reaches
+	 * WordPress. Operation-specific capabilities can be introduced here without
+	 * duplicating permission callbacks across the public catalogue.
+	 */
+	private static function ability_operation_permission( string $operation ): bool {
+		return isset( self::ability_operation_handlers()[ $operation ] ) && current_user_can( 'manage_options' );
 	}
 }

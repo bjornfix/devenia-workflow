@@ -2443,7 +2443,7 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	private static function fetch_frontend_cache_surfaces( array $requests, int $timeout ): array {
 		$normalized = array();
 		foreach ( $requests as $key => $request ) {
-			$url = esc_url_raw( (string) ( $request['url'] ?? '' ) );
+			$url = self::same_site_frontend_evidence_url( (string) ( $request['url'] ?? '' ) );
 			$surface = 'canonical' === (string) ( $request['surface'] ?? '' ) ? 'canonical' : 'origin';
 			if ( '' !== $url ) { $normalized[ (string) $key ] = array( 'url' => $url, 'surface' => $surface ); }
 		}
@@ -2493,7 +2493,8 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 		$options = array(
 			'timeout' => $requested_timeout,
 			'connect_timeout' => $requested_timeout,
-			'redirects' => 3,
+			'redirects' => 0,
+			'max_bytes' => self::FRONTEND_EVIDENCE_MAX_BYTES,
 			'useragent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . home_url( '/' ),
 			'verify' => ABSPATH . WPINC . '/certificates/ca-bundle.crt',
 			'transport' => $curl_class,
@@ -2567,16 +2568,31 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 	 * @return array<string,mixed>
 	 */
 	private static function fetch_frontend_cache_surface( string $url, int $timeout, string $surface ): array {
+		$url = self::same_site_frontend_evidence_url( $url );
+		if ( '' === $url ) {
+			return array(
+				'success' => false,
+				'code' => 'frontend_evidence_url_rejected',
+				'surface' => $surface,
+				'url' => '',
+				'error' => 'Frontend evidence requests must target the configured WordPress site.',
+				'status_code' => 0,
+				'body' => '',
+				'cf_cache_status' => '',
+				'age' => '',
+			);
+		}
 		$canonical = 'canonical' === $surface;
 		$fetch_url = $canonical ? $url : add_query_arg( 'devenia_frontend_integrity', wp_generate_uuid4(), $url );
 		$args      = array(
 			'timeout'     => max( 3, min( 30, $timeout ) ),
 			'redirection' => 3,
+			'limit_response_size' => self::FRONTEND_EVIDENCE_MAX_BYTES,
 		);
 		if ( ! $canonical ) {
 			$args['headers'] = array( 'Cache-Control' => 'no-cache, no-store, max-age=0' );
 		}
-		$response = wp_remote_get( $fetch_url, $args );
+		$response = wp_safe_remote_get( $fetch_url, $args );
 		if ( is_wp_error( $response ) ) {
 			return array(
 				'success'         => false,
@@ -2600,6 +2616,38 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			'cf_cache_status' => (string) wp_remote_retrieve_header( $response, 'cf-cache-status' ),
 			'age'             => (string) wp_remote_retrieve_header( $response, 'age' ),
 		);
+	}
+
+	/**
+	 * Validate an HTTP evidence URL against the configured WordPress origin.
+	 *
+	 * This is the owning seam for every self-fetch path. It prevents internal
+	 * callers and filters from turning frontend verification into an SSRF path.
+	 */
+	private static function same_site_frontend_evidence_url( string $url ): string {
+		$url = esc_url_raw( $url, array( 'http', 'https' ) );
+		if ( '' === $url || ! wp_http_validate_url( $url ) ) {
+			return '';
+		}
+
+		$site_url = home_url( '/' );
+		$target_host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+		$site_host = strtolower( (string) wp_parse_url( $site_url, PHP_URL_HOST ) );
+		$target_scheme = strtolower( (string) wp_parse_url( $url, PHP_URL_SCHEME ) );
+		$site_scheme = strtolower( (string) wp_parse_url( $site_url, PHP_URL_SCHEME ) );
+		$target_port = absint( wp_parse_url( $url, PHP_URL_PORT ) ?: ( 'https' === $target_scheme ? 443 : 80 ) );
+		$site_port = absint( wp_parse_url( $site_url, PHP_URL_PORT ) ?: ( 'https' === $site_scheme ? 443 : 80 ) );
+		if (
+			'' === $target_host
+			|| '' === $site_host
+			|| ! hash_equals( $site_host, $target_host )
+			|| ! hash_equals( $site_scheme, $target_scheme )
+			|| $site_port !== $target_port
+		) {
+			return '';
+		}
+
+		return $url;
 	}
 
 	/**

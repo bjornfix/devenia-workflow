@@ -316,8 +316,8 @@ if (!/restored_verified[\s\S]*restored_unverified[\s\S]*forward_verified[\s\S]*f
 if (/\$failure\['published'\][\s\S]*\$final_state\s*=/.test(finalizePublicationFailure) || !/clean_post_cache\( \$translation_id \)[\s\S]*\$failure\['translation'\] = \$current_post instanceof WP_Post \? self::translation_payload\( \$current_post \) : null/.test(finalizePublicationFailure)) {
 	failures.push("final response classification must ignore the incoming published field and rebuild the translation payload only after rollback cache eviction");
 }
-if (!/'forward_publication_applied' => true[\s\S]*'final_reader_state'[\s\S]*'published_verified'/.test(jobSource)) {
-	failures.push("successful Translation Job publication must expose explicit forward-phase and verified final-reader state");
+if (!/'forward_publication_applied' => true[\s\S]*'needs_live_verification' => \$needs_verification[\s\S]*'final_reader_state'[\s\S]*'published_unverified'/.test(jobSource)) {
+	failures.push("successful Translation Job publication must expose explicit forward-phase and unverified reader state until the separate live-verification operation passes");
 }
 if (/rollback_expected_surface_revision'\]\s*=\s*\(string\) \( \$publication\['mutation_cas_revision'\]/.test(jobSource) || !/true === \( \$publication\['rollback_authorized'\]/.test(jobSource) || !/rollback_expected_surface_revision'\]\s*=\s*\(string\) \( \$publication\['rollback_expected_surface_revision'\]/.test(jobSource) || !/false === \( \$publication\['rollback_authorized'\]/.test(jobSource)) {
 	failures.push("Translation Job must consume only explicit rollback authority from Localized Presentation Publication and never promote diagnostic mutation revisions");

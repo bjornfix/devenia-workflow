@@ -979,7 +979,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'artifact_revision' => (string) $artifact_record['artifact_revision'],
 				'surface_revision' => (string) $artifact_record['surface_revision'],
 				'principal_id' => (string) ( $reviewer_principal['principal_id'] ?? '' ),
-				'adapter_revision' => defined( 'DEVENIA_WORKFLOW_VERSION' ) ? DEVENIA_WORKFLOW_VERSION : 'development',
+				'adapter_revision' => self::VERSION,
 				'policy_revision' => 'quality-authority-v1',
 				'evidence_digest' => hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( array( $name, $passed, $frontend, $staged_dom_digest, $artifact_record['staged_validation'] ?? array() ) ) ) ?: '' ),
 			);
@@ -1002,8 +1002,12 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	 * localized-menu or copy-policy checks into the staged DOM receipt.
 	 */
 	private static function translation_job_http_live_dom_evidence( string $url, string $language ): array {
+		$url = self::same_site_frontend_evidence_url( $url );
+		if ( '' === $url ) {
+			return array( 'success' => false, 'passed' => false, 'status_code' => 0, 'url' => '', 'language' => sanitize_key( $language ), 'error' => 'Frontend evidence URL is not on the configured WordPress site.' );
+		}
 		$request_url = add_query_arg( 'devenia_quality_receipt', wp_generate_uuid4(), $url );
-		$response = wp_safe_remote_get( $request_url, array( 'timeout' => 15, 'redirection' => 3, 'headers' => array( 'Cache-Control' => 'no-cache' ) ) );
+		$response = wp_safe_remote_get( $request_url, array( 'timeout' => 15, 'redirection' => 3, 'limit_response_size' => self::FRONTEND_EVIDENCE_MAX_BYTES, 'headers' => array( 'Cache-Control' => 'no-cache' ) ) );
 		if ( is_wp_error( $response ) ) {
 			return array( 'success' => false, 'passed' => false, 'status_code' => 0, 'url' => $url, 'language' => $language, 'error' => $response->get_error_message() );
 		}
@@ -1929,6 +1933,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$updated = null;
 		try {
 			self::with_direct_save_storage_guardrails_suspended(
+				$original_id,
 				static function () use ( &$updated, $post_snapshot ): void {
 					self::with_reviewer_style_capture_suspended(
 						static function () use ( &$updated, $post_snapshot ): void {
