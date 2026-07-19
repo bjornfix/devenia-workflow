@@ -45,13 +45,26 @@ trait Devenia_Workflow_Atomic_Option_Store {
 	private static function atomic_replace_option_value( string $key, $expected, $replacement ): bool {
 		$key = trim( $key );
 		if ( '' === $key ) { return false; }
+		$expected_bytes = maybe_serialize( $expected );
+		$replacement_bytes = maybe_serialize( $replacement );
 		global $wpdb;
+		if ( $expected_bytes === $replacement_bytes ) {
+			$matched_key = $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Idempotent CAS must distinguish an exact owned no-op from a changed current owner when MariaDB reports zero affected rows.
+				$wpdb->prepare(
+					"SELECT option_name FROM {$wpdb->options} WHERE option_name = %s AND BINARY option_value = BINARY %s LIMIT 1",
+					$key,
+					$expected_bytes
+				)
+			);
+			wp_cache_delete( $key, 'options' );
+			return $key === (string) $matched_key;
+		}
 		$updated = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Lease takeover/renewal needs compare-and-swap semantics unavailable in Options API.
 			$wpdb->prepare(
 				"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND BINARY option_value = BINARY %s",
-				maybe_serialize( $replacement ),
+				$replacement_bytes,
 				$key,
-				maybe_serialize( $expected )
+				$expected_bytes
 			)
 		);
 		wp_cache_delete( $key, 'options' );

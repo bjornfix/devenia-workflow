@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.635
+Stable tag: 0.1.636
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,14 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.636 =
+
+* Pin a separate code-owned publication-surface contract fingerprint to every Translation Job generation, Run, artifact, staged manifest, Quality Decision, and evidence chain; stale or legacy generations now ownership-check and CAS-retire the exact active Run/claim before reopening for a fresh translator.
+* Make every mutable Run write ownership-bound through exact compare-and-swap, so stale fetch, abandon, budget, expiry, and completion paths cannot replace a terminal Run or advance its Job.
+* Treat an identical CAS replacement as success only after exact current-byte verification, allowing repeated packet fetches without accepting a changed owner.
+* Make Source Inventory treat published authority under an obsolete fragment contract as unresolved, while preserving every prior artifact, Run, Quality Decision, and receipt as immutable audit evidence.
+* Prune orphaned historical localized-fragment keys against the current source contract after merging partial updates, so durable WordPress presentation state matches the complete approved artifact.
 
 = 0.1.635 =
 

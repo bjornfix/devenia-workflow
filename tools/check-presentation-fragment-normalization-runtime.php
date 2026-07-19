@@ -60,6 +60,19 @@ function wp_json_encode( $value ) {
 	return json_encode( $value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
 }
 
+function wp_slash( $value ) {
+	return addslashes( (string) $value );
+}
+
+function update_post_meta( $post_id, $key, $value ) {
+	$GLOBALS['devenia_presentation_test_meta'][ (int) $post_id ][ (string) $key ] = is_string( $value ) ? stripslashes( $value ) : $value;
+	return true;
+}
+
+function parse_blocks( $content ): array {
+	return array();
+}
+
 function get_post( $post_id ) {
 	return $GLOBALS['devenia_presentation_test_posts'][ (int) $post_id ] ?? null;
 }
@@ -94,6 +107,35 @@ final class Devenia_Workflow_Presentation_Normalization_Runtime_Test {
 	/** @return array<string,mixed> */
 	public static function verify( WP_Post $source, int $translation_id, array $manifest ): array {
 		return self::translation_job_verify_applied_surface( $source, $translation_id, $manifest );
+	}
+
+	/** Exercise the actual storage control flow, including empty input. */
+	public static function store_fragments( int $translation_id, WP_Post $source, string $language, array $fragments, array $source_design ): array {
+		self::store_localized_source_design_fragments( $translation_id, $source, $language, $fragments, $source_design );
+		$raw = get_post_meta( $translation_id, self::META_LOCALIZED_FRAGMENTS, true );
+		$decoded = is_string( $raw ) ? json_decode( $raw, true ) : $raw;
+		return is_array( $decoded ) ? $decoded : array();
+	}
+
+	private static function update_json_post_meta( int $post_id, string $meta_key, array $value ): void {
+		update_post_meta( $post_id, $meta_key, wp_slash( wp_json_encode( $value ) ) );
+	}
+
+	private static function source_hash( WP_Post $post ): string {
+		return hash( 'sha256', $post->post_title . "\n" . $post->post_excerpt . "\n" . $post->post_content );
+	}
+
+	private static function normalize_gutenberg_content_for_storage( string $content ): string {
+		return $content;
+	}
+
+	private static function is_rtl_language( string $language ): bool {
+		return 'ar' === $language;
+	}
+
+	/** @return array<string,mixed> */
+	private static function publication_featured_image_revision_identity( $post ): array {
+		return array();
 	}
 
 	private static function normalize_review_text( string $text ): string {
@@ -226,6 +268,23 @@ $changed_hash_result = Devenia_Workflow_Presentation_Normalization_Runtime_Test:
 devenia_presentation_assert(
 	false === ( $changed_hash_result['success'] ?? true ) && in_array( 'presentation', (array) ( $changed_hash_result['failed'] ?? array() ), true ),
 	'A genuine source-design hash change did not fail presentation verification.'
+);
+
+$GLOBALS['devenia_presentation_test_meta'][41811][ Devenia_Workflow_Presentation_Normalization_Runtime_Test::META_LOCALIZED_FRAGMENTS ] = array(
+	'fragments' => array(
+		array( 'key' => 'body:orphan', 'html' => 'Historical value that is no longer in the source contract.' ),
+	),
+);
+$empty_storage = Devenia_Workflow_Presentation_Normalization_Runtime_Test::store_fragments(
+	41811,
+	$source,
+	'de',
+	array(),
+	array( 'fragments' => array() )
+);
+devenia_presentation_assert(
+	isset( $empty_storage['fragments'] ) && array() === $empty_storage['fragments'],
+	'Actual empty-input storage control flow did not prune the orphaned historical fragment.'
 );
 
 echo "Presentation fragment normalization runtime OK\n";

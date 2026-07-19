@@ -444,6 +444,28 @@ defines or relaxes protocol, authority, identity-separation, route, publication,
 recovery, or evidence-binding invariants; those remain unconditional properties
 of the owning Workflow Modules.
 
+## Publication Surface Contract Revision
+
+A code-owned, content-addressed fingerprint of the exact typed fragment
+projection and supported public-surface fields for one source. It is separate
+from Source Revision, Translation Job identity, plugin version, and mutable
+Translation Policy. Each submission generation pins it through its Run,
+artifact, staged manifest, Quality Decision, receipts, and publication
+authority. Missing legacy pins, changed fingerprints, or incomplete exact
+fragment coverage retire the exact active Run and claim with ownership-bound
+compare-and-swap before reopening the same Job under its lifecycle lease. A
+retirement conflict leaves active Job references intact and is retryable; prior
+evidence and completed Runs remain immutable.
+
+Every mutable Run write, including packet receipts, bounded budget migration,
+abandonment, expiry, orphan finalization, completion, and failed-claim cleanup,
+uses exact serialized-value compare-and-swap. No stale endpoint owner may
+restore or replace a terminal Run.
+An idempotent CAS whose expected and replacement bytes are identical succeeds
+only after a direct BINARY match proves the current stored bytes still equal
+the expected owner; MariaDB's zero affected rows never substitutes for that
+ownership proof.
+
 ## Exhaustion Proof
 
 Evidence that one completed Inventory Generation has been projected against

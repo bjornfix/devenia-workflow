@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.635
+**Stable tag:** 0.1.636
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,14 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.636
+
+- Pins a separate code-owned publication-surface contract fingerprint to every Translation Job generation, Run, artifact, staged manifest, Quality Decision, and evidence chain; stale or legacy generations ownership-check and CAS-retire the exact active Run/claim before reopening for a fresh translator.
+- Makes every mutable Run write ownership-bound through exact compare-and-swap, so stale fetch, abandon, budget, expiry, and completion paths cannot replace a terminal Run or advance its Job.
+- Treats an identical CAS replacement as success only after exact current-byte verification, allowing repeated packet fetches without accepting a changed owner.
+- Makes Source Inventory treat published authority under an obsolete fragment contract as unresolved, while preserving every prior artifact, Run, Quality Decision, and receipt as immutable audit evidence.
+- Prunes orphaned historical localized-fragment keys against the current source contract after merging partial updates, so durable WordPress presentation state matches the complete approved artifact.
 
 ### 0.1.635
 

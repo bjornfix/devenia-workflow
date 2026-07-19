@@ -284,6 +284,20 @@ requireMatch(/translation_job_browser_receipt[\s\S]*artifact_revision[\s\S]*surf
 requireMatch(/http_live_dom[\s\S]*issuer[\s\S]*(?:workflow|server)/, "Quality PASS must include a built-in server HTTP/live-DOM receipt");
 requireMatch(/translation_job_surface_revision[\s\S]*['\"]seo['\"][\s\S]*taxonom(?:y|ies)[\s\S]*route[\s\S]*media/, "Artifact Surface Revision must include SEO, taxonomy, route, and visible media");
 
+const desktopPolicy = authoritySource.match(/'desktop' === \$viewport \? array\(\s*(\d+),\s*(\d+),\s*(\d+)\s*\)/);
+const mobilePolicy = authoritySource.match(/:\s*array\(\s*(390),\s*(844),\s*(1)\s*\)/);
+const desktopFixture = runtimeSource.match(/'desktop'\s*=>\s*array\(\s*'width'\s*=>\s*(\d+),\s*'height'\s*=>\s*(\d+),\s*'device_scale_factor'\s*=>\s*(\d+)\s*\)/);
+const mobileFixture = runtimeSource.match(/'mobile'\s*=>\s*array\(\s*'width'\s*=>\s*(\d+),\s*'height'\s*=>\s*(\d+),\s*'device_scale_factor'\s*=>\s*(\d+)\s*\)/);
+const dimensions = (match) => match ? match.slice(1).map(Number) : [];
+if (
+	JSON.stringify(dimensions(desktopPolicy)) !== JSON.stringify([1140, 800, 1])
+	|| JSON.stringify(dimensions(mobilePolicy)) !== JSON.stringify([390, 844, 1])
+	|| JSON.stringify(dimensions(desktopFixture)) !== JSON.stringify(dimensions(desktopPolicy))
+	|| JSON.stringify(dimensions(mobileFixture)) !== JSON.stringify(dimensions(mobilePolicy))
+) {
+	failures.push("runtime browser receipt fixture dimensions must exactly match the server Quality viewport policy (desktop 1140x800, mobile 390x844, DPR 1)");
+}
+
 if (!validateUsage || !/zero_token_usage_not_measured/.test(validateUsage) || !/input_tokens[\s\S]*output_tokens/.test(validateUsage)) {
 	failures.push("all-zero caller token usage is still accepted as measured usage");
 }

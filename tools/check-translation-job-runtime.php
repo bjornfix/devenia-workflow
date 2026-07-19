@@ -139,7 +139,7 @@ $quality_payload = static function ( array $claim, string $artifact_revision, st
 	$surface_revision = (string) ( $packet['surface_revision'] ?? '' );
 	$digest = str_repeat( 'a', 64 );
 	$browser = array();
-	foreach ( array( 'desktop' => array( 'width' => 1440, 'height' => 1100, 'device_scale_factor' => 1 ), 'mobile' => array( 'width' => 390, 'height' => 844, 'device_scale_factor' => 1 ) ) as $viewport_scheme => $viewport ) {
+	foreach ( array( 'desktop' => array( 'width' => 1140, 'height' => 800, 'device_scale_factor' => 1 ), 'mobile' => array( 'width' => 390, 'height' => 844, 'device_scale_factor' => 1 ) ) as $viewport_scheme => $viewport ) {
 		foreach ( array( 'light', 'dark' ) as $color_scheme ) {
 			$browser[] = array( 'artifact_revision' => $artifact_revision, 'surface_revision' => $surface_revision, 'viewport_scheme' => $viewport_scheme, 'viewport' => $viewport, 'color_scheme' => $color_scheme, 'url' => home_url( '/runtime-quality-preview/' ), 'response_digest' => $digest, 'document_language' => 'nb-NO', 'document_direction' => 'ltr', 'layout_digest' => hash( 'sha256', $viewport_scheme . $color_scheme . 'layout' ), 'screenshot_digest' => hash( 'sha256', $viewport_scheme . $color_scheme . 'screenshot' ), 'checked_at' => gmdate( 'c' ), 'adapter' => 'runtime-fixture' );
 		}
@@ -384,6 +384,114 @@ try {
 	if ( false !== get_option( $lease_fixture_key ) ) {
 		throw new RuntimeException( 'Renewed lifecycle lease was not released by its exact owned value.' );
 	}
+	$claim_release_job_id = 'tj_runtime_claim_release_' . wp_generate_password( 8, false, false );
+	$claim_release_key = 'devenia_workflow_translation_job_claim_' . $claim_release_job_id;
+	$option_keys[] = $claim_release_key;
+	$old_claim_owner = array( 'job_id' => $claim_release_job_id, 'run_id' => 'runtime-old-owner', 'token_hash' => hash( 'sha256', 'runtime-old-owner' ) );
+	$new_claim_owner = array( 'job_id' => $claim_release_job_id, 'run_id' => 'runtime-new-owner', 'token_hash' => hash( 'sha256', 'runtime-new-owner' ) );
+	add_option( $claim_release_key, $old_claim_owner, '', false );
+	update_option( $claim_release_key, $new_claim_owner, false );
+	$old_release_result = $call( 'translation_job_release_claim', $old_claim_owner );
+	if ( false !== $old_release_result || maybe_serialize( $new_claim_owner ) !== maybe_serialize( get_option( $claim_release_key ) ) ) {
+		throw new RuntimeException( 'Exact claim release removed a successor claim owned by a newer Run.' );
+	}
+	if ( empty( $call( 'translation_job_release_claim', $new_claim_owner ) ) || false !== get_option( $claim_release_key ) ) {
+		throw new RuntimeException( 'Exact claim release could not remove its own current claim.' );
+	}
+	$atomic_noop_key = 'devenia_workflow_runtime_atomic_noop_' . strtolower( wp_generate_password( 8, false, false ) );
+	$option_keys[] = $atomic_noop_key;
+	$atomic_noop_owned = array( 'owner' => 'runtime-exact', 'revision' => 1 );
+	$atomic_noop_successor = array( 'owner' => 'runtime-successor', 'revision' => 2 );
+	add_option( $atomic_noop_key, $atomic_noop_owned, '', false );
+	$atomic_noop_owned_result = $call( 'atomic_replace_option_value', $atomic_noop_key, $atomic_noop_owned, $atomic_noop_owned );
+	update_option( $atomic_noop_key, $atomic_noop_successor, false );
+	$atomic_noop_stale_result = $call( 'atomic_replace_option_value', $atomic_noop_key, $atomic_noop_owned, $atomic_noop_owned );
+	if (
+		empty( $atomic_noop_owned_result )
+		|| false !== $atomic_noop_stale_result
+		|| maybe_serialize( $atomic_noop_successor ) !== maybe_serialize( get_option( $atomic_noop_key ) )
+	) {
+		throw new RuntimeException( 'Idempotent exact CAS did not distinguish the owned no-op from a changed current value.' );
+	}
+
+	// Contract Refresh may only retire the exact running owner. A different
+	// immutable terminal outcome must fail without changing the Job or claim.
+	$retirement_failure_job_id = 'tj_runtime_retirement_failure_' . wp_generate_password( 8, false, false );
+	$retirement_failure_run_id = 'runtime-retirement-failure-' . wp_generate_password( 8, false, false );
+	$retirement_failure_job_key = 'devenia_workflow_translation_job_' . $retirement_failure_job_id;
+	$retirement_failure_run_key = 'devenia_workflow_translation_run_' . $retirement_failure_run_id;
+	$retirement_failure_claim_key = 'devenia_workflow_translation_job_claim_' . $retirement_failure_job_id;
+	array_push( $option_keys, $retirement_failure_job_key, $retirement_failure_run_key, $retirement_failure_claim_key );
+	$retirement_failure_job = array( 'job_id' => $retirement_failure_job_id, 'active_run_id' => $retirement_failure_run_id, 'artifact_revision' => 'a_runtime_retirement_failure', 'status' => 'quality_pending' );
+	$retirement_failure_run = array( 'run_id' => $retirement_failure_run_id, 'job_id' => $retirement_failure_job_id, 'status' => 'completed', 'outcome' => 'submitted' );
+	$retirement_failure_claim = array( 'job_id' => $retirement_failure_job_id, 'run_id' => $retirement_failure_run_id, 'token_hash' => hash( 'sha256', $retirement_failure_run_id ) );
+	add_option( $retirement_failure_job_key, $retirement_failure_job, '', false );
+	add_option( $retirement_failure_run_key, $retirement_failure_run, '', false );
+	add_option( $retirement_failure_claim_key, $retirement_failure_claim, '', false );
+	$retirement_failure_job_bytes = maybe_serialize( get_option( $retirement_failure_job_key ) );
+	$retirement_failure_result = $call( 'translation_job_retire_contract_refresh_run_and_claim', $retirement_failure_job, $retirement_failure_claim );
+	if (
+		'contract_refresh_run_terminal_conflict' !== (string) ( $retirement_failure_result['code'] ?? '' )
+		|| empty( $retirement_failure_result['retryable'] )
+		|| $retirement_failure_job_bytes !== maybe_serialize( get_option( $retirement_failure_job_key ) )
+		|| maybe_serialize( $retirement_failure_run ) !== maybe_serialize( get_option( $retirement_failure_run_key ) )
+		|| maybe_serialize( $retirement_failure_claim ) !== maybe_serialize( get_option( $retirement_failure_claim_key ) )
+	) {
+		throw new RuntimeException( 'Contract Refresh retirement failure changed Job state or immutable Run outcome: ' . wp_json_encode( $retirement_failure_result ) );
+	}
+
+	// A successor claim can appear between the caller snapshot and retirement.
+	// It must be preserved, and the active Job/old Run must remain retryable.
+	$successor_job_id = 'tj_runtime_successor_claim_' . wp_generate_password( 8, false, false );
+	$successor_old_run_id = 'runtime-successor-old-' . wp_generate_password( 8, false, false );
+	$successor_new_run_id = 'runtime-successor-new-' . wp_generate_password( 8, false, false );
+	$successor_job_key = 'devenia_workflow_translation_job_' . $successor_job_id;
+	$successor_run_key = 'devenia_workflow_translation_run_' . $successor_old_run_id;
+	$successor_claim_key = 'devenia_workflow_translation_job_claim_' . $successor_job_id;
+	array_push( $option_keys, $successor_job_key, $successor_run_key, $successor_claim_key );
+	$successor_job = array( 'job_id' => $successor_job_id, 'active_run_id' => $successor_old_run_id, 'artifact_revision' => 'a_runtime_successor', 'status' => 'quality_pending' );
+	$successor_old_run = array( 'run_id' => $successor_old_run_id, 'job_id' => $successor_job_id, 'status' => 'running' );
+	$successor_old_claim = array( 'job_id' => $successor_job_id, 'run_id' => $successor_old_run_id, 'token_hash' => hash( 'sha256', $successor_old_run_id ) );
+	$successor_new_claim = array( 'job_id' => $successor_job_id, 'run_id' => $successor_new_run_id, 'token_hash' => hash( 'sha256', $successor_new_run_id ) );
+	add_option( $successor_job_key, $successor_job, '', false );
+	add_option( $successor_run_key, $successor_old_run, '', false );
+	add_option( $successor_claim_key, $successor_new_claim, '', false );
+	$successor_job_bytes = maybe_serialize( get_option( $successor_job_key ) );
+	$successor_result = $call( 'translation_job_retire_contract_refresh_run_and_claim', $successor_job, $successor_old_claim );
+	if (
+		'contract_refresh_claim_release_conflict' !== (string) ( $successor_result['code'] ?? '' )
+		|| empty( $successor_result['retryable'] )
+		|| $successor_job_bytes !== maybe_serialize( get_option( $successor_job_key ) )
+		|| maybe_serialize( $successor_old_run ) !== maybe_serialize( get_option( $successor_run_key ) )
+		|| maybe_serialize( $successor_new_claim ) !== maybe_serialize( get_option( $successor_claim_key ) )
+	) {
+		throw new RuntimeException( 'Contract Refresh successor-claim conflict lost the successor claim, active refs, or old Run: ' . wp_json_encode( $successor_result ) );
+	}
+
+	// Once Contract Refresh wins the Run CAS, an old submit holding the stale
+	// running snapshot cannot replace its terminal contract-refresh outcome.
+	$old_submit_job_id = 'tj_runtime_old_submit_' . wp_generate_password( 8, false, false );
+	$old_submit_run_id = 'runtime-old-submit-' . wp_generate_password( 8, false, false );
+	$old_submit_run_key = 'devenia_workflow_translation_run_' . $old_submit_run_id;
+	$old_submit_claim_key = 'devenia_workflow_translation_job_claim_' . $old_submit_job_id;
+	array_push( $option_keys, $old_submit_run_key, $old_submit_claim_key );
+	$old_submit_job = array( 'job_id' => $old_submit_job_id, 'active_run_id' => $old_submit_run_id );
+	$old_submit_running = array( 'run_id' => $old_submit_run_id, 'job_id' => $old_submit_job_id, 'status' => 'running', 'started_at' => gmdate( 'c' ) );
+	$old_submit_claim = array( 'job_id' => $old_submit_job_id, 'run_id' => $old_submit_run_id, 'token_hash' => hash( 'sha256', $old_submit_run_id ) );
+	add_option( $old_submit_run_key, $old_submit_running, '', false );
+	add_option( $old_submit_claim_key, $old_submit_claim, '', false );
+	$old_submit_retirement = $call( 'translation_job_retire_contract_refresh_run_and_claim', $old_submit_job, $old_submit_claim );
+	$old_submit_result = $call( 'translation_job_finish_run', $old_submit_running, 'submitted', array( 'measurement_state' => 'runtime_stale_submit' ) );
+	$old_submit_stored = get_option( $old_submit_run_key );
+	if (
+		empty( $old_submit_retirement['success'] )
+		|| false !== $old_submit_result
+		|| 'completed' !== (string) ( $old_submit_stored['status'] ?? '' )
+		|| 'contract_refresh_required' !== (string) ( $old_submit_stored['outcome'] ?? '' )
+		|| false !== get_option( $old_submit_claim_key )
+	) {
+		throw new RuntimeException( 'Old submit overwrote the terminal contract_refresh_required Run: ' . wp_json_encode( compact( 'old_submit_retirement', 'old_submit_result', 'old_submit_stored' ) ) );
+	}
 	$runtime_text_input = array(
 		'language' => $language,
 		'section' => 'share_text',
@@ -529,6 +637,22 @@ try {
 	) {
 		throw new RuntimeException( 'Run abandon did not restore the previous Job state: ' . wp_json_encode( array( 'abandoned' => $abandoned, 'run' => $abandoned_run, 'claim' => $abandoned_claim ) ) );
 	}
+	$contract_gap_active_claim = $call(
+		'translation_job_claim',
+		array(
+			'job_id' => $expiry_job_id,
+			'run_id' => 'runtime-contract-active-' . wp_generate_password( 8, false, false ),
+			'coordinator_id' => 'runtime-contract-active-coordinator',
+			'role' => 'translator',
+			'ttl_seconds' => 600,
+		)
+	);
+	if ( empty( $contract_gap_active_claim['success'] ) ) {
+		throw new RuntimeException( 'Could not create the active Run used by the Contract Refresh retirement fixture: ' . wp_json_encode( $contract_gap_active_claim ) );
+	}
+	$contract_gap_active_run_id = (string) $contract_gap_active_claim['run']['run_id'];
+	$contract_gap_active_run_key = 'devenia_workflow_translation_run_' . $contract_gap_active_run_id;
+	$option_keys[] = $contract_gap_active_run_key;
 	$contract_gap_revision = 'a_runtime_contract_gap_' . wp_generate_password( 8, false, false );
 	$contract_gap_artifact_key = 'devenia_workflow_translation_artifact_' . $contract_gap_revision;
 	$option_keys[] = $contract_gap_artifact_key;
@@ -546,8 +670,84 @@ try {
 	$contract_gap_job['status'] = 'quality_pending';
 	$contract_gap_job['artifact_revision'] = $contract_gap_revision;
 	$contract_gap_job['quality_revision'] = '';
-	$contract_gap_job['active_run_id'] = '';
+	$contract_gap_job['active_run_id'] = $contract_gap_active_run_id;
 	update_option( $contract_gap_job_key, $contract_gap_job, false );
+	$contract_gap_artifact_bytes = maybe_serialize( get_option( $contract_gap_artifact_key ) );
+	$contract_gap_quality_run_id = 'runtime-contract-quality-' . wp_generate_password( 8, false, false );
+	$contract_gap_quality_run_key = 'devenia_workflow_translation_run_' . $contract_gap_quality_run_id;
+	$option_keys[] = $contract_gap_quality_run_key;
+	$contract_refresh_quality = $call(
+		'translation_job_claim',
+		array(
+			'job_id' => $expiry_job_id,
+			'run_id' => $contract_gap_quality_run_id,
+			'coordinator_id' => 'runtime-quality-coordinator',
+			'role' => 'quality',
+			'ttl_seconds' => 600,
+		)
+	);
+	$contract_gap_refreshed_job = get_option( $contract_gap_job_key );
+	$contract_gap_history = (array) ( $contract_gap_refreshed_job['contract_refresh_history'] ?? array() );
+	$contract_gap_latest = $contract_gap_history ? (array) end( $contract_gap_history ) : array();
+	$contract_gap_retired_run = get_option( $contract_gap_active_run_key );
+	if (
+		'contract_refresh_required' !== (string) ( $contract_refresh_quality['code'] ?? '' )
+		|| false !== get_option( $contract_gap_quality_run_key, false )
+		|| false !== get_option( 'devenia_workflow_translation_job_claim_' . $expiry_job_id, false )
+		|| 2 !== absint( $contract_gap_refreshed_job['submission_generation'] ?? 0 )
+		|| 'changes_requested' !== (string) ( $contract_gap_refreshed_job['status'] ?? '' )
+		|| '' !== (string) ( $contract_gap_refreshed_job['artifact_revision'] ?? '' )
+		|| '' !== (string) ( $contract_gap_refreshed_job['quality_revision'] ?? '' )
+		|| $contract_gap_revision !== (string) ( $contract_gap_latest['active_refs']['artifact_revision'] ?? '' )
+		|| empty( $contract_gap_latest['mismatch_evidence']['coverage']['missing_keys'] )
+		|| $contract_gap_artifact_bytes !== maybe_serialize( get_option( $contract_gap_artifact_key ) )
+		|| 'completed' !== (string) ( $contract_gap_retired_run['status'] ?? '' )
+		|| 'contract_refresh_required' !== (string) ( $contract_gap_retired_run['outcome'] ?? '' )
+	) {
+		throw new RuntimeException( 'Stale Quality contract created a Run/claim or failed to preserve immutable artifact evidence during exact Job refresh: ' . wp_json_encode( array( 'quality' => $contract_refresh_quality, 'job' => $contract_gap_refreshed_job, 'history' => $contract_gap_latest ) ) );
+	}
+	if ( 'completed' !== (string) ( $contract_gap_retired_run['status'] ?? '' ) || 'contract_refresh_required' !== (string) ( $contract_gap_retired_run['outcome'] ?? '' ) ) {
+		throw new RuntimeException( 'Contract Refresh did not terminally retire the active Run with an explicit contract-refresh outcome.' );
+	}
+	$contract_gap_refreshed_job_bytes = maybe_serialize( $contract_gap_refreshed_job );
+	$contract_gap_retired_run_bytes = maybe_serialize( $contract_gap_retired_run );
+	$stale_contract_endpoint_input = array(
+		'job_id' => $expiry_job_id,
+		'run_id' => $contract_gap_active_run_id,
+		'claim_token' => (string) ( $contract_gap_active_claim['claim_token'] ?? '' ),
+	);
+	$stale_fetch_after_refresh = $call( 'translation_job_fetch_packet', $stale_contract_endpoint_input );
+	if (
+		! empty( $stale_fetch_after_refresh['success'] )
+		|| 'job_claim_missing' !== (string) ( $stale_fetch_after_refresh['code'] ?? '' )
+		|| $contract_gap_refreshed_job_bytes !== maybe_serialize( get_option( $contract_gap_job_key ) )
+		|| $contract_gap_retired_run_bytes !== maybe_serialize( get_option( $contract_gap_active_run_key ) )
+	) {
+		throw new RuntimeException( 'Stale fetch_packet after Contract Refresh changed the terminal Run or refreshed Job: ' . wp_json_encode( $stale_fetch_after_refresh ) );
+	}
+	$stale_abandon_after_refresh = $call(
+		'translation_job_abandon',
+		array_merge( $stale_contract_endpoint_input, array( 'reason' => 'Runtime stale owner must not abandon a Contract Refresh terminal Run.' ) )
+	);
+	if (
+		! empty( $stale_abandon_after_refresh['success'] )
+		|| 'job_claim_missing' !== (string) ( $stale_abandon_after_refresh['code'] ?? '' )
+		|| $contract_gap_refreshed_job_bytes !== maybe_serialize( get_option( $contract_gap_job_key ) )
+		|| $contract_gap_retired_run_bytes !== maybe_serialize( get_option( $contract_gap_active_run_key ) )
+	) {
+		throw new RuntimeException( 'Stale abandon after Contract Refresh changed the terminal Run or refreshed Job: ' . wp_json_encode( $stale_abandon_after_refresh ) );
+	}
+
+	// The budget migration uses the same exact-value CAS seam. A migration
+	// prepared from a stale running owner cannot replace a terminal refresh Run.
+	$budget_migration_stale = $contract_gap_active_claim['run'];
+	$budget_migration_candidate = $budget_migration_stale;
+	$budget_migration_candidate['budget'] = $call( 'translation_job_budget', (string) ( $budget_migration_stale['role'] ?? 'translator' ) );
+	$budget_migration_candidate['budget_migrated_at'] = gmdate( 'c' );
+	$budget_migration_result = $call( 'atomic_replace_option_value', $contract_gap_active_run_key, $budget_migration_stale, $budget_migration_candidate );
+	if ( false !== $budget_migration_result || $contract_gap_retired_run_bytes !== maybe_serialize( get_option( $contract_gap_active_run_key ) ) ) {
+		throw new RuntimeException( 'Budget migration stale-owner CAS replaced a terminal Run.' );
+	}
 	$contract_refresh_claim = $call(
 		'translation_job_claim',
 		array(
@@ -563,8 +763,9 @@ try {
 	if (
 		empty( $contract_refresh_claim['success'] )
 		|| 'claimed' !== (string) ( $contract_refresh_claim['job']['status'] ?? '' )
-		|| 'artifact_fragment_contract_changed' !== (string) ( $contract_refresh_claim['job']['contract_refresh']['reason'] ?? '' )
-		|| empty( $contract_refresh_claim['job']['contract_refresh']['coverage']['missing_keys'] )
+		|| 2 !== absint( $contract_refresh_claim['run']['submission_generation'] ?? 0 )
+		|| 2 !== absint( $contract_refresh_claim['run']['principal']['submission_generation'] ?? 0 )
+		|| empty( $contract_refresh_claim['job']['contract_refresh_history'][0]['mismatch_evidence']['coverage']['missing_keys'] )
 	) {
 		throw new RuntimeException( 'Invalid quality-pending artifact did not reopen for translator correction: ' . wp_json_encode( $contract_refresh_claim ) );
 	}
@@ -579,6 +780,59 @@ try {
 	);
 	if ( empty( $contract_refresh_abandoned['success'] ) || 'changes_requested' !== (string) ( $contract_refresh_abandoned['job']['status'] ?? '' ) ) {
 		throw new RuntimeException( 'Contract-refresh fixture did not restore changes_requested after abandon: ' . wp_json_encode( $contract_refresh_abandoned ) );
+	}
+	$contract_limit_job = get_option( $contract_gap_job_key );
+	$contract_limit_job['submission_generation'] = 3;
+	$contract_limit_job['publication_surface_contract_revision'] = 'pscr_runtime_obsolete';
+	$contract_limit_job['contract_refresh_history'] = array();
+	$contract_limit_job['contract_refresh_limit'] = array();
+	$contract_limit_run_id = 'runtime-contract-limit-' . wp_generate_password( 8, false, false );
+	$contract_limit_successor_run_id = 'runtime-contract-limit-successor-' . wp_generate_password( 8, false, false );
+	$contract_limit_run_key = 'devenia_workflow_translation_run_' . $contract_limit_run_id;
+	$contract_limit_claim_key = 'devenia_workflow_translation_job_claim_' . $expiry_job_id;
+	$option_keys[] = $contract_limit_run_key;
+	$contract_limit_run = array( 'run_id' => $contract_limit_run_id, 'job_id' => $expiry_job_id, 'status' => 'running', 'submission_generation' => 3 );
+	$contract_limit_claim = array( 'job_id' => $expiry_job_id, 'run_id' => $contract_limit_run_id, 'token_hash' => hash( 'sha256', $contract_limit_run_id ), 'submission_generation' => 3 );
+	$contract_limit_successor_claim = array( 'job_id' => $expiry_job_id, 'run_id' => $contract_limit_successor_run_id, 'token_hash' => hash( 'sha256', $contract_limit_successor_run_id ), 'submission_generation' => 3 );
+	$contract_limit_job['active_run_id'] = $contract_limit_run_id;
+	add_option( $contract_limit_run_key, $contract_limit_run, '', false );
+	update_option( $contract_limit_claim_key, $contract_limit_successor_claim, false );
+	update_option( $contract_gap_job_key, $contract_limit_job, false );
+	$contract_limit_before_retry_bytes = maybe_serialize( get_option( $contract_gap_job_key ) );
+	$contract_limit_conflict = $call( 'translation_job_refresh_publication_surface_contract_under_lifecycle_lease', $contract_limit_job, 'discover' );
+	if (
+		'contract_refresh_active_claim_mismatch' !== (string) ( $contract_limit_conflict['code'] ?? '' )
+		|| empty( $contract_limit_conflict['retryable'] )
+		|| $contract_limit_before_retry_bytes !== maybe_serialize( get_option( $contract_gap_job_key ) )
+		|| maybe_serialize( $contract_limit_successor_claim ) !== maybe_serialize( get_option( $contract_limit_claim_key ) )
+		|| maybe_serialize( $contract_limit_run ) !== maybe_serialize( get_option( $contract_limit_run_key ) )
+	) {
+		throw new RuntimeException( 'Generation-ceiling retirement conflict was not retryable with active refs intact: ' . wp_json_encode( $contract_limit_conflict ) );
+	}
+	update_option( $contract_limit_claim_key, $contract_limit_claim, false );
+	$contract_limit_first = $call( 'translation_job_refresh_publication_surface_contract_under_lifecycle_lease', $contract_limit_job, 'discover' );
+	$contract_limit_after_first = get_option( $contract_gap_job_key );
+	$contract_limit_first_bytes = maybe_serialize( $contract_limit_after_first );
+	$contract_limit_first_history_count = count( (array) ( $contract_limit_after_first['contract_refresh_history'] ?? array() ) );
+	$contract_limit_retired_run = get_option( $contract_limit_run_key );
+	$contract_limit_second = $call( 'translation_job_refresh_publication_surface_contract_under_lifecycle_lease', $contract_limit_after_first, 'discover' );
+	$contract_limit_after_second = get_option( $contract_gap_job_key );
+	if (
+		'contract_refresh_generation_limit' !== (string) ( $contract_limit_first['code'] ?? '' )
+		|| 'contract_refresh_generation_limit' !== (string) ( $contract_limit_second['code'] ?? '' )
+		|| empty( $contract_limit_second['idempotent'] )
+		|| 'completed' !== (string) ( $contract_limit_retired_run['status'] ?? '' )
+		|| 'contract_refresh_required' !== (string) ( $contract_limit_retired_run['outcome'] ?? '' )
+		|| false !== get_option( $contract_limit_claim_key )
+		|| '' !== (string) ( $contract_limit_after_first['active_run_id'] ?? '' )
+		|| 1 !== $contract_limit_first_history_count
+		|| $contract_limit_first_history_count !== count( (array) ( $contract_limit_after_second['contract_refresh_history'] ?? array() ) )
+		|| $contract_limit_first_bytes !== maybe_serialize( $contract_limit_after_second )
+	) {
+		throw new RuntimeException( 'Generation-ceiling retry did not finish pending retirement before the idempotent terminal state: ' . wp_json_encode( compact( 'contract_limit_first', 'contract_limit_second', 'contract_limit_after_first', 'contract_limit_after_second', 'contract_limit_retired_run' ) ) );
+	}
+	if ( $contract_limit_first_history_count !== count( (array) ( $contract_limit_after_second['contract_refresh_history'] ?? array() ) ) || $contract_limit_first_bytes !== maybe_serialize( $contract_limit_after_second ) ) {
+		throw new RuntimeException( 'Repeated generation-limit Contract Refresh mutated history or Job state.' );
 	}
 
 	// Exercise the update path against a real public translation. Register the
@@ -1233,8 +1487,18 @@ try {
 	}
 	$quality_run_id = (string) $quality_claim['run']['run_id'];
 	$quality_token = (string) $quality_claim['claim_token'];
-	$option_keys[] = 'devenia_workflow_translation_run_' . $quality_run_id;
+	$quality_run_key = 'devenia_workflow_translation_run_' . $quality_run_id;
+	$option_keys[] = $quality_run_key;
 	$quality_packet = $call( 'translation_job_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $quality_run_id, 'claim_token' => $quality_token ) );
+	$quality_run_after_first_packet = maybe_serialize( get_option( $quality_run_key ) );
+	$quality_packet_repeat = $call( 'translation_job_fetch_packet', array( 'job_id' => $job_id, 'run_id' => $quality_run_id, 'claim_token' => $quality_token ) );
+	if (
+		empty( $quality_packet_repeat['success'] )
+		|| (string) ( $quality_packet['packet']['packet_revision'] ?? '' ) !== (string) ( $quality_packet_repeat['packet']['packet_revision'] ?? '' )
+		|| $quality_run_after_first_packet !== maybe_serialize( get_option( $quality_run_key ) )
+	) {
+		throw new RuntimeException( 'Repeated same-second packet fetch did not pass the exact idempotent Run CAS: ' . wp_json_encode( $quality_packet_repeat ) );
+	}
 	$quality_contact_actions = $quality_packet['packet']['contact_actions'] ?? array();
 	if (
 		empty( $quality_packet['success'] )
@@ -1515,35 +1779,69 @@ try {
 	}
 	$attempt_limit_job_key = 'devenia_workflow_translation_job_' . $job_id;
 	$attempt_limit_job = get_option( $attempt_limit_job_key );
+	$attempt_limit_max = absint( $workflow_reflection->getConstant( 'TRANSLATION_JOB_MAX_RUNS_PER_ROLE' ) );
+	$attempt_limit_generation = $call( 'translation_job_submission_generation', $attempt_limit_job );
+	if ( $attempt_limit_max < 1 ) {
+		throw new RuntimeException( 'Runtime could not derive the substantive Run ceiling from TRANSLATION_JOB_MAX_RUNS_PER_ROLE.' );
+	}
+	$attempt_limit_counts = array();
+	foreach ( array( 'quality', 'translator' ) as $attempt_limit_role ) {
+		$attempt_limit_count = $call( 'translation_job_role_attempt_count', (array) ( $attempt_limit_job['run_ids'] ?? array() ), $attempt_limit_role, $attempt_limit_generation );
+		if ( $attempt_limit_count > $attempt_limit_max ) {
+			throw new RuntimeException( 'Existing substantive runtime attempts already exceed the production role ceiling.' );
+		}
+		for ( $attempt_limit_index = $attempt_limit_count; $attempt_limit_index < $attempt_limit_max; ++$attempt_limit_index ) {
+			$attempt_limit_fill_run_id = 'runtime-attempt-fill-' . $attempt_limit_role . '-' . $attempt_limit_index . '-' . wp_generate_password( 8, false, false );
+			$attempt_limit_fill_run_key = 'devenia_workflow_translation_run_' . $attempt_limit_fill_run_id;
+			$attempt_limit_fill_run = array(
+				'run_id' => $attempt_limit_fill_run_id,
+				'job_id' => $job_id,
+				'role' => $attempt_limit_role,
+				'status' => 'completed',
+				'outcome' => 'quality' === $attempt_limit_role ? 'revise' : 'submitted',
+				'submission_generation' => $attempt_limit_generation,
+				'finished_at' => gmdate( 'c' ),
+			);
+			if ( ! add_option( $attempt_limit_fill_run_key, $attempt_limit_fill_run, '', false ) ) {
+				throw new RuntimeException( 'Could not create a bounded runtime-only substantive Run fixture.' );
+			}
+			$option_keys[] = $attempt_limit_fill_run_key;
+			$attempt_limit_job['run_ids'][] = array( 'run_id' => $attempt_limit_fill_run_id, 'role' => $attempt_limit_role, 'submission_generation' => $attempt_limit_generation );
+		}
+		$attempt_limit_counts[ $attempt_limit_role ] = $call( 'translation_job_role_attempt_count', (array) $attempt_limit_job['run_ids'], $attempt_limit_role, $attempt_limit_generation );
+	}
+	if ( $attempt_limit_max !== (int) $attempt_limit_counts['quality'] || $attempt_limit_max !== (int) $attempt_limit_counts['translator'] ) {
+		throw new RuntimeException( 'Runtime-only substantive Run fixtures did not reach the exact production ceiling: ' . wp_json_encode( $attempt_limit_counts ) );
+	}
 	$attempt_limit_job['status'] = 'quality_pending';
 	update_option( $attempt_limit_job_key, $attempt_limit_job, false );
-	$fourth_quality_claim = $call(
+	$over_limit_quality_claim = $call(
 		'translation_job_claim',
 		array(
 			'job_id' => $job_id,
-			'run_id' => 'runtime-quality-fourth-' . wp_generate_password( 8, false, false ),
+			'run_id' => 'runtime-quality-over-limit-' . wp_generate_password( 8, false, false ),
 			'coordinator_id' => 'runtime-coordinator',
 			'role' => 'quality',
 			'ttl_seconds' => 600,
 		)
 	);
-	if ( ! empty( $fourth_quality_claim['success'] ) || 'run_attempt_limit' !== (string) ( $fourth_quality_claim['code'] ?? '' ) ) {
-		throw new RuntimeException( 'Three substantive Quality Decisions did not enforce the bounded attempt limit: ' . wp_json_encode( $fourth_quality_claim ) );
+	if ( ! empty( $over_limit_quality_claim['success'] ) || 'run_attempt_limit' !== (string) ( $over_limit_quality_claim['code'] ?? '' ) || $attempt_limit_generation !== absint( $over_limit_quality_claim['submission_generation'] ?? 0 ) ) {
+		throw new RuntimeException( 'The Quality claim after the production-derived substantive ceiling did not fail at run_attempt_limit: ' . wp_json_encode( $over_limit_quality_claim ) );
 	}
 	$attempt_limit_job['status'] = 'changes_requested';
 	update_option( $attempt_limit_job_key, $attempt_limit_job, false );
-	$fourth_translator_claim = $call(
+	$over_limit_translator_claim = $call(
 		'translation_job_claim',
 		array(
 			'job_id' => $job_id,
-			'run_id' => 'runtime-translator-fourth-' . wp_generate_password( 8, false, false ),
+			'run_id' => 'runtime-translator-over-limit-' . wp_generate_password( 8, false, false ),
 			'coordinator_id' => 'runtime-coordinator',
 			'role' => 'translator',
 			'ttl_seconds' => 600,
 		)
 	);
-	if ( ! empty( $fourth_translator_claim['success'] ) || 'run_attempt_limit' !== (string) ( $fourth_translator_claim['code'] ?? '' ) ) {
-		throw new RuntimeException( 'Three substantive translator submissions did not enforce the bounded attempt limit: ' . wp_json_encode( $fourth_translator_claim ) );
+	if ( ! empty( $over_limit_translator_claim['success'] ) || 'run_attempt_limit' !== (string) ( $over_limit_translator_claim['code'] ?? '' ) || $attempt_limit_generation !== absint( $over_limit_translator_claim['submission_generation'] ?? 0 ) ) {
+		throw new RuntimeException( 'The translator claim after the production-derived substantive ceiling did not fail at run_attempt_limit: ' . wp_json_encode( $over_limit_translator_claim ) );
 	}
 	$attempt_limit_job['status'] = 'ready_to_publish';
 	update_option( $attempt_limit_job_key, $attempt_limit_job, false );
@@ -2558,26 +2856,48 @@ try {
 
 	// Source Publication Surface: timestamps are diagnostic, bytes are authority.
 	$source_surface_a = $call( 'source_publication_surface_revision', get_post( $source_id ) );
+	$source_contract_a = $call( 'translation_job_publication_surface_contract_revision', get_post( $source_id ) );
 	$source_media_a = $call( 'publication_featured_image_revision_identity', $source_id );
 	$published_authority_job = get_option( 'devenia_workflow_translation_job_' . $job_id );
-	$published_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a );
+	$unverified_published_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a, $source_contract_a );
+	$published_job_key = 'devenia_workflow_translation_job_' . $job_id;
+	if ( ! empty( $published_authority_job['live_verification_passed'] ) || 'published' !== (string) ( $unverified_published_obligation['state'] ?? '' ) ) {
+		throw new RuntimeException( 'An authority-valid published Job awaiting the separate live-verification seam was not projected as published: ' . wp_json_encode( compact( 'published_authority_job', 'unverified_published_obligation' ) ) );
+	}
+	$published_contract_stale_job = $published_authority_job;
+	$published_contract_stale_job['publication_surface_contract_revision'] = 'pscr_runtime_inventory_stale';
+	update_option( $published_job_key, $published_contract_stale_job, false );
+	$stale_contract_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a, $source_contract_a );
+	update_option( $published_job_key, $published_authority_job, false );
 	$published_quality = get_option( 'devenia_workflow_translation_quality_' . (string) ( $published_authority_job['quality_revision'] ?? '' ) );
 	$published_evidence_key = 'devenia_tj_quality_evidence_' . (string) ( $published_quality['evidence_revision'] ?? '' );
 	$published_evidence = get_option( $published_evidence_key );
 	delete_option( $published_evidence_key );
-	$missing_evidence_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a );
+	$missing_evidence_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a, $source_contract_a );
 	update_option( $published_evidence_key, $published_evidence, false );
 	$published_artifact_key = 'devenia_workflow_translation_artifact_' . (string) ( $published_authority_job['artifact_revision'] ?? '' );
 	$published_artifact_exact = get_option( $published_artifact_key );
 	delete_option( $published_artifact_key );
-	$missing_artifact_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a );
+	$missing_artifact_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a, $source_contract_a );
 	update_option( $published_artifact_key, $published_artifact_exact, false );
 	if (
-		'published_verified' !== (string) ( $published_obligation['state'] ?? '' )
+		'publication_contract_stale' !== (string) ( $stale_contract_obligation['state'] ?? '' )
 		|| 'publication_authority_stale' !== (string) ( $missing_evidence_obligation['state'] ?? '' )
 		|| 'publication_authority_stale' !== (string) ( $missing_artifact_obligation['state'] ?? '' )
 	) {
-		throw new RuntimeException( 'Published obligation accepted a missing immutable Artifact or Quality Evidence binding: ' . wp_json_encode( compact( 'published_obligation', 'missing_evidence_obligation', 'missing_artifact_obligation' ) ) );
+		throw new RuntimeException( 'Unverified published obligation accepted a stale publication contract or missing immutable Artifact/Quality evidence binding: ' . wp_json_encode( compact( 'stale_contract_obligation', 'missing_evidence_obligation', 'missing_artifact_obligation' ) ) );
+	}
+	$live_verification = $call( 'translation_job_verify_live', array( 'job_id' => $job_id, 'timeout' => 3 ) );
+	$verified_authority_job = get_option( $published_job_key );
+	$verified_published_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a, $source_contract_a );
+	if (
+		empty( $live_verification['success'] )
+		|| empty( $live_verification['passed'] )
+		|| ! isset( $live_verification['live_verification']['cache_responses']['origin'], $live_verification['live_verification']['cache_responses']['canonical'] )
+		|| empty( $verified_authority_job['live_verification_passed'] )
+		|| 'published_verified' !== (string) ( $verified_published_obligation['state'] ?? '' )
+	) {
+		throw new RuntimeException( 'The actual translation-job-verify-live seam did not advance an authority-valid published obligation to published_verified: ' . wp_json_encode( compact( 'live_verification', 'verified_authority_job', 'verified_published_obligation' ) ) );
 	}
 	$inventory_signature_a = $call( 'current_source_inventory_signature' );
 	$translation_media_cas_a = $call( 'translation_job_rollback_cas_revision', $translation_id );

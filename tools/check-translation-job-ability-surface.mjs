@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const catalogue = readFileSync(join(root, "includes", "trait-ability-catalogue.php"), "utf8");
 const translationJobModule = readFileSync(join(root, "includes", "trait-translation-job.php"), "utf8");
+const translationJobRuntime = readFileSync(join(root, "tools", "check-translation-job-runtime.php"), "utf8");
 const registeredWorkflow = [...catalogue.matchAll(/^\s*'devenia-workflow\/([a-z0-9-]+)'\s*=>/gm)].map((match) => match[1]);
 const registeredTranslationJob = [...translationJobModule.matchAll(/^\s*'(translation-job-[a-z0-9-]+)'\s*=>\s*array\(/gm)].map((match) => match[1]);
 const registered = [...registeredWorkflow, ...registeredTranslationJob];
@@ -34,6 +35,10 @@ assert.deepEqual([...registeredTranslationJob].sort(), [...expectedTranslationJo
 assert.match(translationJobModule, /const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 6;/, "A Job must enforce the current bounded per-role correction ceiling.");
 assert.match(translationJobModule, /translation_job_role_attempt_count\( \$existing_runs, \$role, \$submission_generation \) >= self::TRANSLATION_JOB_MAX_RUNS_PER_ROLE/, "Run claims must enforce the finite per-role ceiling for the current server-owned generation.");
 assert.match(translationJobModule, /in_array\( \(string\) \( \$run\['outcome'\] \?\? '' \), array\( 'expired', 'abandoned' \), true \)/, "Expired and abandoned non-decision Runs must not consume substantive attempt slots.");
+assert.match(translationJobRuntime, /\$attempt_limit_max = absint\( \$workflow_reflection->getConstant\( 'TRANSLATION_JOB_MAX_RUNS_PER_ROLE' \) \)/, "Runtime attempt-limit evidence must derive the ceiling from the production constant.");
+assert.match(translationJobRuntime, /translation_job_role_attempt_count'[\s\S]*\$attempt_limit_index = \$attempt_limit_count; \$attempt_limit_index < \$attempt_limit_max[\s\S]*\$option_keys\[\] = \$attempt_limit_fill_run_key[\s\S]*translation_job_role_attempt_count'/, "Runtime must count substantive attempts, add cleanup-tracked bounded fixtures to the exact ceiling, and recount through the production function.");
+assert.match(translationJobRuntime, /\$attempt_limit_generation[\s\S]*'submission_generation' => \$attempt_limit_generation[\s\S]*run_attempt_limit/, "Attempt-limit fixtures and rejection evidence must stay bound to one submission generation.");
+assert.doesNotMatch(translationJobRuntime, /runtime-(?:quality|translator)-fourth|Three substantive (?:Quality Decisions|translator submissions)/, "Runtime must not encode the obsolete three-attempt ceiling.");
 console.log(JSON.stringify({
 	success: true,
 	registered_abilities: registered.length,

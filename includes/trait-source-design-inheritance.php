@@ -217,9 +217,6 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 	 */
 	private static function store_localized_source_design_fragments( int $translation_id, WP_Post $source, string $language, $raw_fragments, array $source_design = array() ): void {
 		$records = self::localized_fragment_records_for_storage( $raw_fragments );
-		if ( empty( $records ) ) {
-			return;
-		}
 		$stored = self::stored_localized_source_design_fragments( $translation_id );
 		if ( ! empty( $stored['fragments'] ) && is_array( $stored['fragments'] ) ) {
 			$merged = array();
@@ -242,6 +239,30 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 			}
 			$records = array_values( $merged );
 		}
+
+		// Partial updates may retain current localized values, but fragments that
+		// no longer exist in the source contract must never survive indefinitely.
+		// Publication verifies the exact current presentation surface, so keeping
+		// orphaned historical keys would make a complete approved artifact differ
+		// from the durable WordPress representation after an otherwise valid save.
+		$contract_fragments = isset( $source_design['fragments'] ) && is_array( $source_design['fragments'] )
+			? $source_design['fragments']
+			: (array) ( self::source_design_contract( $source )['fragments'] ?? array() );
+		$allowed_keys = array();
+		foreach ( $contract_fragments as $fragment ) {
+			$key = self::source_design_fragment_key_from_input( (string) ( is_array( $fragment ) ? ( $fragment['key'] ?? '' ) : '' ) );
+			if ( '' !== $key ) {
+				$allowed_keys[ $key ] = true;
+			}
+		}
+		$records = array_values(
+			array_filter(
+				$records,
+				static function ( array $record ) use ( $allowed_keys ): bool {
+					return isset( $allowed_keys[ (string) ( $record['key'] ?? '' ) ] );
+				}
+			)
+		);
 
 		$design_hash = self::expected_source_design_signature_hash( (string) $source->post_content, $language );
 

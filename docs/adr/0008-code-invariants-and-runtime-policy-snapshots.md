@@ -58,6 +58,25 @@ defines which public values enter the Artifact Surface Revision. Localized
 values and explicit source exceptions are data; arbitrary executable fragment
 definitions are not.
 
+Each active submission generation pins a separate content-addressed
+Publication Surface Contract Revision derived from the code-owned typed fragment
+projection and supported surface fields. It is not the plugin version and is
+not a database registry. A missing legacy pin, a changed fingerprint, or
+incomplete exact fragment coverage reopens the same source-revision Job through
+the lifecycle lease only after ownership-bound CAS retirement of its exact
+active Run and claim. Conflicts preserve active references for retry, retain
+prior evidence and completed Runs immutably, and still require a fresh
+translator and Quality generation before publication.
+
+All mutable Run-record paths use the same exact serialized-value CAS seam.
+Packet receipts, budget migration, abandonment, expiry, orphan finalization,
+completion, and rollback deletion therefore cannot overwrite a terminal Run
+from a stale owner.
+When expected and replacement bytes are identical, the CAS seam performs an
+exact BINARY current-value read: it succeeds for the still-owned no-op and
+fails for a changed current owner despite MariaDB reporting zero affected rows
+for both ordinary no-op updates.
+
 ## Consequences
 
 - Safety behavior changes through reviewed plugin releases and their tests.

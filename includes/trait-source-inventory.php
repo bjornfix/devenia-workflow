@@ -167,13 +167,14 @@ trait Devenia_Workflow_Source_Inventory {
 			elseif ( ! is_post_publicly_viewable( $post ) ) { $reason = 'not_publicly_viewable'; }
 			$applicable = '' === $reason;
 			$revision = $applicable ? self::source_publication_surface_revision( $post ) : '';
+			$contract_revision = $applicable ? self::translation_job_publication_surface_contract_revision( $post ) : '';
 			$inventory_rows[] = array(
 				'generation' => $generation, 'source_id' => $id, 'post_type' => $post->post_type,
 				'post_status' => $post->post_status, 'applicable' => $applicable ? 1 : 0,
-				'exclusion_reason' => $reason, 'source_revision' => $revision,
+				'exclusion_reason' => $reason, 'source_revision' => $revision, 'publication_surface_contract_revision' => $contract_revision,
 				'modified_gmt' => '0000-00-00 00:00:00' === $post->post_modified_gmt ? gmdate( 'Y-m-d H:i:s' ) : $post->post_modified_gmt,
 			);
-			if ( $applicable ) { ++$included; $source_rows[] = array( $id, $revision ); }
+			if ( $applicable ) { ++$included; $source_rows[] = array( $id, $revision, $contract_revision ); }
 			else { ++$excluded; $reasons[ $reason ] = 1 + ( $reasons[ $reason ] ?? 0 ); }
 			}
 			++$page;
@@ -182,7 +183,7 @@ trait Devenia_Workflow_Source_Inventory {
 		$state_counts = array(); $obligation_rows = array(); $obligation_id = 0;
 		foreach ( $source_rows as $source_row ) {
 			foreach ( $languages as $language ) {
-				$projection = self::project_translation_obligation( $source_row[0], $language, $source_row[1] );
+				$projection = self::project_translation_obligation( $source_row[0], $language, $source_row[1], $source_row[2] );
 				$state_counts[ $projection['state'] ] = 1 + ( $state_counts[ $projection['state'] ] ?? 0 );
 				$obligation_rows[] = array_merge( $projection, array( 'obligation_id' => ++$obligation_id, 'generation' => $generation, 'updated_gmt' => gmdate( 'Y-m-d H:i:s' ) ) );
 			}
@@ -198,27 +199,43 @@ trait Devenia_Workflow_Source_Inventory {
 		return array( 'success' => true, 'inventory' => $manifest );
 	}
 
-	private static function project_translation_obligation( int $source_id, string $language, string $revision ): array {
+	private static function project_translation_obligation( int $source_id, string $language, string $revision, string $contract_revision = '' ): array {
 		$source = get_post( $source_id );
 		$translation_id = self::translation_index_id_for_source_language( $source_id, $language, self::translation_workflow_post_statuses( false ) );
 		$job_id = self::translation_job_id( $source_id, $language, $revision );
 		$job = self::translation_job_get_job( $job_id );
 		$state = 'missing';
 		$current_revision = $source instanceof WP_Post ? self::source_publication_surface_revision( $source ) : '';
+		$current_contract_revision = $source instanceof WP_Post ? self::translation_job_publication_surface_contract_revision( $source ) : '';
 		if ( '' === $current_revision || ! hash_equals( $revision, $current_revision ) ) {
-			return array( 'source_id' => $source_id, 'target_language' => $language, 'state' => 'source_surface_stale', 'job_id' => $job_id, 'translation_id' => $translation_id, 'source_revision' => $revision );
+			return array( 'source_id' => $source_id, 'target_language' => $language, 'state' => 'source_surface_stale', 'job_id' => $job_id, 'translation_id' => $translation_id, 'source_revision' => $revision, 'publication_surface_contract_revision' => $contract_revision );
+		}
+		if ( '' === $contract_revision || '' === $current_contract_revision || ! hash_equals( $contract_revision, $current_contract_revision ) ) {
+			return array( 'source_id' => $source_id, 'target_language' => $language, 'state' => 'publication_contract_stale', 'job_id' => $job_id, 'translation_id' => $translation_id, 'source_revision' => $revision, 'publication_surface_contract_revision' => $contract_revision, 'current_publication_surface_contract_revision' => $current_contract_revision );
 		}
 		if ( $job ) {
+			$job_contract = self::translation_job_publication_surface_contract_state( $job );
+			if (
+				empty( $job_contract['success'] )
+				|| ! empty( $job_contract['contract_stale'] )
+				|| ! hash_equals( $contract_revision, (string) ( $job['publication_surface_contract_revision'] ?? '' ) )
+			) {
+				return array( 'source_id' => $source_id, 'target_language' => $language, 'state' => 'publication_contract_stale', 'job_id' => $job_id, 'translation_id' => $translation_id, 'source_revision' => $revision, 'publication_surface_contract_revision' => $contract_revision, 'current_publication_surface_contract_revision' => $current_contract_revision, 'job_publication_surface_contract_revision' => (string) ( $job['publication_surface_contract_revision'] ?? '' ), 'contract_evidence' => $job_contract );
+			}
 			$state = sanitize_key( (string) ( $job['status'] ?? 'queued' ) );
-			if ( 'published' === $state && ! empty( $job['live_verification_passed'] ) && ! empty( $job['artifact_revision'] ) && ! empty( $job['quality_revision'] ) ) {
-				$source_media = self::publication_featured_image_revision_identity( $source );
-				$translation_media = $translation_id > 0 ? self::publication_featured_image_revision_identity( $translation_id ) : array();
+			if ( 'published' === $state ) {
 				$authority = self::translation_job_validate_published_authority( $job, $translation_id, true );
-				$artifact = isset( $authority['artifact_record'] ) && is_array( $authority['artifact_record'] ) ? $authority['artifact_record'] : array();
-				$approved_media = is_array( $artifact ) ? (array) ( $artifact['surface_manifest']['media']['featured_image'] ?? array() ) : array();
-				$media_matches = self::translation_job_canonicalize( $source_media ) === self::translation_job_canonicalize( $translation_media )
-					&& self::translation_job_canonicalize( $source_media ) === self::translation_job_canonicalize( $approved_media );
-				$state = ! empty( $authority['success'] ) && $media_matches ? 'published_verified' : ( ! empty( $authority['success'] ) ? 'visible_media_stale' : 'publication_authority_stale' );
+				if ( empty( $authority['success'] ) ) {
+					$state = 'publication_authority_stale';
+				} elseif ( ! empty( $job['live_verification_passed'] ) ) {
+					$source_media = self::publication_featured_image_revision_identity( $source );
+					$translation_media = $translation_id > 0 ? self::publication_featured_image_revision_identity( $translation_id ) : array();
+					$artifact = isset( $authority['artifact_record'] ) && is_array( $authority['artifact_record'] ) ? $authority['artifact_record'] : array();
+					$approved_media = (array) ( $artifact['surface_manifest']['media']['featured_image'] ?? array() );
+					$media_matches = self::translation_job_canonicalize( $source_media ) === self::translation_job_canonicalize( $translation_media )
+						&& self::translation_job_canonicalize( $source_media ) === self::translation_job_canonicalize( $approved_media );
+					$state = $media_matches ? 'published_verified' : 'visible_media_stale';
+				}
 			}
 		}
 		if ( ! $job && $translation_id > 0 ) {
@@ -226,7 +243,7 @@ trait Devenia_Workflow_Source_Inventory {
 			$stored_hash = (string) get_post_meta( $translation_id, self::META_SOURCE_HASH, true );
 			$state = $translation && 'publish' === $translation->post_status && hash_equals( $revision, $stored_hash ) ? 'review_required' : 'stale';
 		}
-		return array( 'source_id' => $source_id, 'target_language' => $language, 'state' => $state, 'job_id' => $job_id, 'translation_id' => $translation_id, 'source_revision' => $revision );
+		return array( 'source_id' => $source_id, 'target_language' => $language, 'state' => $state, 'job_id' => $job_id, 'translation_id' => $translation_id, 'source_revision' => $revision, 'publication_surface_contract_revision' => $contract_revision );
 	}
 
 	private static function source_inventory( array $input ): array {
@@ -249,8 +266,8 @@ trait Devenia_Workflow_Source_Inventory {
 		$rows = self::inventory_store_read_rows( (string) $manifest['generation'], 'obligation' );
 		$changed = false;
 		foreach ( $rows as $index => $row ) {
-			$projection = self::project_translation_obligation( absint( $row['source_id'] ), sanitize_key( $row['target_language'] ), (string) $row['source_revision'] );
-			foreach ( array( 'state', 'job_id', 'translation_id' ) as $field ) {
+			$projection = self::project_translation_obligation( absint( $row['source_id'] ), sanitize_key( $row['target_language'] ), (string) $row['source_revision'], (string) ( $row['publication_surface_contract_revision'] ?? '' ) );
+			foreach ( array( 'state', 'job_id', 'translation_id', 'publication_surface_contract_revision', 'current_publication_surface_contract_revision' ) as $field ) {
 				if ( (string) ( $rows[ $index ][ $field ] ?? '' ) !== (string) ( $projection[ $field ] ?? '' ) ) { $changed = true; }
 				$rows[ $index ][ $field ] = $projection[ $field ];
 			}
@@ -274,7 +291,7 @@ trait Devenia_Workflow_Source_Inventory {
 		$rows = array();
 		foreach ( $ids as $id ) {
 			$post = get_post( $id );
-			if ( $post && ! self::is_translation_post( $id ) && is_post_publicly_viewable( $post ) ) { $rows[] = array( $id, self::source_publication_surface_revision( $post ) ); }
+			if ( $post && ! self::is_translation_post( $id ) && is_post_publicly_viewable( $post ) ) { $rows[] = array( $id, self::source_publication_surface_revision( $post ), self::translation_job_publication_surface_contract_revision( $post ) ); }
 		}
 		return hash( 'sha256', wp_json_encode( $rows ) );
 	}

@@ -618,7 +618,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$token_hash = sanitize_text_field( (string) ( $claim['token_hash'] ?? '' ) );
 		$user_id    = get_current_user_id();
 		$submission_generation = max( 1, absint( $run['submission_generation'] ?? $claim['submission_generation'] ?? $job['submission_generation'] ?? 1 ) );
-		$material   = implode( '|', array( (string) ( $job['job_id'] ?? '' ), (string) $submission_generation, $run_id, $role, (string) $user_id, $token_hash ) );
+		$contract_revision = (string) ( $job['publication_surface_contract_revision'] ?? '' );
+		$material   = implode( '|', array( (string) ( $job['job_id'] ?? '' ), (string) $submission_generation, $contract_revision, $run_id, $role, (string) $user_id, $token_hash ) );
 
 		return array(
 			'principal_id'     => 'tjp_' . substr( hash( 'sha256', $material ), 0, 32 ),
@@ -632,6 +633,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'issued_at'        => sanitize_text_field( (string) ( $claim['claimed_at'] ?? gmdate( 'c' ) ) ),
 			'expires_at'       => sanitize_text_field( (string) ( $claim['expires_at'] ?? '' ) ),
 			'submission_generation' => $submission_generation,
+			'publication_surface_contract_revision' => $contract_revision,
 		);
 	}
 
@@ -765,9 +767,10 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			return array( 'success' => false, 'code' => 'source_featured_image_identity_unavailable', 'message' => 'The source featured-image bytes could not be identified; staging fails closed.', 'media_identity' => $featured_image_identity );
 		}
 		$manifest = array(
-			'schema_version'  => 2,
+			'schema_version'  => 3,
 			'job_id'          => (string) $job['job_id'],
 			'source_revision' => (string) $job['source_revision'],
+			'publication_surface_contract_revision' => (string) ( $job['publication_surface_contract_revision'] ?? '' ),
 			'language'        => $language,
 			'content'         => array( 'title' => $title, 'excerpt' => $excerpt, 'gutenberg' => $content ),
 			'seo'             => $seo_surface,
@@ -850,6 +853,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	 * @return array<string,mixed>
 	 */
 	private static function translation_job_quality_evidence_receipts( array $job, array $artifact_record, array $input, array $reviewer_principal, string $decision ): array {
+		$contract = self::translation_job_require_current_publication_surface_contract( $job );
+		if ( empty( $contract['success'] ) ) { return $contract; }
 		$required_kinds = array( 'deterministic_structure', 'source_coverage', 'localized_route_links', 'seo_taxonomy', 'offer_contact', 'http_live_dom' );
 		$receipt_ids = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', (array) ( $input['evidence_receipt_ids'] ?? array() ) ) ) ) );
 		$resolved = array();
@@ -862,6 +867,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			if (
 				(string) ( $receipt['artifact_revision'] ?? '' ) !== (string) $artifact_record['artifact_revision']
 				|| (string) ( $receipt['surface_revision'] ?? '' ) !== (string) $artifact_record['surface_revision']
+				|| (string) ( $receipt['publication_surface_contract_revision'] ?? '' ) !== (string) $job['publication_surface_contract_revision']
 				|| (string) ( $receipt['principal_id'] ?? '' ) !== (string) ( $reviewer_principal['principal_id'] ?? '' )
 				|| 'workflow' !== (string) ( $receipt['issuer'] ?? '' )
 				|| empty( $receipt['passed'] )
@@ -906,6 +912,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'job_id'           => (string) $job['job_id'],
 			'artifact_revision' => (string) $artifact_record['artifact_revision'],
 			'surface_revision'  => (string) $artifact_record['surface_revision'],
+			'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'],
 			'reviewer_principal'=> $reviewer_principal,
 			'server_receipt_ids'=> $receipt_ids,
 			'server_receipts'   => $resolved,
@@ -933,6 +940,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	 * @return array<string,mixed>
 	 */
 	private static function translation_job_server_quality_receipts( array $job, array $artifact_record, array $reviewer_principal ): array {
+		$contract = self::translation_job_require_current_publication_surface_contract( $job );
+		if ( empty( $contract['success'] ) ) { return $contract; }
 		$source = get_post( absint( $job['source_id'] ?? 0 ) );
 		$artifact = isset( $artifact_record['artifact'] ) && is_array( $artifact_record['artifact'] ) ? $artifact_record['artifact'] : array();
 		if ( ! $source instanceof WP_Post ) {
@@ -978,6 +987,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'kind' => $name,
 				'artifact_revision' => (string) $artifact_record['artifact_revision'],
 				'surface_revision' => (string) $artifact_record['surface_revision'],
+				'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'],
 				'principal_id' => (string) ( $reviewer_principal['principal_id'] ?? '' ),
 				'adapter_revision' => self::VERSION,
 				'policy_revision' => 'quality-authority-v1',
@@ -1068,6 +1078,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$receipts[] = array(
 				'artifact_revision' => (string) $artifact_record['artifact_revision'],
 				'surface_revision'  => (string) $artifact_record['surface_revision'],
+				'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'],
 				'principal_id'      => (string) ( $reviewer_principal['principal_id'] ?? '' ),
 				'viewport_scheme'   => $viewport,
 				'viewport'          => array( 'width' => $policy_dimensions[0], 'height' => $policy_dimensions[1], 'device_scale_factor' => $policy_dimensions[2] ),
@@ -2249,12 +2260,14 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			|| (string) ( $quality['artifact_revision'] ?? '' ) !== (string) ( $artifact_record['artifact_revision'] ?? '' )
 			|| (string) ( $record['surface_revision'] ?? '' ) !== (string) ( $artifact_record['surface_revision'] ?? '' )
 			|| (string) ( $quality['surface_revision'] ?? '' ) !== (string) ( $artifact_record['surface_revision'] ?? '' )
+			|| (string) ( $record['publication_surface_contract_revision'] ?? '' ) !== (string) ( $artifact_record['publication_surface_contract_revision'] ?? '' )
+			|| (string) ( $quality['publication_surface_contract_revision'] ?? '' ) !== (string) ( $artifact_record['publication_surface_contract_revision'] ?? '' )
 			|| self::translation_job_canonicalize( (array) ( $record['reviewer_principal'] ?? array() ) ) !== self::translation_job_canonicalize( (array) ( $quality['reviewer_principal'] ?? array() ) )
 		) { return array( 'success' => false, 'code' => 'quality_evidence_binding_mismatch' ); }
 		$required = array( 'deterministic_structure', 'source_coverage', 'localized_route_links', 'seo_taxonomy', 'offer_contact', 'http_live_dom' );
 		$kinds = array();
 		foreach ( (array) ( $record['server_receipts'] ?? array() ) as $receipt ) {
-			if ( ! is_array( $receipt ) || empty( $receipt['passed'] ) || 'workflow' !== (string) ( $receipt['issuer'] ?? '' ) || (string) ( $receipt['principal_id'] ?? '' ) !== (string) ( $record['reviewer_principal']['principal_id'] ?? '' ) ) { return array( 'success' => false, 'code' => 'quality_server_receipt_invalid' ); }
+			if ( ! is_array( $receipt ) || empty( $receipt['passed'] ) || 'workflow' !== (string) ( $receipt['issuer'] ?? '' ) || (string) ( $receipt['principal_id'] ?? '' ) !== (string) ( $record['reviewer_principal']['principal_id'] ?? '' ) || (string) ( $receipt['publication_surface_contract_revision'] ?? '' ) !== (string) ( $record['publication_surface_contract_revision'] ?? '' ) ) { return array( 'success' => false, 'code' => 'quality_server_receipt_invalid' ); }
 			$stored = get_option( self::translation_job_quality_receipt_key( (string) ( $receipt['receipt_id'] ?? '' ) ) );
 			if ( ! is_array( $stored ) || self::translation_job_canonicalize( $stored ) !== self::translation_job_canonicalize( $receipt ) ) { return array( 'success' => false, 'code' => 'quality_server_receipt_missing' ); }
 			$kinds[] = sanitize_key( (string) ( $receipt['kind'] ?? '' ) );
@@ -2280,6 +2293,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			array(
 				'job_id' => (string) ( $job['job_id'] ?? '' ),
 				'source_revision' => (string) ( $job['source_revision'] ?? '' ),
+				'publication_surface_contract_revision' => (string) ( $job['publication_surface_contract_revision'] ?? '' ),
 				'target_language' => (string) ( $job['target_language'] ?? '' ),
 				'submission_generation' => $generation,
 				'baseline_surface_revision' => (string) ( $artifact_record['baseline_surface_revision'] ?? '' ),
@@ -2288,17 +2302,20 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			)
 		);
 		$evidence = self::translation_job_validate_quality_evidence_record( $quality, $artifact_record );
-		$quality_reconstructed = self::translation_job_revision( array( $artifact_revision, (string) ( $artifact_record['surface_revision'] ?? '' ), (string) ( $quality['decision'] ?? '' ), (string) ( $quality['evidence_revision'] ?? '' ), (string) ( $quality['reviewer_observations'] ?? '' ), (array) ( $quality['corrections'] ?? array() ) ) );
+		$coverage = self::translation_job_fragment_coverage( $job, (array) ( $artifact_record['artifact']['localized_fragments'] ?? array() ) );
+		$quality_reconstructed = self::translation_job_revision( array( $artifact_revision, (string) ( $artifact_record['surface_revision'] ?? '' ), (string) ( $job['publication_surface_contract_revision'] ?? '' ), (string) ( $quality['decision'] ?? '' ), (string) ( $quality['evidence_revision'] ?? '' ), (string) ( $quality['reviewer_observations'] ?? '' ), (array) ( $quality['corrections'] ?? array() ) ) );
 		$checks = array(
 			'job_source_missing' => $source instanceof WP_Post,
 			'job_identity_mismatch' => (string) ( $job['job_id'] ?? '' ) === self::translation_job_id( absint( $job['source_id'] ?? 0 ), (string) ( $job['target_language'] ?? '' ), (string) ( $job['source_revision'] ?? '' ) ),
 			'job_source_revision_stale' => $source instanceof WP_Post && (string) ( $job['source_revision'] ?? '' ) === self::source_publication_surface_revision( $source ),
+			'publication_surface_contract_revision_stale' => $source instanceof WP_Post && '' !== (string) ( $job['publication_surface_contract_revision'] ?? '' ) && (string) ( $job['publication_surface_contract_revision'] ?? '' ) === self::translation_job_publication_surface_contract_revision( $source ),
+			'publication_surface_contract_coverage_mismatch' => ! empty( $coverage['success'] ),
 			'artifact_revision_mismatch' => $artifact_revision === (string) ( $artifact_record['artifact_revision'] ?? '' ) && $artifact_revision === $artifact_reconstructed,
-			'artifact_job_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $artifact_record['job_id'] ?? '' ) && (string) ( $job['source_revision'] ?? '' ) === (string) ( $artifact_record['source_revision'] ?? '' ),
-			'artifact_manifest_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $manifest['job_id'] ?? '' ) && (string) ( $job['source_revision'] ?? '' ) === (string) ( $manifest['source_revision'] ?? '' ) && (string) ( $job['target_language'] ?? '' ) === (string) ( $manifest['language'] ?? '' ),
+			'artifact_job_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $artifact_record['job_id'] ?? '' ) && (string) ( $job['source_revision'] ?? '' ) === (string) ( $artifact_record['source_revision'] ?? '' ) && (string) ( $job['publication_surface_contract_revision'] ?? '' ) === (string) ( $artifact_record['publication_surface_contract_revision'] ?? '' ),
+			'artifact_manifest_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $manifest['job_id'] ?? '' ) && (string) ( $job['source_revision'] ?? '' ) === (string) ( $manifest['source_revision'] ?? '' ) && (string) ( $job['publication_surface_contract_revision'] ?? '' ) === (string) ( $manifest['publication_surface_contract_revision'] ?? '' ) && (string) ( $job['target_language'] ?? '' ) === (string) ( $manifest['language'] ?? '' ),
 			'artifact_surface_revision_mismatch' => (string) ( $artifact_record['surface_revision'] ?? '' ) === self::translation_job_surface_revision( $manifest ),
 			'quality_revision_mismatch' => $quality_revision === (string) ( $quality['quality_revision'] ?? '' ) && $quality_revision === $quality_reconstructed,
-			'quality_job_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $quality['job_id'] ?? '' ) && $artifact_revision === (string) ( $quality['artifact_revision'] ?? '' ),
+			'quality_job_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $quality['job_id'] ?? '' ) && $artifact_revision === (string) ( $quality['artifact_revision'] ?? '' ) && (string) ( $job['publication_surface_contract_revision'] ?? '' ) === (string) ( $quality['publication_surface_contract_revision'] ?? '' ),
 			'quality_surface_binding_mismatch' => (string) ( $artifact_record['surface_revision'] ?? '' ) === (string) ( $quality['surface_revision'] ?? '' ) && (string) ( $job['content_revision'] ?? '' ) === (string) ( $quality['content_revision'] ?? '' ),
 			'translation_identity_mismatch' => $translation_id === absint( $job['translation_id'] ?? 0 ) && $translation_id === absint( $artifact_record['translation_id'] ?? 0 ) && $translation_id === absint( $quality['translation_id'] ?? 0 ),
 			'quality_decision_not_pass' => 'pass' === (string) ( $quality['decision'] ?? '' ),

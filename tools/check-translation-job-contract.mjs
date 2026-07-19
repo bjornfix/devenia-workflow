@@ -42,7 +42,7 @@ pass(() => assert.match(runtimeSource, /\$stored\['source_revision'\][\s\S]*\$jo
 pass(() => assert.match(runtimeSource, /translation_job_pack_artifact_record\( \$artifact_record \)/));
 pass(() => assert.match(runtimeSource, /'artifact_encoding'\]\s*=\s*'base64-json-v1'/));
 pass(() => assert.match(runtimeSource, /base64_decode\([^;]+true \)/));
-pass(() => assert.match(runtimeSource, /\$configured_budget = self::translation_job_budget[\s\S]*'budget_migrated_at'[\s\S]*'run_budget_migration_failed'/));
+pass(() => assert.match(runtimeSource, /\$configured_budget = self::translation_job_budget[\s\S]*\$run_before_migration = \$run[\s\S]*'budget_migrated_at'[\s\S]*atomic_replace_option_value\( \$run_key, \$run_before_migration, \$run \)[\s\S]*'run_budget_migration_conflict'/));
 pass(() => assert.match(runtimeSource, /private static function translation_job_subagent_separation_contract\s*\(/));
 pass(() => assert.match(runtimeSource, /Spawn one translator subagent[\s\S]*a different Quality subagent/));
 pass(() => assert.match(runtimeSource, /'same_subagent_forbidden'\s*=>\s*true[\s\S]*'role_reuse_forbidden'\s*=>\s*true/));

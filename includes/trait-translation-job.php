@@ -20,6 +20,7 @@ trait Devenia_Workflow_Translation_Job {
 	}
 	const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 6;
 	const TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS = 3;
+	const TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v1';
 	const TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES = array(
 		'staged_surface_drifted',
 		'staged_surface_drifted_before_locked_write',
@@ -290,6 +291,10 @@ trait Devenia_Workflow_Translation_Job {
 		if ( 'published' !== (string) ( $job['status'] ?? '' ) ) {
 			return array( 'success' => false, 'code' => 'job_not_published', 'message' => 'Live verification requires a published Translation Job.' );
 		}
+		$contract = self::translation_job_require_current_publication_surface_contract( $job );
+		if ( empty( $contract['success'] ) ) {
+			return $contract;
+		}
 		$translation_id = absint( $job['translation_id'] ?? 0 );
 		if ( $translation_id < 1 ) {
 			return array( 'success' => false, 'code' => 'translation_missing', 'message' => 'The published Translation Job has no translation.' );
@@ -348,15 +353,17 @@ trait Devenia_Workflow_Translation_Job {
 			);
 		}
 		$source_revision = self::source_publication_surface_revision( $source );
+		$publication_surface_contract_revision = self::translation_job_publication_surface_contract_revision( $source );
 		$job_id = self::translation_job_id( $source_id, $language, $source_revision );
 		$job = self::translation_job_get_job( $job_id );
 		if ( ! $job ) {
 			$now = gmdate( 'c' );
 			$job = array(
-				'schema_version' => 3,
+				'schema_version' => 4,
 				'job_id' => $job_id,
 				'source_id' => $source_id,
 				'source_revision' => $source_revision,
+				'publication_surface_contract_revision' => $publication_surface_contract_revision,
 				'target_language' => $language,
 				'observability_label' => sanitize_text_field( (string) ( $input['observability_label'] ?? '' ) ),
 				'status' => 'queued',
@@ -365,6 +372,7 @@ trait Devenia_Workflow_Translation_Job {
 				'run_ids' => array(),
 				'submission_generation' => 1,
 				'surface_refresh_history' => array(),
+				'contract_refresh_history' => array(),
 				'source_approval' => array(
 					'reviewed_at' => (string) ( $source_approval['reviewed_at'] ?? '' ),
 					'reviewer' => (string) ( $source_approval['reviewer'] ?? '' ),
@@ -374,6 +382,22 @@ trait Devenia_Workflow_Translation_Job {
 			if ( ! self::atomic_create_option( self::translation_job_job_key( $job_id ), $job ) ) {
 				$job = self::translation_job_get_job( $job_id );
 			}
+		}
+		$lifecycle_lease = self::translation_job_acquire_lifecycle_lease( $job, 'discover' );
+		if ( empty( $lifecycle_lease['success'] ) ) {
+			return $lifecycle_lease;
+		}
+		try {
+			$job = self::translation_job_get_job( $job_id );
+			$refresh = self::translation_job_refresh_publication_surface_contract_under_lifecycle_lease( $job, 'discover' );
+			if ( empty( $refresh['success'] ) ) {
+				return $refresh;
+			}
+			if ( ! empty( $refresh['job'] ) ) {
+				$job = $refresh['job'];
+			}
+		} finally {
+			self::translation_job_release_lifecycle_lease( $lifecycle_lease );
 		}
 		return array( 'success' => true, 'created' => $job['created_at'] === $job['updated_at'] && empty( $job['run_ids'] ), 'job' => self::translation_job_public_job( $job ) );
 	}
@@ -419,8 +443,12 @@ trait Devenia_Workflow_Translation_Job {
 		$lock_key = self::translation_job_claim_key( (string) $job['job_id'] );
 		$existing_lock = get_option( $lock_key );
 		if ( is_array( $existing_lock ) && strtotime( (string) ( $existing_lock['expires_at'] ?? '' ) ) <= time() ) {
-			self::translation_job_expire_run( $existing_lock );
-			delete_option( $lock_key );
+			if ( ! self::translation_job_expire_run( $existing_lock ) ) {
+				return array( 'success' => false, 'retryable' => true, 'code' => 'expired_run_retirement_conflict', 'message' => 'The expired Run changed before exact retirement; claim and Job state were preserved.' );
+			}
+			if ( ! self::translation_job_release_claim( $existing_lock ) ) {
+				return array( 'success' => false, 'code' => 'expired_claim_release_conflict', 'message' => 'The expired claim changed before its exact release.' );
+			}
 			$expired_role = sanitize_key( (string) ( $existing_lock['role'] ?? '' ) );
 			$resume_status = sanitize_key( (string) ( $existing_lock['previous_status'] ?? '' ) );
 			if ( ! in_array( $resume_status, array( 'queued', 'changes_requested', 'quality_pending', 'published' ), true ) ) {
@@ -433,6 +461,17 @@ trait Devenia_Workflow_Translation_Job {
 			$job = $resumed['job'];
 			$existing_lock = null;
 		}
+		$contract_refresh = self::translation_job_refresh_publication_surface_contract_under_lifecycle_lease( $job, 'claim' );
+		if ( empty( $contract_refresh['success'] ) ) {
+			return $contract_refresh;
+		}
+		if ( ! empty( $contract_refresh['refreshed'] ) ) {
+			$job = $contract_refresh['job'];
+			$existing_lock = null;
+			if ( 'quality' === $role ) {
+				return array_merge( $contract_refresh, array( 'success' => false, 'code' => 'contract_refresh_required', 'message' => 'The publication surface contract changed. The Job was reopened for a fresh translator generation before Quality could claim it.' ) );
+			}
+		}
 		if ( ! is_array( $existing_lock ) && in_array( (string) ( $job['status'] ?? '' ), array( 'quality_pending', 'ready_to_publish' ), true ) ) {
 			$surface_refresh = self::translation_job_refresh_drifted_surface( $job, 'claim_baseline_mismatch' );
 			if ( empty( $surface_refresh['success'] ) ) {
@@ -443,34 +482,6 @@ trait Devenia_Workflow_Translation_Job {
 				if ( 'quality' === $role ) {
 					return array_merge( $surface_refresh, array( 'success' => false, 'code' => 'surface_refresh_required', 'message' => 'The public baseline drifted. The Job was reopened for a fresh translator generation before Quality could claim it.' ) );
 				}
-			}
-		}
-		if ( 'translator' === $role && 'quality_pending' === (string) $job['status'] && ! is_array( $existing_lock ) ) {
-			$artifact = self::translation_job_unpack_artifact_record(
-				get_option( self::translation_job_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) )
-			);
-			$coverage = self::translation_job_fragment_coverage(
-				$job,
-				(array) ( $artifact['artifact']['localized_fragments'] ?? array() )
-			);
-			if ( empty( $coverage['success'] ) ) {
-				$refreshed = self::translation_job_transition(
-					$job,
-					array(
-						'status' => 'changes_requested',
-						'quality_revision' => '',
-						'active_run_id' => '',
-						'contract_refresh' => array(
-							'refreshed_at' => gmdate( 'c' ),
-							'reason' => 'artifact_fragment_contract_changed',
-							'coverage' => $coverage,
-						),
-					)
-				);
-				if ( empty( $refreshed['success'] ) ) {
-					return $refreshed;
-				}
-				$job = $refreshed['job'];
 			}
 		}
 		$expected_statuses = 'translator' === $role ? array( 'queued', 'changes_requested', 'published' ) : array( 'quality_pending' );
@@ -503,6 +514,7 @@ trait Devenia_Workflow_Translation_Job {
 			'role' => $role,
 			'previous_status' => (string) $job['status'],
 			'submission_generation' => $submission_generation,
+			'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'],
 			'token_hash' => hash( 'sha256', $token ),
 			'claimed_at' => gmdate( 'c', $now ),
 			'expires_at' => gmdate( 'c', $now + $ttl ),
@@ -544,9 +556,10 @@ trait Devenia_Workflow_Translation_Job {
 			'status' => 'running',
 			'started_at' => gmdate( 'c', $now ),
 			'submission_generation' => $submission_generation,
+			'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'],
 		);
 		if ( ! self::atomic_create_option( self::translation_job_run_key( $run_id ), $run ) ) {
-			delete_option( $lock_key );
+			self::translation_job_release_claim( $lock );
 			return array( 'success' => false, 'code' => 'run_id_conflict', 'message' => 'run_id already exists.' );
 		}
 		$next_runs = $existing_runs;
@@ -554,8 +567,8 @@ trait Devenia_Workflow_Translation_Job {
 		$next_status = 'translator' === $role ? 'claimed' : 'quality_pending';
 		$next = self::translation_job_transition( $job, array( 'status' => $next_status, 'run_ids' => $next_runs, 'active_run_id' => $run_id, 'coordinator_id' => $coordinator_id, 'submission_generation' => $submission_generation ) );
 		if ( empty( $next['success'] ) ) {
-			delete_option( $lock_key );
-			delete_option( self::translation_job_run_key( $run_id ) );
+			self::translation_job_release_claim( $lock );
+			self::atomic_delete_option_value( self::translation_job_run_key( $run_id ), $run );
 			return $next;
 		}
 		return array( 'success' => true, 'claim_token' => $token, 'claim' => self::translation_job_public_claim( $lock ), 'run' => $run, 'job' => self::translation_job_public_job( $next['job'] ) );
@@ -568,12 +581,16 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$job = $access['job'];
 		$run = $access['run'];
+		$contract = self::translation_job_require_current_publication_surface_contract( $job );
+		if ( empty( $contract['success'] ) ) {
+			return array_merge( $contract, array( 'code' => 'contract_refresh_required' ) );
+		}
 		if ( 'quality' === (string) ( $run['role'] ?? '' ) ) {
 			$surface_refresh = self::translation_job_refresh_drifted_surface( $job, 'quality_packet_baseline_mismatch' );
 			if ( empty( $surface_refresh['success'] ) || ! empty( $surface_refresh['refreshed'] ) ) {
 				if ( ! empty( $surface_refresh['refreshed'] ) || 'surface_refresh_generation_limit' === (string) ( $surface_refresh['code'] ?? '' ) ) {
 					self::translation_job_finish_run_without_usage( $run, 'surface_refresh_required' );
-					self::translation_job_release_claim( (string) $job['job_id'] );
+					self::translation_job_release_claim( $access['claim'] );
 				}
 				if ( ! empty( $surface_refresh['refreshed'] ) ) {
 					$surface_refresh['success'] = false;
@@ -594,17 +611,23 @@ trait Devenia_Workflow_Translation_Job {
 		if ( $estimated_tokens > (int) $run['budget']['input_token_limit'] ) {
 			return array( 'success' => false, 'code' => 'packet_over_budget', 'message' => 'The bounded packet exceeds the Run input Token Budget.', 'estimated_input_tokens' => $estimated_tokens, 'input_token_limit' => (int) $run['budget']['input_token_limit'] );
 		}
+		$run_before_packet = $run;
+		$packet_revision = 'tp_' . substr( hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $packet ) ) ?: '' ), 0, 32 );
 		$run['packet_estimated_input_tokens'] = $estimated_tokens;
-		$run['packet_revision'] = 'tp_' . substr( hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $packet ) ) ?: '' ), 0, 32 );
-		$run['packet_fetched_at'] = gmdate( 'c' );
-		update_option( self::translation_job_run_key( (string) $run['run_id'] ), $run, false );
+		$run['packet_revision'] = $packet_revision;
+		if ( $packet_revision !== (string) ( $run_before_packet['packet_revision'] ?? '' ) || empty( $run_before_packet['packet_fetched_at'] ) ) {
+			$run['packet_fetched_at'] = gmdate( 'c' );
+		}
+		if ( ! self::atomic_replace_option_value( self::translation_job_run_key( (string) $run['run_id'] ), $run_before_packet, $run ) ) {
+			return array( 'success' => false, 'retryable' => true, 'code' => 'run_packet_record_conflict', 'message' => 'The Run changed before the packet receipt could be attached. A terminal Run was preserved.' );
+		}
 		$packet['estimated_input_tokens'] = $estimated_tokens;
 		$packet['packet_revision'] = $run['packet_revision'];
 		return array( 'success' => true, 'packet' => $packet );
 	}
 
 	private static function translation_job_abandon( array $input ): array {
-		$access = self::translation_job_claim_access( $input );
+		$access = self::translation_job_claim_access( $input, '', array( 'abandoned' ) );
 		if ( empty( $access['success'] ) ) {
 			return $access;
 		}
@@ -628,6 +651,22 @@ trait Devenia_Workflow_Translation_Job {
 				: ( empty( $job['artifact_revision'] ) ? 'queued' : 'changes_requested' );
 		}
 
+		if ( 'abandoned' !== (string) ( $run['outcome'] ?? '' ) ) {
+			$running = $run;
+			$run = array_merge(
+				$run,
+				array(
+					'status' => 'completed',
+					'outcome' => 'abandoned',
+					'abandon_reason' => $reason,
+					'finished_at' => gmdate( 'c' ),
+				)
+			);
+			if ( ! self::atomic_replace_option_value( self::translation_job_run_key( (string) $run['run_id'] ), $running, $run ) ) {
+				return array( 'success' => false, 'retryable' => true, 'code' => 'run_abandon_conflict', 'message' => 'The Run changed before abandonment could commit. Job state and the current terminal Run were preserved.' );
+			}
+		}
+
 		$transition = self::translation_job_transition(
 			$job,
 			array(
@@ -638,13 +677,7 @@ trait Devenia_Workflow_Translation_Job {
 		if ( empty( $transition['success'] ) ) {
 			return $transition;
 		}
-
-		$run['status'] = 'completed';
-		$run['outcome'] = 'abandoned';
-		$run['abandon_reason'] = $reason;
-		$run['finished_at'] = gmdate( 'c' );
-		update_option( self::translation_job_run_key( (string) $run['run_id'] ), $run, false );
-		self::translation_job_release_claim( (string) $job['job_id'] );
+		self::translation_job_release_claim( $claim );
 
 		return array(
 			'success' => true,
@@ -661,12 +694,18 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$job = $access['job'];
 		$run = $access['run'];
+		$contract = self::translation_job_require_current_publication_surface_contract( $job );
+		if ( empty( $contract['success'] ) ) {
+			return $contract;
+		}
 		$usage = self::translation_job_validate_usage( $input['usage'] ?? array(), $run['budget'], $run, $input );
 		if ( empty( $usage['success'] ) ) {
 			if ( 'run_budget_exceeded' === (string) ( $usage['code'] ?? '' ) ) {
-				self::translation_job_finish_run( $run, 'budget_exceeded', $usage['usage'] ?? array() );
+				if ( ! self::translation_job_finish_run( $run, 'budget_exceeded', $usage['usage'] ?? array() ) ) {
+					return array( 'success' => false, 'retryable' => true, 'code' => 'run_completion_conflict', 'message' => 'The Run changed before its terminal budget outcome could commit.' );
+				}
 				self::translation_job_transition( $job, array( 'status' => 'budget_exceeded' ) );
-				self::translation_job_release_claim( (string) $job['job_id'] );
+				self::translation_job_release_claim( $access['claim'] );
 			}
 			return $usage;
 		}
@@ -710,6 +749,7 @@ trait Devenia_Workflow_Translation_Job {
 			array(
 				'job_id'          => (string) $job['job_id'],
 				'source_revision' => (string) $job['source_revision'],
+				'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'],
 				'target_language' => (string) $job['target_language'],
 				'submission_generation' => $submission_generation,
 				'baseline_surface_revision' => $baseline_surface_revision,
@@ -723,6 +763,7 @@ trait Devenia_Workflow_Translation_Job {
 			'artifact_revision' => $artifact_revision,
 			'job_id' => (string) $job['job_id'],
 			'source_revision' => (string) $job['source_revision'],
+			'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'],
 			'translation_id' => $translation_id,
 			'content_revision' => $content_revision,
 			'surface_revision' => $surface_revision,
@@ -758,6 +799,7 @@ trait Devenia_Workflow_Translation_Job {
 				|| (string) ( $stored['job_id'] ?? '' ) !== (string) $job['job_id']
 				|| (string) ( $stored['artifact_revision'] ?? '' ) !== $artifact_revision
 				|| (string) ( $stored['source_revision'] ?? '' ) !== (string) $job['source_revision']
+				|| (string) ( $stored['publication_surface_contract_revision'] ?? '' ) !== (string) $job['publication_surface_contract_revision']
 			) {
 				return array(
 					'success'           => false,
@@ -769,9 +811,12 @@ trait Devenia_Workflow_Translation_Job {
 				);
 			}
 		}
-		self::translation_job_finish_run( $run, 'submitted', $usage['usage'] );
+		if ( ! self::translation_job_finish_run( $run, 'submitted', $usage['usage'] ) ) {
+			self::translation_job_release_claim( $access['claim'] );
+			return array( 'success' => false, 'retryable' => true, 'code' => 'run_completion_conflict', 'message' => 'The Run changed before artifact submission could commit its terminal outcome. Immutable staged evidence was preserved but was not attached to the Job.' );
+		}
 		$next = self::translation_job_transition( $job, array( 'status' => 'quality_pending', 'artifact_revision' => $artifact_revision, 'translation_id' => $translation_id, 'content_revision' => $content_revision, 'surface_revision' => (string) $staging['surface_revision'], 'quality_revision' => '', 'active_run_id' => '' ) );
-		self::translation_job_release_claim( (string) $job['job_id'] );
+		self::translation_job_release_claim( $access['claim'] );
 		if ( empty( $next['success'] ) ) {
 			return $next;
 		}
@@ -785,11 +830,15 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$job = $access['job'];
 		$run = $access['run'];
+		$contract = self::translation_job_require_current_publication_surface_contract( $job );
+		if ( empty( $contract['success'] ) ) {
+			return $contract;
+		}
 		$surface_refresh = self::translation_job_refresh_drifted_surface( $job, 'quality_submission_baseline_mismatch' );
 		if ( empty( $surface_refresh['success'] ) || ! empty( $surface_refresh['refreshed'] ) ) {
 			if ( ! empty( $surface_refresh['refreshed'] ) || 'surface_refresh_generation_limit' === (string) ( $surface_refresh['code'] ?? '' ) ) {
 				self::translation_job_finish_run_without_usage( $run, 'surface_refresh_required' );
-				self::translation_job_release_claim( (string) $job['job_id'] );
+				self::translation_job_release_claim( $access['claim'] );
 			}
 			if ( ! empty( $surface_refresh['refreshed'] ) ) {
 				$surface_refresh['success'] = false;
@@ -827,9 +876,11 @@ trait Devenia_Workflow_Translation_Job {
 		$usage = self::translation_job_validate_usage( $input['usage'] ?? array(), $run['budget'], $run, $input );
 		if ( empty( $usage['success'] ) ) {
 			if ( 'run_budget_exceeded' === (string) ( $usage['code'] ?? '' ) ) {
-				self::translation_job_finish_run( $run, 'budget_exceeded', $usage['usage'] ?? array() );
+				if ( ! self::translation_job_finish_run( $run, 'budget_exceeded', $usage['usage'] ?? array() ) ) {
+					return array( 'success' => false, 'retryable' => true, 'code' => 'run_completion_conflict', 'message' => 'The Run changed before its terminal budget outcome could commit.' );
+				}
 				self::translation_job_transition( $job, array( 'status' => 'budget_exceeded' ) );
-				self::translation_job_release_claim( (string) $job['job_id'] );
+				self::translation_job_release_claim( $access['claim'] );
 			}
 			return $usage;
 		}
@@ -861,8 +912,9 @@ trait Devenia_Workflow_Translation_Job {
 		$evidence_record = ! empty( $evidence_receipts['record'] ) && is_array( $evidence_receipts['record'] ) ? $evidence_receipts['record'] : array();
 		$corrections = array_values( array_map( 'sanitize_text_field', is_array( $input['corrections'] ?? null ) ? $input['corrections'] : array() ) );
 		$quality = array(
-			'quality_revision' => self::translation_job_revision( array( $job['artifact_revision'], $artifact_record['surface_revision'], $decision, $evidence_record['evidence_revision'] ?? '', $evidence, $corrections ) ),
+			'quality_revision' => self::translation_job_revision( array( $job['artifact_revision'], $artifact_record['surface_revision'], (string) $job['publication_surface_contract_revision'], $decision, $evidence_record['evidence_revision'] ?? '', $evidence, $corrections ) ),
 			'job_id' => (string) $job['job_id'],
+			'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'],
 			'artifact_revision' => (string) $job['artifact_revision'],
 			'content_revision' => (string) $job['content_revision'],
 			'surface_revision' => (string) $artifact_record['surface_revision'],
@@ -886,7 +938,7 @@ trait Devenia_Workflow_Translation_Job {
 		$quality_key = self::translation_job_quality_key( $quality['quality_revision'] );
 		if ( ! self::atomic_create_option( $quality_key, $quality ) ) {
 			$existing_quality = get_option( $quality_key );
-			$identity_fields = array( 'quality_revision', 'job_id', 'artifact_revision', 'content_revision', 'surface_revision', 'translation_id', 'evidence_revision', 'submission_generation' );
+			$identity_fields = array( 'quality_revision', 'job_id', 'artifact_revision', 'content_revision', 'surface_revision', 'translation_id', 'evidence_revision', 'submission_generation', 'publication_surface_contract_revision' );
 			$existing_identity = array_intersect_key( is_array( $existing_quality ) ? $existing_quality : array(), array_flip( $identity_fields ) );
 			$submitted_identity = array_intersect_key( $quality, array_flip( $identity_fields ) );
 			if ( count( $existing_identity ) !== count( $identity_fields ) || self::translation_job_canonicalize( $existing_identity ) !== self::translation_job_canonicalize( $submitted_identity ) ) {
@@ -894,10 +946,13 @@ trait Devenia_Workflow_Translation_Job {
 			}
 			$quality = $existing_quality;
 		}
-		self::translation_job_finish_run( $run, $decision, $usage['usage'] );
+		if ( ! self::translation_job_finish_run( $run, $decision, $usage['usage'] ) ) {
+			self::translation_job_release_claim( $access['claim'] );
+			return array( 'success' => false, 'retryable' => true, 'code' => 'run_completion_conflict', 'message' => 'The Run changed before Quality could commit its terminal outcome. Immutable Quality evidence was preserved but was not attached to the Job.' );
+		}
 		$status = 'pass' === $decision ? 'ready_to_publish' : ( 'revise' === $decision ? 'changes_requested' : 'rejected' );
 		$next = self::translation_job_transition( $job, array( 'status' => $status, 'quality_revision' => $quality['quality_revision'], 'active_run_id' => '' ) );
-		self::translation_job_release_claim( (string) $job['job_id'] );
+		self::translation_job_release_claim( $access['claim'] );
 		if ( empty( $next['success'] ) ) {
 			return $next;
 		}
@@ -918,6 +973,13 @@ trait Devenia_Workflow_Translation_Job {
 			|| sanitize_key( (string) ( $job['target_language'] ?? '' ) ) !== sanitize_key( (string) ( $initial_job['target_language'] ?? '' ) )
 		) {
 			return array( 'success' => false, 'code' => 'translation_job_lifecycle_binding_changed', 'message' => 'The Translation Job source/language binding changed before publication.' );
+		}
+		$contract_refresh = self::translation_job_refresh_publication_surface_contract_under_lifecycle_lease( $job, 'publish' );
+		if ( empty( $contract_refresh['success'] ) ) {
+			return $contract_refresh;
+		}
+		if ( ! empty( $contract_refresh['refreshed'] ) ) {
+			return array_merge( $contract_refresh, array( 'success' => false, 'code' => 'contract_refresh_required', 'message' => 'The publication surface contract changed. A fresh translator and Quality generation is required before publication.' ) );
 		}
 		$job_status = (string) ( $job['status'] ?? '' );
 		if ( ! in_array( $job_status, array( 'ready_to_publish', 'published' ), true ) ) {
@@ -1108,7 +1170,8 @@ trait Devenia_Workflow_Translation_Job {
 			}
 		}
 		$quality = ! empty( $job['quality_revision'] ) ? get_option( self::translation_job_quality_key( (string) $job['quality_revision'] ) ) : null;
-		return array( 'success' => true, 'job' => self::translation_job_public_job( $job ), 'runs' => $runs, 'quality_decision' => is_array( $quality ) ? $quality : null, 'cost' => $totals );
+		$contract = self::translation_job_publication_surface_contract_state( $job );
+		return array( 'success' => true, 'job' => self::translation_job_public_job( $job ), 'runs' => $runs, 'quality_decision' => is_array( $quality ) ? $quality : null, 'cost' => $totals, 'contract_stale' => ! empty( $contract['contract_stale'] ), 'next_role' => ! empty( $contract['contract_stale'] ) ? 'translator' : null, 'publication_surface_contract' => $contract );
 	}
 
 	private static function translation_job_translation_packet( array $job, array $run, WP_Post $source ): array {
@@ -1134,7 +1197,7 @@ trait Devenia_Workflow_Translation_Job {
 			'contract_version' => 4,
 			'subagent_separation_contract' => self::translation_job_subagent_separation_contract(),
 			'job' => self::translation_job_public_job( $job ),
-			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'submission_generation' => self::translation_job_submission_generation( $job ), 'principal' => $run['principal'] ?? array() ),
+			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'submission_generation' => self::translation_job_submission_generation( $job ), 'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'], 'principal' => $run['principal'] ?? array() ),
 			'source' => array(
 				'title' => get_the_title( $source ),
 				'excerpt' => (string) $source->post_excerpt,
@@ -1170,7 +1233,7 @@ trait Devenia_Workflow_Translation_Job {
 			'contract_version' => 4,
 			'subagent_separation_contract' => self::translation_job_subagent_separation_contract(),
 			'job' => self::translation_job_public_job( $job ),
-			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'submission_generation' => self::translation_job_submission_generation( $job ), 'principal' => $run['principal'] ?? array() ),
+			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'submission_generation' => self::translation_job_submission_generation( $job ), 'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'], 'principal' => $run['principal'] ?? array() ),
 			'source' => array(
 				'title' => get_the_title( $source ),
 				'excerpt' => (string) $source->post_excerpt,
@@ -1538,7 +1601,7 @@ trait Devenia_Workflow_Translation_Job {
 		return array( 'success' => true, 'fragment_count' => count( $expected ) );
 	}
 
-	private static function translation_job_claim_access( array $input, string $role = '' ): array {
+	private static function translation_job_claim_access( array $input, string $role = '', array $allowed_terminal_outcomes = array() ): array {
 		$job = self::translation_job_get_job( (string) ( $input['job_id'] ?? '' ) );
 		$run_id = self::translation_job_clean_id( (string) ( $input['run_id'] ?? '' ) );
 		$run = get_option( self::translation_job_run_key( $run_id ) );
@@ -1556,22 +1619,34 @@ trait Devenia_Workflow_Translation_Job {
 		if ( '' !== $role && $role !== (string) ( $run['role'] ?? '' ) ) {
 			return array( 'success' => false, 'code' => 'job_run_role_mismatch', 'message' => 'Run role does not match this operation.' );
 		}
+		$run_status = (string) ( $run['status'] ?? '' );
+		$run_outcome = sanitize_key( (string) ( $run['outcome'] ?? '' ) );
+		$terminal_retry_allowed = 'completed' === $run_status && in_array( $run_outcome, $allowed_terminal_outcomes, true );
+		if ( 'running' !== $run_status && ! $terminal_retry_allowed ) {
+			return array( 'success' => false, 'retryable' => true, 'code' => 'job_run_not_active', 'message' => 'The claimed Run is already terminal and immutable.' );
+		}
 		$generation = self::translation_job_submission_generation( $job );
 		if ( $generation !== max( 1, absint( $run['submission_generation'] ?? 1 ) ) || $generation !== max( 1, absint( $lock['submission_generation'] ?? 1 ) ) ) {
 			return array( 'success' => false, 'code' => 'job_claim_generation_mismatch', 'message' => 'The claim belongs to an older immutable submission generation.' );
 		}
+		$pinned_contract = (string) ( $job['publication_surface_contract_revision'] ?? '' );
+		if (
+			'' === $pinned_contract
+			|| ! hash_equals( $pinned_contract, (string) ( $run['publication_surface_contract_revision'] ?? '' ) )
+			|| ! hash_equals( $pinned_contract, (string) ( $lock['publication_surface_contract_revision'] ?? '' ) )
+		) {
+			return array( 'success' => false, 'code' => 'job_claim_contract_revision_mismatch', 'message' => 'The claim belongs to another or legacy publication surface contract.' );
+		}
 		$configured_budget = self::translation_job_budget( (string) ( $run['role'] ?? '' ) );
 		$stored_budget = isset( $run['budget'] ) && is_array( $run['budget'] ) ? $run['budget'] : array();
-		if ( (int) ( $stored_budget['input_token_limit'] ?? 0 ) < (int) $configured_budget['input_token_limit'] ) {
+		if ( 'running' === $run_status && (int) ( $stored_budget['input_token_limit'] ?? 0 ) < (int) $configured_budget['input_token_limit'] ) {
+			$run_before_migration = $run;
 			$run['budget'] = $configured_budget;
 			$run['budget_migrated_at'] = gmdate( 'c' );
 			$run_key = self::translation_job_run_key( $run_id );
-			update_option( $run_key, $run, false );
-			$stored_run = get_option( $run_key );
-			if ( ! is_array( $stored_run ) || (int) ( $stored_run['budget']['input_token_limit'] ?? 0 ) < (int) $configured_budget['input_token_limit'] ) {
-				return array( 'success' => false, 'code' => 'run_budget_migration_failed', 'message' => 'The active Run budget could not be upgraded safely.' );
+			if ( ! self::atomic_replace_option_value( $run_key, $run_before_migration, $run ) ) {
+				return array( 'success' => false, 'retryable' => true, 'code' => 'run_budget_migration_conflict', 'message' => 'The Run changed before its bounded budget migration could commit.' );
 			}
-			$run = $stored_run;
 		}
 		return array( 'success' => true, 'job' => $job, 'run' => $run, 'claim' => $lock );
 	}
@@ -1619,21 +1694,25 @@ trait Devenia_Workflow_Translation_Job {
 			: array( 'success' => false, 'code' => 'run_budget_exceeded', 'message' => 'Run usage exceeds its Token Budget.', 'violations' => $violations, 'usage' => $usage, 'budget' => $budget );
 	}
 
-	private static function translation_job_finish_run( array $run, string $outcome, array $usage ): void {
-		$run['status'] = 'completed';
-		$run['outcome'] = sanitize_key( $outcome );
-		$run['usage'] = $usage;
-		$run['finished_at'] = gmdate( 'c' );
-		update_option( self::translation_job_run_key( (string) $run['run_id'] ), $run, false );
+	private static function translation_job_finish_run( array $run, string $outcome, array $usage ): bool {
+		if ( 'running' !== (string) ( $run['status'] ?? '' ) ) {
+			return false;
+		}
+		$completed = array_merge(
+			$run,
+			array(
+				'status' => 'completed',
+				'outcome' => sanitize_key( $outcome ),
+				'usage' => $usage,
+				'finished_at' => gmdate( 'c' ),
+			)
+		);
+		return self::atomic_replace_option_value( self::translation_job_run_key( (string) $run['run_id'] ), $run, $completed );
 	}
 
 	/** Finish a defensive pre-submission Run without inventing measured usage. */
-	private static function translation_job_finish_run_without_usage( array $run, string $outcome ): void {
-		$run['status'] = 'completed';
-		$run['outcome'] = sanitize_key( $outcome );
-		$run['usage'] = array( 'measurement_state' => 'unavailable_before_submission' );
-		$run['finished_at'] = gmdate( 'c' );
-		update_option( self::translation_job_run_key( (string) $run['run_id'] ), $run, false );
+	private static function translation_job_finish_run_without_usage( array $run, string $outcome ): bool {
+		return self::translation_job_finish_run( $run, $outcome, array( 'measurement_state' => 'unavailable_before_submission' ) );
 	}
 
 	private static function translation_job_transition( array $job, array $patch ): array {
@@ -1673,6 +1752,8 @@ trait Devenia_Workflow_Translation_Job {
 			'authority_client' => 'translation-job',
 			'job_id' => (string) $job['job_id'],
 			'run_id' => (string) $run['run_id'],
+			'submission_generation' => self::translation_job_submission_generation( $job ),
+			'publication_surface_contract_revision' => (string) ( $job['publication_surface_contract_revision'] ?? '' ),
 		);
 	}
 
@@ -1697,10 +1778,14 @@ trait Devenia_Workflow_Translation_Job {
 		$artifact_revision = (string) ( $job['artifact_revision'] ?? '' );
 		$refresh = array();
 		if ( '' === $quality_revision || '' === $artifact_revision ) {
-			$history = is_array( $job['surface_refresh_history'] ?? null ) ? $job['surface_refresh_history'] : array();
+			$surface_history = is_array( $job['surface_refresh_history'] ?? null ) ? $job['surface_refresh_history'] : array();
+			$contract_history = is_array( $job['contract_refresh_history'] ?? null ) ? $job['contract_refresh_history'] : array();
+			$history = array_merge( $surface_history, $contract_history );
+			usort( $history, static function ( array $left, array $right ): int { return strcmp( (string) ( $left['refreshed_at'] ?? '' ), (string) ( $right['refreshed_at'] ?? '' ) ); } );
 			$refresh = $history ? (array) end( $history ) : array();
-			$quality_revision = (string) ( $refresh['prior_quality_revision'] ?? '' );
-			$artifact_revision = (string) ( $refresh['prior_artifact_revision'] ?? '' );
+			$active_refs = is_array( $refresh['active_refs'] ?? null ) ? $refresh['active_refs'] : array();
+			$quality_revision = (string) ( $refresh['prior_quality_revision'] ?? $active_refs['quality_revision'] ?? '' );
+			$artifact_revision = (string) ( $refresh['prior_artifact_revision'] ?? $active_refs['artifact_revision'] ?? '' );
 		}
 		if ( '' === $artifact_revision || ( empty( $refresh ) && '' === $quality_revision ) ) {
 			return array();
@@ -1725,12 +1810,225 @@ trait Devenia_Workflow_Translation_Job {
 			'evidence' => is_array( $quality ) ? (string) ( $quality['reviewer_observations'] ?? $quality['evidence'] ?? '' ) : '',
 			'corrections' => is_array( $quality ) ? array_values( (array) ( $quality['corrections'] ?? array() ) ) : array(),
 			'surface_refresh' => $refresh,
+			'contract_refresh' => isset( $refresh['mismatch_evidence'] ) ? $refresh : array(),
 		);
 	}
 
 	/** Return the server-owned generation for current and legacy Job records. */
 	private static function translation_job_submission_generation( array $job ): int {
 		return max( 1, absint( $job['submission_generation'] ?? 1 ) );
+	}
+
+	/**
+	 * Fingerprint the code-owned publication surface contract for one source.
+	 *
+	 * This deliberately excludes plugin versions and mutable policy. It binds only
+	 * the extractor/projector schema and the exact typed fragment surface exposed
+	 * by the current code for this source.
+	 */
+	private static function translation_job_publication_surface_contract_revision( WP_Post $source ): string {
+		$contract = self::source_design_contract( $source );
+		$fragments = array();
+		foreach ( (array) ( $contract['fragments'] ?? array() ) as $fragment ) {
+			if ( ! is_array( $fragment ) ) {
+				continue;
+			}
+			$fragments[] = array(
+				'key' => (string) ( $fragment['key'] ?? '' ),
+				'block' => (string) ( $fragment['block'] ?? '' ),
+				'role' => (string) ( $fragment['role'] ?? '' ),
+				'format' => (string) ( $fragment['format'] ?? '' ),
+				'heading' => ! empty( $fragment['heading'] ),
+			);
+		}
+		$material = array(
+			'schema' => self::TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA,
+			'fragment_projection' => $fragments,
+			'surface_manifest_fields' => array( 'content', 'seo', 'taxonomies', 'route', 'media', 'presentation' ),
+		);
+		return 'pscr_' . substr( hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $material ) ) ?: '' ), 0, 40 );
+	}
+
+	/** Read the current contract binding without mutating Job or evidence state. */
+	private static function translation_job_publication_surface_contract_state( array $job ): array {
+		$source = get_post( absint( $job['source_id'] ?? 0 ) );
+		$pinned = (string) ( $job['publication_surface_contract_revision'] ?? '' );
+		$current = $source instanceof WP_Post ? self::translation_job_publication_surface_contract_revision( $source ) : '';
+		$artifact_revision = (string) ( $job['artifact_revision'] ?? '' );
+		$artifact = '' !== $artifact_revision
+			? self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( $artifact_revision ) ) )
+			: array();
+		$coverage = $artifact
+			? self::translation_job_fragment_coverage( $job, (array) ( $artifact['artifact']['localized_fragments'] ?? array() ) )
+			: array( 'success' => true, 'not_applicable' => true );
+		$revision_matches = '' !== $pinned && '' !== $current && hash_equals( $pinned, $current );
+		return array(
+			'success' => $source instanceof WP_Post,
+			'contract_stale' => ! $revision_matches || empty( $coverage['success'] ),
+			'pinned_revision' => $pinned,
+			'current_revision' => $current,
+			'revision_matches' => $revision_matches,
+			'legacy_pin_missing' => '' === $pinned,
+			'artifact_revision' => $artifact_revision,
+			'coverage' => $coverage,
+		);
+	}
+
+	/** Fail closed before packet evidence, artifact submission, or publication mutation. */
+	private static function translation_job_require_current_publication_surface_contract( array $job ): array {
+		$state = self::translation_job_publication_surface_contract_state( $job );
+		if ( empty( $state['success'] ) ) {
+			return array( 'success' => false, 'code' => 'publication_surface_contract_source_missing', 'message' => 'The current publication surface contract cannot be resolved.', 'contract' => $state );
+		}
+		if ( ! empty( $state['contract_stale'] ) ) {
+			return array( 'success' => false, 'code' => 'publication_surface_contract_revision_mismatch', 'message' => 'The Job generation is pinned to an obsolete or incomplete publication surface contract.', 'contract' => $state, 'next_role' => 'translator' );
+		}
+		return array( 'success' => true, 'contract' => $state );
+	}
+
+	/** Retire only the Run and claim that were active on the pre-refresh Job. */
+	private static function translation_job_retire_contract_refresh_run_and_claim( array $job, array $claim ): array {
+		$active_run_id = self::translation_job_clean_id( (string) ( $job['active_run_id'] ?? '' ) );
+		$claim_run_id = self::translation_job_clean_id( (string) ( $claim['run_id'] ?? '' ) );
+		if ( '' !== $active_run_id && '' !== $claim_run_id && $active_run_id !== $claim_run_id ) {
+			return array( 'success' => false, 'retryable' => true, 'code' => 'contract_refresh_active_claim_mismatch', 'message' => 'The active Run and exact claim do not belong to the same pre-refresh execution.' );
+		}
+		$run_id = '' !== $active_run_id ? $active_run_id : $claim_run_id;
+		$claim_state = 'not_present';
+		$claim_key = self::translation_job_claim_key( (string) ( $job['job_id'] ?? '' ) );
+		$current_claim = get_option( $claim_key );
+		if ( false !== $current_claim ) {
+			if ( ! $claim || maybe_serialize( $claim ) !== maybe_serialize( $current_claim ) ) {
+				return array( 'success' => false, 'retryable' => true, 'code' => 'contract_refresh_claim_release_conflict', 'message' => 'A successor claim replaced the exact pre-refresh claim and was preserved.', 'run_id' => $run_id );
+			}
+			$claim_state = 'owned_exact';
+		} elseif ( $claim ) {
+			$claim_state = 'already_absent';
+		}
+		$run_state = 'not_present';
+		if ( '' !== $run_id ) {
+			$run_key = self::translation_job_run_key( $run_id );
+			$run = get_option( $run_key );
+			if ( is_array( $run ) && 'running' === (string) ( $run['status'] ?? '' ) ) {
+				$finished = self::translation_job_finish_run_without_usage( $run, 'contract_refresh_required' );
+				$run = get_option( $run_key );
+				if ( ! $finished || ! is_array( $run ) || 'completed' !== (string) ( $run['status'] ?? '' ) || 'contract_refresh_required' !== (string) ( $run['outcome'] ?? '' ) ) {
+					return array( 'success' => false, 'retryable' => true, 'code' => 'contract_refresh_run_retirement_failed', 'message' => 'The active Run changed before its ownership-bound Contract Refresh retirement could commit.', 'run_id' => $run_id );
+				}
+				$run_state = 'completed_contract_refresh_required';
+			} elseif ( is_array( $run ) && 'completed' === (string) ( $run['status'] ?? '' ) && 'contract_refresh_required' === (string) ( $run['outcome'] ?? '' ) ) {
+				$run_state = 'already_completed_contract_refresh_required';
+			} elseif ( is_array( $run ) && 'completed' === (string) ( $run['status'] ?? '' ) ) {
+				return array( 'success' => false, 'retryable' => true, 'code' => 'contract_refresh_run_terminal_conflict', 'message' => 'The active Run already has a different immutable terminal outcome.', 'run_id' => $run_id, 'outcome' => (string) ( $run['outcome'] ?? '' ) );
+			} elseif ( is_array( $run ) ) {
+				return array( 'success' => false, 'retryable' => true, 'code' => 'contract_refresh_run_state_invalid', 'message' => 'The active Run has an unsupported nonterminal state.', 'run_id' => $run_id );
+			}
+		}
+
+		if ( 'owned_exact' === $claim_state ) {
+			if ( ! self::translation_job_release_claim( $claim ) ) {
+				$current = get_option( $claim_key );
+				if ( false !== $current ) {
+					return array( 'success' => false, 'retryable' => true, 'code' => 'contract_refresh_claim_release_conflict', 'message' => 'The exact pre-refresh claim changed before release and was preserved.', 'run_id' => $run_id );
+				}
+				$claim_state = 'already_absent';
+			} else {
+				$claim_state = 'released_exact';
+			}
+		}
+		return array( 'success' => true, 'run_id' => $run_id, 'run_state' => $run_state, 'claim_state' => $claim_state );
+	}
+
+	/**
+	 * Refresh a stale contract exactly once under the caller-owned lifecycle lease.
+	 *
+	 * Immutable Artifact, Run, Quality, and receipt options are never updated or
+	 * deleted. Only the active Job references and ephemeral claim are retired.
+	 */
+	private static function translation_job_refresh_publication_surface_contract_under_lifecycle_lease( array $job, string $reason ): array {
+		$reason = sanitize_key( $reason );
+		if ( ! in_array( $reason, array( 'discover', 'claim', 'publish' ), true ) ) {
+			return array( 'success' => false, 'code' => 'contract_refresh_reason_invalid', 'message' => 'Contract Refresh requires a fixed lifecycle reason.' );
+		}
+		$state = self::translation_job_publication_surface_contract_state( $job );
+		if ( empty( $state['success'] ) ) {
+			return array( 'success' => false, 'code' => 'publication_surface_contract_source_missing', 'message' => 'The current publication surface contract cannot be resolved.', 'contract' => $state );
+		}
+		if ( empty( $state['contract_stale'] ) ) {
+			return array( 'success' => true, 'refreshed' => false, 'job' => $job, 'contract' => $state );
+		}
+
+		$generation = self::translation_job_submission_generation( $job );
+		$existing_limit = is_array( $job['contract_refresh_limit'] ?? null ) ? $job['contract_refresh_limit'] : array();
+		$already_at_limit =
+			'failed_technical' === (string) ( $job['status'] ?? '' )
+			&& $generation >= self::TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS
+			&& $generation === absint( $existing_limit['generation'] ?? 0 );
+		$active_claim = get_option( self::translation_job_claim_key( (string) $job['job_id'] ) );
+		$active_claim = is_array( $active_claim ) ? $active_claim : array();
+		$retirement = self::translation_job_retire_contract_refresh_run_and_claim( $job, $active_claim );
+		if ( empty( $retirement['success'] ) ) {
+			return array_merge( $retirement, array( 'job' => self::translation_job_public_job( $job ), 'contract' => $state ) );
+		}
+		if ( $already_at_limit ) {
+			return array( 'success' => false, 'code' => 'contract_refresh_generation_limit', 'message' => 'The finite Contract Refresh generation limit was already reached. The Job remains failed closed.', 'job' => self::translation_job_public_job( $job ), 'contract' => $state, 'retirement' => $retirement, 'idempotent' => true );
+		}
+		$history = is_array( $job['contract_refresh_history'] ?? null ) ? array_values( $job['contract_refresh_history'] ) : array();
+		$refresh = array(
+			'refreshed_at' => gmdate( 'c' ),
+			'reason' => $reason,
+			'from_generation' => $generation,
+			'to_generation' => $generation < self::TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS ? $generation + 1 : null,
+			'pinned_revision' => (string) $state['pinned_revision'],
+			'current_revision' => (string) $state['current_revision'],
+			'legacy_pin_missing' => ! empty( $state['legacy_pin_missing'] ),
+			'mismatch_evidence' => array(
+				'revision_matches' => ! empty( $state['revision_matches'] ),
+				'coverage' => $state['coverage'],
+			),
+			'active_refs' => array(
+				'artifact_revision' => (string) ( $job['artifact_revision'] ?? '' ),
+				'content_revision' => (string) ( $job['content_revision'] ?? '' ),
+				'surface_revision' => (string) ( $job['surface_revision'] ?? '' ),
+				'quality_revision' => (string) ( $job['quality_revision'] ?? '' ),
+				'active_run_id' => (string) ( $job['active_run_id'] ?? '' ),
+			),
+		);
+		$history[] = $refresh;
+		if ( $generation >= self::TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS ) {
+			$terminal = self::translation_job_transition(
+				$job,
+				array(
+					'status' => 'failed_technical',
+					'active_run_id' => '',
+					'contract_refresh_history' => $history,
+					'contract_refresh_limit' => array( 'failed_at' => gmdate( 'c' ), 'generation' => $generation, 'max_generations' => self::TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS ),
+				)
+			);
+			if ( empty( $terminal['success'] ) ) {
+				return $terminal;
+			}
+			return array( 'success' => false, 'code' => 'contract_refresh_generation_limit', 'message' => 'The finite Contract Refresh generation limit was reached. The Job failed closed.', 'job' => self::translation_job_public_job( $terminal['job'] ?? $job ), 'contract' => $state, 'retirement' => $retirement );
+		}
+
+		$transition = self::translation_job_transition(
+			$job,
+			array(
+				'status' => 'changes_requested',
+				'submission_generation' => $generation + 1,
+				'publication_surface_contract_revision' => (string) $state['current_revision'],
+				'contract_refresh_history' => $history,
+				'artifact_revision' => '',
+				'content_revision' => '',
+				'surface_revision' => '',
+				'quality_revision' => '',
+				'active_run_id' => '',
+			)
+		);
+		if ( empty( $transition['success'] ) ) {
+			return $transition;
+		}
+		return array( 'success' => true, 'refreshed' => true, 'job' => $transition['job'], 'refresh' => $refresh, 'contract' => $state, 'retirement' => $retirement );
 	}
 
 	/**
@@ -1986,6 +2284,7 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_public_job( array $job ): array {
 		$job['submission_generation'] = self::translation_job_submission_generation( $job );
 		$job['surface_refresh_history'] = is_array( $job['surface_refresh_history'] ?? null ) ? array_values( $job['surface_refresh_history'] ) : array();
+		$job['contract_refresh_history'] = is_array( $job['contract_refresh_history'] ?? null ) ? array_values( $job['contract_refresh_history'] ) : array();
 		unset( $job['claim_token'], $job['token_hash'] );
 		return $job;
 	}
@@ -1995,25 +2294,35 @@ trait Devenia_Workflow_Translation_Job {
 		return $claim;
 	}
 
-	private static function translation_job_release_claim( string $job_id ): void {
-		delete_option( self::translation_job_claim_key( $job_id ) );
+	private static function translation_job_release_claim( array $claim ): bool {
+		$job_id = self::translation_job_clean_id( (string) ( $claim['job_id'] ?? '' ) );
+		$run_id = self::translation_job_clean_id( (string) ( $claim['run_id'] ?? '' ) );
+		$token_hash = (string) ( $claim['token_hash'] ?? '' );
+		if ( '' === $job_id || '' === $run_id || '' === $token_hash ) {
+			return false;
+		}
+		return self::atomic_delete_option_value( self::translation_job_claim_key( $job_id ), $claim );
 	}
 
-	private static function translation_job_expire_run( array $claim ): void {
+	private static function translation_job_expire_run( array $claim ): bool {
 		$run_id = self::translation_job_clean_id( (string) ( $claim['run_id'] ?? '' ) );
 		if ( '' === $run_id ) {
-			return;
+			return false;
 		}
 		$run_key = self::translation_job_run_key( $run_id );
 		$run = get_option( $run_key );
-		if ( ! is_array( $run ) || 'running' !== (string) ( $run['status'] ?? '' ) ) {
-			return;
+		if ( is_array( $run ) && 'completed' === (string) ( $run['status'] ?? '' ) && 'expired' === (string) ( $run['outcome'] ?? '' ) ) {
+			return true;
 		}
+		if ( ! is_array( $run ) || 'running' !== (string) ( $run['status'] ?? '' ) ) {
+			return false;
+		}
+		$running = $run;
 		$expired_at = sanitize_text_field( (string) ( $claim['expires_at'] ?? '' ) );
 		$run['status'] = 'completed';
 		$run['outcome'] = 'expired';
 		$run['finished_at'] = $expired_at && strtotime( $expired_at ) ? gmdate( 'c', strtotime( $expired_at ) ) : gmdate( 'c' );
-		update_option( $run_key, $run, false );
+		return self::atomic_replace_option_value( $run_key, $running, $run );
 	}
 
 	private static function translation_job_finalize_orphaned_runs( array $job ): int {
@@ -2029,11 +2338,13 @@ trait Devenia_Workflow_Translation_Job {
 			if ( ! is_array( $run ) || 'running' !== (string) ( $run['status'] ?? '' ) ) {
 				continue;
 			}
+			$running = $run;
 			$run['status'] = 'completed';
 			$run['outcome'] = 'expired';
 			$run['finished_at'] = gmdate( 'c' );
-			update_option( $run_key, $run, false );
-			++$finalized;
+			if ( self::atomic_replace_option_value( $run_key, $running, $run ) ) {
+				++$finalized;
+			}
 		}
 		return $finalized;
 	}

@@ -37,6 +37,10 @@ assert.match(inventory, /publication_featured_image_revision_identity\( \$source
 assert.match(inventory, /publication_featured_image_revision_identity\( \$translation_id \)/);
 assert.match(inventory, /translation_job_validate_published_authority/);
 assert.match(inventory, /publication_authority_stale/);
+const obligationProjection = inventory.slice(inventory.indexOf("private static function project_translation_obligation("), inventory.indexOf("private static function source_inventory("));
+assert.match(obligationProjection, /if \( 'published' === \$state \) \{\s*\$authority = self::translation_job_validate_published_authority\( \$job, \$translation_id, true \);\s*if \( empty\( \$authority\['success'\] \) \) \{\s*\$state = 'publication_authority_stale';\s*\} elseif \( ! empty\( \$job\['live_verification_passed'\] \) \) \{/s, "Every published Job must validate exact publication authority before live-verification or media classification.");
+assert.doesNotMatch(obligationProjection, /'published' === \$state && ! empty\( \$job\['live_verification_passed'\] \)/, "Live-verification state must not gate immutable publication-authority validation.");
+assert.ok(obligationProjection.indexOf("'publication_contract_stale'") < obligationProjection.indexOf("if ( 'published' === $state )"), "Publication-contract staleness must retain precedence over published authority classification.");
 assert.match(inventory, /source_inventory_refresh_dirty_state\( \$manifest \)/);
 assert.match(jobs, /'featured_image_alt' => array\( 'type' => 'string' \)/);
 assert.match(jobs, /source_publication_surface_revision\( \$source \)/);
@@ -63,6 +67,10 @@ assert.match(runtime, /no_image_empty_hero_issues/);
 assert.match(runtime, /no_image_empty_og_issues/);
 assert.match(runtime, /no_image_parser_unavailable_issues/);
 assert.match(runtime, /no_image_parse_failure_issues/);
+assert.match(runtime, /\$unverified_published_obligation[\s\S]*'published' !== \(string\) \( \$unverified_published_obligation\['state'\]/, "Runtime must prove an authority-valid unverified Job remains published.");
+assert.match(runtime, /delete_option\( \$published_evidence_key \)[\s\S]*\$missing_evidence_obligation[\s\S]*'publication_authority_stale' !== \(string\) \( \$missing_evidence_obligation\['state'\]/, "Runtime must reject missing immutable Quality evidence before live verification.");
+assert.match(runtime, /delete_option\( \$published_artifact_key \)[\s\S]*\$missing_artifact_obligation[\s\S]*'publication_authority_stale' !== \(string\) \( \$missing_artifact_obligation\['state'\]/, "Runtime must reject a missing immutable Artifact before live verification.");
+assert.match(runtime, /\$live_verification = \$call\( 'translation_job_verify_live'[\s\S]*\$verified_published_obligation[\s\S]*'published_verified'/, "Runtime must reach published_verified through the actual live-verification seam.");
 assert.match(publication, /verify_frontend_featured_image_for_url/);
 assert.match(publication, /foreach \( array\( 'origin', 'canonical' \) as \$cache_surface \)[\s\S]*frontend_featured_image_html_issues/);
 assert.doesNotMatch(repair, /translation_step_token_gate/);
@@ -75,4 +83,4 @@ assert.match(repair, /repair_visible_media_drift/);
 assert.match(context, /## Source Publication Surface/);
 assert.match(adr, /Source Publication Surface Module/);
 
-console.log(JSON.stringify({ success: true, checks: 61 }, null, 2));
+console.log(JSON.stringify({ success: true, checks: 67 }, null, 2));
