@@ -13,6 +13,8 @@ const commitReceiptSource = existsSync(commitReceiptUrl) ? readFileSync(commitRe
 const taxonomySource = readFileSync(new URL("../includes/trait-taxonomy-localization.php", import.meta.url), "utf8");
 const atomicOptionSource = readFileSync(new URL("../includes/trait-atomic-option-store.php", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../devenia-workflow.php", import.meta.url), "utf8");
+const executionIdentitySource = readFileSync(new URL("../includes/trait-execution-identity.php", import.meta.url), "utf8");
+const translationProvenanceSource = readFileSync(new URL("../includes/trait-translation-provenance.php", import.meta.url), "utf8");
 const runtimeSource = readFileSync(new URL("./check-translation-job-runtime.php", import.meta.url), "utf8");
 const source = `${jobSource}\n${authoritySource}`;
 const failures = [];
@@ -52,6 +54,13 @@ const clearRecoveryIsolation = functionBody("translation_job_clear_recovery_next
 const beginRecoveryTransaction = functionBody("translation_job_begin_recovery_transaction", "translation_job_commit_recovery_transaction");
 const commitRecoveryTransaction = functionBody("translation_job_commit_recovery_transaction", "translation_job_rollback_recovery_transaction");
 const rollbackRecoveryTransaction = functionBody("translation_job_rollback_recovery_transaction", "translation_job_lock_recovery_surface");
+
+if (!/private static function reviewer_identity_matches_provenance\s*\(/.test(executionIdentitySource) || !/private static function reviewer_matches_any_provenance\s*\(/.test(executionIdentitySource)) {
+	failures.push("shared reviewer provenance comparisons must remain owned by the execution-identity module");
+}
+if (!/reviewer_identity_matches_provenance\s*\(/.test(translationProvenanceSource) || !/reviewer_matches_any_provenance\s*\(/.test(mainSource)) {
+	failures.push("translation provenance and Quality read models must use the shared execution-identity comparison boundary");
+}
 
 if (!beginRecoveryTransaction || (beginRecoveryTransaction.match(/\$wpdb->(?:posts|postmeta|terms|term_taxonomy|term_relationships|termmeta|options)/g) || []).length !== 7) {
 	failures.push("recovery transaction must prove the exact seven mutable WordPress core tables");

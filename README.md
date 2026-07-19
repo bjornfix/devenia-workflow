@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.633
+**Stable tag:** 0.1.634
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,12 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.634
+
+- Restore shared execution-provenance comparisons to the active identity module so translation status and Quality read models cannot fatal after legacy orchestration removal.
+- Restore the compact queue-state contract and add a production method-portfolio check so removed modules cannot leave unresolved runtime calls behind.
+- Make distinct translator and Quality subagents an explicit bounded-packet contract, backed by separate run, claim, principal, artifact, and surface-revision enforcement.
 
 ### 0.1.633
 

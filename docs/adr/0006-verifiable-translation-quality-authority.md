@@ -60,6 +60,20 @@ surface member creates a new revision and invalidates prior receipts.
 
 ### Translation Run Principal
 
+The coordinator must spawn one bounded translator subagent and, only after the
+translator submits its complete artifact, a different bounded Quality
+subagent. The translator may not review or approve its own artifact. The
+Quality subagent reviews the exact translator Artifact Surface Revision and
+may return `pass`, `revise`, or `reject`; it does not silently become the
+translator. Reusing one subagent for both roles, or relabeling one run as the
+other role, violates the coordinator contract.
+
+Subagent topology is an orchestrator fact, not something a caller-selected
+label can prove. Workflow publishes this requirement in both bounded packets
+and enforces the server-verifiable boundary with distinct run IDs, claim
+tokens, and server-issued principals plus exact artifact/surface revision
+binding.
+
 Each successful claim creates a server-issued Translation Run Principal bound
 to the Job, `run_id`, role, claim token, and claim lifetime. `coordinator_id`
 and `observability_label` remain display and correlation data only; callers
@@ -147,6 +161,8 @@ prove all of the following:
   without the mandatory server-owned receipt set and principal-bound Reviewer
   Attestations;
 - a Quality Run cannot claim or pass with the writer Run principal;
+- both bounded packets carry the explicit distinct translator-subagent and
+  Quality-subagent coordinator contract;
 - every Browser Render Receipt is bound to artifact, complete surface revision,
   approved viewport scheme, and approved color scheme; reviewer-produced
   receipts are marked `trust=reviewer_attested` rather than server-verified;

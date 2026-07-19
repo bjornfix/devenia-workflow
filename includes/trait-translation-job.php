@@ -31,7 +31,7 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_ability_catalogue(): array {
 		$definitions = array(
 			'translation-job-discover' => array( 'Discover Translation Job', 'Creates or returns the current finite Translation Job for one source revision and target language.', 'translation_job_discover_schema', 'translation_job_discover', true, true ),
-			'translation-job-claim' => array( 'Claim Translation Job', 'Atomically claims one Translation Job for a bounded translator or quality Run.', 'translation_job_claim_schema', 'translation_job_claim', false, false ),
+			'translation-job-claim' => array( 'Claim Translation Job', 'Atomically claims one Translation Job for a bounded translator or Quality Run. The coordinator contract requires distinct spawned subagents for the two roles.', 'translation_job_claim_schema', 'translation_job_claim', false, false ),
 			'translation-job-abandon' => array( 'Abandon Translation Job Run', 'Releases the caller-owned bounded claim without submitting a fabricated artifact or Quality Decision.', 'translation_job_abandon_schema', 'translation_job_abandon', false, false ),
 			'translation-job-fetch-packet' => array( 'Fetch Translation Job Packet', 'Returns the bounded source or quality packet for the current Run.', 'translation_job_claim_access_schema', 'translation_job_fetch_packet', true, true ),
 			'translation-job-submit-artifact' => array( 'Submit Translation Artifact', 'Validates and atomically stores one complete localized artifact within the translator Token Budget.', 'translation_job_artifact_schema', 'translation_job_submit_artifact', false, false ),
@@ -1131,7 +1131,8 @@ trait Devenia_Workflow_Translation_Job {
 			);
 		}
 		$packet = array(
-			'contract_version' => 3,
+			'contract_version' => 4,
+			'subagent_separation_contract' => self::translation_job_subagent_separation_contract(),
 			'job' => self::translation_job_public_job( $job ),
 			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'submission_generation' => self::translation_job_submission_generation( $job ), 'principal' => $run['principal'] ?? array() ),
 			'source' => array(
@@ -1166,7 +1167,8 @@ trait Devenia_Workflow_Translation_Job {
 			? self::translation_job_server_quality_receipts( $job, $artifact, (array) ( $run['principal'] ?? array() ) )
 			: array( 'success' => false, 'code' => 'artifact_record_missing' );
 		return array(
-			'contract_version' => 3,
+			'contract_version' => 4,
+			'subagent_separation_contract' => self::translation_job_subagent_separation_contract(),
 			'job' => self::translation_job_public_job( $job ),
 			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'submission_generation' => self::translation_job_submission_generation( $job ), 'principal' => $run['principal'] ?? array() ),
 			'source' => array(
@@ -1337,6 +1339,33 @@ trait Devenia_Workflow_Translation_Job {
 				'usage' => array( 'input_tokens' => 0, 'cached_input_tokens' => 0, 'output_tokens' => 0, 'attempts' => 1, 'duration_ms' => 0, 'estimated_cost_microusd' => 0 ),
 			),
 			'rules' => array( 'Use only properties declared by input_schema.', 'For an existing published translation, omit route fields; the server preserves packet.route.existing exactly.', 'SEO fields belong inside artifact.seo; never add seo_title or seo_description to artifact.', 'Each localized fragment must contain key and exactly one of html or text; html_or_text is not a property.' ),
+		);
+	}
+
+	/**
+	 * Coordinator contract for independent translator and Quality execution.
+	 *
+	 * Spawn topology is an orchestrator fact and cannot be proven by a caller
+	 * label. Workflow therefore states it explicitly in every bounded packet and
+	 * enforces the server-verifiable half with distinct Runs, claims, principals,
+	 * and an exact Artifact Surface Revision binding.
+	 */
+	private static function translation_job_subagent_separation_contract(): array {
+		return array(
+			'coordinator_requirement' => 'Spawn one translator subagent and, after artifact submission, a different Quality subagent for the same artifact revision.',
+			'translator_role' => 'Translate and submit one complete artifact. Do not review, approve, or publish it.',
+			'quality_role' => 'Independently inspect the translator artifact bound to packet.surface_revision. Do not translate, silently rewrite, or publish it.',
+			'same_subagent_forbidden' => true,
+			'role_reuse_forbidden' => true,
+			'quality_checks_translator_artifact' => true,
+			'exact_revision_binding_required' => true,
+			'server_enforcement' => array(
+				'fresh_run_id_per_role' => true,
+				'distinct_run_principal' => true,
+				'distinct_claim_token' => true,
+				'quality_decision_binds_artifact_revision' => true,
+				'quality_decision_binds_surface_revision' => true,
+			),
 		);
 	}
 

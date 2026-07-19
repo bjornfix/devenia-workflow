@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.633
+Stable tag: 0.1.634
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,12 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.634 =
+
+* Restore shared execution-provenance comparisons to the active identity module so translation status and Quality read models cannot fatal after legacy orchestration removal.
+* Restore the compact queue-state contract and add a production method-portfolio check so removed modules cannot leave unresolved runtime calls behind.
+* Make distinct translator and Quality subagents an explicit bounded-packet contract, backed by separate run, claim, principal, artifact, and surface-revision enforcement.
 
 = 0.1.633 =
 

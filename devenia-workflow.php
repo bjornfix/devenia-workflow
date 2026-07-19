@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.633
+ * Version: 0.1.634
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -69,7 +69,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.633';
+	const VERSION = '0.1.634';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -17627,6 +17627,16 @@ final class Devenia_Workflow {
 		}
 
 		return array_values( array_unique( $clean ) );
+	}
+
+	/** Accepted filters for the current compact translation queue. */
+	private static function queue_states(): array {
+		return array( 'missing', 'stale', 'draft', 'needs_review', 'complete' );
+	}
+
+	/** Human-readable schema description derived from the accepted states. */
+	private static function queue_states_description(): string {
+		return 'Optional queue states to include: ' . implode( ', ', self::queue_states() ) . '.';
 	}
 
 	/**
