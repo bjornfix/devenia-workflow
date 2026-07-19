@@ -20592,13 +20592,17 @@ final class Devenia_Workflow {
 		}
 
 		global $wpdb;
-		$placeholders = implode( ',', array_fill( 0, count( $source_ids ), '%d' ) );
-		$sql = $wpdb->prepare(
-			"SELECT source_post_id, translation_post_id FROM %i WHERE source_post_id IN ($placeholders) AND language = %s ORDER BY translation_post_id DESC",
-			array_merge( array( self::translation_index_table() ), $source_ids, array( sanitize_key( $language ) ) )
+		$table           = self::translation_index_table();
+		$placeholders    = implode( ',', array_fill( 0, count( $source_ids ), '%d' ) );
+		$wpdb->suppress_errors( true );
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT source_post_id, translation_post_id FROM %i WHERE source_post_id IN ($placeholders) AND language = %s ORDER BY translation_post_id DESC",
+				array_merge( array( $table ), $source_ids, array( sanitize_key( $language ) ) )
+			),
+			ARRAY_A
 		);
-
-		$rows = $wpdb->get_results( $sql, ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->suppress_errors( false );
 		foreach ( $rows as $row ) {
 			$sid = (int) ( $row['source_post_id'] ?? 0 );
 			if ( $sid > 0 && ! isset( $map[ $sid ] ) ) {

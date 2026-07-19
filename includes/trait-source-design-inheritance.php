@@ -1318,11 +1318,12 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 		$review_invalidated = false;
 
 		if ( ! $dry_run && $changed ) {
+			// Content writes through wp_update_post fire save_post hooks.
+			// Those hooks can cascade into integrity checks that delete
+			// translations. Design mutations use the database seam directly
+			// so no WordPress hook fires — this is the only safe write path
+			// for server-side design reprojection.
 			global $wpdb;
-			// Design mutations write directly through the database seam.
-			// No WordPress hooks fire, so no integrity check, no guardrails,
-			// no accidental post deletion. This is a server-side operation
-			// that only updates post_content block attributes.
 			$wpdb->update(
 				$wpdb->posts,
 				array( 'post_content' => $content ),
@@ -2529,7 +2530,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 		}
 		$css_file = $upload_dir['basedir'] . '/generateblocks/style-' . absint( $post_id ) . '.css';
 		if ( file_exists( $css_file ) ) {
-			@unlink( $css_file );
+			wp_delete_file( $css_file );
 		}
 		if ( defined( 'GENERATEBLOCKS_VERSION' ) ) {
 			update_post_meta( $post_id, '_generateblocks_dynamic_css_version', sanitize_text_field( GENERATEBLOCKS_VERSION ) );
