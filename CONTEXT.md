@@ -432,6 +432,18 @@ the source revision, language-profile revision, and applicable route or
 taxonomy contract. Its state includes source approval work, missing, stale,
 queued, active Translation Job, published, or a structured technical outcome.
 
+## Translation Policy Snapshot
+
+An immutable, content-addressed view of the effective mutable policy for one
+translation context. It covers site and operator choices such as enabled
+language and copy guidance, render-review requirements, and bounded cost
+settings. Translation Jobs, Runs, Quality evidence, and Translation Obligations
+bind the exact Snapshot revision they consume so later policy changes cannot
+silently reinterpret historical work. A Translation Policy Snapshot never
+defines or relaxes protocol, authority, identity-separation, route, publication,
+recovery, or evidence-binding invariants; those remain unconditional properties
+of the owning Workflow Modules.
+
 ## Exhaustion Proof
 
 Evidence that one completed Inventory Generation has been projected against

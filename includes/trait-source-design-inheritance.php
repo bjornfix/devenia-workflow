@@ -421,6 +421,20 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				}
 			}
 
+			if ( 'core/image' === $name ) {
+				$image_alt = self::core_image_alt_text( $attrs, $html );
+				if ( '' !== $image_alt ) {
+					$records[] = array(
+						'key'     => self::source_design_fragment_key( $name, $attrs, $current_path, 'image_alt' ),
+						'html'    => esc_html( $image_alt ),
+						'path'    => $current_path,
+						'block'   => 'core/image:alt',
+						'heading' => false,
+						'text'    => $image_alt,
+					);
+				}
+			}
+
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
 				self::collect_localized_fragment_records_from_blocks( $block['innerBlocks'], $records, $current_path );
 			}
@@ -1552,6 +1566,23 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				);
 			}
 
+			if ( 'core/image' === $name ) {
+				$image_alt = self::core_image_alt_text( $attrs, $html );
+				if ( '' !== $image_alt ) {
+					$fragments[] = array(
+						'key'         => self::source_design_fragment_key( $name, $attrs, $current_path, 'image_alt' ),
+						'path'        => $current_path,
+						'block'       => 'core/image:alt',
+						'unique_id'   => isset( $attrs['uniqueId'] ) ? (string) $attrs['uniqueId'] : '',
+						'role'        => 'image_alt',
+						'format'      => 'plain_text',
+						'heading'     => false,
+						'text'        => $image_alt,
+						'source_html' => $image_alt,
+					);
+				}
+			}
+
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
 				self::collect_source_design_fragments( $block['innerBlocks'], $fragments, $current_path );
 			}
@@ -1650,8 +1681,24 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				}
 			}
 
-			if ( 'core/image' === $name && $translation_id > 0 ) {
-				self::project_source_design_image_alt( $block, $translation_id, $stats );
+			if ( 'core/image' === $name ) {
+				$image_alt_key = self::source_design_fragment_key( $name, $attrs, $current_path, 'image_alt' );
+				if ( array_key_exists( $image_alt_key, $fragments ) ) {
+					$image_alt = sanitize_text_field( html_entity_decode( wp_strip_all_tags( (string) $fragments[ $image_alt_key ] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+					$block['attrs']['alt'] = $image_alt;
+					if ( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
+						$block['innerHTML'] = self::replace_core_image_alt_attribute( (string) $block['innerHTML'], $image_alt );
+						if ( isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
+							$block['innerContent'] = self::replace_core_image_inner_content_alt_attribute( $block['innerContent'], $image_alt );
+						} elseif ( empty( $block['innerBlocks'] ) ) {
+							$block['innerContent'] = array( $block['innerHTML'] );
+						}
+					}
+					$stats['localized_inline_image_alt_count'] = (int) ( $stats['localized_inline_image_alt_count'] ?? 0 ) + 1;
+				}
+				if ( $translation_id > 0 ) {
+					self::project_source_design_image_alt( $block, $translation_id, $stats );
+				}
 			}
 
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
@@ -1740,6 +1787,27 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 		unset( $part );
 
 		return $inner_content;
+	}
+
+	/**
+	 * Read meaningful alt text from a core/image block attribute or saved markup.
+	 *
+	 * Gutenberg commonly stores the value only in the img HTML. Keeping this
+	 * inside the source-design fragment seam lets translators localize inline
+	 * image alternatives without mutating shared attachment metadata.
+	 */
+	private static function core_image_alt_text( array $attrs, string $html ): string {
+		$alt = isset( $attrs['alt'] ) ? (string) $attrs['alt'] : '';
+		if ( '' === trim( $alt ) && preg_match( '~<img\b[^>]*\s+alt=("([^"]*)"|\'([^\']*)\'|([^\s>]+))~i', $html, $matches ) ) {
+			foreach ( array( 2, 3, 4 ) as $match_index ) {
+				if ( isset( $matches[ $match_index ] ) && '' !== (string) $matches[ $match_index ] ) {
+					$alt = (string) $matches[ $match_index ];
+					break;
+				}
+			}
+		}
+
+		return self::normalize_review_text( html_entity_decode( wp_strip_all_tags( $alt ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
 	}
 
 	/**

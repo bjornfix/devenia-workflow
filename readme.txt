@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.634
+Stable tag: 0.1.635
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,11 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.635 =
+
+* Add meaningful inline `core/image` alt text to the strict source-design fragment contract so localized alternatives are staged, revision-bound, projected into Gutenberg markup, and independently reviewed.
+* Record the hybrid architecture decision: executable safety invariants stay code-owned while mutable site, language, copy, render, and cost policy belongs in immutable runtime policy snapshots rather than a general database contract registry.
 
 = 0.1.634 =
 

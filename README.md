@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.634
+**Stable tag:** 0.1.635
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.635
+
+- Adds meaningful inline `core/image` alt text to the strict source-design fragment contract so localized alternatives are staged, revision-bound, projected into Gutenberg markup, and independently reviewed.
+- Records hybrid contract ownership: executable safety invariants remain code-owned; mutable site, language, copy, render, and cost policy belongs in immutable runtime policy snapshots rather than a general database registry.
 
 ### 0.1.634
 
