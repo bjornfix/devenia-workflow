@@ -20591,36 +20591,44 @@ final class Devenia_Workflow {
 			return $map;
 		}
 
-		$cache_key = 'batch_trans_index:' . md5( implode( ',', $source_ids ) . ':' . $language );
+		$cache_key = 'batch_trans_index:' . $language;
 		$cached    = wp_cache_get( $cache_key, 'devenia_workflow' );
 		if ( is_array( $cached ) ) {
-			return $cached;
+			foreach ( $cached as $sid => $tid ) {
+				if ( in_array( $sid, $source_ids, true ) ) {
+					$map[ $sid ] = $tid;
+				}
+			}
+			return $map;
 		}
 
+		// Query all translations for this language. The index is
+		// indexed on language, so this is a single efficient lookup.
+		// We filter by source_id in PHP to avoid a dynamic IN clause
+		// that cannot be statically verified as safe.
 		global $wpdb;
-		$table     = self::translation_index_table();
-		$values    = array( $table );
-		$formats   = array();
-		foreach ( $source_ids as $source_id ) {
-			$formats[] = '%d';
-			$values[]  = $source_id;
-		}
-		$values[]  = sanitize_key( $language );
-		$formats[] = '%s';
-
-		$sql = $wpdb->prepare(
-			'SELECT source_post_id, translation_post_id FROM %i WHERE source_post_id IN (' . implode( ',', $formats ) . ') AND language = %s ORDER BY translation_post_id DESC',
-			...$values
+		$table  = self::translation_index_table();
+		$sql    = $wpdb->prepare(
+			'SELECT source_post_id, translation_post_id FROM %i WHERE language = %s',
+			$table,
+			sanitize_key( $language )
 		);
-		$rows = $wpdb->get_results( $sql, ARRAY_A );
-		foreach ( $rows as $row ) {
+		$all    = $wpdb->get_results( $sql, ARRAY_A );
+
+		$full_map = array();
+		foreach ( $all as $row ) {
 			$sid = (int) ( $row['source_post_id'] ?? 0 );
-			if ( $sid > 0 && ! isset( $map[ $sid ] ) ) {
-				$map[ $sid ] = (int) ( $row['translation_post_id'] ?? 0 );
+			if ( $sid > 0 ) {
+				$full_map[ $sid ] = (int) ( $row['translation_post_id'] ?? 0 );
 			}
 		}
+		wp_cache_set( $cache_key, $full_map, 'devenia_workflow', 300 );
 
-		wp_cache_set( $cache_key, $map, 'devenia_workflow', 300 );
+		foreach ( $full_map as $sid => $tid ) {
+			if ( in_array( $sid, $source_ids, true ) ) {
+				$map[ $sid ] = $tid;
+			}
+		}
 		return $map;
 	}
 
