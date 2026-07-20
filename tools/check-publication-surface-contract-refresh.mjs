@@ -21,6 +21,7 @@ const fingerprint = body("translation_job_publication_surface_contract_revision"
 assert.match(fingerprint, /TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA/);
 assert.match(fingerprint, /fragment_projection/);
 assert.doesNotMatch(fingerprint, /self::VERSION|OPTION_|get_option/);
+assert.match(jobSource, /TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v2-target-design-signature'/, "target-language design-signature semantics must invalidate artifacts staged under the old LTR-only presentation contract");
 
 const refresh = body("translation_job_refresh_publication_surface_contract_under_lifecycle_lease");
 assert.match(refresh, /contract_refresh_history/);

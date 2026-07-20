@@ -20,7 +20,7 @@ trait Devenia_Workflow_Translation_Job {
 	}
 	const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 6;
 	const TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS = 3;
-	const TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v1';
+	const TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v2-target-design-signature';
 	const TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES = array(
 		'staged_surface_drifted',
 		'staged_surface_drifted_before_locked_write',
