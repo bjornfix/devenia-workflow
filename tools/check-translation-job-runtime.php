@@ -544,6 +544,33 @@ try {
 	if ( in_array( 'Search', $product_name_candidates, true ) || in_array( 'Console', $product_name_candidates, true ) ) {
 		throw new RuntimeException( 'Tokens inside a source-scoped preserved product name were still treated as carryover.' );
 	}
+	$global_phrase_patch = array( 'preserve_terms' => array( 'Cascading Style Sheets' ) );
+	$global_phrase_candidates = (array) $carryover_candidates->invoke(
+		null,
+		'<!-- wp:heading --><h2 class="wp-block-heading">Cascading Style Sheets</h2><!-- /wp:heading -->',
+		$language,
+		0,
+		$global_phrase_patch
+	);
+	if ( in_array( 'Cascading', $global_phrase_candidates, true ) || in_array( 'Style', $global_phrase_candidates, true ) ) {
+		throw new RuntimeException( 'Tokens inside a globally preserved multiword technical term were still treated as carryover.' );
+	}
+	$mixed_phrase_candidates = (array) $carryover_candidates->invoke(
+		null,
+		'<!-- wp:heading --><h2 class="wp-block-heading">Cascading Style Sheets</h2><!-- /wp:heading --><!-- wp:heading --><h2 class="wp-block-heading">Style Audit</h2><!-- /wp:heading -->',
+		$language,
+		0,
+		$global_phrase_patch
+	);
+	if ( ! in_array( 'Style', $mixed_phrase_candidates, true ) || in_array( 'Cascading', $mixed_phrase_candidates, true ) ) {
+		throw new RuntimeException( 'A global phrase exemption leaked to an isolated component token.' );
+	}
+	$strip_preserved_phrases = new ReflectionMethod( Devenia_Workflow::class, 'text_without_source_language_carryover_preserve_terms' );
+	$strip_preserved_phrases->setAccessible( true );
+	$phrase_filtered_text = (string) $strip_preserved_phrases->invoke( null, 'Gebruik Cascading Style Sheets; Style blijft hier los staan.', array( 'Cascading Style Sheets' ) );
+	if ( false !== stripos( $phrase_filtered_text, 'Cascading' ) || false === stripos( $phrase_filtered_text, 'Style blijft' ) ) {
+		throw new RuntimeException( 'Phrase-aware carryover normalization removed more than the configured complete phrase.' );
+	}
 	$unapproved_discover = $call( 'translation_job_discover', array( 'source_id' => $source_id, 'language' => $language ) );
 	if ( ! empty( $unapproved_discover['success'] ) || 'source_quality_approval_required' !== (string) ( $unapproved_discover['code'] ?? '' ) ) {
 		throw new RuntimeException( 'Unapproved source was not blocked: ' . wp_json_encode( $unapproved_discover ) );

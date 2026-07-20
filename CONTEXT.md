@@ -336,6 +336,17 @@ coverage, links and route, SEO and taxonomy, offer and contact preservation,
 and server-observed HTTP/live DOM. Semantic reviewer judgment is a Reviewer
 Attestation, not a server-owned Quality Evidence Receipt.
 
+## Source Carryover Normalization
+
+The Quality Adapter boundary that compares visible source-language terms with
+one target-language artifact. Its preserve-term Interface accepts complete
+technical names and phrases from the effective language profile plus optional
+source-scoped policy. Preservation is phrase-bound: normalization removes only
+an exact configured phrase before candidate extraction and target matching.
+Individual component words outside that phrase remain visible to Quality and
+cannot inherit a broad exemption. Callers never compensate with page IDs,
+fragment keys, language branches, or generic component-word allowlists.
+
 ## Reviewer Attestation
 
 A natural-language, factual, or visual judgment made by one fresh,

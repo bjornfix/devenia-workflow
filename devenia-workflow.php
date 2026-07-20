@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.646
+ * Version: 0.1.647
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -71,7 +71,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.646';
+	const VERSION = '0.1.647';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -24791,6 +24791,7 @@ final class Devenia_Workflow {
 		}
 
 		$candidates = self::source_language_carryover_candidates( $source_content, $language, $source_id, $profile_patch );
+		$preserve_terms = self::source_language_carryover_preserve_terms( $language, $source_id, $profile_patch );
 		$fragments  = self::text_fragments_for_copy_quality( $content );
 		$fragment_issues = array_merge(
 			self::source_language_carryover_fragment_issues( $content, $source_content, $language ),
@@ -24799,7 +24800,7 @@ final class Devenia_Workflow {
 		);
 		$issues = array_merge( $issues, $fragment_issues );
 		foreach ( $fragments as $fragment ) {
-			$text = (string) $fragment['text'];
+			$text = self::text_without_source_language_carryover_preserve_terms( (string) $fragment['text'], $preserve_terms );
 			foreach ( $candidates as $term ) {
 				if ( self::text_contains_review_term( $text, $term ) ) {
 					$issues[] = self::qa_item(
@@ -25513,31 +25514,11 @@ final class Devenia_Workflow {
 	 * @return array<int,string>
 	 */
 	private static function source_language_carryover_candidates( string $source_content, string $language, int $source_id = 0, array $profile_patch = array() ): array {
-		$profile = self::language_review_profile( $language );
-		if ( ! empty( $profile_patch ) ) {
-			$profile = self::merge_quality_profile_patch( $profile, self::sanitize_quality_profile_patch( $profile_patch ) );
-		}
-		$allowed = array();
-		foreach ( array( 'preserve_terms', 'never_translate_terms', 'source_carryover_homographs' ) as $key ) {
-			if ( empty( $profile[ $key ] ) || ! is_array( $profile[ $key ] ) ) {
-				continue;
-			}
-			foreach ( $profile[ $key ] as $term ) {
-				$allowed[ strtolower( trim( (string) $term ) ) ] = true;
-			}
-		}
-		foreach ( self::source_qa_carryover_preserve_terms( $source_id, $language ) as $term ) {
-			$allowed[ strtolower( trim( (string) $term ) ) ] = true;
-			if ( preg_match_all( '/(?<![\p{L}\p{N}_])[\p{Lu}][\p{L}\p{N}_-]{3,}(?![\p{L}\p{N}_])/u', (string) $term, $term_tokens ) ) {
-				foreach ( $term_tokens[0] as $term_token ) {
-					$allowed[ strtolower( trim( (string) $term_token ) ) ] = true;
-				}
-			}
-		}
+		$preserve_terms = self::source_language_carryover_preserve_terms( $language, $source_id, $profile_patch );
 
 		$candidates = array();
 		foreach ( self::text_fragments_for_copy_quality( $source_content ) as $fragment ) {
-			$text = (string) $fragment['text'];
+			$text = self::text_without_source_language_carryover_preserve_terms( (string) $fragment['text'], $preserve_terms );
 			if ( empty( $fragment['heading'] ) && ! in_array( $fragment['block'], self::semantic_button_block_names(), true ) && strlen( $text ) > 60 ) {
 				continue;
 			}
@@ -25546,7 +25527,7 @@ final class Devenia_Workflow {
 			}
 			foreach ( $matches[0] as $term ) {
 				$term = trim( (string) $term );
-				if ( '' === $term || mb_strlen( $term ) <= 4 || isset( $allowed[ strtolower( $term ) ] ) ) {
+				if ( '' === $term || mb_strlen( $term ) <= 4 ) {
 					continue;
 				}
 				$candidates[ $term ] = $term;
@@ -25554,6 +25535,64 @@ final class Devenia_Workflow {
 		}
 
 		return array_values( $candidates );
+	}
+
+	/**
+	 * Resolve the complete preserve-term contract used by source carryover QA.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function source_language_carryover_preserve_terms( string $language, int $source_id = 0, array $profile_patch = array() ): array {
+		$profile = self::language_review_profile( $language );
+		if ( ! empty( $profile_patch ) ) {
+			$profile = self::merge_quality_profile_patch( $profile, self::sanitize_quality_profile_patch( $profile_patch ) );
+		}
+		$terms = array();
+		foreach ( array( 'preserve_terms', 'never_translate_terms', 'source_carryover_homographs' ) as $key ) {
+			if ( empty( $profile[ $key ] ) || ! is_array( $profile[ $key ] ) ) {
+				continue;
+			}
+			foreach ( $profile[ $key ] as $term ) {
+				$term = trim( (string) $term );
+				if ( '' !== $term ) {
+					$terms[] = $term;
+				}
+			}
+		}
+		foreach ( self::source_qa_carryover_preserve_terms( $source_id, $language ) as $term ) {
+			$term = trim( (string) $term );
+			if ( '' !== $term ) {
+				$terms[] = $term;
+			}
+		}
+
+		return self::unique_source_qa_terms( $terms );
+	}
+
+	/**
+	 * Remove only complete configured preserve phrases before token carryover checks.
+	 * Isolated component words remain visible to QA and cannot inherit a phrase-wide exemption.
+	 *
+	 * @param array<int,string> $terms Preserve terms.
+	 */
+	private static function text_without_source_language_carryover_preserve_terms( string $text, array $terms ): string {
+		usort(
+			$terms,
+			static function ( string $left, string $right ): int {
+				return mb_strlen( $right, 'UTF-8' ) <=> mb_strlen( $left, 'UTF-8' );
+			}
+		);
+
+		foreach ( $terms as $term ) {
+			$term = trim( (string) $term );
+			if ( '' === $term ) {
+				continue;
+			}
+			$pattern = '/(?<![\p{L}\p{N}_])' . preg_quote( $term, '/' ) . '(?![\p{L}\p{N}_])/iu';
+			$text = (string) preg_replace( $pattern, ' ', $text );
+		}
+
+		return self::normalize_review_text( $text );
 	}
 
 	/**

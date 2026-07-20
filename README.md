@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.646
+**Stable tag:** 0.1.647
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.647
+
+- Makes source-language carryover preservation phrase-aware: configured multiword technical names are exempt only as complete phrases, while isolated component words still trigger review.
 
 ### 0.1.646
 
