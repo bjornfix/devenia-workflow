@@ -17,17 +17,18 @@ rules, translation provenance, and translation read models. Translation
 specific Interfaces retain `Translation` in their functional names while using
 the shared `Devenia_Workflow` product namespace.
 
-## Quality Review Projection
+## Bounded Artifact View
 
-The bounded read Interface through which an independent Quality Run receives
-one immutable Translation Artifact for review. It exposes every source and
-localized fragment, submitted metadata, staged SEO/taxonomy/route/media facts,
-writer identity, exact Artifact and Surface Revisions, and server Quality
-receipts. The durable Publication Surface Manifest remains internal because its
-generated Gutenberg document and normalized presentation fragments duplicate
-the review content without adding review authority. Packet size is measured
-after this projection against the existing Run budget; the budget is not raised
-to compensate for internal serialization details.
+The bounded read Interface through which translator correction Runs and
+independent Quality Runs receive one immutable Translation Artifact. It exposes
+every localized fragment, submitted metadata, staged SEO/taxonomy/route/media
+facts, writer identity, and exact Artifact and Surface Revisions. Quality packets
+add every source fragment and server Quality receipts; correction packets add
+the exact Quality findings. The durable Publication Surface Manifest remains
+internal because its generated Gutenberg document and normalized presentation
+fragments duplicate the external work content without adding authority. Packet
+size is measured after this projection against the existing Run budget; the
+budget is not raised to compensate for internal serialization details.
 
 ## Translation Index Readiness
 

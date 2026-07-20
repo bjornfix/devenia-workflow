@@ -95,7 +95,7 @@ HTML;
 		);
 	}
 	$internal_gutenberg = str_repeat( '<!-- wp:paragraph --><p>Generated publication payload that Quality must not receive twice.</p><!-- /wp:paragraph -->', 1200 );
-	$quality_projection_method = new ReflectionMethod( Devenia_Workflow::class, 'translation_job_quality_review_artifact' );
+	$quality_projection_method = new ReflectionMethod( Devenia_Workflow::class, 'translation_job_bounded_artifact_view' );
 	$quality_projection_method->setAccessible( true );
 	$quality_projection = (array) $quality_projection_method->invoke(
 		null,

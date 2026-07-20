@@ -1204,7 +1204,7 @@ trait Devenia_Workflow_Translation_Job {
 			);
 		}
 		$packet = array(
-			'contract_version' => 4,
+			'contract_version' => 5,
 			'subagent_separation_contract' => self::translation_job_subagent_separation_contract(),
 			'job' => self::translation_job_public_job( $job ),
 			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'submission_generation' => self::translation_job_submission_generation( $job ), 'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'], 'principal' => $run['principal'] ?? array() ),
@@ -1252,7 +1252,7 @@ trait Devenia_Workflow_Translation_Job {
 				'fragments' => self::translation_job_source_fragments( $source_contract ),
 				'approval' => self::translation_job_source_approval( $source ),
 			),
-			'artifact' => is_array( $artifact ) ? self::translation_job_quality_review_artifact( $artifact ) : array(),
+			'artifact' => is_array( $artifact ) ? self::translation_job_bounded_artifact_view( $artifact ) : array(),
 			'surface_revision' => (string) ( $artifact['surface_revision'] ?? '' ),
 			'writer_principal' => is_array( $artifact['writer_principal'] ?? null ) ? $artifact['writer_principal'] : array(),
 			'links' => self::translation_job_link_policy( $source, (string) $job['target_language'] ),
@@ -1277,17 +1277,18 @@ trait Devenia_Workflow_Translation_Job {
 	}
 
 	/**
-	 * Project the immutable artifact into the bounded Quality review Interface.
+	 * Project the immutable artifact into the bounded external work Interface.
 	 *
 	 * The durable record owns publication and rollback payloads. Quality needs the
-	 * complete submitted copy plus staged metadata and identity, but it must not
+	 * Quality and correction Runs need the complete submitted copy plus staged
+	 * metadata and identity, but they must not
 	 * receive the generated Gutenberg document or a second copy of every localized
 	 * presentation fragment. Those internal fields made large review packets grow
 	 * with the same content multiple times without adding review authority.
 	 *
 	 * @return array<string,mixed>
 	 */
-	private static function translation_job_quality_review_artifact( array $record ): array {
+	private static function translation_job_bounded_artifact_view( array $record ): array {
 		$manifest = isset( $record['surface_manifest'] ) && is_array( $record['surface_manifest'] )
 			? $record['surface_manifest']
 			: array();
@@ -1853,7 +1854,7 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		return array(
 			'previous_artifact_revision' => $artifact_revision,
-			'previous_artifact' => $artifact,
+			'previous_artifact' => self::translation_job_bounded_artifact_view( $artifact ),
 			'quality_revision' => $quality_revision,
 			'failed_checks' => is_array( $quality ) ? array_values(
 				array_keys(

@@ -1,4 +1,4 @@
-# ADR-0009: Bounded Quality Review Projection
+# ADR-0009: Bounded Artifact View
 
 Status: accepted
 
@@ -13,7 +13,8 @@ page consequently exceeded the 50,000-token Quality input budget before review.
 
 ## Decision
 
-Workflow owns a dedicated Quality Review Projection. It exposes:
+Workflow owns one Bounded Artifact View shared by Quality review packets and
+translator correction packets. It exposes:
 
 - the complete submitted artifact and all localized fragments;
 - complete source fragments in the packet's source view;
@@ -22,7 +23,7 @@ Workflow owns a dedicated Quality Review Projection. It exposes:
   Artifact, Content, Surface, baseline, and publication-contract revisions;
 - the existing link, contact-action, language, evidence, and submission contracts.
 
-The projection does not expose the generated Gutenberg document or the second
+The view does not expose the generated Gutenberg document or the second
 normalized copy of localized presentation fragments from the internal
 Publication Surface Manifest. Server receipt generation and publication continue
 to use the complete durable record behind the Interface.
@@ -33,6 +34,8 @@ projection, preserving exact Run usage measurement and idempotent fetch binding.
 ## Consequences
 
 Quality retains all evidence needed for language, factual, route, metadata,
-link, contact, and visual review. Internal rollback/publication payload growth no
-longer consumes external review context. Future publication fields are private by
-default and enter the Quality Interface only through an explicit review fact.
+link, contact, and visual review. A correction translator retains the complete
+prior submitted artifact and exact Quality findings. Internal rollback/publication
+payload growth no longer consumes either external context. Future publication
+fields are private by default and enter this Interface only through an explicit
+work or review fact.

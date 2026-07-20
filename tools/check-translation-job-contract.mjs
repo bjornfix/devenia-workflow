@@ -48,12 +48,13 @@ pass(() => assert.match(runtimeSource, /Spawn one translator subagent[\s\S]*a di
 pass(() => assert.match(runtimeSource, /'same_subagent_forbidden'\s*=>\s*true[\s\S]*'role_reuse_forbidden'\s*=>\s*true/));
 pass(() => assert.match(runtimeSource, /'distinct_run_principal'\s*=>\s*true[\s\S]*'quality_decision_binds_artifact_revision'\s*=>\s*true/));
 pass(() => assert.equal((runtimeSource.match(/'subagent_separation_contract'\s*=>\s*self::translation_job_subagent_separation_contract\(\)/g) || []).length, 2));
-pass(() => assert.match(runtimeSource, /private static function translation_job_quality_review_artifact\s*\(/));
-pass(() => assert.match(runtimeSource, /'artifact'\s*=>\s*is_array\( \$artifact \) \? self::translation_job_quality_review_artifact\( \$artifact \) : array\(\)/));
-pass(() => assert.match(runtimeSource, /'contract_version'\s*=>\s*5[\s\S]*translation_job_quality_review_artifact/));
+pass(() => assert.match(runtimeSource, /private static function translation_job_bounded_artifact_view\s*\(/));
+pass(() => assert.match(runtimeSource, /'artifact'\s*=>\s*is_array\( \$artifact \) \? self::translation_job_bounded_artifact_view\( \$artifact \) : array\(\)/));
+pass(() => assert.match(runtimeSource, /'contract_version'\s*=>\s*5[\s\S]*translation_job_bounded_artifact_view/));
+pass(() => assert.match(runtimeSource, /'previous_artifact'\s*=>\s*self::translation_job_bounded_artifact_view\( \$artifact \)/));
 pass(() => assert.match(runtimeSource, /'staged_surface'[\s\S]*'source_design_hash'/));
 pass(() => assert.doesNotMatch(
-	runtimeSource.match(/private static function translation_job_quality_review_artifact[\s\S]*?\n\t}/)?.[0] || "",
+	runtimeSource.match(/private static function translation_job_bounded_artifact_view[\s\S]*?\n\t}/)?.[0] || "",
 	/'gutenberg'\s*=>|'localized_fragments'\s*=>\s*\(array\) \( \$manifest\['presentation'/,
 ));
 

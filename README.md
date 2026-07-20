@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.641
+**Stable tag:** 0.1.642
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.642
+
+- Reuses the bounded Artifact View in translator correction packets, preventing a prior internal publication payload from pushing large revision jobs beyond the unchanged Run budget.
+- Standardizes translator and Quality packet contract version 5 on one external Artifact boundary.
 
 ### 0.1.641
 
