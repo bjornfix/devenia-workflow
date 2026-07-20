@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.639
+**Stable tag:** 0.1.640
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.640
+
+- Normalizes GenerateBlocks horizontal grid gaps during RTL projection with native block width and spacing attributes, preventing desktop Arabic pages from extending past the physical left edge without adding CSS.
+- Advances only the RTL publication contract so affected artifacts receive a fresh translator and independent Quality generation while approved LTR evidence remains current.
 
 ### 0.1.639
 

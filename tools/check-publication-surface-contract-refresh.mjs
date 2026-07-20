@@ -21,7 +21,7 @@ const fingerprint = body("translation_job_publication_surface_contract_revision"
 assert.match(fingerprint, /TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA/);
 assert.match(fingerprint, /fragment_projection/);
 assert.doesNotMatch(fingerprint, /self::VERSION|OPTION_|get_option/);
-assert.match(jobSource, /TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v2-target-design-signature'/, "target-language design-signature semantics must invalidate artifacts staged under the old LTR-only presentation contract");
+assert.match(jobSource, /TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v3-rtl-grid-gap'/, "native RTL grid-gap projection must invalidate artifacts staged under the old overflowing presentation contract");
 assert.match(jobSource, /TRANSLATION_JOB_LTR_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v1'/, "LTR jobs must retain their already-approved publication contract");
 assert.match(fingerprint, /is_rtl_language\( \$language \)[\s\S]*TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA[\s\S]*TRANSLATION_JOB_LTR_PUBLICATION_SURFACE_CONTRACT_SCHEMA/, "only RTL jobs may advance to the target-design-signature contract");
 assert.match(body("translation_job_discover"), /translation_job_publication_surface_contract_revision\( \$source, \$language \)/);
