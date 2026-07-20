@@ -46,6 +46,8 @@ assert.match(module, /applicable_post_types/);
 assert.match(module, /in_array\( \$post_type, \(array\) \( \$manifest\['applicable_post_types'\]/);
 assert.doesNotMatch(module, /'post' === \$post_type/);
 assert.match(module, /return null;/);
+assert.match(module, /legacy_scriptless_social_sharing_runtime_value[\s\S]*is_configured_content_language/, "legacy sharing must support neutral source-language runtime text");
+assert.match(runtime, /content-type-neutral runtime registry/, "WordPress runtime must prove source-language neutral sharing text");
 
 // Workflow must not know the sharing owner's private implementation.
 assert.doesNotMatch(module, /Reflection|WP_Block_Type|shortcode|parse_blocks/i);
@@ -56,10 +58,10 @@ assert.doesNotMatch(module, /update_option|delete_option/);
 assert.match(runtime, /function devenia_social_sharing_get_setting/);
 assert.match(runtime, /function devenia_social_sharing_get_surface_manifest/);
 assert.match(runtime, /inactive_owner_is_not_required/);
-assert.match(runtime, /exact_one_after_post/);
+assert.match(runtime, /exact_one_owned_surface/);
 assert.match(runtime, /page_surface_is_not_applicable/);
 assert.match(runtime, /post_global_readiness/);
-assert.match(runtime, /page_configured_global_readiness/);
+assert.match(runtime, /conservative_manifest/);
 assert.match(runtime, /localized_nb_runtime_strings/);
 assert.match(runtime, /Source positional %37\$s/);
 assert.match(runtime, /Source space width % 20s/);

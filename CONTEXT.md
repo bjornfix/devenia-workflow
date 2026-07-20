@@ -574,6 +574,14 @@ from the authoritative source tree. Core owns directional mirroring; vendor
 Adapters may replace unsafe wrapper geometry with equivalent native attributes.
 GenerateBlocks Grid Gap Projection removes `horizontalGap` wrapper offsets and
 reserves the same between-item gutter with `marginRight` in LTR or `marginLeft`
-in RTL, derived from document-direction data. Page IDs, locales, translated
-text, generated block identifiers, custom CSS, and selector inference are
-outside this boundary.
+in RTL, derived from document-direction data. Translation publication stores
+that projection; canonical source pages receive the identical native contract
+at the frontend block-render Adapter so editor-owned source content is not
+rewritten merely to repair presentation. Page IDs, locales, translated text,
+generated block identifiers, custom CSS, and selector inference are outside
+this boundary.
+
+Legacy sharing email copy is also resolved through the Presentation Text
+registry for the source language. The registry owns content-type-neutral
+wording so a shared page is never mislabeled as a post; the legacy sharing
+Adapter owns only placeholder compatibility and never hardcodes public copy.

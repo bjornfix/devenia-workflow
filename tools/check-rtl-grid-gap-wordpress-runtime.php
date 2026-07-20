@@ -43,6 +43,17 @@ $assert_projection = static function ( string $language, string $spacing_side ) 
 $assert_projection( 'nb', 'marginRight' );
 $assert_projection( 'ar', 'marginLeft' );
 
+$source_blocks = parse_blocks( $source );
+$source_grid   = $source_blocks[0] ?? array();
+$rendered_grid = Devenia_Workflow_GenerateBlocks_Adapter::project_frontend_grid_layout( $source_grid, $source_grid, null );
+$rendered_items = $rendered_grid['innerBlocks'] ?? array();
+if ( 0 !== (int) ( $rendered_grid['attrs']['horizontalGap'] ?? -1 ) ) {
+	$failures[] = 'frontend source: grid horizontalGap was not removed';
+}
+if ( 'calc(50% - 22px)' !== (string) ( $rendered_items[0]['attrs']['sizing']['width'] ?? '' ) || '22px' !== (string) ( $rendered_items[0]['attrs']['spacing']['marginRight'] ?? '' ) ) {
+	$failures[] = 'frontend source: native LTR gutter was not projected';
+}
+
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );
 	exit( 1 );

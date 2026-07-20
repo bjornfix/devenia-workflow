@@ -23,6 +23,7 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 		add_filter( 'devenia_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 		add_filter( 'devenia_workflow_gutenberg_guardrails', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 		add_filter( 'devenia_workflow_project_block_layout', array( __CLASS__, 'normalize_grid_gaps' ), 10, 4 );
+		add_filter( 'render_block_data', array( __CLASS__, 'project_frontend_grid_layout' ), 10, 3 );
 		add_action( 'devenia_workflow_source_design_reprojected', array( __CLASS__, 'on_source_design_reprojected' ) );
 		add_action( 'save_post', array( __CLASS__, 'on_save_post_regenerate_css' ), 100, 1 );
 	}
@@ -122,6 +123,30 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 		unset( $language );
 		self::normalize_grid_gap_blocks( $blocks, $source_blocks, $is_rtl );
 		return $blocks;
+	}
+
+	/**
+	 * Apply the same native grid contract while rendering canonical source pages.
+	 *
+	 * Translation publication stores projected block attributes. Canonical source
+	 * content remains editor-owned, so its safe presentation projection belongs at
+	 * the frontend Adapter boundary instead of in page-specific content or CSS.
+	 *
+	 * @param array<string,mixed> $parsed_block Parsed block about to render.
+	 * @param array<string,mixed> $source_block Unfiltered source block.
+	 * @param WP_Block|null       $parent_block Parent block, unused.
+	 * @return array<string,mixed>
+	 */
+	public static function project_frontend_grid_layout( array $parsed_block, array $source_block, $parent_block = null ): array {
+		unset( $parent_block );
+		if ( is_admin() || 'generateblocks/grid' !== (string) ( $parsed_block['blockName'] ?? '' ) ) {
+			return $parsed_block;
+		}
+
+		$is_rtl = function_exists( 'is_rtl' ) && is_rtl();
+		self::normalize_grid_gap_block( $parsed_block, $source_block, $is_rtl );
+
+		return $parsed_block;
 	}
 
 	/**

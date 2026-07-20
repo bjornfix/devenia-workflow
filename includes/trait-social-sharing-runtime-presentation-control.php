@@ -320,7 +320,7 @@ trait Devenia_Workflow_Social_Sharing_Runtime_Presentation_Control {
 	private static function legacy_scriptless_social_sharing_runtime_value( $value, string $runtime_key, string $language = '' ): string {
 		$value    = is_scalar( $value ) ? (string) $value : '';
 		$language = sanitize_key( '' !== $language ? $language : self::frontend_language() );
-		if ( ! self::is_translation_language( $language ) ) {
+		if ( ! self::is_configured_content_language( $language ) ) {
 			return $value;
 		}
 

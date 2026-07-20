@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.649
+Stable tag: 0.1.650
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,11 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.650 =
+
+* Apply the global direction-aware native GenerateBlocks grid-gap projection to canonical source rendering as well as translated publication surfaces, without rewriting page content or adding CSS.
+* Let the Presentation Text registry supply content-type-neutral legacy sharing email copy for the source language as well as translations.
 
 = 0.1.649 =
 * Projects GenerateBlocks grid gaps through one direction-aware native layout Adapter for both LTR and RTL translations, removing negative wrapper offsets without CSS or page-specific rules.

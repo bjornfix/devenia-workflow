@@ -20,5 +20,14 @@ assert.doesNotMatch(body, /style|className|customCss|additionalCss/i, "projectio
 assert.match(core, /apply_filters\( 'devenia_workflow_mirror_rtl_block_layout'/, "theme-neutral RTL core must expose the adapter seam");
 assert.match(core, /apply_filters\( 'devenia_workflow_project_block_layout'/, "theme-neutral core must expose a direction-aware vendor layout projection seam");
 assert.doesNotMatch(core, /normalize_rtl_grid_gap_block|horizontalGap/, "theme-neutral core must not own vendor-specific projection logic");
+assert.match(source, /add_filter\( 'render_block_data', array\( __CLASS__, 'project_frontend_grid_layout' \), 10, 3 \)/, "canonical source rendering must use the same global Adapter");
+const frontendStart = source.indexOf("public static function project_frontend_grid_layout(");
+assert.ok(frontendStart >= 0, "missing canonical-source frontend projection");
+const frontendEnd = source.indexOf("\n\tprivate static function ", frontendStart);
+const frontendBody = source.slice(frontendStart, frontendEnd > frontendStart ? frontendEnd : source.length);
+assert.match(frontendBody, /is_admin\(\)/, "editor-owned source content must not be mutated in admin rendering");
+assert.match(frontendBody, /is_rtl\(\)/, "frontend gutter side must derive from document direction");
+assert.match(frontendBody, /normalize_grid_gap_block/, "frontend and publication must share one native projection implementation");
+assert.doesNotMatch(frontendBody, /post_id|page_id|language|locale|text|style|className|customCss/i, "frontend projection must not infer presentation from page, locale, text, or CSS");
 
 console.log("RTL grid-gap contract: OK");

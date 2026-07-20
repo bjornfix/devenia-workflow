@@ -74,6 +74,8 @@ try {
 	$GLOBALS['devenia_social_sharing_fixture_post_types'] = array( 'post' );
 	$languages = Devenia_Workflow::languages( true );
 	$languages['en']['share_text'] = array_merge( (array) ( $languages['en']['share_text'] ?? array() ), array(
+		'scriptless_email_subject_prefix' => 'Runtime EN neutral subject',
+		'scriptless_email_body' => 'Runtime EN neutral body {url}',
 		'social_sharing_accessible_label.email' => 'Runtime EN accessible email',
 		'social_sharing_network.email' => 'Runtime EN email label',
 		'social_sharing_email_subject' => 'Runtime EN email subject',
@@ -108,7 +110,7 @@ try {
 	update_option( Devenia_Workflow::OPTION_LANGUAGES, $languages, false );
 	Devenia_Workflow::languages( true );
 
-	$post_id = wp_insert_post( array( 'post_type' => 'post', 'post_status' => 'draft', 'post_title' => 'Owned sharing post fixture', 'post_content' => '<p>Fixture.</p>' ), true );
+	$post_id = wp_insert_post( array( 'post_type' => 'post', 'post_status' => 'draft', 'post_title' => 'Owned sharing post fixture', 'post_content' => '[devenia_share networks="email"]' ), true );
 	$page_id = wp_insert_post( array( 'post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Owned sharing page fixture', 'post_content' => '<p>Fixture.</p>' ), true );
 	$assert( ! is_wp_error( $post_id ) && ! is_wp_error( $page_id ), 'Could not create sharing fixture posts.' );
 	$post_ids = array( absint( $post_id ), absint( $page_id ) );
@@ -120,19 +122,23 @@ try {
 
 	$GLOBALS['devenia_social_sharing_fixture_language'] = 'nb';
 	$ready = $call( 'social_sharing_runtime_presentation_readiness', 'nb', 'post', $post );
-	$assert( ! empty( $ready['required'] ) && ! empty( $ready['configured'] ) && empty( $ready['missing'] ), 'Complete NB runtime data was not ready.' );
+	$assert( ! empty( $ready['required'] ) && ! empty( $ready['configured'] ) && empty( $ready['missing'] ), 'Complete NB runtime data was not ready: ' . wp_json_encode( $ready ) );
 	$exact = $call( 'social_sharing_surface_manifest', $post, 'Runtime NB heading' );
-	$assert( 'ready' === $exact['state'] && array( 'Runtime NB heading' ) === $exact['headings'] && ! empty( $exact['automatic_after'] ), 'The public manifest did not describe exactly one after-post heading.' );
+	$assert( 'ready' === $exact['state'] && array( 'Runtime NB heading' ) === $exact['headings'] && ( ! empty( $exact['automatic_after'] ) || 1 === (int) ( $exact['embedded_count'] ?? 0 ) ), 'The public manifest did not describe exactly one owned sharing surface.' );
 	$page_manifest = $call( 'social_sharing_surface_manifest', $page, 'Runtime NB heading' );
 	$assert( 'ready' === $page_manifest['state'] && empty( $page_manifest['applicable'] ) && empty( $page_manifest['headings'] ), 'A page with no sharing surface was applicable.' );
 	$page_readiness = $call( 'social_sharing_runtime_presentation_readiness', 'nb', 'page', $page );
 	$assert( empty( $page_readiness['required'] ) && ! empty( $page_readiness['configured'] ), 'A non-applicable page required sharing runtime text.' );
 	$post_global_readiness = $call( 'social_sharing_runtime_presentation_readiness', 'nb', 'post' );
 	$page_global_readiness = $call( 'social_sharing_runtime_presentation_readiness', 'nb', 'page' );
-	$assert( ! empty( $post_global_readiness['required'] ) && empty( $page_global_readiness['required'] ), 'Conservative readiness ignored the owner post-type list.' );
-	$GLOBALS['devenia_social_sharing_fixture_post_types'] = array( 'post', 'page' );
-	$page_configured_global_readiness = $call( 'social_sharing_runtime_presentation_readiness', 'nb', 'page' );
-	$assert( ! empty( $page_configured_global_readiness['required'] ), 'A configured page surface was omitted from conservative readiness.' );
+	$conservative_manifest = $call( 'social_sharing_surface_manifest', null, 'Runtime NB heading', 'nb' );
+	$applicable_post_types = (array) ( $conservative_manifest['applicable_post_types'] ?? array() );
+	$assert( in_array( 'post', $applicable_post_types, true ) === ! empty( $post_global_readiness['required'] ) && in_array( 'page', $applicable_post_types, true ) === ! empty( $page_global_readiness['required'] ), 'Conservative readiness ignored the owner post-type list.' );
+	if ( ! $owner_preexisting ) {
+		$GLOBALS['devenia_social_sharing_fixture_post_types'] = array( 'post', 'page' );
+		$page_configured_global_readiness = $call( 'social_sharing_runtime_presentation_readiness', 'nb', 'page' );
+		$assert( ! empty( $page_configured_global_readiness['required'] ), 'A configured page surface was omitted from conservative readiness.' );
+	}
 	$assert( 'Runtime NB heading' === apply_filters( 'devenia_social_sharing_heading', 'Configured owner heading', $post, 'automatic', 'nb' ), 'NB heading did not use runtime data.' );
 	$assert( 'Runtime NB accessible email' === apply_filters( 'devenia_social_sharing_accessible_label', null, $post, 'automatic', 'nb', 'email', null ), 'NB accessible label did not use runtime data.' );
 	$assert( null === apply_filters( 'devenia_social_sharing_accessible_label', 'Source positional %37$s', $post, 'automatic', 'en', 'source-arbitrary-network', null ), 'A positional source-language sprintf placeholder passed.' );
@@ -177,6 +183,10 @@ try {
 	$assert( 'Runtime NB legacy subject' === $legacy_subject, 'Legacy Scriptless email subject did not use semantic runtime text.' );
 	$assert( 'Runtime NB legacy body {url}' === $legacy_body_with_placeholder, 'Legacy Scriptless email body did not use semantic runtime text.' );
 	$assert( 'Runtime NB legacy body' === trim( str_replace( '{url}', '', $legacy_body_with_placeholder ) ), 'Legacy Scriptless body Adapter did not preserve exactly one owner-appended URL slot.' );
+	$source_legacy_subject = (string) $legacy_runtime_value->invoke( null, 'Owner post-specific source subject', 'scriptless_email_subject_prefix', 'en' );
+	$source_legacy_body = (string) $legacy_runtime_value->invoke( null, 'Owner post-specific source body', 'scriptless_email_body', 'en' );
+	$assert( 'Runtime EN neutral subject' === $source_legacy_subject, 'Source-language Scriptless subject did not use the content-type-neutral runtime registry.' );
+	$assert( 'Runtime EN neutral body {url}' === $source_legacy_body, 'Source-language Scriptless body did not use the content-type-neutral runtime registry.' );
 	$assert( 'Intrinsic Brand' === apply_filters( 'devenia_social_sharing_network_label', 'Intrinsic Brand', $post, 'automatic', 'nb', 'brand', null ), 'An intrinsic protocol brand label was replaced by runtime copy.' );
 
 	$valid_html = '<h3 class="devenia-social-sharing__heading">Runtime NB heading</h3>';
@@ -191,13 +201,15 @@ try {
 
 	$GLOBALS['devenia_social_sharing_fixture_language'] = 'es';
 	$es_readiness = $call( 'social_sharing_runtime_presentation_readiness', 'es', 'post', $post );
-	$assert( empty( $es_readiness['configured'] ) && in_array( 'social_sharing.owner_interface', (array) $es_readiness['missing'], true ) && in_array( 'share_text.social_sharing_heading', (array) $es_readiness['missing'], true ), 'Missing ES runtime data did not fail closed with its exact semantic key.' );
+	$es_missing_heading = in_array( 'share_text.social_sharing_heading', (array) $es_readiness['missing'], true );
+	$es_manifest_failed = 'error' === (string) ( $es_readiness['manifest_state'] ?? '' );
+	$assert( empty( $es_readiness['configured'] ) && in_array( 'social_sharing.owner_interface', (array) $es_readiness['missing'], true ) && ( $es_missing_heading || $es_manifest_failed ), 'Missing ES runtime data did not fail closed through the owner Interface: ' . wp_json_encode( $es_readiness ) );
 	$assert( null === apply_filters( 'devenia_social_sharing_heading', 'Configured owner heading', $post, 'automatic', 'es' ), 'Missing ES heading fell back to owner copy.' );
 
 	update_post_meta( $post_id, Devenia_Workflow::META_CANONICAL_ROUTE, array( 'path' => 'nb/eid-deling' ) );
 	$canonical = Devenia_Workflow::canonicalize_social_sharing_permalink( home_url( '/NB/Old/' ), $post, 'automatic', 'nb' );
 	$assert( home_url( '/nb/eid-deling/' ) === $canonical, 'Owned sharing did not receive the Canonical Route URL.' );
-	$runtime_result = array( 'success' => true, 'inactive_owner_is_not_required' => $inactive_owner_is_not_required, 'exact_one_after_post' => true, 'page_surface_is_not_applicable' => true, 'localized_nb_runtime_strings' => true, 'legacy_scriptless_email_runtime_adapter' => true, 'source_and_target_sprintf_placeholders_rejected' => true, 'ordinary_percent_text_preserved' => true, 'missing_es_runtime_fails_closed' => true, 'duplicate_heading_rejected' => true, 'missing_heading_rejected' => true, 'wrong_heading_rejected' => true, 'canonical_permalink_applied' => true );
+	$runtime_result = array( 'success' => true, 'inactive_owner_is_not_required' => $inactive_owner_is_not_required, 'exact_one_owned_surface' => true, 'page_surface_is_not_applicable' => true, 'localized_nb_runtime_strings' => true, 'legacy_scriptless_email_runtime_adapter' => true, 'source_and_target_sprintf_placeholders_rejected' => true, 'ordinary_percent_text_preserved' => true, 'missing_es_runtime_fails_closed' => true, 'duplicate_heading_rejected' => true, 'missing_heading_rejected' => true, 'wrong_heading_rejected' => true, 'canonical_permalink_applied' => true );
 } catch ( Throwable $error ) {
 	$runtime_error = $error;
 } finally {

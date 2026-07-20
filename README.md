@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.649
+**Stable tag:** 0.1.650
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.650
+
+- Applies the global direction-aware native GenerateBlocks grid-gap projection to canonical source rendering as well as translated publication surfaces, without rewriting page content or adding CSS.
+- Lets the Presentation Text registry supply content-type-neutral legacy sharing email copy for the source language as well as translations.
 
 ### 0.1.649
 
