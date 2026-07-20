@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.648
+ * Version: 0.1.649
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -71,7 +71,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.648';
+	const VERSION = '0.1.649';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -11071,7 +11071,7 @@ final class Devenia_Workflow {
 			if ( '' === trim( $content ) ) {
 				return self::error( 'Content is required. Prefer localized_fragments with inherit_source_design=true so translators translate text instead of rebuilding design.' );
 			}
-			$content = self::mirror_rtl_block_layout_from_source( $content, (string) $source->post_content, $language );
+			$content = self::project_block_layout_from_source( $content, (string) $source->post_content, $language );
 		}
 		$content    = self::localize_internal_links_in_content( $content, $language );
 		$content    = self::normalize_gutenberg_content_for_storage( $content );
@@ -25411,13 +25411,13 @@ final class Devenia_Workflow {
 	}
 
 	/**
-	 * Mirror source-driven left/right block layout attributes for RTL languages.
+	 * Project source-driven block layout for the target document direction.
 	 *
 	 * This is source-relative so rerunning upsert on an already mirrored
 	 * translation does not flip the layout back.
 	 */
-	private static function mirror_rtl_block_layout_from_source( string $content, string $source_content, string $language ): string {
-		if ( '' === trim( $content ) || '' === trim( $source_content ) || ! self::is_rtl_language( $language ) ) {
+	private static function project_block_layout_from_source( string $content, string $source_content, string $language ): string {
+		if ( '' === trim( $content ) || '' === trim( $source_content ) ) {
 			return $content;
 		}
 
@@ -25427,8 +25427,12 @@ final class Devenia_Workflow {
 			return $content;
 		}
 
-		self::mirror_rtl_blocks_from_source( $blocks, $source_blocks );
-		$blocks = apply_filters( 'devenia_workflow_mirror_rtl_block_layout', $blocks, $source_blocks, $language );
+		$is_rtl = self::is_rtl_language( $language );
+		if ( $is_rtl ) {
+			self::mirror_rtl_blocks_from_source( $blocks, $source_blocks );
+			$blocks = apply_filters( 'devenia_workflow_mirror_rtl_block_layout', $blocks, $source_blocks, $language );
+		}
+		$blocks = apply_filters( 'devenia_workflow_project_block_layout', $blocks, $source_blocks, $language, $is_rtl );
 
 		return serialize_blocks( $blocks );
 	}

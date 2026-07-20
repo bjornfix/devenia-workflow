@@ -22,7 +22,7 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 		add_filter( 'devenia_workflow_normalize_gutenberg_content_for_storage', array( __CLASS__, 'normalize_gutenberg_content_for_storage' ) );
 		add_filter( 'devenia_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 		add_filter( 'devenia_workflow_gutenberg_guardrails', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
-		add_filter( 'devenia_workflow_mirror_rtl_block_layout', array( __CLASS__, 'normalize_rtl_grid_gaps' ), 10, 3 );
+		add_filter( 'devenia_workflow_project_block_layout', array( __CLASS__, 'normalize_grid_gaps' ), 10, 4 );
 		add_action( 'devenia_workflow_source_design_reprojected', array( __CLASS__, 'on_source_design_reprojected' ) );
 		add_action( 'save_post', array( __CLASS__, 'on_save_post_regenerate_css' ), 100, 1 );
 	}
@@ -107,19 +107,20 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 	}
 
 	/**
-	 * Replace GenerateBlocks' left-negative grid gutter with native item spacing.
+	 * Replace GenerateBlocks' negative grid gutter with native item spacing.
 	 *
-	 * GenerateBlocks implements horizontalGap with a negative left margin on the
-	 * wrapper. In RTL that extends the document to the physical left. Reserve the
-	 * same gutter inside each row with native width and spacing attributes instead.
+	 * GenerateBlocks implements horizontalGap with a negative wrapper margin. That
+	 * moves a translated Surface host outside its owned container in either document
+	 * direction. Reserve the same gutter between row items with native width and
+	 * direction-derived physical spacing attributes instead.
 	 *
 	 * @param array<int,array<string,mixed>> $blocks Target blocks.
 	 * @param array<int,array<string,mixed>> $source_blocks Source blocks.
 	 * @return array<int,array<string,mixed>>
 	 */
-	public static function normalize_rtl_grid_gaps( array $blocks, array $source_blocks, string $language ): array {
+	public static function normalize_grid_gaps( array $blocks, array $source_blocks, string $language, bool $is_rtl ): array {
 		unset( $language );
-		self::normalize_rtl_grid_gap_blocks( $blocks, $source_blocks );
+		self::normalize_grid_gap_blocks( $blocks, $source_blocks, $is_rtl );
 		return $blocks;
 	}
 
@@ -127,22 +128,22 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 	 * @param array<int,array<string,mixed>> $blocks Target blocks.
 	 * @param array<int,array<string,mixed>> $source_blocks Source blocks.
 	 */
-	private static function normalize_rtl_grid_gap_blocks( array &$blocks, array $source_blocks ): void {
+	private static function normalize_grid_gap_blocks( array &$blocks, array $source_blocks, bool $is_rtl ): void {
 		foreach ( $blocks as $index => &$block ) {
 			$source_block = $source_blocks[ $index ] ?? null;
 			if ( ! is_array( $block ) || ! is_array( $source_block ) ) {
 				continue;
 			}
 
-			self::normalize_rtl_grid_gap_block( $block, $source_block );
+			self::normalize_grid_gap_block( $block, $source_block, $is_rtl );
 			if ( isset( $block['innerBlocks'], $source_block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) && is_array( $source_block['innerBlocks'] ) ) {
-				self::normalize_rtl_grid_gap_blocks( $block['innerBlocks'], $source_block['innerBlocks'] );
+				self::normalize_grid_gap_blocks( $block['innerBlocks'], $source_block['innerBlocks'], $is_rtl );
 			}
 		}
 		unset( $block );
 	}
 
-	private static function normalize_rtl_grid_gap_block( array &$block, array $source_block ): void {
+	private static function normalize_grid_gap_block( array &$block, array $source_block, bool $is_rtl ): void {
 		if ( 'generateblocks/grid' !== (string) ( $block['blockName'] ?? '' ) || 'generateblocks/grid' !== (string) ( $source_block['blockName'] ?? '' ) ) {
 			return;
 		}
@@ -164,8 +165,10 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 				return;
 			}
 
-			$spacing = is_array( $source_item['attrs']['spacing'] ?? null ) ? $source_item['attrs']['spacing'] : array();
-			if ( ! self::spacing_value_is_zero( $spacing['marginLeft'] ?? '' ) || ! self::spacing_value_is_zero( $spacing['marginLeftMobile'] ?? '' ) ) {
+			$spacing      = is_array( $source_item['attrs']['spacing'] ?? null ) ? $source_item['attrs']['spacing'] : array();
+			$spacing_side = $is_rtl ? 'marginLeft' : 'marginRight';
+			$mobile_side  = $spacing_side . 'Mobile';
+			if ( ! self::spacing_value_is_zero( $spacing[ $spacing_side ] ?? '' ) || ! self::spacing_value_is_zero( $spacing[ $mobile_side ] ?? '' ) ) {
 				return;
 			}
 
@@ -181,6 +184,9 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 		}
 		$block['attrs']['horizontalGap'] = 0;
 		$gap_value                       = rtrim( rtrim( number_format( $gap, 4, '.', '' ), '0' ), '.' ) . 'px';
+		$spacing_side                    = $is_rtl ? 'marginLeft' : 'marginRight';
+		$mobile_side                     = $spacing_side . 'Mobile';
+		$tablet_side                     = $spacing_side . 'Tablet';
 
 		foreach ( $block['innerBlocks'] as $item_index => &$target_item ) {
 			$row_end = min( ( (int) floor( $item_index / $columns ) + 1 ) * $columns, $item_count ) - 1;
@@ -192,11 +198,11 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 			$target_item['attrs']['spacing'] = is_array( $target_item['attrs']['spacing'] ?? null ) ? $target_item['attrs']['spacing'] : array();
 			$target_item['attrs']['sizing']  = is_array( $target_item['attrs']['sizing'] ?? null ) ? $target_item['attrs']['sizing'] : array();
 
-			$target_item['attrs']['sizing']['width']            = 'calc(' . $widths[ $item_index ] . ' - ' . $gap_value . ')';
-			$target_item['attrs']['spacing']['marginLeft']       = $gap_value;
-			$target_item['attrs']['spacing']['marginLeftMobile'] = '0px';
+			$target_item['attrs']['sizing']['width']          = 'calc(' . $widths[ $item_index ] . ' - ' . $gap_value . ')';
+			$target_item['attrs']['spacing'][ $spacing_side ] = $gap_value;
+			$target_item['attrs']['spacing'][ $mobile_side ]  = '0px';
 			if ( '100%' === (string) ( $source_items[ $item_index ]['attrs']['sizing']['widthTablet'] ?? '' ) ) {
-				$target_item['attrs']['spacing']['marginLeftTablet'] = '0px';
+				$target_item['attrs']['spacing'][ $tablet_side ] = '0px';
 			}
 		}
 		unset( $target_item );

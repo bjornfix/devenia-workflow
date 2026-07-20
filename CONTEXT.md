@@ -566,3 +566,14 @@ A URL Migration records the reason, old and proposed routes, affected child
 routes, authorization, redirect outcome, dependent-data refresh, verification,
 and audit evidence. Normal save and translation artifact Interfaces do not
 grant URL Migration authority.
+
+## Block Layout Projection
+
+The direction-aware Interface that derives translated native block geometry
+from the authoritative source tree. Core owns directional mirroring; vendor
+Adapters may replace unsafe wrapper geometry with equivalent native attributes.
+GenerateBlocks Grid Gap Projection removes `horizontalGap` wrapper offsets and
+reserves the same between-item gutter with `marginRight` in LTR or `marginLeft`
+in RTL, derived from document-direction data. Page IDs, locales, translated
+text, generated block identifiers, custom CSS, and selector inference are
+outside this boundary.

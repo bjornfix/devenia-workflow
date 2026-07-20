@@ -194,7 +194,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 		self::project_source_design_blocks( $blocks, $fragments, $stats, '', $translation_id );
 
 		$content = serialize_blocks( $blocks );
-		$content = self::mirror_rtl_block_layout_from_source( $content, $source_content, $language );
+		$content = self::project_block_layout_from_source( $content, $source_content, $language );
 
 		return array(
 			'success'       => true,
@@ -2461,15 +2461,14 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 	/**
 	 * Expected design signature for a target language.
 	 *
-	 * LTR translations must match the source design exactly. RTL translations may
-	 * differ only by deterministic source-derived RTL mirroring from language
-	 * direction data.
+	 * Translations may differ from the source only through deterministic,
+	 * source-derived block-layout projection. Directional mirroring is one such
+	 * projection; vendor adapters may also replace unsafe wrapper geometry with
+	 * equivalent native block attributes.
 	 */
 	private static function expected_source_design_signature_hash( string $source_content, string $language ): string {
 		$source_content = self::normalize_gutenberg_content_for_storage( $source_content );
-		if ( self::is_rtl_language( $language ) ) {
-			$source_content = self::mirror_rtl_block_layout_from_source( $source_content, $source_content, $language );
-		}
+		$source_content = self::project_block_layout_from_source( $source_content, $source_content, $language );
 
 		return self::source_design_signature_hash( $source_content );
 	}
