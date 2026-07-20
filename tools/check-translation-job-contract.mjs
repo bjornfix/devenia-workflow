@@ -49,6 +49,9 @@ pass(() => assert.match(runtimeSource, /'same_subagent_forbidden'\s*=>\s*true[\s
 pass(() => assert.match(runtimeSource, /'distinct_run_principal'\s*=>\s*true[\s\S]*'quality_decision_binds_artifact_revision'\s*=>\s*true/));
 pass(() => assert.equal((runtimeSource.match(/'subagent_separation_contract'\s*=>\s*self::translation_job_subagent_separation_contract\(\)/g) || []).length, 2));
 pass(() => assert.match(runtimeSource, /private static function translation_job_bounded_artifact_view\s*\(/));
+pass(() => assert.match(runtimeSource, /TRANSLATION_JOB_CORRECTABLE_PUBLISH_PREFLIGHT_CODES[\s\S]*localized_slug_copied_from_source/));
+pass(() => assert.match(runtimeSource, /translation_job_reopen_correctable_publish_preflight\( \$job, \$failure \)/));
+pass(() => assert.match(runtimeSource, /private static function translation_job_reopen_correctable_publish_preflight[\s\S]*'status'\s*=>\s*'changes_requested'[\s\S]*'quality_revision'\s*=>\s*''[\s\S]*publish_preflight_correction/));
 pass(() => assert.match(runtimeSource, /'artifact'\s*=>\s*is_array\( \$artifact \) \? self::translation_job_bounded_artifact_view\( \$artifact \) : array\(\)/));
 pass(() => assert.match(runtimeSource, /'contract_version'\s*=>\s*5[\s\S]*translation_job_bounded_artifact_view/));
 pass(() => assert.match(runtimeSource, /'previous_artifact'\s*=>\s*self::translation_job_bounded_artifact_view\( \$artifact \)/));

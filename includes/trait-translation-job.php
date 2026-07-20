@@ -27,6 +27,9 @@ trait Devenia_Workflow_Translation_Job {
 		'staged_surface_drifted_before_locked_write',
 		'staged_translation_identity_changed_before_locked_write',
 	);
+	const TRANSLATION_JOB_CORRECTABLE_PUBLISH_PREFLIGHT_CODES = array(
+		'localized_slug_copied_from_source',
+	);
 
 	private static $translation_job_internal_identity = array();
 
@@ -1033,6 +1036,11 @@ trait Devenia_Workflow_Translation_Job {
 					if ( isset( $surface_refresh['job'] ) && is_array( $surface_refresh['job'] ) ) {
 						$failure['job'] = self::translation_job_public_job( $surface_refresh['job'] );
 					}
+				}
+				$artifact_reopen = self::translation_job_reopen_correctable_publish_preflight( $job, $failure );
+				if ( ! empty( $artifact_reopen['reopened'] ) ) {
+					$failure['artifact_correction'] = $artifact_reopen;
+					$failure['job'] = self::translation_job_public_job( $artifact_reopen['job'] );
 				}
 				return $failure;
 			}
@@ -2089,6 +2097,38 @@ trait Devenia_Workflow_Translation_Job {
 			return $transition;
 		}
 		return array( 'success' => true, 'refreshed' => true, 'job' => $transition['job'], 'refresh' => $refresh, 'contract' => $state, 'retirement' => $retirement );
+	}
+
+	/** Reopen only after a zero-mutation, rolled-back, translator-correctable publication preflight failure. */
+	private static function translation_job_reopen_correctable_publish_preflight( array $job, array $failure ): array {
+		$code = sanitize_key( (string) ( $failure['code'] ?? '' ) );
+		$rollback = isset( $failure['transaction_rollback'] ) && is_array( $failure['transaction_rollback'] ) ? $failure['transaction_rollback'] : array();
+		if (
+			'ready_to_publish' !== (string) ( $job['status'] ?? '' )
+			|| ! in_array( $code, self::TRANSLATION_JOB_CORRECTABLE_PUBLISH_PREFLIGHT_CODES, true )
+			|| ! empty( $failure['mutation_started'] )
+			|| empty( $rollback['success'] )
+			|| empty( $rollback['rolled_back'] )
+		) {
+			return array( 'success' => true, 'reopened' => false, 'job' => $job );
+		}
+		$transition = self::translation_job_transition(
+			$job,
+			array(
+				'status' => 'changes_requested',
+				'quality_revision' => '',
+				'active_run_id' => '',
+				'publish_preflight_correction' => array(
+					'code' => $code,
+					'requested_at' => gmdate( 'c' ),
+					'artifact_revision' => (string) ( $job['artifact_revision'] ?? '' ),
+				),
+			)
+		);
+		if ( empty( $transition['success'] ) ) {
+			return array( 'success' => false, 'reopened' => false, 'code' => 'publish_preflight_reopen_conflict', 'message' => 'The correctable publication preflight failure could not reopen the exact current Job.' );
+		}
+		return array( 'success' => true, 'reopened' => true, 'reason' => $code, 'job' => $transition['job'] );
 	}
 
 	/**

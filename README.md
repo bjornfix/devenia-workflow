@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.642
+**Stable tag:** 0.1.643
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,12 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.643
+
+- Reopens an approved Translation Job for a fresh translator and Quality chain
+  when a proven zero-mutation publication preflight rejects correctable artifact
+  metadata, instead of leaving an uneditable `ready_to_publish` artifact stuck.
 
 ### 0.1.642
 
