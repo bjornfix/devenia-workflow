@@ -2113,17 +2113,45 @@ trait Devenia_Workflow_Translation_Job {
 		) {
 			return array( 'success' => true, 'reopened' => false, 'job' => $job );
 		}
+		$generation = self::translation_job_submission_generation( $job );
+		$history = is_array( $job['publish_preflight_correction_history'] ?? null ) ? array_values( $job['publish_preflight_correction_history'] ) : array();
+		$correction = array(
+			'code' => $code,
+			'requested_at' => gmdate( 'c' ),
+			'artifact_revision' => (string) ( $job['artifact_revision'] ?? '' ),
+			'from_generation' => $generation,
+			'to_generation' => $generation < self::TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS ? $generation + 1 : null,
+		);
+		$history[] = $correction;
+		if ( $generation >= self::TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS ) {
+			$terminal = self::translation_job_transition(
+				$job,
+				array(
+					'status' => 'failed_technical',
+					'active_run_id' => '',
+					'publish_preflight_correction' => $correction,
+					'publish_preflight_correction_history' => $history,
+					'publish_preflight_correction_limit' => array(
+						'failed_at' => gmdate( 'c' ),
+						'generation' => $generation,
+						'max_generations' => self::TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS,
+					),
+				)
+			);
+			if ( empty( $terminal['success'] ) ) {
+				return $terminal;
+			}
+			return array( 'success' => false, 'reopened' => false, 'code' => 'publish_preflight_correction_generation_limit', 'message' => 'The finite correctable publication generation limit was reached. The Job failed closed.', 'job' => $terminal['job'] );
+		}
 		$transition = self::translation_job_transition(
 			$job,
 			array(
 				'status' => 'changes_requested',
+				'submission_generation' => $generation + 1,
 				'quality_revision' => '',
 				'active_run_id' => '',
-				'publish_preflight_correction' => array(
-					'code' => $code,
-					'requested_at' => gmdate( 'c' ),
-					'artifact_revision' => (string) ( $job['artifact_revision'] ?? '' ),
-				),
+				'publish_preflight_correction' => $correction,
+				'publish_preflight_correction_history' => $history,
 			)
 		);
 		if ( empty( $transition['success'] ) ) {

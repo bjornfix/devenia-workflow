@@ -41,6 +41,7 @@ try {
 			array(
 				'job_id'             => $job_id,
 				'status'             => 'ready_to_publish',
+				'submission_generation' => 1,
 				'artifact_revision'  => 'a_runtime_preflight_artifact_' . $token,
 				'quality_revision'   => $quality_revision,
 				'active_run_id'      => 'r_runtime_preflight_' . $token,
@@ -65,8 +66,12 @@ try {
 				'changes_requested' !== (string) ( $stored['status'] ?? '' )
 				|| '' !== (string) ( $stored['quality_revision'] ?? '' )
 				|| '' !== (string) ( $stored['active_run_id'] ?? '' )
+				|| 2 !== (int) ( $stored['submission_generation'] ?? 0 )
 				|| 'localized_slug_copied_from_source' !== (string) ( $stored['publish_preflight_correction']['code'] ?? '' )
 				|| (string) $job['artifact_revision'] !== (string) ( $stored['publish_preflight_correction']['artifact_revision'] ?? '' )
+				|| 1 !== (int) ( $stored['publish_preflight_correction']['from_generation'] ?? 0 )
+				|| 2 !== (int) ( $stored['publish_preflight_correction']['to_generation'] ?? 0 )
+				|| 1 !== count( (array) ( $stored['publish_preflight_correction_history'] ?? array() ) )
 			) {
 				throw new RuntimeException( 'Safe correction did not preserve the required lifecycle evidence.' );
 			}

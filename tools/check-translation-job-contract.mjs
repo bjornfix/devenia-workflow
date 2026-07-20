@@ -40,6 +40,7 @@ pass(() => assert.match(
 ));
 pass(() => assert.match(runtimeSource, /'artifact_store_failed'/));
 pass(() => assert.match(runtimeSource, /TRANSLATION_JOB_CORRECTABLE_PUBLISH_PREFLIGHT_CODES[\s\S]*applied_content_revision_mismatch/));
+pass(() => assert.match(runtimeSource, /translation_job_reopen_correctable_publish_preflight[\s\S]*publish_preflight_correction_history[\s\S]*from_generation[\s\S]*to_generation[\s\S]*publish_preflight_correction_generation_limit[\s\S]*'submission_generation'\s*=>\s*\$generation \+ 1/));
 pass(() => assert.match(runtimeSource, /update_option\( \$artifact_key, \$artifact_record, false \)/));
 pass(() => assert.match(runtimeSource, /\$stored\['source_revision'\][\s\S]*\$job\['source_revision'\]/));
 pass(() => assert.match(runtimeSource, /translation_job_pack_artifact_record\( \$artifact_record \)/));
