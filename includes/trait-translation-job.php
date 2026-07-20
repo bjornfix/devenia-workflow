@@ -29,6 +29,7 @@ trait Devenia_Workflow_Translation_Job {
 	);
 	const TRANSLATION_JOB_CORRECTABLE_PUBLISH_PREFLIGHT_CODES = array(
 		'localized_slug_copied_from_source',
+		'applied_content_revision_mismatch',
 	);
 
 	private static $translation_job_internal_identity = array();

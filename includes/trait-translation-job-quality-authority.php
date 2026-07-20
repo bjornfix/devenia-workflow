@@ -670,8 +670,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		if ( ! $source instanceof WP_Post ) {
 			return array( 'success' => false, 'code' => 'job_source_missing', 'message' => 'Translation Job source is unavailable.', 'mutation_started' => false );
 		}
-		$title   = sanitize_text_field( (string) ( $artifact['title'] ?? '' ) );
-		$excerpt = sanitize_textarea_field( (string) ( $artifact['excerpt'] ?? '' ) );
+		$title   = (string) self::wordpress_utf8mb3_safe_storage_value( sanitize_text_field( (string) ( $artifact['title'] ?? '' ) ) );
+		$excerpt = (string) self::wordpress_utf8mb3_safe_storage_value( sanitize_textarea_field( (string) ( $artifact['excerpt'] ?? '' ) ) );
 		$language = sanitize_key( (string) ( $job['target_language'] ?? '' ) );
 		if ( '' === $title ) {
 			return array( 'success' => false, 'code' => 'staged_title_required', 'message' => 'A staged translation title is required.' );
@@ -754,7 +754,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			if ( self::translation_slug_conflicts( $slug, (string) $source->post_type, $parent_id, 0 ) ) { return array( 'success' => false, 'code' => 'staged_localized_slug_collision', 'message' => 'The staged localized route collides with existing content.' ); }
 		}
 
-		$seo_surface = self::canonical_seo_surface_for_translation_job( $artifact, $title, $excerpt, $content );
+		$seo_surface = (array) self::wordpress_utf8mb3_safe_storage_value( self::canonical_seo_surface_for_translation_job( $artifact, $title, $excerpt, $content ) );
 		$expected_taxonomies = self::translation_job_expected_taxonomy_surface( $source, $language, is_array( $artifact['taxonomies'] ?? null ) ? $artifact['taxonomies'] : array() );
 		if ( is_wp_error( $expected_taxonomies ) ) {
 			return array( 'success' => false, 'code' => 'staged_taxonomy_read_failed', 'message' => $expected_taxonomies->get_error_message(), 'mutation_started' => false );
@@ -774,15 +774,15 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'language'        => $language,
 			'content'         => array( 'title' => $title, 'excerpt' => $excerpt, 'gutenberg' => $content ),
 			'seo'             => $seo_surface,
-			'taxonomies'      => self::translation_job_canonicalize( $expected_taxonomies ),
+			'taxonomies'      => self::translation_job_canonicalize( (array) self::wordpress_utf8mb3_safe_storage_value( $expected_taxonomies ) ),
 			'route'           => $route,
 			'media'           => array(
 				'featured_image'     => $featured_image_identity,
-				'featured_image_alt' => sanitize_text_field( (string) ( $artifact['featured_image_alt'] ?? '' ) ),
+				'featured_image_alt' => (string) self::wordpress_utf8mb3_safe_storage_value( sanitize_text_field( (string) ( $artifact['featured_image_alt'] ?? '' ) ) ),
 			),
 			'presentation'    => array(
 				'source_design_hash' => self::expected_source_design_signature_hash( (string) $source->post_content, $language ),
-				'localized_fragments' => self::translation_job_normalized_presentation_fragments( $artifact['localized_fragments'] ?? array() ),
+				'localized_fragments' => (array) self::wordpress_utf8mb3_safe_storage_value( self::translation_job_normalized_presentation_fragments( $artifact['localized_fragments'] ?? array() ) ),
 			),
 		);
 		$surface_revision = self::translation_job_surface_revision( $manifest );
@@ -1362,6 +1362,10 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$upsert = array_merge(
 			$artifact,
 			array(
+				'title' => (string) ( $artifact_record['surface_manifest']['content']['title'] ?? '' ),
+				'excerpt' => (string) ( $artifact_record['surface_manifest']['content']['excerpt'] ?? '' ),
+				'localized_fragments' => (array) ( $artifact_record['surface_manifest']['presentation']['localized_fragments'] ?? array() ),
+				'taxonomies' => (array) ( $artifact_record['surface_manifest']['taxonomies'] ?? array() ),
 				'_canonical_seo_surface' => (array) ( $artifact_record['surface_manifest']['seo'] ?? array() ),
 				'source_id' => (int) $job['source_id'],
 				'language' => (string) $job['target_language'],
@@ -1412,7 +1416,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			self::record_translation_visible_media_provenance( $translation_id, $media_identity, 'translation_job_publish_reconcile' );
 			self::sync_translation_index_row( $translation_id );
 		}
-		$featured_alt = trim( wp_strip_all_tags( (string) ( $artifact['featured_image_alt'] ?? '' ) ) );
+		$featured_alt = trim( wp_strip_all_tags( (string) ( $artifact_record['surface_manifest']['media']['featured_image_alt'] ?? '' ) ) );
 		if ( '' !== $featured_alt ) {
 			update_post_meta( $translation_id, self::META_FEATURED_IMAGE_ALT, $featured_alt );
 		} else {

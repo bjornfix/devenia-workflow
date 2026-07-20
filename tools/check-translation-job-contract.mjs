@@ -31,12 +31,15 @@ const now = "2026-07-10T12:00:00.000Z";
 const writerBudget = createTokenBudget("translator");
 const qualityBudget = createTokenBudget("quality");
 const runtimeSource = readFileSync(new URL("../includes/trait-translation-job.php", import.meta.url), "utf8");
+const qualityAuthoritySource = readFileSync(new URL("../includes/trait-translation-job-quality-authority.php", import.meta.url), "utf8");
+const pluginSource = readFileSync(new URL("../devenia-workflow.php", import.meta.url), "utf8");
 
 pass(() => assert.match(
 	runtimeSource,
 	/'job_id'\s*=>\s*\(string\) \$job\['job_id'\][\s\S]*'source_revision'\s*=>\s*\(string\) \$job\['source_revision'\][\s\S]*'target_language'\s*=>\s*\(string\) \$job\['target_language'\][\s\S]*'artifact'\s*=>\s*\$artifact/,
 ));
 pass(() => assert.match(runtimeSource, /'artifact_store_failed'/));
+pass(() => assert.match(runtimeSource, /TRANSLATION_JOB_CORRECTABLE_PUBLISH_PREFLIGHT_CODES[\s\S]*applied_content_revision_mismatch/));
 pass(() => assert.match(runtimeSource, /update_option\( \$artifact_key, \$artifact_record, false \)/));
 pass(() => assert.match(runtimeSource, /\$stored\['source_revision'\][\s\S]*\$job\['source_revision'\]/));
 pass(() => assert.match(runtimeSource, /translation_job_pack_artifact_record\( \$artifact_record \)/));
@@ -44,6 +47,9 @@ pass(() => assert.match(runtimeSource, /'artifact_encoding'\]\s*=\s*'base64-json
 pass(() => assert.match(runtimeSource, /'surface_manifest_encoding'\]\s*=\s*'base64-json-v1'/));
 pass(() => assert.match(runtimeSource, /unset\( \$record\['surface_manifest'\] \)/));
 pass(() => assert.match(runtimeSource, /base64_decode\([^;]+true \)/));
+pass(() => assert.match(qualityAuthoritySource, /wordpress_utf8mb3_safe_storage_value[\s\S]*'localized_fragments'[\s\S]*wordpress_utf8mb3_safe_storage_value/));
+pass(() => assert.match(qualityAuthoritySource, /\$upsert = array_merge\([\s\S]*'title'\s*=>\s*\(string\) \( \$artifact_record\['surface_manifest'\]\['content'\]\['title'\][\s\S]*'localized_fragments'\s*=>\s*\(array\) \( \$artifact_record\['surface_manifest'\]\['presentation'\]\['localized_fragments'\]/));
+pass(() => assert.match(pluginSource, /normalize_gutenberg_content_for_storage[\s\S]*wordpress_utf8mb3_safe_storage_value\( \$normalized \)/));
 pass(() => assert.match(runtimeSource, /\$configured_budget = self::translation_job_budget[\s\S]*\$run_before_migration = \$run[\s\S]*'budget_migrated_at'[\s\S]*atomic_replace_option_value\( \$run_key, \$run_before_migration, \$run \)[\s\S]*'run_budget_migration_conflict'/));
 pass(() => assert.match(runtimeSource, /private static function translation_job_subagent_separation_contract\s*\(/));
 pass(() => assert.match(runtimeSource, /Spawn one translator subagent[\s\S]*a different Quality subagent/));

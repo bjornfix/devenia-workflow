@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.644
+**Stable tag:** 0.1.645
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,12 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.645
+
+- Normalizes every supplementary Unicode code point at the WordPress storage boundary, preserving browser output while remaining compatible with legacy `utf8mb3` content and metadata tables.
+- Reopens an exactly rolled-back content-revision mismatch for a fresh translator and independent Quality generation instead of leaving an approved but unpublishable artifact stuck.
+- Gives language-selector region headings explicit data-driven language direction so localized labels stay semantically aligned without page- or locale-specific presentation rules.
 
 ### 0.1.644
 

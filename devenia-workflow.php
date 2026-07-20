@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.644
+ * Version: 0.1.645
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -22,6 +22,7 @@ require_once __DIR__ . '/includes/trait-featured-image-repair.php';
 require_once __DIR__ . '/includes/trait-source-publication-surface.php';
 require_once __DIR__ . '/includes/trait-ability-platform.php';
 require_once __DIR__ . '/includes/trait-ability-catalogue.php';
+require_once __DIR__ . '/includes/trait-wordpress-storage-adapter.php';
 require_once __DIR__ . '/includes/trait-atomic-option-store.php';
 require_once __DIR__ . '/includes/trait-execution-identity.php';
 require_once __DIR__ . '/includes/trait-quality-engine.php';
@@ -52,6 +53,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Source_Publication_Surface;
 	use Devenia_Workflow_Ability_Platform;
 	use Devenia_Workflow_Ability_Catalogue;
+	use Devenia_Workflow_WordPress_Storage_Adapter;
 	use Devenia_Workflow_Atomic_Option_Store;
 	use Devenia_Workflow_Execution_Identity;
 	use Devenia_Workflow_Translation_Provenance;
@@ -69,7 +71,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.644';
+	const VERSION = '0.1.645';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -18235,7 +18237,12 @@ final class Devenia_Workflow {
 				continue;
 			}
 
-			$heading = sprintf( '<span class="devenia-language-group-heading">%s</span>', esc_html( self::language_menu_group_label( $group, $current_language ) ) );
+			$heading = sprintf(
+				'<span class="devenia-language-group-heading" lang="%1$s" dir="%2$s">%3$s</span>',
+				esc_attr( self::hreflang_for_language( $current_language ) ),
+				esc_attr( self::language_direction_for_language( $current_language ) ),
+				esc_html( self::language_menu_group_label( $group, $current_language ) )
+			);
 			if ( $as_list ) {
 				$output .= sprintf(
 					'<li class="devenia-language-group devenia-language-group-%1$s">%2$s<div class="devenia-language-group-list">%3$s</div></li>',
@@ -22746,7 +22753,8 @@ final class Devenia_Workflow {
 	 * Normalize known static Gutenberg serialization mismatches before storage.
 	 */
 	private static function normalize_gutenberg_content_for_storage( string $content ): string {
-		return (string) self::gutenberg_content_safety( $content )['normalized_content'];
+		$normalized = (string) self::gutenberg_content_safety( $content )['normalized_content'];
+		return (string) self::wordpress_utf8mb3_safe_storage_value( $normalized );
 	}
 
 	/**

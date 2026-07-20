@@ -6,9 +6,11 @@ function wp_json_encode( $value ) {
 }
 
 define( 'ABSPATH', __DIR__ . '/' );
+require_once __DIR__ . '/../includes/trait-wordpress-storage-adapter.php';
 require_once __DIR__ . '/../includes/trait-translation-job.php';
 
 final class Devenia_Workflow_Artifact_Storage_Envelope_Test {
+	use Devenia_Workflow_WordPress_Storage_Adapter;
 	use Devenia_Workflow_Translation_Job;
 
 	public static function pack( array $record ): array {
@@ -17,6 +19,10 @@ final class Devenia_Workflow_Artifact_Storage_Envelope_Test {
 
 	public static function unpack( $record ): array {
 		return self::translation_job_unpack_artifact_record( $record );
+	}
+
+	public static function storage_safe( $value ) {
+		return self::wordpress_utf8mb3_safe_storage_value( $value );
 	}
 }
 
@@ -68,4 +74,11 @@ if ( array() !== Devenia_Workflow_Artifact_Storage_Envelope_Test::unpack( $corru
 	throw new RuntimeException( 'A corrupt Surface Manifest envelope must fail closed.' );
 }
 
-echo "Translation artifact storage envelope: 4 assertions passed.\n";
+$storage_safe = Devenia_Workflow_Artifact_Storage_Envelope_Test::storage_safe(
+	array( 'html' => '<h2>CSS og SEO 🔍</h2>', 'plain' => 'Tekst', 'number' => 4 )
+);
+if ( '<h2>CSS og SEO &#x1F50D;</h2>' !== $storage_safe['html'] || 'Tekst' !== $storage_safe['plain'] || 4 !== $storage_safe['number'] ) {
+	throw new RuntimeException( 'The WordPress Storage Adapter must encode every supplementary code point without changing ordinary values.' );
+}
+
+echo "Translation artifact storage envelope: 5 assertions passed.\n";
