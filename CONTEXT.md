@@ -268,6 +268,11 @@ canonical permalink input, localized heading and link text, automatic placement,
 and the exact rendered-surface manifest consumed by Workflow. Workflow supplies
 runtime localization and Canonical Route Contract values through owned Adapters;
 it never introspects the sharing Module's implementation.
+The Legacy Scriptless Sharing Adapter is a compatibility boundary for the
+installed upstream Scriptless Social Sharing owner. It maps that owner's
+subject/body filters to the same semantic target-language `share_text` registry
+and reconciles the registry's one `{url}` slot with Scriptless' owner-appended
+permalink. Pages and language branches never participate in that mapping.
 
 ## Canonical SEO Surface
 

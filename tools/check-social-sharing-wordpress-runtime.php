@@ -80,6 +80,8 @@ try {
 		'social_sharing_email_body' => 'Runtime EN email body {url}',
 	) );
 	$languages['nb']['share_text'] = array_merge( (array) ( $languages['nb']['share_text'] ?? array() ), array(
+		'scriptless_email_subject_prefix' => 'Runtime NB legacy subject',
+		'scriptless_email_body' => 'Runtime NB legacy body {url}',
 		'social_sharing_heading' => 'Runtime NB heading',
 		'social_sharing_accessible_label.email' => 'Runtime NB accessible email',
 		'social_sharing_accessible_label.arbitrary-network' => 'Target positional %42$s',
@@ -168,6 +170,13 @@ try {
 	$assert( 'Runtime NB email subject' === apply_filters( 'devenia_social_sharing_email_subject', null, $post, 'automatic', 'nb' ), 'NB email subject did not use runtime data.' );
 	$localized_email_body = apply_filters( 'devenia_social_sharing_email_body', null, $post, 'automatic', 'nb' );
 	$assert( 'Runtime NB email body {url}' === $localized_email_body && 1 === substr_count( $localized_email_body, '{url}' ), 'NB email body did not provide exactly one canonical URL placeholder.' );
+	$legacy_runtime_value = new ReflectionMethod( Devenia_Workflow::class, 'legacy_scriptless_social_sharing_runtime_value' );
+	$legacy_runtime_value->setAccessible( true );
+	$legacy_subject = (string) $legacy_runtime_value->invoke( null, 'Source legacy subject', 'scriptless_email_subject_prefix', 'nb' );
+	$legacy_body_with_placeholder = (string) $legacy_runtime_value->invoke( null, 'Source legacy body', 'scriptless_email_body', 'nb' );
+	$assert( 'Runtime NB legacy subject' === $legacy_subject, 'Legacy Scriptless email subject did not use semantic runtime text.' );
+	$assert( 'Runtime NB legacy body {url}' === $legacy_body_with_placeholder, 'Legacy Scriptless email body did not use semantic runtime text.' );
+	$assert( 'Runtime NB legacy body' === trim( str_replace( '{url}', '', $legacy_body_with_placeholder ) ), 'Legacy Scriptless body Adapter did not preserve exactly one owner-appended URL slot.' );
 	$assert( 'Intrinsic Brand' === apply_filters( 'devenia_social_sharing_network_label', 'Intrinsic Brand', $post, 'automatic', 'nb', 'brand', null ), 'An intrinsic protocol brand label was replaced by runtime copy.' );
 
 	$valid_html = '<h3 class="devenia-social-sharing__heading">Runtime NB heading</h3>';
@@ -188,7 +197,7 @@ try {
 	update_post_meta( $post_id, Devenia_Workflow::META_CANONICAL_ROUTE, array( 'path' => 'nb/eid-deling' ) );
 	$canonical = Devenia_Workflow::canonicalize_social_sharing_permalink( home_url( '/NB/Old/' ), $post, 'automatic', 'nb' );
 	$assert( home_url( '/nb/eid-deling/' ) === $canonical, 'Owned sharing did not receive the Canonical Route URL.' );
-	$runtime_result = array( 'success' => true, 'inactive_owner_is_not_required' => $inactive_owner_is_not_required, 'exact_one_after_post' => true, 'page_surface_is_not_applicable' => true, 'localized_nb_runtime_strings' => true, 'source_and_target_sprintf_placeholders_rejected' => true, 'ordinary_percent_text_preserved' => true, 'missing_es_runtime_fails_closed' => true, 'duplicate_heading_rejected' => true, 'missing_heading_rejected' => true, 'wrong_heading_rejected' => true, 'canonical_permalink_applied' => true );
+	$runtime_result = array( 'success' => true, 'inactive_owner_is_not_required' => $inactive_owner_is_not_required, 'exact_one_after_post' => true, 'page_surface_is_not_applicable' => true, 'localized_nb_runtime_strings' => true, 'legacy_scriptless_email_runtime_adapter' => true, 'source_and_target_sprintf_placeholders_rejected' => true, 'ordinary_percent_text_preserved' => true, 'missing_es_runtime_fails_closed' => true, 'duplicate_heading_rejected' => true, 'missing_heading_rejected' => true, 'wrong_heading_rejected' => true, 'canonical_permalink_applied' => true );
 } catch ( Throwable $error ) {
 	$runtime_error = $error;
 } finally {

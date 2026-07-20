@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.647
+**Stable tag:** 0.1.648
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.648
+
+- Connects the legacy Scriptless Social Sharing email subject and body filters to the semantic target-language runtime registry while preserving exactly one owner-appended canonical URL.
 
 ### 0.1.647
 

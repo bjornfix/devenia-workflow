@@ -26,6 +26,8 @@ trait Devenia_Workflow_Social_Sharing_Runtime_Presentation_Control {
 		add_filter( 'devenia_social_sharing_email_body', array( __CLASS__, 'localize_social_sharing_email_body' ), 20, 4 );
 		add_filter( 'devenia_social_sharing_accessible_label', array( __CLASS__, 'localize_social_sharing_accessible_label' ), 20, 6 );
 		add_filter( 'devenia_social_sharing_network_label', array( __CLASS__, 'localize_social_sharing_network_label' ), 20, 6 );
+		add_filter( 'scriptlesssocialsharing_email_subject', array( __CLASS__, 'localize_legacy_scriptless_email_subject' ), 20, 1 );
+		add_filter( 'scriptlesssocialsharing_email_body', array( __CLASS__, 'localize_legacy_scriptless_email_body' ), 20, 1 );
 	}
 
 	/** Whether any part of the owned plugin's public Interface is active. */
@@ -307,6 +309,40 @@ trait Devenia_Workflow_Social_Sharing_Runtime_Presentation_Control {
 	public static function localize_social_sharing_email_body( $text, $post = null, $context = '', $language = '' ) {
 		$localized = self::localized_social_sharing_runtime_value( $text, (string) $language, 'share_text.social_sharing_email_body' );
 		return is_string( $localized ) && 1 === substr_count( $localized, '{url}' ) ? $localized : null;
+	}
+
+	/**
+	 * Resolve the legacy Scriptless Social Sharing runtime field through the same
+	 * target-language Presentation Text registry as the current sharing owner.
+	 *
+	 * @param mixed $value Existing owner value.
+	 */
+	private static function legacy_scriptless_social_sharing_runtime_value( $value, string $runtime_key, string $language = '' ): string {
+		$value    = is_scalar( $value ) ? (string) $value : '';
+		$language = sanitize_key( '' !== $language ? $language : self::frontend_language() );
+		if ( ! self::is_translation_language( $language ) ) {
+			return $value;
+		}
+
+		$localized = trim( self::runtime_text_value( $language, 'share_text', $runtime_key, '' ) );
+		return '' !== $localized ? $localized : $value;
+	}
+
+	/** Legacy Scriptless email-subject Adapter. */
+	public static function localize_legacy_scriptless_email_subject( $text ): string {
+		return self::legacy_scriptless_social_sharing_runtime_value( $text, 'scriptless_email_subject_prefix' );
+	}
+
+	/**
+	 * Legacy Scriptless email-body Adapter.
+	 *
+	 * Scriptless appends its permalink after this filter, while the shared runtime
+	 * field owns one `{url}` placeholder. Remove only that placeholder at the
+	 * Adapter boundary so the owner still emits exactly one canonical link.
+	 */
+	public static function localize_legacy_scriptless_email_body( $text ): string {
+		$localized = self::legacy_scriptless_social_sharing_runtime_value( $text, 'scriptless_email_body' );
+		return trim( str_replace( '{url}', '', $localized ) );
 	}
 
 	/** Public per-network accessible-label filter Adapter. */
