@@ -47,7 +47,7 @@ $update_internal_post = static function ( array $post_data ) use ( $call ) {
 
 try {
 	$assert( class_exists( Devenia_Workflow::class ), 'Devenia Workflow is not active.' );
-	$assert( '0.1.638' === (string) Devenia_Workflow::VERSION, 'The active dev plugin is not the exact 0.1.638 candidate.' );
+	$assert( '0.1.639' === (string) Devenia_Workflow::VERSION, 'The active dev plugin is not the exact 0.1.639 candidate.' );
 
 	$languages = $call( 'target_languages' );
 	$assert( is_array( $languages ) && isset( $languages['ar'] ), 'The dev language registry must include Arabic (ar).' );
@@ -68,6 +68,12 @@ try {
 	$source_id = absint( $source_insert );
 	$source = get_post( $source_id );
 	$assert( $source instanceof WP_Post, 'The source fixture could not be read.' );
+	$ltr_publication_contract = $call( 'translation_job_publication_surface_contract_revision', $source, 'ja' );
+	$rtl_publication_contract = $call( 'translation_job_publication_surface_contract_revision', $source, 'ar' );
+	$default_publication_contract = $call( 'translation_job_publication_surface_contract_revision', $source );
+	$assert( '' !== $ltr_publication_contract && '' !== $rtl_publication_contract, 'The language-bound publication contracts were empty.' );
+	$assert( $ltr_publication_contract !== $rtl_publication_contract, 'The RTL contract did not advance independently of LTR.' );
+	$assert( $default_publication_contract === $ltr_publication_contract, 'Source inventory default contract no longer preserves existing LTR authority.' );
 
 	$source_design = $call( 'source_design_contract', $source );
 	$expected_rtl_design_hash = $call( 'expected_source_design_signature_hash', (string) $source->post_content, $language );
@@ -256,6 +262,8 @@ try {
 		'genuine_design_hash_change_rejected'       => true,
 		'missing_extra_duplicate_keys_rejected'     => true,
 		'fixture_token'                             => $fixture_token,
+		'ltr_contract_preserved'                    => $default_publication_contract === $ltr_publication_contract,
+		'rtl_contract_advanced'                     => $rtl_publication_contract !== $ltr_publication_contract,
 	);
 } catch ( Throwable $error ) {
 	$runtime_error = $error;

@@ -278,6 +278,8 @@ if (!qualitySchema || /\$check_properties|self::translation_job_quality_checks\(
 if (!qualitySchema || !/evidence_receipt_ids/.test(qualitySchema) || !/reviewer_attestations/.test(qualitySchema) || !/browser_receipts/.test(qualitySchema)) {
 	failures.push("Quality schema must separate server evidence receipt IDs from reviewer and browser attestations");
 }
+requireMatch(/'viewport' => array\([\s\S]*'required' => array\( 'width', 'height', 'device_scale_factor' \)/, "Browser receipt schema must require the complete policy viewport tuple");
+requireMatch(/translation_job_browser_receipt[\s\S]*'invalid' => \$invalid/, "Browser receipt rejection must expose field-level invalidity instead of reporting every rejected object as merely missing");
 if (!submitQuality || /\$input\['checks'\]/.test(submitQuality) || !/translation_job_quality_evidence_receipts\s*\(/.test(submitQuality)) {
 	failures.push("Quality submission must resolve server-owned receipts instead of trusting booleans or free text");
 }

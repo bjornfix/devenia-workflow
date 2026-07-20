@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.638
+**Stable tag:** 0.1.639
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.639
+
+- Scopes the target-design-signature publication contract to RTL jobs, preserving already-approved LTR evidence while still reopening Arabic and other RTL artifacts staged with the former LTR hash.
+- Requires the complete policy viewport tuple in Quality browser-receipt schemas and reports field-level rejection reasons, preventing a missing device-scale factor from silently appearing as four absent receipts.
 
 ### 0.1.638
 

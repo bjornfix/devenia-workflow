@@ -183,7 +183,9 @@ trait Devenia_Workflow_Source_Inventory {
 		$state_counts = array(); $obligation_rows = array(); $obligation_id = 0;
 		foreach ( $source_rows as $source_row ) {
 			foreach ( $languages as $language ) {
-				$projection = self::project_translation_obligation( $source_row[0], $language, $source_row[1], $source_row[2] );
+				$source = get_post( $source_row[0] );
+				$language_contract_revision = $source instanceof WP_Post ? self::translation_job_publication_surface_contract_revision( $source, $language ) : '';
+				$projection = self::project_translation_obligation( $source_row[0], $language, $source_row[1], $language_contract_revision );
 				$state_counts[ $projection['state'] ] = 1 + ( $state_counts[ $projection['state'] ] ?? 0 );
 				$obligation_rows[] = array_merge( $projection, array( 'obligation_id' => ++$obligation_id, 'generation' => $generation, 'updated_gmt' => gmdate( 'Y-m-d H:i:s' ) ) );
 			}
@@ -206,7 +208,7 @@ trait Devenia_Workflow_Source_Inventory {
 		$job = self::translation_job_get_job( $job_id );
 		$state = 'missing';
 		$current_revision = $source instanceof WP_Post ? self::source_publication_surface_revision( $source ) : '';
-		$current_contract_revision = $source instanceof WP_Post ? self::translation_job_publication_surface_contract_revision( $source ) : '';
+		$current_contract_revision = $source instanceof WP_Post ? self::translation_job_publication_surface_contract_revision( $source, $language ) : '';
 		if ( '' === $current_revision || ! hash_equals( $revision, $current_revision ) ) {
 			return array( 'source_id' => $source_id, 'target_language' => $language, 'state' => 'source_surface_stale', 'job_id' => $job_id, 'translation_id' => $translation_id, 'source_revision' => $revision, 'publication_surface_contract_revision' => $contract_revision );
 		}

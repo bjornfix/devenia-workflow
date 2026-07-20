@@ -1047,6 +1047,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$required = array( 'desktop:light', 'desktop:dark', 'mobile:light', 'mobile:dark' );
 		$seen = array();
 		$receipts = array();
+		$invalid = array();
 		foreach ( $raw_receipts as $row ) {
 			if ( ! is_array( $row ) ) {
 				continue;
@@ -1060,18 +1061,19 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$layout = strtolower( sanitize_text_field( (string) ( $row['layout_digest'] ?? '' ) ) );
 			$dimensions = is_array( $row['viewport'] ?? null ) ? $row['viewport'] : array();
 			$policy_dimensions = 'desktop' === $viewport ? array( 1140, 800, 1 ) : array( 390, 844, 1 );
-			if (
-				! in_array( $key, $required, true )
-				|| (string) $artifact_record['artifact_revision'] !== (string) ( $row['artifact_revision'] ?? '' )
-				|| (string) $artifact_record['surface_revision'] !== (string) ( $row['surface_revision'] ?? '' )
-				|| '' === $url
-				|| ! preg_match( '/^[a-f0-9]{64}$/', $screenshot )
-				|| ! preg_match( '/^[a-f0-9]{64}$/', $dom )
-				|| ! preg_match( '/^[a-f0-9]{64}$/', $layout )
-				|| array( absint( $dimensions['width'] ?? 0 ), absint( $dimensions['height'] ?? 0 ), absint( $dimensions['device_scale_factor'] ?? 0 ) ) !== $policy_dimensions
-				|| '' === sanitize_text_field( (string) ( $row['document_language'] ?? '' ) )
-				|| ! in_array( sanitize_key( (string) ( $row['document_direction'] ?? '' ) ), array( 'ltr', 'rtl' ), true )
-			) {
+			$reasons = array();
+			if ( ! in_array( $key, $required, true ) ) { $reasons[] = 'viewport_scheme_or_color_scheme'; }
+			if ( (string) $artifact_record['artifact_revision'] !== (string) ( $row['artifact_revision'] ?? '' ) ) { $reasons[] = 'artifact_revision'; }
+			if ( (string) $artifact_record['surface_revision'] !== (string) ( $row['surface_revision'] ?? '' ) ) { $reasons[] = 'surface_revision'; }
+			if ( '' === $url ) { $reasons[] = 'url'; }
+			if ( ! preg_match( '/^[a-f0-9]{64}$/', $screenshot ) ) { $reasons[] = 'screenshot_digest'; }
+			if ( ! preg_match( '/^[a-f0-9]{64}$/', $dom ) ) { $reasons[] = 'response_digest'; }
+			if ( ! preg_match( '/^[a-f0-9]{64}$/', $layout ) ) { $reasons[] = 'layout_digest'; }
+			if ( array( absint( $dimensions['width'] ?? 0 ), absint( $dimensions['height'] ?? 0 ), absint( $dimensions['device_scale_factor'] ?? 0 ) ) !== $policy_dimensions ) { $reasons[] = 'viewport_dimensions'; }
+			if ( '' === sanitize_text_field( (string) ( $row['document_language'] ?? '' ) ) ) { $reasons[] = 'document_language'; }
+			if ( ! in_array( sanitize_key( (string) ( $row['document_direction'] ?? '' ) ), array( 'ltr', 'rtl' ), true ) ) { $reasons[] = 'document_direction'; }
+			if ( $reasons ) {
+				$invalid[ '' !== trim( $key, ':' ) ? $key : 'unknown' ] = $reasons;
 				continue;
 			}
 			$seen[ $key ] = true;
@@ -1098,7 +1100,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$adapter_ids = array_values( array_filter( array_map( 'sanitize_text_field', (array) $browser_adapter_receipt_ids ) ) );
 		$adapter_ids = apply_filters( 'devenia_workflow_translation_job_browser_adapter_receipt_ids', $adapter_ids, $job, $artifact_record, $reviewer_principal );
 		return $missing
-			? array( 'success' => false, 'code' => 'browser_receipts_incomplete', 'missing' => $missing )
+			? array( 'success' => false, 'code' => 'browser_receipts_incomplete', 'missing' => $missing, 'invalid' => $invalid )
 			: array( 'success' => true, 'receipts' => $receipts, 'receipt_count' => count( $receipts ), 'browser_adapter_receipt_ids' => $adapter_ids );
 	}
 
@@ -2308,7 +2310,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'job_source_missing' => $source instanceof WP_Post,
 			'job_identity_mismatch' => (string) ( $job['job_id'] ?? '' ) === self::translation_job_id( absint( $job['source_id'] ?? 0 ), (string) ( $job['target_language'] ?? '' ), (string) ( $job['source_revision'] ?? '' ) ),
 			'job_source_revision_stale' => $source instanceof WP_Post && (string) ( $job['source_revision'] ?? '' ) === self::source_publication_surface_revision( $source ),
-			'publication_surface_contract_revision_stale' => $source instanceof WP_Post && '' !== (string) ( $job['publication_surface_contract_revision'] ?? '' ) && (string) ( $job['publication_surface_contract_revision'] ?? '' ) === self::translation_job_publication_surface_contract_revision( $source ),
+			'publication_surface_contract_revision_stale' => $source instanceof WP_Post && '' !== (string) ( $job['publication_surface_contract_revision'] ?? '' ) && (string) ( $job['publication_surface_contract_revision'] ?? '' ) === self::translation_job_publication_surface_contract_revision( $source, (string) ( $job['target_language'] ?? '' ) ),
 			'publication_surface_contract_coverage_mismatch' => ! empty( $coverage['success'] ),
 			'artifact_revision_mismatch' => $artifact_revision === (string) ( $artifact_record['artifact_revision'] ?? '' ) && $artifact_revision === $artifact_reconstructed,
 			'artifact_job_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $artifact_record['job_id'] ?? '' ) && (string) ( $job['source_revision'] ?? '' ) === (string) ( $artifact_record['source_revision'] ?? '' ) && (string) ( $job['publication_surface_contract_revision'] ?? '' ) === (string) ( $artifact_record['publication_surface_contract_revision'] ?? '' ),

@@ -20,6 +20,7 @@ trait Devenia_Workflow_Translation_Job {
 	}
 	const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 6;
 	const TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS = 3;
+	const TRANSLATION_JOB_LTR_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v1';
 	const TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v2-target-design-signature';
 	const TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES = array(
 		'staged_surface_drifted',
@@ -226,7 +227,16 @@ trait Devenia_Workflow_Translation_Job {
 							'artifact_revision' => array( 'type' => 'string' ),
 							'surface_revision' => array( 'type' => 'string' ),
 							'viewport_scheme' => array( 'type' => 'string', 'enum' => array( 'desktop', 'mobile' ) ),
-							'viewport' => array( 'type' => 'object' ),
+							'viewport' => array(
+								'type' => 'object',
+								'required' => array( 'width', 'height', 'device_scale_factor' ),
+								'properties' => array(
+									'width' => array( 'type' => 'integer' ),
+									'height' => array( 'type' => 'integer' ),
+									'device_scale_factor' => array( 'type' => 'integer' ),
+								),
+								'additionalProperties' => false,
+							),
 							'color_scheme' => array( 'type' => 'string', 'enum' => array( 'light', 'dark' ) ),
 							'url' => array( 'type' => 'string' ),
 							'response_digest' => array( 'type' => 'string' ),
@@ -353,7 +363,7 @@ trait Devenia_Workflow_Translation_Job {
 			);
 		}
 		$source_revision = self::source_publication_surface_revision( $source );
-		$publication_surface_contract_revision = self::translation_job_publication_surface_contract_revision( $source );
+		$publication_surface_contract_revision = self::translation_job_publication_surface_contract_revision( $source, $language );
 		$job_id = self::translation_job_id( $source_id, $language, $source_revision );
 		$job = self::translation_job_get_job( $job_id );
 		if ( ! $job ) {
@@ -1826,7 +1836,7 @@ trait Devenia_Workflow_Translation_Job {
 	 * the extractor/projector schema and the exact typed fragment surface exposed
 	 * by the current code for this source.
 	 */
-	private static function translation_job_publication_surface_contract_revision( WP_Post $source ): string {
+	private static function translation_job_publication_surface_contract_revision( WP_Post $source, string $language = '' ): string {
 		$contract = self::source_design_contract( $source );
 		$fragments = array();
 		foreach ( (array) ( $contract['fragments'] ?? array() ) as $fragment ) {
@@ -1841,8 +1851,11 @@ trait Devenia_Workflow_Translation_Job {
 				'heading' => ! empty( $fragment['heading'] ),
 			);
 		}
+		$schema = self::is_rtl_language( $language )
+			? self::TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA
+			: self::TRANSLATION_JOB_LTR_PUBLICATION_SURFACE_CONTRACT_SCHEMA;
 		$material = array(
-			'schema' => self::TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA,
+			'schema' => $schema,
 			'fragment_projection' => $fragments,
 			'surface_manifest_fields' => array( 'content', 'seo', 'taxonomies', 'route', 'media', 'presentation' ),
 		);
@@ -1853,7 +1866,7 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_publication_surface_contract_state( array $job ): array {
 		$source = get_post( absint( $job['source_id'] ?? 0 ) );
 		$pinned = (string) ( $job['publication_surface_contract_revision'] ?? '' );
-		$current = $source instanceof WP_Post ? self::translation_job_publication_surface_contract_revision( $source ) : '';
+		$current = $source instanceof WP_Post ? self::translation_job_publication_surface_contract_revision( $source, (string) ( $job['target_language'] ?? '' ) ) : '';
 		$artifact_revision = (string) ( $job['artifact_revision'] ?? '' );
 		$artifact = '' !== $artifact_revision
 			? self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( $artifact_revision ) ) )
