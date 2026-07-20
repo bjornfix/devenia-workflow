@@ -54,6 +54,14 @@ const clearRecoveryIsolation = functionBody("translation_job_clear_recovery_next
 const beginRecoveryTransaction = functionBody("translation_job_begin_recovery_transaction", "translation_job_commit_recovery_transaction");
 const commitRecoveryTransaction = functionBody("translation_job_commit_recovery_transaction", "translation_job_rollback_recovery_transaction");
 const rollbackRecoveryTransaction = functionBody("translation_job_rollback_recovery_transaction", "translation_job_lock_recovery_surface");
+const stageArtifact = functionBody("translation_job_stage_artifact", "translation_job_surface_revision");
+
+if (!/'source_design_hash'\s*=>\s*self::expected_source_design_signature_hash\(\s*\(string\) \$source->post_content, \$language \s*\)/.test(stageArtifact)) {
+	failures.push("staged presentation must pin the target-language expected design signature so deterministic RTL mirroring can publish");
+}
+if (/source_design_contract\( \$source \)\['design_hash'\]/.test(stageArtifact)) {
+	failures.push("staged presentation must not pin the untranslated LTR source design hash for RTL targets");
+}
 
 if (!/private static function reviewer_identity_matches_provenance\s*\(/.test(executionIdentitySource) || !/private static function reviewer_matches_any_provenance\s*\(/.test(executionIdentitySource)) {
 	failures.push("shared reviewer provenance comparisons must remain owned by the execution-identity module");

@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.636
+**Stable tag:** 0.1.637
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.637
+
+- Pins staged presentation evidence to the target language's expected design signature, allowing deterministic RTL mirroring to pass the same exact publication-surface check as LTR translations.
+- Adds an asymmetric Arabic WordPress runtime regression so an untranslated LTR design hash can no longer block an otherwise approved RTL publication.
 
 ### 0.1.636
 

@@ -37,6 +37,7 @@ $update_internal_post = static function ( array $post_data ) use ( $call ) {
 	$result = null;
 	$call(
 		'with_direct_save_storage_guardrails_suspended',
+		absint( $post_data['ID'] ?? 0 ),
 		static function () use ( &$result, $post_data ): void {
 			$result = wp_update_post( $post_data, true );
 		}
@@ -46,11 +47,11 @@ $update_internal_post = static function ( array $post_data ) use ( $call ) {
 
 try {
 	$assert( class_exists( Devenia_Workflow::class ), 'Devenia Workflow is not active.' );
-	$assert( '0.1.612' === (string) Devenia_Workflow::VERSION, 'The active dev plugin is not the exact 0.1.612 candidate.' );
+	$assert( '0.1.637' === (string) Devenia_Workflow::VERSION, 'The active dev plugin is not the exact 0.1.637 candidate.' );
 
 	$languages = $call( 'target_languages' );
-	$assert( is_array( $languages ) && isset( $languages['nb'] ), 'The dev language registry must include Norwegian Bokmal (nb).' );
-	$language = 'nb';
+	$assert( is_array( $languages ) && isset( $languages['ar'] ), 'The dev language registry must include Arabic (ar).' );
+	$language = 'ar';
 
 	$source_insert = wp_insert_post(
 		array(
@@ -59,7 +60,7 @@ try {
 			'post_title'   => 'Presentation normalization source ' . $fixture_token,
 			'post_excerpt' => 'A bounded source fixture for exact presentation verification.',
 			'post_name'    => $source_fixture_slug,
-			'post_content' => "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Storage representation</h2>\n<!-- /wp:heading -->\n\n<!-- wp:paragraph -->\n<p>Verify mixed presentation fragments without weakening exact values.</p>\n<!-- /wp:paragraph -->",
+			'post_content' => "<!-- wp:group {\"paddingLeft\":\"12px\",\"paddingRight\":\"24px\"} -->\n<div class=\"wp-block-group\">\n<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Storage representation</h2>\n<!-- /wp:heading -->\n\n<!-- wp:paragraph -->\n<p>Verify mixed presentation fragments without weakening exact values.</p>\n<!-- /wp:paragraph -->\n</div>\n<!-- /wp:group -->",
 		),
 		true
 	);
@@ -69,6 +70,9 @@ try {
 	$assert( $source instanceof WP_Post, 'The source fixture could not be read.' );
 
 	$source_design = $call( 'source_design_contract', $source );
+	$expected_rtl_design_hash = $call( 'expected_source_design_signature_hash', (string) $source->post_content, $language );
+	$assert( '' !== $expected_rtl_design_hash, 'The RTL fixture did not produce an expected target-language design hash.' );
+	$assert( (string) $source_design['design_hash'] !== $expected_rtl_design_hash, 'The asymmetric RTL fixture did not distinguish source and mirrored design hashes.' );
 	$source_fragments = isset( $source_design['fragments'] ) && is_array( $source_design['fragments'] ) ? $source_design['fragments'] : array();
 	$assert( count( $source_fragments ) >= 2, 'The source fixture did not expose at least two design fragments.' );
 
@@ -145,6 +149,10 @@ try {
 	$staging = $call( 'translation_job_stage_artifact', $job, $artifact );
 	$assert( ! empty( $staging['success'] ), 'Staging failed: ' . wp_json_encode( $staging ) );
 	$manifest = isset( $staging['manifest'] ) && is_array( $staging['manifest'] ) ? $staging['manifest'] : array();
+	$assert(
+		$expected_rtl_design_hash === (string) ( $manifest['presentation']['source_design_hash'] ?? '' ),
+		'Staging pinned the LTR source hash instead of the deterministic RTL presentation hash.'
+	);
 	$assert(
 		(string) ( $staging['surface_revision'] ?? '' ) === (string) $call( 'translation_job_surface_revision', $manifest ),
 		'The staged storage-canonical manifest did not reproduce its surface revision.'
