@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.650
+**Stable tag:** 0.1.651
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.651
+
+- Keeps Workflow theme-neutral by consuming the owning GP-MCP native layout projection during translated publication; canonical frontend rendering and GenerateBlocks cache regeneration no longer live in Workflow.
 
 ### 0.1.650
 

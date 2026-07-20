@@ -22,10 +22,6 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 		add_filter( 'devenia_workflow_normalize_gutenberg_content_for_storage', array( __CLASS__, 'normalize_gutenberg_content_for_storage' ) );
 		add_filter( 'devenia_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 		add_filter( 'devenia_workflow_gutenberg_guardrails', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
-		add_filter( 'devenia_workflow_project_block_layout', array( __CLASS__, 'normalize_grid_gaps' ), 10, 4 );
-		add_filter( 'render_block_data', array( __CLASS__, 'project_frontend_grid_layout' ), 10, 3 );
-		add_action( 'devenia_workflow_source_design_reprojected', array( __CLASS__, 'on_source_design_reprojected' ) );
-		add_action( 'save_post', array( __CLASS__, 'on_save_post_regenerate_css' ), 100, 1 );
 	}
 
 	/**
@@ -107,180 +103,6 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 		return 1 === preg_match( '/^h[1-6]$/', $element );
 	}
 
-	/**
-	 * Replace GenerateBlocks' negative grid gutter with native item spacing.
-	 *
-	 * GenerateBlocks implements horizontalGap with a negative wrapper margin. That
-	 * moves a translated Surface host outside its owned container in either document
-	 * direction. Reserve the same gutter between row items with native width and
-	 * direction-derived physical spacing attributes instead.
-	 *
-	 * @param array<int,array<string,mixed>> $blocks Target blocks.
-	 * @param array<int,array<string,mixed>> $source_blocks Source blocks.
-	 * @return array<int,array<string,mixed>>
-	 */
-	public static function normalize_grid_gaps( array $blocks, array $source_blocks, string $language, bool $is_rtl ): array {
-		unset( $language );
-		self::normalize_grid_gap_blocks( $blocks, $source_blocks, $is_rtl );
-		return $blocks;
-	}
-
-	/**
-	 * Apply the same native grid contract while rendering canonical source pages.
-	 *
-	 * Translation publication stores projected block attributes. Canonical source
-	 * content remains editor-owned, so its safe presentation projection belongs at
-	 * the frontend Adapter boundary instead of in page-specific content or CSS.
-	 *
-	 * @param array<string,mixed> $parsed_block Parsed block about to render.
-	 * @param array<string,mixed> $source_block Unfiltered source block.
-	 * @param WP_Block|null       $parent_block Parent block, unused.
-	 * @return array<string,mixed>
-	 */
-	public static function project_frontend_grid_layout( array $parsed_block, array $source_block, $parent_block = null ): array {
-		unset( $parent_block );
-		if ( is_admin() || 'generateblocks/grid' !== (string) ( $parsed_block['blockName'] ?? '' ) ) {
-			return $parsed_block;
-		}
-
-		$is_rtl = function_exists( 'is_rtl' ) && is_rtl();
-		self::normalize_grid_gap_block( $parsed_block, $source_block, $is_rtl );
-
-		return $parsed_block;
-	}
-
-	/**
-	 * @param array<int,array<string,mixed>> $blocks Target blocks.
-	 * @param array<int,array<string,mixed>> $source_blocks Source blocks.
-	 */
-	private static function normalize_grid_gap_blocks( array &$blocks, array $source_blocks, bool $is_rtl ): void {
-		foreach ( $blocks as $index => &$block ) {
-			$source_block = $source_blocks[ $index ] ?? null;
-			if ( ! is_array( $block ) || ! is_array( $source_block ) ) {
-				continue;
-			}
-
-			self::normalize_grid_gap_block( $block, $source_block, $is_rtl );
-			if ( isset( $block['innerBlocks'], $source_block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) && is_array( $source_block['innerBlocks'] ) ) {
-				self::normalize_grid_gap_blocks( $block['innerBlocks'], $source_block['innerBlocks'], $is_rtl );
-			}
-		}
-		unset( $block );
-	}
-
-	private static function normalize_grid_gap_block( array &$block, array $source_block, bool $is_rtl ): void {
-		if ( 'generateblocks/grid' !== (string) ( $block['blockName'] ?? '' ) || 'generateblocks/grid' !== (string) ( $source_block['blockName'] ?? '' ) ) {
-			return;
-		}
-
-		$source_attrs = is_array( $source_block['attrs'] ?? null ) ? $source_block['attrs'] : array();
-		$gap          = (float) ( $source_attrs['horizontalGap'] ?? 0 );
-		$columns      = absint( $source_attrs['columns'] ?? 0 );
-		$source_items = is_array( $source_block['innerBlocks'] ?? null ) ? $source_block['innerBlocks'] : array();
-		$target_items = is_array( $block['innerBlocks'] ?? null ) ? $block['innerBlocks'] : array();
-		$item_count   = count( $source_items );
-		if ( $gap <= 0 || $columns < 2 || 0 === $item_count || $item_count !== count( $target_items ) ) {
-			return;
-		}
-
-		$widths = array();
-		foreach ( $source_items as $item_index => $source_item ) {
-			$target_item = $target_items[ $item_index ] ?? null;
-			if ( ! is_array( $source_item ) || ! is_array( $target_item ) || 'generateblocks/container' !== (string) ( $source_item['blockName'] ?? '' ) || 'generateblocks/container' !== (string) ( $target_item['blockName'] ?? '' ) ) {
-				return;
-			}
-
-			$spacing      = is_array( $source_item['attrs']['spacing'] ?? null ) ? $source_item['attrs']['spacing'] : array();
-			$spacing_side = $is_rtl ? 'marginLeft' : 'marginRight';
-			$mobile_side  = $spacing_side . 'Mobile';
-			if ( ! self::spacing_value_is_zero( $spacing[ $spacing_side ] ?? '' ) || ! self::spacing_value_is_zero( $spacing[ $mobile_side ] ?? '' ) ) {
-				return;
-			}
-
-			$width = (string) ( $source_item['attrs']['sizing']['width'] ?? '' );
-			if ( ! preg_match( '/^(?:100|[0-9]{1,2}(?:\.[0-9]+)?)%$/', $width ) ) {
-				return;
-			}
-			$widths[ $item_index ] = $width;
-		}
-
-		if ( ! isset( $block['attrs'] ) || ! is_array( $block['attrs'] ) ) {
-			$block['attrs'] = array();
-		}
-		$block['attrs']['horizontalGap'] = 0;
-		$gap_value                       = rtrim( rtrim( number_format( $gap, 4, '.', '' ), '0' ), '.' ) . 'px';
-		$spacing_side                    = $is_rtl ? 'marginLeft' : 'marginRight';
-		$mobile_side                     = $spacing_side . 'Mobile';
-		$tablet_side                     = $spacing_side . 'Tablet';
-
-		foreach ( $block['innerBlocks'] as $item_index => &$target_item ) {
-			$row_end = min( ( (int) floor( $item_index / $columns ) + 1 ) * $columns, $item_count ) - 1;
-			if ( $item_index === $row_end ) {
-				continue;
-			}
-
-			$target_item['attrs']            = is_array( $target_item['attrs'] ?? null ) ? $target_item['attrs'] : array();
-			$target_item['attrs']['spacing'] = is_array( $target_item['attrs']['spacing'] ?? null ) ? $target_item['attrs']['spacing'] : array();
-			$target_item['attrs']['sizing']  = is_array( $target_item['attrs']['sizing'] ?? null ) ? $target_item['attrs']['sizing'] : array();
-
-			$target_item['attrs']['sizing']['width']          = 'calc(' . $widths[ $item_index ] . ' - ' . $gap_value . ')';
-			$target_item['attrs']['spacing'][ $spacing_side ] = $gap_value;
-			$target_item['attrs']['spacing'][ $mobile_side ]  = '0px';
-			if ( '100%' === (string) ( $source_items[ $item_index ]['attrs']['sizing']['widthTablet'] ?? '' ) ) {
-				$target_item['attrs']['spacing'][ $tablet_side ] = '0px';
-			}
-		}
-		unset( $target_item );
-	}
-
-	private static function spacing_value_is_zero( $value ): bool {
-		$value = strtolower( trim( (string) $value ) );
-		return '' === $value || in_array( $value, array( '0', '0px', '0em', '0rem', '0%' ), true );
-	}
-
-	/**
-	 * Regenerate GenerateBlocks dynamic CSS after source-design reprojection.
-	 *
-	 * GenerateBlocks hooks save_post to update _generateblocks_dynamic_css_version,
-	 * but it bails when current_user_can('edit_post') is false (common during
-	 * MCP-triggered server operations). This hook runs inside the workflow's
-	 * own design-reprojection seam and updates the CSS version meta directly.
-	 */
-	public static function on_source_design_reprojected( int $translation_id ): void {
-		if ( ! defined( 'GENERATEBLOCKS_VERSION' ) ) {
-			return;
-		}
-		$post = get_post( $translation_id );
-		if ( ! $post || false === strpos( $post->post_content, 'wp:generateblocks' ) ) {
-			return;
-		}
-		$upload_dir = wp_upload_dir();
-		if ( ! empty( $upload_dir['basedir'] ) ) {
-			$css_file = $upload_dir['basedir'] . '/generateblocks/style-' . absint( $translation_id ) . '.css';
-			if ( file_exists( $css_file ) ) {
-				wp_delete_file( $css_file );
-			}
-		}
-		update_post_meta( $translation_id, '_generateblocks_dynamic_css_version', sanitize_text_field( GENERATEBLOCKS_VERSION ) );
-	}
-
-	/**
-	 * Force GenerateBlocks CSS regeneration on save_post when the
-	 * current_user_can check would normally block it (server-side saves).
-	 */
-	public static function on_save_post_regenerate_css( int $post_id ): void {
-		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
-			return;
-		}
-		if ( ! defined( 'GENERATEBLOCKS_VERSION' ) ) {
-			return;
-		}
-		$post = get_post( $post_id );
-		if ( ! $post || false === strpos( $post->post_content, 'wp:generateblocks' ) ) {
-			return;
-		}
-		update_post_meta( $post_id, '_generateblocks_dynamic_css_version', sanitize_text_field( GENERATEBLOCKS_VERSION ) );
-	}
 
 	/**
 	 * Run GenerateBlocks-specific Gutenberg guardrails.
@@ -320,10 +142,8 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 	 * Strip stale frontend wrapper HTML from dynamic GenerateBlocks containers.
 	 */
 	public static function normalize_gutenberg_content_for_storage( string $content ): string {
-		if ( false === strpos( $content, '<!-- wp:generateblocks/container' ) || false === strpos( $content, 'gb-container' ) ) {
-			return $content;
-		}
-
+		$normalized = $content;
+		if ( false !== strpos( $normalized, '<!-- wp:generateblocks/container' ) && false !== strpos( $normalized, 'gb-container' ) ) {
 			$normalized = preg_replace(
 				'/(<!--\s+wp:generateblocks\/container\b(?:(?!-->).)*"isDynamic"\s*:\s*true(?:(?!-->).)*-->)\s*<div\b[^>]*class="[^"]*\bgb-container\b[^"]*"[^>]*>\s*/is',
 				'$1',
@@ -342,12 +162,13 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 				-1,
 				$close_count
 			);
-			if ( ! is_string( $normalized ) || ( 0 === $open_count && 0 === $close_count ) ) {
+			if ( ! is_string( $normalized ) ) {
 				return $content;
 			}
-
-			return $normalized;
 		}
+
+		return $normalized;
+	}
 
 	/**
 	 * Detect stored frontend wrappers for dynamic GenerateBlocks containers.

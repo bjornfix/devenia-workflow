@@ -5,14 +5,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit( 1 );
 }
 
+if ( ! class_exists( 'MCP_Abilities_GeneratePress_GenerateBlocks_Grid_Projection' ) ) {
+	fwrite( STDERR, "The owning GP-MCP Grid Projection Module is not active.\n" );
+	exit( 1 );
+}
+
 $method = new ReflectionMethod( Devenia_Workflow::class, 'project_block_layout_from_source' );
 $method->setAccessible( true );
 
-$source = '<!-- wp:generateblocks/grid {"columns":2,"horizontalGap":22} -->'
-	. '<!-- wp:generateblocks/container {"sizing":{"width":"50%","widthMobile":"100%"}} --><p>One</p><!-- /wp:generateblocks/container -->'
-	. '<!-- wp:generateblocks/container {"sizing":{"width":"50%","widthMobile":"100%"}} --><p>Two</p><!-- /wp:generateblocks/container -->'
-	. '<!-- wp:generateblocks/container {"sizing":{"width":"50%","widthMobile":"100%"}} --><p>Three</p><!-- /wp:generateblocks/container -->'
-	. '<!-- wp:generateblocks/container {"sizing":{"width":"50%","widthMobile":"100%"}} --><p>Four</p><!-- /wp:generateblocks/container -->'
+$source = '<!-- wp:generateblocks/grid {"blockVersion":3,"horizontalGap":22} -->'
+	. '<!-- wp:generateblocks/container {"blockVersion":4,"sizing":{"width":"50%","widthMobile":"100%"}} --><p>One</p><!-- /wp:generateblocks/container -->'
+	. '<!-- wp:generateblocks/container {"blockVersion":4,"sizing":{"width":"50%","widthMobile":"100%"}} --><p>Two</p><!-- /wp:generateblocks/container -->'
+	. '<!-- wp:generateblocks/container {"blockVersion":4,"sizing":{"width":"50%","widthMobile":"100%"}} --><p>Three</p><!-- /wp:generateblocks/container -->'
+	. '<!-- wp:generateblocks/container {"blockVersion":4,"sizing":{"width":"50%","widthMobile":"100%"}} --><p>Four</p><!-- /wp:generateblocks/container -->'
 	. '<!-- /wp:generateblocks/grid -->';
 
 $failures = array();
@@ -26,33 +31,22 @@ $assert_projection = static function ( string $language, string $spacing_side ) 
 		$failures[] = "{$language}: grid horizontalGap was not removed";
 	}
 	foreach ( array( 0, 2 ) as $index ) {
-		if ( 'calc(50% - 22px)' !== (string) ( $items[ $index ]['attrs']['sizing']['width'] ?? '' ) ) {
-			$failures[] = "{$language}: item {$index} width does not reserve the native gutter";
+		if ( '50%' !== (string) ( $items[ $index ]['attrs']['sizing']['width'] ?? '' ) ) {
+			$failures[] = "{$language}: item {$index} native width changed";
 		}
 		if ( '22px' !== (string) ( $items[ $index ]['attrs']['spacing'][ $spacing_side ] ?? '' ) || '0px' !== (string) ( $items[ $index ]['attrs']['spacing'][ $spacing_side . 'Mobile' ] ?? '' ) ) {
 			$failures[] = "{$language}: item {$index} does not own the responsive native gutter on {$spacing_side}";
 		}
 	}
 	foreach ( array( 1, 3 ) as $index ) {
-		if ( isset( $items[ $index ]['attrs']['spacing'][ $spacing_side ] ) ) {
-			$failures[] = "{$language}: row-ending item {$index} unexpectedly owns a gutter";
+		if ( '0px' !== (string) ( $items[ $index ]['attrs']['spacing'][ $spacing_side ] ?? '' ) ) {
+			$failures[] = "{$language}: row-ending item {$index} did not receive the canonical zero gutter";
 		}
 	}
 };
 
 $assert_projection( 'nb', 'marginRight' );
 $assert_projection( 'ar', 'marginLeft' );
-
-$source_blocks = parse_blocks( $source );
-$source_grid   = $source_blocks[0] ?? array();
-$rendered_grid = Devenia_Workflow_GenerateBlocks_Adapter::project_frontend_grid_layout( $source_grid, $source_grid, null );
-$rendered_items = $rendered_grid['innerBlocks'] ?? array();
-if ( 0 !== (int) ( $rendered_grid['attrs']['horizontalGap'] ?? -1 ) ) {
-	$failures[] = 'frontend source: grid horizontalGap was not removed';
-}
-if ( 'calc(50% - 22px)' !== (string) ( $rendered_items[0]['attrs']['sizing']['width'] ?? '' ) || '22px' !== (string) ( $rendered_items[0]['attrs']['spacing']['marginRight'] ?? '' ) ) {
-	$failures[] = 'frontend source: native LTR gutter was not projected';
-}
 
 if ( $failures ) {
 	fwrite( STDERR, implode( "\n", $failures ) . "\n" );
