@@ -2306,10 +2306,15 @@ trait Devenia_Workflow_Translation_Job {
 
 	private static function translation_job_pack_artifact_record( array $record ): array {
 		$artifact = isset( $record['artifact'] ) && is_array( $record['artifact'] ) ? $record['artifact'] : array();
+		$surface_manifest = isset( $record['surface_manifest'] ) && is_array( $record['surface_manifest'] ) ? $record['surface_manifest'] : array();
 		$encoded = base64_encode( wp_json_encode( $artifact ) ?: '{}' );
+		$surface_manifest_encoded = base64_encode( wp_json_encode( $surface_manifest ) ?: '{}' );
 		unset( $record['artifact'] );
+		unset( $record['surface_manifest'] );
 		$record['artifact_encoding'] = 'base64-json-v1';
 		$record['artifact_payload'] = $encoded;
+		$record['surface_manifest_encoding'] = 'base64-json-v1';
+		$record['surface_manifest_payload'] = $surface_manifest_encoded;
 		return $record;
 	}
 
@@ -2326,6 +2331,14 @@ trait Devenia_Workflow_Translation_Job {
 			return array();
 		}
 		$record['artifact'] = $artifact;
+		if ( 'base64-json-v1' === (string) ( $record['surface_manifest_encoding'] ?? '' ) ) {
+			$surface_manifest_decoded = base64_decode( (string) ( $record['surface_manifest_payload'] ?? '' ), true );
+			$surface_manifest = false !== $surface_manifest_decoded ? json_decode( $surface_manifest_decoded, true ) : null;
+			if ( ! is_array( $surface_manifest ) ) {
+				return array();
+			}
+			$record['surface_manifest'] = $surface_manifest;
+		}
 		return $record;
 	}
 

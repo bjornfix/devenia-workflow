@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.643
+**Stable tag:** 0.1.644
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.644
+
+- Stores both multilingual artifacts and their publication Surface Manifests in reversible ASCII-safe envelopes, preventing emoji and other 4-byte Unicode from failing on legacy `utf8mb3` WordPress option tables.
 
 ### 0.1.643
 

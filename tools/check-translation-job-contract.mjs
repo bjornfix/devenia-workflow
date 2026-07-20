@@ -41,6 +41,8 @@ pass(() => assert.match(runtimeSource, /update_option\( \$artifact_key, \$artifa
 pass(() => assert.match(runtimeSource, /\$stored\['source_revision'\][\s\S]*\$job\['source_revision'\]/));
 pass(() => assert.match(runtimeSource, /translation_job_pack_artifact_record\( \$artifact_record \)/));
 pass(() => assert.match(runtimeSource, /'artifact_encoding'\]\s*=\s*'base64-json-v1'/));
+pass(() => assert.match(runtimeSource, /'surface_manifest_encoding'\]\s*=\s*'base64-json-v1'/));
+pass(() => assert.match(runtimeSource, /unset\( \$record\['surface_manifest'\] \)/));
 pass(() => assert.match(runtimeSource, /base64_decode\([^;]+true \)/));
 pass(() => assert.match(runtimeSource, /\$configured_budget = self::translation_job_budget[\s\S]*\$run_before_migration = \$run[\s\S]*'budget_migrated_at'[\s\S]*atomic_replace_option_value\( \$run_key, \$run_before_migration, \$run \)[\s\S]*'run_budget_migration_conflict'/));
 pass(() => assert.match(runtimeSource, /private static function translation_job_subagent_separation_contract\s*\(/));
