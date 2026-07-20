@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.640
+**Stable tag:** 0.1.641
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.641
+
+- Introduces a bounded Quality Review Projection that keeps all source and localized review content, staged metadata, exact revision binding, and server receipts while leaving internal publication payloads behind the Workflow boundary.
+- Prevents large pages from failing Quality packet creation because localized content was previously serialized repeatedly in the submitted artifact, presentation manifest, and generated Gutenberg document.
 
 ### 0.1.640
 

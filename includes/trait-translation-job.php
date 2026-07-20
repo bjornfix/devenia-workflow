@@ -1240,7 +1240,7 @@ trait Devenia_Workflow_Translation_Job {
 			? self::translation_job_server_quality_receipts( $job, $artifact, (array) ( $run['principal'] ?? array() ) )
 			: array( 'success' => false, 'code' => 'artifact_record_missing' );
 		return array(
-			'contract_version' => 4,
+			'contract_version' => 5,
 			'subagent_separation_contract' => self::translation_job_subagent_separation_contract(),
 			'job' => self::translation_job_public_job( $job ),
 			'run' => array( 'run_id' => $run['run_id'], 'role' => $run['role'], 'budget' => $run['budget'], 'context_mode' => 'bounded_packet', 'submission_generation' => self::translation_job_submission_generation( $job ), 'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'], 'principal' => $run['principal'] ?? array() ),
@@ -1252,7 +1252,7 @@ trait Devenia_Workflow_Translation_Job {
 				'fragments' => self::translation_job_source_fragments( $source_contract ),
 				'approval' => self::translation_job_source_approval( $source ),
 			),
-			'artifact' => is_array( $artifact ) ? $artifact : array(),
+			'artifact' => is_array( $artifact ) ? self::translation_job_quality_review_artifact( $artifact ) : array(),
 			'surface_revision' => (string) ( $artifact['surface_revision'] ?? '' ),
 			'writer_principal' => is_array( $artifact['writer_principal'] ?? null ) ? $artifact['writer_principal'] : array(),
 			'links' => self::translation_job_link_policy( $source, (string) $job['target_language'] ),
@@ -1273,6 +1273,52 @@ trait Devenia_Workflow_Translation_Job {
 				'trust_model' => 'Workflow computes deterministic receipts. Natural-language and visual judgment remain explicit attestations from this fresh authenticated Quality Run.',
 			),
 			'submission_contract' => self::translation_job_submission_contract( 'quality' ),
+		);
+	}
+
+	/**
+	 * Project the immutable artifact into the bounded Quality review Interface.
+	 *
+	 * The durable record owns publication and rollback payloads. Quality needs the
+	 * complete submitted copy plus staged metadata and identity, but it must not
+	 * receive the generated Gutenberg document or a second copy of every localized
+	 * presentation fragment. Those internal fields made large review packets grow
+	 * with the same content multiple times without adding review authority.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function translation_job_quality_review_artifact( array $record ): array {
+		$manifest = isset( $record['surface_manifest'] ) && is_array( $record['surface_manifest'] )
+			? $record['surface_manifest']
+			: array();
+
+		return array(
+			'state' => (string) ( $record['state'] ?? '' ),
+			'artifact_revision' => (string) ( $record['artifact_revision'] ?? '' ),
+			'job_id' => (string) ( $record['job_id'] ?? '' ),
+			'source_revision' => (string) ( $record['source_revision'] ?? '' ),
+			'publication_surface_contract_revision' => (string) ( $record['publication_surface_contract_revision'] ?? '' ),
+			'translation_id' => absint( $record['translation_id'] ?? 0 ),
+			'content_revision' => (string) ( $record['content_revision'] ?? '' ),
+			'surface_revision' => (string) ( $record['surface_revision'] ?? '' ),
+			'baseline_surface_revision' => (string) ( $record['baseline_surface_revision'] ?? '' ),
+			'submission_generation' => max( 1, absint( $record['submission_generation'] ?? 1 ) ),
+			'writer_principal' => is_array( $record['writer_principal'] ?? null ) ? $record['writer_principal'] : array(),
+			'staged' => ! empty( $record['staged'] ),
+			'staged_validation' => is_array( $record['staged_validation'] ?? null ) ? $record['staged_validation'] : array(),
+			'artifact' => is_array( $record['artifact'] ?? null ) ? $record['artifact'] : array(),
+			'staged_surface' => array(
+				'content' => array(
+					'title' => (string) ( $manifest['content']['title'] ?? '' ),
+					'excerpt' => (string) ( $manifest['content']['excerpt'] ?? '' ),
+				),
+				'seo' => is_array( $manifest['seo'] ?? null ) ? $manifest['seo'] : array(),
+				'taxonomies' => is_array( $manifest['taxonomies'] ?? null ) ? $manifest['taxonomies'] : array(),
+				'route' => is_array( $manifest['route'] ?? null ) ? $manifest['route'] : array(),
+				'media' => is_array( $manifest['media'] ?? null ) ? $manifest['media'] : array(),
+				'source_design_hash' => (string) ( $manifest['presentation']['source_design_hash'] ?? '' ),
+			),
+			'submitted_at' => (string) ( $record['submitted_at'] ?? '' ),
 		);
 	}
 

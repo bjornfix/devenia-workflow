@@ -85,6 +85,59 @@ HTML;
 		$failures[] = 'details_summary_missing';
 	}
 
+	// A large Quality packet must expose every review fragment exactly once while
+	// keeping the generated publication document behind the Workflow boundary.
+	$large_localized_fragments = array();
+	foreach ( range( 1, 92 ) as $index ) {
+		$large_localized_fragments[] = array(
+			'key' => 'runtime-large-fragment-' . $index,
+			'html' => '<p>محتوى عربي مهني كامل للمراجعة المستقلة، مع نتيجة واضحة وخطوة تالية محددة ' . $index . '.</p>',
+		);
+	}
+	$internal_gutenberg = str_repeat( '<!-- wp:paragraph --><p>Generated publication payload that Quality must not receive twice.</p><!-- /wp:paragraph -->', 1200 );
+	$quality_projection_method = new ReflectionMethod( Devenia_Workflow::class, 'translation_job_quality_review_artifact' );
+	$quality_projection_method->setAccessible( true );
+	$quality_projection = (array) $quality_projection_method->invoke(
+		null,
+		array(
+			'state' => 'staged',
+			'artifact_revision' => 'a_runtime_large_quality_projection',
+			'job_id' => 'tj_runtime_large_quality_projection',
+			'source_revision' => 'ssr_runtime_large_quality_projection',
+			'publication_surface_contract_revision' => 'pscr_runtime_large_quality_projection',
+			'translation_id' => 123,
+			'content_revision' => hash( 'sha256', $internal_gutenberg ),
+			'surface_revision' => 'sr_runtime_large_quality_projection',
+			'baseline_surface_revision' => 'sr_runtime_large_quality_baseline',
+			'submission_generation' => 1,
+			'writer_principal' => array( 'principal_id' => 'runtime-translator' ),
+			'staged' => true,
+			'staged_validation' => array( 'passed' => true, 'guardrail_issue_count' => 0 ),
+			'artifact' => array( 'title' => 'عنوان عربي', 'excerpt' => 'ملخص عربي', 'localized_fragments' => $large_localized_fragments ),
+			'surface_manifest' => array(
+				'content' => array( 'title' => 'عنوان عربي', 'excerpt' => 'ملخص عربي', 'gutenberg' => $internal_gutenberg ),
+				'seo' => array( 'title' => 'عنوان تحسين محركات البحث', 'description' => 'وصف عربي واضح' ),
+				'taxonomies' => array(),
+				'route' => array( 'canonical_route' => array( 'path' => 'ar/runtime-large-quality-projection' ) ),
+				'media' => array(),
+				'presentation' => array( 'source_design_hash' => 'design-runtime-large', 'localized_fragments' => $large_localized_fragments ),
+			),
+		)
+	);
+	$quality_projection_json = wp_json_encode( $quality_projection ) ?: '';
+	if ( 92 !== count( (array) ( $quality_projection['artifact']['localized_fragments'] ?? array() ) ) ) {
+		$failures[] = 'quality_projection_fragment_loss';
+	}
+	if ( isset( $quality_projection['surface_manifest'] ) || isset( $quality_projection['staged_surface']['content']['gutenberg'] ) ) {
+		$failures[] = 'quality_projection_exposed_publication_payload';
+	}
+	if ( false !== strpos( $quality_projection_json, 'Generated publication payload' ) ) {
+		$failures[] = 'quality_projection_duplicated_generated_content';
+	}
+	if ( (int) ceil( strlen( $quality_projection_json ) / 4 ) >= 50000 ) {
+		$failures[] = 'quality_projection_exceeds_existing_budget';
+	}
+
 	$localized_fragments = array();
 	foreach ( $fragments as $fragment ) {
 		$localized_fragments[] = array(
