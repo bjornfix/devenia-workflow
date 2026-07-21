@@ -176,6 +176,10 @@ trait Devenia_Workflow_Translation_Job {
 							'items' => array(
 								'type' => 'object',
 								'required' => array( 'key' ),
+								'oneOf' => array(
+									array( 'required' => array( 'html' ) ),
+									array( 'required' => array( 'text' ) ),
+								),
 								'properties' => array(
 									'key' => array( 'type' => 'string' ),
 									'text' => array( 'type' => 'string' ),
@@ -1682,8 +1686,10 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_fragment_coverage( array $job, $localized_fragments ): array {
 		$source = get_post( (int) $job['source_id'] );
 		$contract = $source ? self::source_design_contract( $source ) : array();
-		$expected = array_values( array_filter( array_map( static function ( $row ) { return (string) ( $row['key'] ?? '' ); }, (array) ( $contract['fragments'] ?? array() ) ) ) );
+		$source_fragments = (array) ( $contract['fragments'] ?? array() );
+		$expected = array_values( array_filter( array_map( static function ( $row ) { return (string) ( $row['key'] ?? '' ); }, $source_fragments ) ) );
 		$provided = array();
+		$provided_rows = array();
 		$duplicates = array();
 		foreach ( is_array( $localized_fragments ) ? $localized_fragments : array() as $row ) {
 			$key = (string) ( is_array( $row ) ? ( $row['key'] ?? '' ) : '' );
@@ -1691,6 +1697,7 @@ trait Devenia_Workflow_Translation_Job {
 				$duplicates[] = $key;
 			}
 			$provided[ $key ] = true;
+			$provided_rows[ $key ] = $row;
 		}
 		$provided_keys = array_keys( array_filter( $provided ) );
 		$missing = array_values( array_diff( $expected, $provided_keys ) );
@@ -1698,7 +1705,62 @@ trait Devenia_Workflow_Translation_Job {
 		if ( $missing || $extra || $duplicates || count( $expected ) !== count( $provided_keys ) ) {
 			return array( 'success' => false, 'code' => 'artifact_fragment_coverage_invalid', 'message' => 'Artifact must contain every source fragment exactly once.', 'expected_count' => count( $expected ), 'provided_count' => count( $provided_keys ), 'missing_keys' => $missing, 'extra_keys' => $extra, 'duplicate_keys' => array_values( array_unique( $duplicates ) ) );
 		}
+
+		$source_values = array();
+		foreach ( $source_fragments as $source_fragment ) {
+			$key = (string) ( $source_fragment['key'] ?? '' );
+			if ( '' !== $key ) {
+				$source_values[ $key ] = (string) ( $source_fragment['source_html'] ?? $source_fragment['html'] ?? $source_fragment['text'] ?? '' );
+			}
+		}
+		$invalid = array();
+		$placeholder_values = array( 'undefined', 'null', '[object object]', 'nan' );
+		foreach ( $expected as $key ) {
+			$row = $provided_rows[ $key ] ?? null;
+			if ( ! is_array( $row ) ) {
+				$invalid[] = array( 'key' => $key, 'reason' => 'fragment_must_be_an_object' );
+				continue;
+			}
+			$has_html = array_key_exists( 'html', $row );
+			$has_text = array_key_exists( 'text', $row );
+			if ( $has_html === $has_text ) {
+				$invalid[] = array( 'key' => $key, 'reason' => 'exactly_one_value_field_required' );
+				continue;
+			}
+			$value = $has_html ? $row['html'] : $row['text'];
+			if ( ! is_string( $value ) ) {
+				$invalid[] = array( 'key' => $key, 'reason' => 'fragment_value_must_be_a_string' );
+				continue;
+			}
+			$localized_plain = self::translation_job_fragment_plain_text( $value );
+			$source_plain = self::translation_job_fragment_plain_text( (string) ( $source_values[ $key ] ?? '' ) );
+			if ( '' !== $source_plain && '' === $localized_plain ) {
+				$invalid[] = array( 'key' => $key, 'reason' => 'nonempty_source_requires_nonempty_value' );
+				continue;
+			}
+			$localized_placeholder = strtolower( $localized_plain );
+			$source_placeholder = strtolower( $source_plain );
+			if ( in_array( $localized_placeholder, $placeholder_values, true ) && $localized_placeholder !== $source_placeholder ) {
+				$invalid[] = array( 'key' => $key, 'reason' => 'placeholder_value_forbidden' );
+			}
+		}
+		if ( $invalid ) {
+			return array(
+				'success' => false,
+				'code' => 'artifact_fragment_value_invalid',
+				'message' => 'Every localized fragment must contain exactly one meaningful text or HTML string.',
+				'invalid_fragments' => $invalid,
+			);
+		}
 		return array( 'success' => true, 'fragment_count' => count( $expected ) );
+	}
+
+	private static function translation_job_fragment_plain_text( string $value ): string {
+		$value = html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$value = wp_strip_all_tags( strip_shortcodes( $value ) );
+		$normalized = preg_replace( '/\s+/u', ' ', $value );
+
+		return trim( is_string( $normalized ) ? $normalized : $value );
 	}
 
 	private static function translation_job_claim_access( array $input, string $role = '', array $allowed_terminal_outcomes = array() ): array {
