@@ -28,6 +28,7 @@ trait Devenia_Workflow_Social_Sharing_Runtime_Presentation_Control {
 		add_filter( 'devenia_social_sharing_network_label', array( __CLASS__, 'localize_social_sharing_network_label' ), 20, 6 );
 		add_filter( 'scriptlesssocialsharing_email_subject', array( __CLASS__, 'localize_legacy_scriptless_email_subject' ), 20, 1 );
 		add_filter( 'scriptlesssocialsharing_email_body', array( __CLASS__, 'localize_legacy_scriptless_email_body' ), 20, 1 );
+		add_filter( 'scriptlesssocialsharing_link_markup', array( __CLASS__, 'localize_legacy_scriptless_link_markup' ), 20, 6 );
 	}
 
 	/** Whether any part of the owned plugin's public Interface is active. */
@@ -343,6 +344,56 @@ trait Devenia_Workflow_Social_Sharing_Runtime_Presentation_Control {
 	public static function localize_legacy_scriptless_email_body( $text ): string {
 		$localized = self::legacy_scriptless_social_sharing_runtime_value( $text, 'scriptless_email_body' );
 		return trim( str_replace( '{url}', '', $localized ) );
+	}
+
+	/**
+	 * Legacy Scriptless accessible-label Adapter.
+	 *
+	 * Scriptless owns the link, URL, icon, target, rel, and visible-label mode.
+	 * Workflow changes only the single screen-reader label text when a semantic
+	 * Presentation Text value exists for the owner's stable network identifier.
+	 *
+	 * @param mixed $markup      Existing complete link markup.
+	 * @param mixed $button      Owner-provided button data.
+	 * @param mixed $link_target Owner-provided target attribute.
+	 * @param mixed $svg         Owner-provided icon markup.
+	 * @param mixed $label_class Owner-provided label presentation class.
+	 * @param mixed $link_rel    Owner-provided rel attribute.
+	 */
+	public static function localize_legacy_scriptless_link_markup( $markup, $button, $link_target = '', $svg = '', $label_class = '', $link_rel = '' ): string {
+		$markup = is_scalar( $markup ) ? (string) $markup : '';
+		if ( '' === $markup || 'screen-reader-text' !== (string) $label_class || ! is_array( $button ) ) {
+			return $markup;
+		}
+
+		$network = sanitize_key( (string) ( $button['name'] ?? '' ) );
+		if ( '' === $network ) {
+			return $markup;
+		}
+
+		$localized = self::legacy_scriptless_social_sharing_runtime_value(
+			'',
+			'social_sharing_legacy_accessible_label.' . $network
+		);
+		if ( '' === $localized || self::social_sharing_has_sprintf_string_placeholder( $localized ) ) {
+			return $markup;
+		}
+
+		$pattern = '/(<span\b[^>]*class=(["\'])[^"\']*\bscreen-reader-text\b[^"\']*\2[^>]*>)(.*?)(<\/span>)/isu';
+		if ( 1 !== preg_match_all( $pattern, $markup ) ) {
+			return $markup;
+		}
+
+		$localized_markup = preg_replace_callback(
+			$pattern,
+			static function ( array $matches ) use ( $localized ): string {
+				return $matches[1] . esc_html( $localized ) . $matches[4];
+			},
+			$markup,
+			1
+		);
+
+		return is_string( $localized_markup ) ? $localized_markup : $markup;
 	}
 
 	/** Public per-network accessible-label filter Adapter. */

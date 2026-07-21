@@ -47,6 +47,12 @@ assert.match(module, /in_array\( \$post_type, \(array\) \( \$manifest\['applicab
 assert.doesNotMatch(module, /'post' === \$post_type/);
 assert.match(module, /return null;/);
 assert.match(module, /legacy_scriptless_social_sharing_runtime_value[\s\S]*is_configured_content_language/, "legacy sharing must support neutral source-language runtime text");
+assert.match(module, /scriptlesssocialsharing_link_markup/);
+assert.match(module, /social_sharing_legacy_accessible_label\.' \. \$network/);
+assert.match(module, /'screen-reader-text' !== \(string\) \$label_class/);
+assert.match(module, /1 !== preg_match_all\( \$pattern, \$markup \)/);
+assert.match(runtime, /legacy_scriptless_accessible_label_adapter/);
+assert.match(runtime, /Legacy Scriptless label Adapter changed owner-controlled link data/);
 assert.match(runtime, /content-type-neutral runtime registry/, "WordPress runtime must prove source-language neutral sharing text");
 
 // Workflow must not know the sharing owner's private implementation.
