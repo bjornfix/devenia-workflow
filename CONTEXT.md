@@ -484,8 +484,8 @@ interpreted as an empty queue.
 Queue readers use an opaque cursor snapshot bound to schema, Generation and both
 Epochs, read the active Generation without re-projecting the complete
 source-language Cartesian product, and revalidate the same view before returning.
-Generation rebuilds capture their immutable inputs once and advance a
-server-owned source cursor in bounded projection chunks. A resume token exposes
+Generation rebuilds capture their immutable Epoch and policy inputs once, then
+advance server-owned scan and projection cursors in bounded chunks. A resume token exposes
 only the continuation Interface; the Store owns intermediate rows, Epoch checks,
 conflict handling and final atomic activation, so an HTTP execution window cannot
 strand large sites without a completion path.

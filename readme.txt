@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.654
+Stable tag: 0.1.655
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.655 =
+* Extend the resumable Inventory Generation lifecycle across both source scanning and obligation projection, keeping the initial snapshot call bounded on large sites.
 
 = 0.1.654 =
 * Make complete Inventory Generation rebuilds resumable in bounded server-owned chunks so large sites cannot be blocked by an HTTP execution window.

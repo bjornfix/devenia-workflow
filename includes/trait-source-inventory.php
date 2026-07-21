@@ -624,30 +624,13 @@ trait Devenia_Workflow_Source_Inventory {
 	/** Capture immutable rebuild inputs once; projection proceeds in bounded calls. */
 	private static function inventory_rebuild_initialize(): array {
 		$generation = gmdate( 'YmdHis' ) . '-' . substr( wp_generate_uuid4(), 0, 8 );
-		$included = 0; $excluded = 0; $reasons = array(); $source_rows = array(); $inventory_rows = array(); $page = 1;
-		do {
-			$query = new WP_Query( array( 'post_type' => self::translatable_post_types(), 'post_status' => array_keys( get_post_stati() ), 'posts_per_page' => 500, 'paged' => $page, 'orderby' => 'ID', 'order' => 'ASC', 'fields' => 'ids', 'no_found_rows' => true ) );
-			$ids = array_map( 'absint', $query->posts );
-			foreach ( $ids as $id ) {
-				$post = get_post( $id );
-				if ( ! $post ) { continue; }
-				$reason = self::is_translation_post( $id ) ? 'translation' : ( 'publish' !== $post->post_status ? 'status_' . sanitize_key( $post->post_status ) : ( '' !== (string) $post->post_password ? 'password_protected' : ( ! is_post_publicly_viewable( $post ) ? 'not_publicly_viewable' : '' ) ) );
-				$applicable = '' === $reason;
-				$revision = $applicable ? self::source_publication_surface_revision( $post ) : '';
-				$contract_revision = $applicable ? self::translation_job_publication_surface_contract_revision( $post ) : '';
-				$inventory_rows[] = array( 'generation' => $generation, 'source_id' => $id, 'post_type' => $post->post_type, 'post_status' => $post->post_status, 'applicable' => $applicable ? 1 : 0, 'exclusion_reason' => $reason, 'source_revision' => $revision, 'publication_surface_contract_revision' => $contract_revision, 'modified_gmt' => '0000-00-00 00:00:00' === $post->post_modified_gmt ? gmdate( 'Y-m-d H:i:s' ) : $post->post_modified_gmt );
-				if ( $applicable ) { ++$included; $source_rows[] = array( $id, $revision, $contract_revision ); }
-				else { ++$excluded; $reasons[ $reason ] = 1 + ( $reasons[ $reason ] ?? 0 ); }
-			}
-			++$page;
-		} while ( 500 === count( $ids ) );
-		return array( 'success' => true, 'token' => 'sir_' . substr( hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) ), 0, 32 ), 'generation' => $generation, 'projection_epoch' => self::inventory_store_projection_epoch(), 'source_epoch' => self::source_inventory_epoch(), 'input_signature' => self::source_inventory_input_signature(), 'source_signature' => hash( 'sha256', wp_json_encode( $source_rows ) ?: '' ), 'included' => $included, 'excluded' => $excluded, 'reasons' => $reasons, 'source_rows' => $source_rows, 'inventory_rows' => $inventory_rows, 'languages' => array_keys( self::target_languages() ), 'source_offset' => 0, 'obligation_rows' => array(), 'state_counts' => array(), 'expires_at' => time() + HOUR_IN_SECONDS );
+		return array( 'success' => true, 'token' => 'sir_' . substr( hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) ), 0, 32 ), 'generation' => $generation, 'projection_epoch' => self::inventory_store_projection_epoch(), 'source_epoch' => self::source_inventory_epoch(), 'input_signature' => self::source_inventory_input_signature(), 'source_signature' => '', 'phase' => 'scan', 'scan_page' => 1, 'included' => 0, 'excluded' => 0, 'reasons' => array(), 'source_rows' => array(), 'inventory_rows' => array(), 'languages' => array_keys( self::target_languages() ), 'source_offset' => 0, 'obligation_rows' => array(), 'state_counts' => array(), 'expires_at' => time() + HOUR_IN_SECONDS );
 	}
 
 	private static function inventory_rebuild_progress( array $state ): array {
 		$total = count( (array) ( $state['source_rows'] ?? array() ) );
 		$done = min( $total, absint( $state['source_offset'] ?? 0 ) );
-		return array( 'sources_projected' => $done, 'sources_total' => $total, 'obligations_projected' => count( (array) ( $state['obligation_rows'] ?? array() ) ) );
+		return array( 'phase' => (string) ( $state['phase'] ?? 'project' ), 'source_candidates_scanned' => count( (array) ( $state['inventory_rows'] ?? array() ) ), 'sources_projected' => $done, 'sources_total' => $total, 'obligations_projected' => count( (array) ( $state['obligation_rows'] ?? array() ) ) );
 	}
 
 	/** Project at most five sources per request, then atomically activate the completed Generation. */
@@ -657,6 +640,32 @@ trait Devenia_Workflow_Source_Inventory {
 			return array( 'success' => false, 'retryable' => true, 'code' => 'inventory_changed_during_rebuild' );
 		}
 		$before = $state;
+		if ( 'scan' === (string) ( $state['phase'] ?? '' ) ) {
+			$page = max( 1, absint( $state['scan_page'] ?? 1 ) );
+			$query = new WP_Query( array( 'post_type' => self::translatable_post_types(), 'post_status' => array_keys( get_post_stati() ), 'posts_per_page' => 50, 'paged' => $page, 'orderby' => 'ID', 'order' => 'ASC', 'fields' => 'ids', 'no_found_rows' => true ) );
+			$ids = array_map( 'absint', $query->posts );
+			foreach ( $ids as $id ) {
+				$post = get_post( $id );
+				if ( ! $post ) { continue; }
+				$reason = self::is_translation_post( $id ) ? 'translation' : ( 'publish' !== $post->post_status ? 'status_' . sanitize_key( $post->post_status ) : ( '' !== (string) $post->post_password ? 'password_protected' : ( ! is_post_publicly_viewable( $post ) ? 'not_publicly_viewable' : '' ) ) );
+				$applicable = '' === $reason;
+				$revision = $applicable ? self::source_publication_surface_revision( $post ) : '';
+				$contract_revision = $applicable ? self::translation_job_publication_surface_contract_revision( $post ) : '';
+				$state['inventory_rows'][] = array( 'generation' => (string) $state['generation'], 'source_id' => $id, 'post_type' => $post->post_type, 'post_status' => $post->post_status, 'applicable' => $applicable ? 1 : 0, 'exclusion_reason' => $reason, 'source_revision' => $revision, 'publication_surface_contract_revision' => $contract_revision, 'modified_gmt' => '0000-00-00 00:00:00' === $post->post_modified_gmt ? gmdate( 'Y-m-d H:i:s' ) : $post->post_modified_gmt );
+				if ( $applicable ) { ++$state['included']; $state['source_rows'][] = array( $id, $revision, $contract_revision ); }
+				else { ++$state['excluded']; $state['reasons'][ $reason ] = 1 + absint( $state['reasons'][ $reason ] ?? 0 ); }
+			}
+			$state['expires_at'] = time() + HOUR_IN_SECONDS;
+			if ( 50 === count( $ids ) ) {
+				$state['scan_page'] = $page + 1;
+				if ( ! self::atomic_replace_option_value( self::OPTION_SOURCE_INVENTORY_REBUILD, $before, $state ) ) { return array( 'success' => false, 'retryable' => true, 'code' => 'inventory_rebuild_resume_conflict' ); }
+				return array( 'success' => true, 'completed' => false, 'resume_token' => (string) $state['token'], 'progress' => self::inventory_rebuild_progress( $state ) );
+			}
+			$state['phase'] = 'project';
+			$state['source_signature'] = hash( 'sha256', wp_json_encode( (array) $state['source_rows'] ) ?: '' );
+			$before = get_option( self::OPTION_SOURCE_INVENTORY_REBUILD, array() );
+			if ( ! is_array( $before ) || ! hash_equals( (string) ( $before['token'] ?? '' ), (string) $state['token'] ) ) { return array( 'success' => false, 'retryable' => true, 'code' => 'inventory_rebuild_resume_conflict' ); }
+		}
 		$source_rows = (array) $state['source_rows'];
 		$offset = absint( $state['source_offset'] ?? 0 );
 		foreach ( array_slice( $source_rows, $offset, 5 ) as $source_row ) {
