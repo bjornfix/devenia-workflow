@@ -35,6 +35,7 @@ function devenia_workflow_uninstall_site(): void {
 		'devenia_workflow_source_inventory_active',
 		'devenia_workflow_source_inventory_dirty',
 		'devenia_workflow_source_inventory_epoch',
+		'devenia_workflow_source_inventory_rebuild',
 		'devenia_workflow_obligation_projection_epoch',
 		'devenia_workflow_obligation_projection_lease',
 	);

@@ -18,7 +18,9 @@ foreach ( array(
 	'structured exclusions' => 'exclusion_reason',
 	'password exclusion' => 'password_protected',
 	'public viewability' => 'is_post_publicly_viewable',
-	'complete obligation product' => '$included * count( $languages )',
+	'complete obligation product' => "absint( \$state['included'] ) * count( (array) \$state['languages'] )",
+	'bounded resumable rebuild' => 'inventory_rebuild_continue',
+	'server-owned rebuild cursor' => "['source_offset']",
 	'stable source cursor' => "['source_lookup'][ (string) \$cursor ]",
 	'stable obligation cursor' => 'inventory_store_seek_unresolved',
 	'Translation Job delegation' => 'translation_job_discover',
@@ -66,7 +68,7 @@ if ( false !== strpos( $jobs, 'inventory_store_begin_projection_mutation' ) || f
 if ( false === strpos( $mode, 'self::mark_source_inventory_dirty();' ) ) { $failures[] = 'Workflow mode mutation does not advance Source Inventory authority'; }
 if ( substr_count( $main, 'update_option( self::OPTION_LANGUAGES, $languages, false );' ) !== substr_count( $main, "update_option( self::OPTION_LANGUAGES, \$languages, false );\n\t\tself::mark_source_inventory_dirty();" ) + substr_count( $main, "update_option( self::OPTION_LANGUAGES, \$languages, false );\n\t\t\t\tself::mark_source_inventory_dirty();" ) ) { $failures[] = 'A language-registry mutation bypasses Source Inventory authority'; }
 if ( false === strpos( $main, "SOURCE_INVENTORY_SCHEMA_VERSION = '4'" ) ) { $failures[] = 'Inventory schema was not advanced for projection epochs'; }
-foreach ( array( 'devenia_workflow_source_inventory_epoch', 'devenia_workflow_obligation_projection_epoch', 'devenia_workflow_obligation_projection_lease' ) as $owned_option ) {
+foreach ( array( 'devenia_workflow_source_inventory_epoch', 'devenia_workflow_source_inventory_rebuild', 'devenia_workflow_obligation_projection_epoch', 'devenia_workflow_obligation_projection_lease' ) as $owned_option ) {
 	if ( false === strpos( $uninstall, "'{$owned_option}'" ) ) { $failures[] = "uninstall omits {$owned_option}"; }
 }
 

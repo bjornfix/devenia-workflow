@@ -9,9 +9,17 @@ $invoke = static function ( string $method, array $args = array() ) {
 	$reflection->setAccessible( true );
 	return $reflection->invokeArgs( null, $args );
 };
+$rebuild = static function () use ( $invoke ): array {
+	$result = $invoke( 'rebuild_source_inventory', array( array( 'confirm_rebuild' => true ) ) );
+	for ( $attempt = 0; $attempt < 500 && ! empty( $result['success'] ) && empty( $result['completed'] ); ++$attempt ) {
+		$result = $invoke( 'rebuild_source_inventory', array( array( 'confirm_rebuild' => true, 'resume_token' => (string) ( $result['resume_token'] ?? '' ) ) ) );
+	}
+	return $result;
+};
 $created = array();
 $created_options = array();
 $failures = array();
+delete_option( Devenia_Workflow::OPTION_SOURCE_INVENTORY_REBUILD );
 $insert_post = static function ( array $values ) use ( &$created ): int {
 	global $wpdb;
 	$defaults = array(
@@ -40,7 +48,7 @@ try {
 	$noindex = $insert_post( array( 'post_title' => 'Inventory public noindex source', 'post_content' => '<p>Visible noindex fixture.</p>' ) );
 	$wpdb->insert( $wpdb->postmeta, array( 'post_id' => $noindex, 'meta_key' => 'rank_math_robots', 'meta_value' => serialize( array( 'noindex' ) ) ) );
 
-	$result = $invoke( 'rebuild_source_inventory', array( array() ) );
+	$result = $rebuild();
 	if ( empty( $result['success'] ) ) { $failures[] = 'rebuild failed'; }
 	$manifest = $result['inventory'] ?? array();
 	$generation = (string) ( $manifest['generation'] ?? '' );
@@ -147,12 +155,12 @@ try {
 	$epoch_before_translation_save = $invoke( 'source_inventory_epoch' );
 	if ( $translation_fixture > 0 ) { do_action( 'save_post', $translation_fixture, get_post( $translation_fixture ), true ); }
 	if ( $invoke( 'source_inventory_epoch' ) <= $epoch_before_translation_save ) { $failures[] = 'direct translation save did not invalidate Inventory authority'; }
-	$invoke( 'rebuild_source_inventory', array( array() ) );
+	$rebuild();
 
 	$epoch_before_term_edit = $invoke( 'source_inventory_epoch' );
 	do_action( 'edited_term', 0, 0, 'category' );
 	if ( $invoke( 'source_inventory_epoch' ) <= $epoch_before_term_edit ) { $failures[] = 'taxonomy mutation did not invalidate Source authority'; }
-	$invoke( 'rebuild_source_inventory', array( array() ) );
+	$rebuild();
 
 	$expired_owner = $invoke( 'inventory_store_acquire_projection_lease', array( 'runtime_expired_owner' ) );
 	if ( empty( $expired_owner['success'] ) ) {
@@ -186,7 +194,7 @@ try {
 		foreach ( $created as $id ) { clean_post_cache( $id ); }
 	}
 	foreach ( $created_options as $option_name ) { delete_option( $option_name ); }
-	$invoke( 'rebuild_source_inventory', array( array() ) );
+	$rebuild();
 }
 
 if ( $failures ) { fwrite( STDERR, wp_json_encode( array( 'success' => false, 'failures' => $failures ), JSON_PRETTY_PRINT ) . PHP_EOL ); exit( 1 ); }
