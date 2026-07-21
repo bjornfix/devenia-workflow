@@ -14,6 +14,20 @@ trait Devenia_Workflow_Source_Inventory {
 	private const OBLIGATION_PROJECTION_LEASE_SECONDS = 120;
 	private static int $inventory_authorized_mutation_depth = 0;
 
+	/** Normalize the public Source Inventory phase scope. */
+	private static function inventory_source_type_scope( $value ): string {
+		$value = sanitize_key( (string) $value );
+		return in_array( $value, array( 'page', 'post' ), true ) ? $value : 'all';
+	}
+
+	private static function inventory_source_type_scope_schema(): array {
+		return array( 'type' => 'string', 'enum' => array( 'all', 'page', 'post' ), 'default' => 'all' );
+	}
+
+	private static function inventory_obligation_snapshot_kind( string $source_type ): string {
+		return 'all' === $source_type ? 'obligation' : 'obligation_' . $source_type;
+	}
+
 	private static function inventory_store_index_name( string $generation ): string {
 		return 'devenia_workflow_inventory_' . sanitize_key( $generation ) . '_index';
 	}
@@ -60,6 +74,7 @@ trait Devenia_Workflow_Source_Inventory {
 		if ( count( $digests ) !== $count ) { return array( 'success' => false, 'code' => 'inventory_store_rebuild_required' ); }
 		$rows  = array();
 		$unresolved_counts = array();
+		$unresolved_source_type_counts = array( 'page' => array(), 'post' => array() );
 		for ( $shard = 0; $shard < $count; ++$shard ) {
 			$chunk = get_option( self::inventory_store_shard_name( $generation, $kind, $shard ), null );
 			$remaining = $expected - count( $rows );
@@ -74,6 +89,9 @@ trait Devenia_Workflow_Source_Inventory {
 			$rows = array_merge( $rows, $chunk );
 			if ( 'obligation' === $kind ) {
 				$unresolved_counts[ $shard ] = count( array_filter( $chunk, static function ( $row ) { return is_array( $row ) && 'published_verified' !== (string) ( $row['state'] ?? '' ); } ) );
+				foreach ( array( 'page', 'post' ) as $source_type ) {
+					$unresolved_source_type_counts[ $source_type ][ $shard ] = count( array_filter( $chunk, static function ( $row ) use ( $source_type ) { return is_array( $row ) && 'published_verified' !== (string) ( $row['state'] ?? '' ) && $source_type === sanitize_key( (string) ( $row['source_post_type'] ?? '' ) ); } ) );
+				}
 			}
 		}
 		if ( count( $rows ) !== $expected ) {
@@ -81,6 +99,13 @@ trait Devenia_Workflow_Source_Inventory {
 		}
 		if ( 'obligation' === $kind && array_values( $unresolved_counts ) !== array_values( array_map( 'absint', (array) ( $index['unresolved_shard_counts'] ?? array() ) ) ) ) {
 			return array( 'success' => false, 'code' => 'inventory_store_rebuild_required', 'kind' => 'obligation_index' );
+		}
+		if ( 'obligation' === $kind ) {
+			foreach ( array( 'page', 'post' ) as $source_type ) {
+				if ( array_values( $unresolved_source_type_counts[ $source_type ] ) !== array_values( array_map( 'absint', (array) ( $index['unresolved_source_type_shard_counts'][ $source_type ] ?? array() ) ) ) ) {
+					return array( 'success' => false, 'code' => 'inventory_store_rebuild_required', 'kind' => 'obligation_source_type_index' );
+				}
+			}
 		}
 		return array( 'success' => true, 'rows' => $rows, 'index' => $index );
 	}
@@ -94,10 +119,19 @@ trait Devenia_Workflow_Source_Inventory {
 		}
 		$obligation_lookup = array();
 		$unresolved_shard_counts = array_fill( 0, (int) ceil( count( $obligations ) / self::INVENTORY_STORE_SHARD_SIZE ), 0 );
+		$unresolved_source_type_shard_counts = array(
+			'page' => array_fill( 0, count( $unresolved_shard_counts ), 0 ),
+			'post' => array_fill( 0, count( $unresolved_shard_counts ), 0 ),
+		);
 		foreach ( array_values( $obligations ) as $offset => $row ) {
 			$key = absint( $row['source_id'] ?? 0 ) . ':' . sanitize_key( (string) ( $row['target_language'] ?? '' ) );
-			$obligation_lookup[ $key ] = array( 'shard' => intdiv( $offset, self::INVENTORY_STORE_SHARD_SIZE ), 'row' => $offset % self::INVENTORY_STORE_SHARD_SIZE );
-			if ( 'published_verified' !== (string) ( $row['state'] ?? '' ) ) { ++$unresolved_shard_counts[ intdiv( $offset, self::INVENTORY_STORE_SHARD_SIZE ) ]; }
+			$shard = intdiv( $offset, self::INVENTORY_STORE_SHARD_SIZE );
+			$obligation_lookup[ $key ] = array( 'shard' => $shard, 'row' => $offset % self::INVENTORY_STORE_SHARD_SIZE );
+			if ( 'published_verified' !== (string) ( $row['state'] ?? '' ) ) {
+				++$unresolved_shard_counts[ $shard ];
+				$source_type = sanitize_key( (string) ( $row['source_post_type'] ?? '' ) );
+				if ( isset( $unresolved_source_type_shard_counts[ $source_type ] ) ) { ++$unresolved_source_type_shard_counts[ $source_type ][ $shard ]; }
+			}
 		}
 		$index = array(
 			'generation'          => $generation,
@@ -109,6 +143,7 @@ trait Devenia_Workflow_Source_Inventory {
 			'obligation_shard_digests' => self::inventory_store_shard_digests( $obligations ),
 			'obligation_lookup'   => $obligation_lookup,
 			'unresolved_shard_counts' => $unresolved_shard_counts,
+			'unresolved_source_type_shard_counts' => $unresolved_source_type_shard_counts,
 			'source_lookup' => $source_lookup,
 			'written_at'          => gmdate( 'c' ),
 		);
@@ -159,14 +194,17 @@ trait Devenia_Workflow_Source_Inventory {
 	}
 
 	/** Seek unresolved obligations through per-row-shard counts; never materialize the whole queue. */
-	private static function inventory_store_seek_unresolved( array $manifest, int $cursor, int $limit ): array {
+	private static function inventory_store_seek_unresolved( array $manifest, int $cursor, int $limit, string $source_type = 'all' ): array {
 		$generation = (string) ( $manifest['generation'] ?? '' );
 		$index = get_option( self::inventory_store_index_name( $generation ), null );
 		if ( ! is_array( $index ) || ! hash_equals( (string) ( $manifest['inventory_index_digest'] ?? '' ), hash( 'sha256', wp_json_encode( $index ) ?: '' ) ) ) {
 			return array( 'success' => false, 'code' => 'inventory_store_rebuild_required' );
 		}
 		$count = absint( $index['obligation_count'] ?? 0 );
-		$shard_counts = array_values( array_map( 'absint', (array) ( $index['unresolved_shard_counts'] ?? array() ) ) );
+		$source_type = self::inventory_source_type_scope( $source_type );
+		$shard_counts = 'all' === $source_type
+			? array_values( array_map( 'absint', (array) ( $index['unresolved_shard_counts'] ?? array() ) ) )
+			: array_values( array_map( 'absint', (array) ( $index['unresolved_source_type_shard_counts'][ $source_type ] ?? array() ) ) );
 		$expected_shards = absint( $index['obligation_shards'] ?? 0 );
 		if ( count( $shard_counts ) !== $expected_shards ) { return array( 'success' => false, 'code' => 'inventory_store_rebuild_required' ); }
 		$ids = array();
@@ -179,7 +217,7 @@ trait Devenia_Workflow_Source_Inventory {
 			$observed = 0;
 			foreach ( $read['rows'] as $row ) {
 				$id = absint( $row['obligation_id'] ?? 0 );
-				if ( 'published_verified' !== (string) ( $row['state'] ?? '' ) ) {
+				if ( 'published_verified' !== (string) ( $row['state'] ?? '' ) && ( 'all' === $source_type || $source_type === sanitize_key( (string) ( $row['source_post_type'] ?? '' ) ) ) ) {
 					++$observed;
 					if ( $id > $cursor && count( $ids ) <= $limit ) { $ids[] = $id; }
 				}
@@ -204,6 +242,9 @@ trait Devenia_Workflow_Source_Inventory {
 			|| count( (array) ( $index['obligation_lookup'] ?? array() ) ) !== absint( $index['obligation_count'] ?? 0 )
 			|| count( (array) ( $index['source_lookup'] ?? array() ) ) !== absint( $index['source_count'] ?? 0 )
 			|| count( (array) ( $index['unresolved_shard_counts'] ?? array() ) ) !== absint( $index['obligation_shards'] ?? 0 )
+			|| count( (array) ( $index['unresolved_source_type_shard_counts']['page'] ?? array() ) ) !== absint( $index['obligation_shards'] ?? 0 )
+			|| count( (array) ( $index['unresolved_source_type_shard_counts']['post'] ?? array() ) ) !== absint( $index['obligation_shards'] ?? 0 )
+			|| absint( $manifest['included_sources'] ?? 0 ) !== absint( $manifest['included_sources_by_post_type']['page'] ?? 0 ) + absint( $manifest['included_sources_by_post_type']['post'] ?? 0 )
 			|| ! hash_equals( (string) ( $manifest['inventory_index_digest'] ?? '' ), hash( 'sha256', wp_json_encode( $index ) ?: '' ) )
 		) {
 			return array();
@@ -486,6 +527,10 @@ trait Devenia_Workflow_Source_Inventory {
 		$new_unresolved = 'published_verified' !== (string) ( $projection['state'] ?? '' );
 		if ( $old_unresolved !== $new_unresolved ) {
 			$index['unresolved_shard_counts'][ $shard ] = max( 0, absint( $index['unresolved_shard_counts'][ $shard ] ?? 0 ) + ( $new_unresolved ? 1 : -1 ) );
+			$source_type = sanitize_key( (string) ( $rows[ $row_index ]['source_post_type'] ?? '' ) );
+			if ( in_array( $source_type, array( 'page', 'post' ), true ) ) {
+				$index['unresolved_source_type_shard_counts'][ $source_type ][ $shard ] = max( 0, absint( $index['unresolved_source_type_shard_counts'][ $source_type ][ $shard ] ?? 0 ) + ( $new_unresolved ? 1 : -1 ) );
+			}
 		}
 		update_option( self::inventory_store_index_name( $generation ), $index, false );
 		$stored_index = get_option( self::inventory_store_index_name( $generation ), array() );
@@ -521,6 +566,8 @@ trait Devenia_Workflow_Source_Inventory {
 			),
 			'additionalProperties' => false,
 		);
+		$obligation_cursor_schema = $cursor_schema;
+		$obligation_cursor_schema['properties']['source_type'] = self::inventory_source_type_scope_schema();
 		return array(
 			'devenia-workflow/rebuild-source-inventory' => array(
 				'label' => 'Rebuild Authoritative Source Inventory',
@@ -540,24 +587,24 @@ trait Devenia_Workflow_Source_Inventory {
 			),
 			'devenia-workflow/translation-obligation-queue' => array(
 				'label' => 'Read Complete Translation Obligation Queue',
-				'description' => 'Reads unresolved obligations from the active whole-site projection with a stable obligation cursor.',
-				'input_schema' => $cursor_schema,
+				'description' => 'Reads unresolved obligations for an explicit source type from the active whole-site projection with a scope-bound stable cursor.',
+				'input_schema' => $obligation_cursor_schema,
 				'output_schema' => self::generic_output_schema(),
 				'execute_callback' => function ( $input = array() ) { return self::run_ability_operation( 'translation_obligation_queue', $input ); },
 				'meta' => self::ability_meta( true, false, true ),
 			),
 			'devenia-workflow/translation-job-next' => array(
 				'label' => 'Discover Next Complete-Inventory Translation Job',
-				'description' => 'Selects the next unresolved whole-site obligation, prioritizing unresolved internal-link dependencies before their referring source, and delegates job creation to the current Translation Job discover lifecycle.',
-				'input_schema' => array( 'type' => 'object', 'properties' => array( 'observability_label' => array( 'type' => 'string' ) ), 'additionalProperties' => false ),
+				'description' => 'Selects the next unresolved obligation within an explicit source type, prioritizing same-type unresolved internal-link dependencies before their referring source, and delegates job creation to the current Translation Job discover lifecycle.',
+				'input_schema' => array( 'type' => 'object', 'properties' => array( 'source_type' => self::inventory_source_type_scope_schema(), 'observability_label' => array( 'type' => 'string' ) ), 'additionalProperties' => false ),
 				'output_schema' => self::generic_output_schema(),
 				'execute_callback' => function ( $input = array() ) { return self::run_ability_operation( 'translation_job_next', $input ); },
 				'meta' => self::ability_meta( false, false, true ),
 			),
 			'devenia-workflow/translation-exhaustion-proof' => array(
 				'label' => 'Prove Whole-Site Translation Exhaustion',
-				'description' => 'Proves a clean complete generation, exact source-language arithmetic, and zero unresolved obligations.',
-				'input_schema' => array( 'type' => 'object', 'properties' => array( 'refresh' => array( 'type' => 'boolean', 'default' => true ) ), 'additionalProperties' => false ),
+				'description' => 'Proves a clean complete generation, exact source-language arithmetic, and zero unresolved obligations for an explicit source type.',
+				'input_schema' => array( 'type' => 'object', 'properties' => array( 'source_type' => self::inventory_source_type_scope_schema(), 'refresh' => array( 'type' => 'boolean', 'default' => true ) ), 'additionalProperties' => false ),
 				'output_schema' => self::generic_output_schema(),
 				'execute_callback' => function ( $input = array() ) { return self::run_ability_operation( 'translation_exhaustion_proof', $input ); },
 				'meta' => self::ability_meta( true, false, true ),
@@ -624,7 +671,7 @@ trait Devenia_Workflow_Source_Inventory {
 	/** Capture immutable rebuild inputs once; projection proceeds in bounded calls. */
 	private static function inventory_rebuild_initialize(): array {
 		$generation = gmdate( 'YmdHis' ) . '-' . substr( wp_generate_uuid4(), 0, 8 );
-		return array( 'success' => true, 'token' => 'sir_' . substr( hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) ), 0, 32 ), 'generation' => $generation, 'projection_epoch' => self::inventory_store_projection_epoch(), 'source_epoch' => self::source_inventory_epoch(), 'input_signature' => self::source_inventory_input_signature(), 'source_signature' => '', 'phase' => 'scan', 'scan_page' => 1, 'included' => 0, 'excluded' => 0, 'reasons' => array(), 'source_rows' => array(), 'inventory_rows' => array(), 'languages' => array_keys( self::target_languages() ), 'source_offset' => 0, 'obligation_rows' => array(), 'state_counts' => array(), 'expires_at' => time() + HOUR_IN_SECONDS );
+		return array( 'success' => true, 'token' => 'sir_' . substr( hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) ), 0, 32 ), 'generation' => $generation, 'projection_epoch' => self::inventory_store_projection_epoch(), 'source_epoch' => self::source_inventory_epoch(), 'input_signature' => self::source_inventory_input_signature(), 'source_signature' => '', 'phase' => 'scan', 'scan_page' => 1, 'included' => 0, 'included_by_source_type' => array( 'page' => 0, 'post' => 0 ), 'excluded' => 0, 'reasons' => array(), 'source_rows' => array(), 'inventory_rows' => array(), 'languages' => array_keys( self::target_languages() ), 'source_offset' => 0, 'obligation_rows' => array(), 'state_counts' => array(), 'expires_at' => time() + HOUR_IN_SECONDS );
 	}
 
 	private static function inventory_rebuild_progress( array $state ): array {
@@ -652,7 +699,7 @@ trait Devenia_Workflow_Source_Inventory {
 				$revision = $applicable ? self::source_publication_surface_revision( $post ) : '';
 				$contract_revision = $applicable ? self::translation_job_publication_surface_contract_revision( $post ) : '';
 				$state['inventory_rows'][] = array( 'generation' => (string) $state['generation'], 'source_id' => $id, 'post_type' => $post->post_type, 'post_status' => $post->post_status, 'applicable' => $applicable ? 1 : 0, 'exclusion_reason' => $reason, 'source_revision' => $revision, 'publication_surface_contract_revision' => $contract_revision, 'modified_gmt' => '0000-00-00 00:00:00' === $post->post_modified_gmt ? gmdate( 'Y-m-d H:i:s' ) : $post->post_modified_gmt );
-				if ( $applicable ) { ++$state['included']; $state['source_rows'][] = array( $id, $revision, $contract_revision ); }
+				if ( $applicable ) { ++$state['included']; $state['included_by_source_type'][ (string) $post->post_type ] = 1 + absint( $state['included_by_source_type'][ (string) $post->post_type ] ?? 0 ); $state['source_rows'][] = array( $id, $revision, $contract_revision, (string) $post->post_type ); }
 				else { ++$state['excluded']; $state['reasons'][ $reason ] = 1 + absint( $state['reasons'][ $reason ] ?? 0 ); }
 			}
 			$state['expires_at'] = time() + HOUR_IN_SECONDS;
@@ -674,7 +721,7 @@ trait Devenia_Workflow_Source_Inventory {
 				$contract = $source instanceof WP_Post ? self::translation_job_publication_surface_contract_revision( $source, (string) $language ) : '';
 				$projection = self::project_translation_obligation( absint( $source_row[0] ?? 0 ), (string) $language, (string) ( $source_row[1] ?? '' ), $contract );
 				$state['state_counts'][ $projection['state'] ] = 1 + absint( $state['state_counts'][ $projection['state'] ] ?? 0 );
-				$state['obligation_rows'][] = array_merge( $projection, array( 'obligation_id' => count( $state['obligation_rows'] ) + 1, 'generation' => (string) $state['generation'], 'updated_gmt' => gmdate( 'Y-m-d H:i:s' ) ) );
+				$state['obligation_rows'][] = array_merge( $projection, array( 'source_post_type' => sanitize_key( (string) ( $source_row[3] ?? '' ) ), 'obligation_id' => count( $state['obligation_rows'] ) + 1, 'generation' => (string) $state['generation'], 'updated_gmt' => gmdate( 'Y-m-d H:i:s' ) ) );
 			}
 			++$state['source_offset'];
 		}
@@ -683,7 +730,7 @@ trait Devenia_Workflow_Source_Inventory {
 			if ( ! self::atomic_replace_option_value( self::OPTION_SOURCE_INVENTORY_REBUILD, $before, $state ) ) { return array( 'success' => false, 'retryable' => true, 'code' => 'inventory_rebuild_resume_conflict' ); }
 			return array( 'success' => true, 'completed' => false, 'resume_token' => (string) $state['token'], 'progress' => self::inventory_rebuild_progress( $state ) );
 		}
-		$manifest = array( 'generation' => (string) $state['generation'], 'completed_at' => gmdate( 'c' ), 'included_sources' => absint( $state['included'] ), 'excluded_sources' => absint( $state['excluded'] ), 'excluded_by_reason' => (array) $state['reasons'], 'target_languages' => count( (array) $state['languages'] ), 'target_language_keys' => (array) $state['languages'], 'projected_obligations' => absint( $state['included'] ) * count( (array) $state['languages'] ), 'source_signature' => (string) $state['source_signature'], 'inventory_input_signature' => (string) $state['input_signature'], 'state_counts' => (array) $state['state_counts'], 'obligation_projection_epoch' => absint( $state['projection_epoch'] ), 'source_inventory_epoch' => absint( $state['source_epoch'] ) );
+		$manifest = array( 'generation' => (string) $state['generation'], 'completed_at' => gmdate( 'c' ), 'included_sources' => absint( $state['included'] ), 'included_sources_by_post_type' => array_map( 'absint', (array) $state['included_by_source_type'] ), 'excluded_sources' => absint( $state['excluded'] ), 'excluded_by_reason' => (array) $state['reasons'], 'target_languages' => count( (array) $state['languages'] ), 'target_language_keys' => (array) $state['languages'], 'projected_obligations' => absint( $state['included'] ) * count( (array) $state['languages'] ), 'source_signature' => (string) $state['source_signature'], 'inventory_input_signature' => (string) $state['input_signature'], 'state_counts' => (array) $state['state_counts'], 'obligation_projection_epoch' => absint( $state['projection_epoch'] ), 'source_inventory_epoch' => absint( $state['source_epoch'] ) );
 		$generation_index = self::inventory_store_write_generation( (string) $state['generation'], (array) $state['inventory_rows'], (array) $state['obligation_rows'] );
 		$manifest['inventory_index_digest'] = hash( 'sha256', wp_json_encode( $generation_index ) ?: '' );
 		$activation_lease = self::inventory_store_acquire_projection_lease( 'activate_generation' );
@@ -818,7 +865,7 @@ trait Devenia_Workflow_Source_Inventory {
 		$rows = array();
 		foreach ( $ids as $id ) {
 			$post = get_post( $id );
-			if ( $post && ! self::is_translation_post( $id ) && is_post_publicly_viewable( $post ) ) { $rows[] = array( $id, self::source_publication_surface_revision( $post ), self::translation_job_publication_surface_contract_revision( $post ) ); }
+			if ( $post && ! self::is_translation_post( $id ) && is_post_publicly_viewable( $post ) ) { $rows[] = array( $id, self::source_publication_surface_revision( $post ), self::translation_job_publication_surface_contract_revision( $post ), (string) $post->post_type ); }
 		}
 		return hash( 'sha256', wp_json_encode( $rows ) );
 	}
@@ -829,13 +876,15 @@ trait Devenia_Workflow_Source_Inventory {
 		$manifest = $snapshot['manifest'];
 		$epoch = absint( $snapshot['epoch'] );
 		$cursor = absint( $input['cursor'] ?? 0 ); $limit = min( 500, max( 1, absint( $input['limit'] ?? 100 ) ) );
+		$source_type = self::inventory_source_type_scope( $input['source_type'] ?? 'all' );
+		$snapshot_kind = self::inventory_obligation_snapshot_kind( $source_type );
 		$snapshot_token = sanitize_text_field( (string) ( $input['snapshot'] ?? '' ) );
 		if ( $cursor > 0 && '' === $snapshot_token ) { return array( 'success' => false, 'code' => 'inventory_snapshot_required' ); }
 		if ( '' !== $snapshot_token ) {
-			$snapshot_validation = self::inventory_store_validate_snapshot_token( $snapshot_token, $manifest, 'obligation' );
+			$snapshot_validation = self::inventory_store_validate_snapshot_token( $snapshot_token, $manifest, $snapshot_kind );
 			if ( empty( $snapshot_validation['success'] ) ) { return $snapshot_validation; }
 		}
-		$seek = self::inventory_store_seek_unresolved( $manifest, $cursor, $limit );
+		$seek = self::inventory_store_seek_unresolved( $manifest, $cursor, $limit, $source_type );
 		if ( empty( $seek['success'] ) ) { return $seek; }
 		$page_ids = $seek['ids'];
 		$store = self::inventory_store_read_bound_rows( $manifest, 'obligation', $page_ids );
@@ -847,7 +896,7 @@ trait Devenia_Workflow_Source_Inventory {
 		}
 		if ( ! self::inventory_store_projection_snapshot_is_current( $manifest, $epoch ) ) { return array( 'success' => false, 'retryable' => true, 'code' => 'inventory_projection_changed' ); }
 		$next = $rows ? absint( end( $rows )['obligation_id'] ) : 0;
-		return array( 'success' => true, 'generation' => $manifest['generation'], 'items' => $rows, 'item_count' => count( $rows ), 'snapshot' => self::inventory_store_snapshot_token( $manifest, 'obligation' ), 'next_cursor' => ! empty( $seek['has_more'] ) ? $next : null );
+		return array( 'success' => true, 'generation' => $manifest['generation'], 'source_type' => $source_type, 'items' => $rows, 'item_count' => count( $rows ), 'snapshot' => self::inventory_store_snapshot_token( $manifest, $snapshot_kind ), 'next_cursor' => ! empty( $seek['has_more'] ) ? $next : null );
 	}
 
 	private static function translation_job_next( array $input ): array {
@@ -856,7 +905,8 @@ trait Devenia_Workflow_Source_Inventory {
 		$manifest = $snapshot['manifest'];
 		$epoch = absint( $snapshot['epoch'] );
 		$index = get_option( self::inventory_store_index_name( (string) $manifest['generation'] ), array() );
-		$seek = self::inventory_store_seek_unresolved( $manifest, 0, 1 );
+		$source_type = self::inventory_source_type_scope( $input['source_type'] ?? 'all' );
+		$seek = self::inventory_store_seek_unresolved( $manifest, 0, 1, $source_type );
 		if ( empty( $seek['success'] ) ) { return array( 'success' => false, 'exhausted' => false, 'queue' => $seek ); }
 		$unresolved_ids = $seek['ids'];
 		if ( ! self::inventory_store_projection_snapshot_is_current( $manifest, $epoch ) ) { return array( 'success' => false, 'exhausted' => false, 'queue' => array( 'success' => false, 'retryable' => true, 'code' => 'inventory_projection_changed' ) ); }
@@ -865,7 +915,7 @@ trait Devenia_Workflow_Source_Inventory {
 			if ( empty( $complete_store['success'] ) ) { return array( 'success' => false, 'exhausted' => false, 'queue' => $complete_store ); }
 			return array( 'success' => true, 'exhausted' => true, 'queue' => array( 'success' => true, 'generation' => $manifest['generation'], 'items' => array(), 'item_count' => 0 ) );
 		}
-		$selection = self::translation_job_dependency_ordered_selection( $manifest, $index, $unresolved_ids );
+		$selection = self::translation_job_dependency_ordered_selection( $manifest, $index, $unresolved_ids, $source_type );
 		if ( empty( $selection['success'] ) ) { return array( 'success' => false, 'exhausted' => false, 'queue' => $selection ); }
 		if ( ! self::inventory_store_projection_snapshot_is_current( $manifest, $epoch ) ) { return array( 'success' => false, 'exhausted' => false, 'queue' => array( 'success' => false, 'retryable' => true, 'code' => 'inventory_projection_changed' ) ); }
 		$item = $selection['item'];
@@ -882,17 +932,18 @@ trait Devenia_Workflow_Source_Inventory {
 	 * @param array<int,array<string,mixed>> $items Unresolved obligations in stable store order.
 	 * @return array{item:array<string,mixed>,dependency_ordering:array<string,mixed>}
 	 */
-	private static function translation_job_dependency_ordered_selection( array $manifest, array $index, array $unresolved_ids ): array {
+	private static function translation_job_dependency_ordered_selection( array $manifest, array $index, array $unresolved_ids, string $source_type = 'all' ): array {
 		$root_read = self::inventory_store_read_bound_rows( $manifest, 'obligation', array( $unresolved_ids[0] ) );
 		if ( empty( $root_read['success'] ) || empty( $root_read['rows'][0] ) ) { return array( 'success' => false, 'code' => 'inventory_store_rebuild_required' ); }
 		$root = $root_read['rows'][0];
+		if ( 'all' !== $source_type && $source_type !== sanitize_key( (string) ( $root['source_post_type'] ?? '' ) ) ) { return array( 'success' => false, 'code' => 'inventory_store_rebuild_required' ); }
 		$states = array();
 		$chain = array();
 		$cycles = array();
 		$traversed = 0;
 		$budget_exhausted = false;
 		$store_failure = false;
-		$resolve = function ( array $item, array $path ) use ( &$resolve, &$states, &$chain, &$cycles, &$traversed, &$budget_exhausted, &$store_failure, $manifest, $index ): array {
+		$resolve = function ( array $item, array $path ) use ( &$resolve, &$states, &$chain, &$cycles, &$traversed, &$budget_exhausted, &$store_failure, $manifest, $index, $source_type ): array {
 			$source_id = absint( $item['source_id'] ?? 0 );
 			$language = sanitize_key( (string) ( $item['target_language'] ?? '' ) );
 			$key = $source_id . ':' . $language;
@@ -911,6 +962,9 @@ trait Devenia_Workflow_Source_Inventory {
 					if ( $dependency_obligation_id < 1 ) { continue; }
 					$dependency_read = self::inventory_store_read_bound_rows( $manifest, 'obligation', array( $dependency_obligation_id ) );
 					if ( empty( $dependency_read['success'] ) || empty( $dependency_read['rows'][0] ) ) { $store_failure = true; continue; }
+					$dependency_source_type = sanitize_key( (string) ( $dependency_read['rows'][0]['source_post_type'] ?? '' ) );
+					if ( ! in_array( $dependency_source_type, array( 'page', 'post' ), true ) ) { $store_failure = true; continue; }
+					if ( 'all' !== $source_type && $source_type !== $dependency_source_type ) { continue; }
 					if ( 'published_verified' === (string) ( $dependency_read['rows'][0]['state'] ?? '' ) ) { continue; }
 					$selected = $resolve( $dependency_read['rows'][0], array_merge( $path, array( $source_id ) ) );
 					if ( absint( $selected['source_id'] ?? 0 ) !== $source_id ) {
@@ -936,11 +990,13 @@ trait Devenia_Workflow_Source_Inventory {
 				'cycles_skipped' => $cycles,
 				'traversed' => min( $traversed, self::INVENTORY_DEPENDENCY_TRAVERSAL_LIMIT ),
 				'budget_exhausted' => $budget_exhausted,
+				'source_type' => $source_type,
 			),
 		);
 	}
 
 	private static function translation_exhaustion_proof( array $input = array() ): array {
+		$source_type = self::inventory_source_type_scope( $input['source_type'] ?? 'all' );
 		$manifest = self::active_inventory_manifest();
 		if ( ! $manifest ) { $raw = get_option( self::OPTION_SOURCE_INVENTORY_ACTIVE, array() ); return array( 'success' => false, 'complete' => false, 'code' => is_array( $raw ) && ! empty( $raw['generation'] ) ? 'inventory_store_rebuild_required' : 'inventory_not_built' ); }
 		if ( ! array_key_exists( 'refresh', $input ) || ! empty( $input['refresh'] ) ) { self::source_inventory_refresh_dirty_state( $manifest ); }
@@ -951,13 +1007,32 @@ trait Devenia_Workflow_Source_Inventory {
 		$generation = (string) $manifest['generation'];
 		$store = self::inventory_store_read_rows_strict( $generation, 'obligation' );
 		if ( empty( $store['success'] ) ) { return array_merge( array( 'complete' => false ), $store ); }
-		$obligations = $store['rows'];
+		$source_store = self::inventory_store_read_rows_strict( $generation, 'source' );
+		if ( empty( $source_store['success'] ) ) { return array_merge( array( 'complete' => false ), $source_store ); }
+		$obligations = 'all' === $source_type ? $store['rows'] : array_values( array_filter( $store['rows'], static function ( $row ) use ( $source_type ) { return is_array( $row ) && $source_type === sanitize_key( (string) ( $row['source_post_type'] ?? '' ) ); } ) );
+		$sources = 'all' === $source_type ? $source_store['rows'] : array_values( array_filter( $source_store['rows'], static function ( $row ) use ( $source_type ) { return is_array( $row ) && $source_type === sanitize_key( (string) ( $row['post_type'] ?? '' ) ); } ) );
 		$total = count( $obligations );
 		$unresolved = count( array_filter( $obligations, static function ( $row ) { return is_array( $row ) && 'published_verified' !== (string) ( $row['state'] ?? '' ); } ) );
+		$state_counts = array();
+		foreach ( $obligations as $obligation ) {
+			$state = sanitize_key( (string) ( $obligation['state'] ?? '' ) );
+			if ( '' !== $state ) { $state_counts[ $state ] = 1 + absint( $state_counts[ $state ] ?? 0 ); }
+		}
+		$included_sources = 0;
+		$excluded_sources = 0;
+		$excluded_by_reason = array();
+		foreach ( $sources as $source ) {
+			if ( 1 === absint( $source['applicable'] ?? 0 ) ) { ++$included_sources; continue; }
+			++$excluded_sources;
+			$reason = sanitize_key( (string) ( $source['exclusion_reason'] ?? '' ) );
+			if ( '' !== $reason ) { $excluded_by_reason[ $reason ] = 1 + absint( $excluded_by_reason[ $reason ] ?? 0 ); }
+		}
 		if ( ! self::inventory_store_projection_snapshot_is_current( $manifest, $epoch ) ) { return array( 'success' => false, 'complete' => false, 'retryable' => true, 'code' => 'inventory_projection_changed' ); }
-		$expected = absint( $manifest['included_sources'] ?? 0 ) * absint( $manifest['target_languages'] ?? 0 );
+		$manifest_included_sources = 'all' === $source_type ? absint( $manifest['included_sources'] ?? 0 ) : absint( $manifest['included_sources_by_post_type'][ $source_type ] ?? 0 );
+		if ( $included_sources !== $manifest_included_sources ) { return array( 'success' => false, 'complete' => false, 'code' => 'inventory_store_rebuild_required', 'kind' => 'source_scope_arithmetic' ); }
+		$expected = $included_sources * absint( $manifest['target_languages'] ?? 0 );
 		$dirty = absint( $manifest['source_inventory_epoch'] ?? 0 ) !== self::source_inventory_epoch() || '1' === get_option( self::OPTION_SOURCE_INVENTORY_DIRTY, '1' );
 		$complete = ! $dirty && $expected === $total && 0 === $unresolved;
-		return array( 'success' => true, 'complete' => $complete, 'generation' => $generation, 'generation_completed_at' => $manifest['completed_at'] ?? '', 'dirty' => $dirty, 'included_sources' => absint( $manifest['included_sources'] ?? 0 ), 'target_languages' => absint( $manifest['target_languages'] ?? 0 ), 'expected_obligations' => $expected, 'projected_obligations' => $total, 'unresolved_obligations' => $unresolved, 'all_published_verified' => 0 === $unresolved );
+		return array( 'success' => true, 'complete' => $complete, 'source_type' => $source_type, 'generation' => $generation, 'generation_completed_at' => $manifest['completed_at'] ?? '', 'source_inventory_schema' => self::SOURCE_INVENTORY_SCHEMA_VERSION, 'source_signature' => (string) ( $manifest['source_signature'] ?? '' ), 'inventory_input_signature' => (string) ( $manifest['inventory_input_signature'] ?? '' ), 'source_inventory_epoch' => absint( $manifest['source_inventory_epoch'] ?? 0 ), 'obligation_projection_epoch' => absint( $manifest['obligation_projection_epoch'] ?? 0 ), 'dirty' => $dirty, 'included_sources' => $included_sources, 'excluded_sources' => $excluded_sources, 'excluded_by_reason' => $excluded_by_reason, 'target_languages' => absint( $manifest['target_languages'] ?? 0 ), 'expected_obligations' => $expected, 'projected_obligations' => $total, 'state_counts' => $state_counts, 'unresolved_obligations' => $unresolved, 'all_published_verified' => 0 === $unresolved );
 	}
 }

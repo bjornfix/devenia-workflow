@@ -473,16 +473,17 @@ when both Epochs captured before projection are still current.
 
 Every Generation receipt binds exact source and obligation counts, shard counts,
 per-shard digests, the complete source and source-language binding indexes, and
-a seekable per-shard unresolved directory. Source cursors resume through their
+a seekable per-shard unresolved directory for the whole site and each supported
+source post type. Source cursors resume through their
 exact row binding; obligation cursors seek through the directory without
 materializing every unresolved ID. Exact Job commits update one row shard and
-one directory count instead of sorting the whole queue. Normal cursor reads touch only the
+the whole-site plus matching source-type directory counts instead of sorting the whole queue. Normal cursor reads touch only the
 requested bound shards; every terminal page, including a non-empty last page, and Exhaustion Proof require
 a complete strict Store read. A missing, changed or corrupt shard is never
 interpreted as an empty queue.
 
 Queue readers use an opaque cursor snapshot bound to schema, Generation and both
-Epochs, read the active Generation without re-projecting the complete
+Epochs plus the requested `all`, `page`, or `post` source-type scope, read the active Generation without re-projecting the complete
 source-language Cartesian product, and revalidate the same view before returning.
 Generation rebuilds capture their immutable Epoch and policy inputs once, then
 advance server-owned scan and projection cursors in bounded chunks. A resume token exposes
@@ -490,7 +491,9 @@ only the continuation Interface; the Store owns intermediate rows, Epoch checks,
 conflict handling and final atomic activation, so an HTTP execution window cannot
 strand large sites without a completion path.
 Next-Job dependency traversal loads rows through the binding index and has a hard
-traversal budget rather than scanning every obligation. A source-dirty Generation fails
+traversal budget rather than scanning every obligation. A scoped traversal follows
+only same-type dependencies, so a page phase cannot silently select a post.
+A source-dirty Generation fails
 closed with `inventory_rebuild_required`; an incomplete obligation projection
 fails closed with `inventory_projection_rebuild_required`. Only an explicit
 rebuild may establish a new clean snapshot after either invariant fails.
@@ -541,7 +544,7 @@ ownership proof.
 
 Evidence that one completed Inventory Generation has been projected against
 every configured target language and has no unresolved Translation
-Obligations. It includes inventory and exclusion totals, target-language count,
+Obligations for an explicit `all`, `page`, or `post` source-type scope. It includes inventory and exclusion totals, target-language count,
 projected obligation count, unresolved state totals, and the exact policy and
 generation revisions. An empty page of queue results is never an Exhaustion
 Proof.

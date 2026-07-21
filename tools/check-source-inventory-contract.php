@@ -46,6 +46,10 @@ foreach ( array(
 	'seekable unresolved shard directory' => 'unresolved_shard_counts',
 	'snapshot-bound pagination' => 'inventory_store_snapshot_token',
 	'bounded dependency traversal' => 'INVENTORY_DEPENDENCY_TRAVERSAL_LIMIT',
+	'source-type scoped queue index' => 'unresolved_source_type_shard_counts',
+	'source-type scoped next Job' => "['source_type']",
+	'scope-bound obligation snapshot' => "'obligation_' . \$source_type",
+	'source-type scoped exhaustion arithmetic' => "['included_sources_by_post_type']",
 	'deep Job projection commit Interface' => 'inventory_store_commit_job_projection',
 ) as $contract => $needle ) {
 	if ( false === strpos( $module, $needle ) ) { $failures[] = "missing {$contract}"; }
@@ -67,7 +71,7 @@ if ( substr_count( $jobs, 'self::inventory_store_commit_job_projection(' ) < 2 )
 if ( false !== strpos( $jobs, 'inventory_store_begin_projection_mutation' ) || false !== strpos( $jobs, 'inventory_store_sync_job_obligation' ) || false !== strpos( $jobs, 'inventory_store_release_projection_lease' ) ) { $failures[] = 'Job caller leaks projection implementation ordering'; }
 if ( false === strpos( $mode, 'self::mark_source_inventory_dirty();' ) ) { $failures[] = 'Workflow mode mutation does not advance Source Inventory authority'; }
 if ( substr_count( $main, 'update_option( self::OPTION_LANGUAGES, $languages, false );' ) !== substr_count( $main, "update_option( self::OPTION_LANGUAGES, \$languages, false );\n\t\tself::mark_source_inventory_dirty();" ) + substr_count( $main, "update_option( self::OPTION_LANGUAGES, \$languages, false );\n\t\t\t\tself::mark_source_inventory_dirty();" ) ) { $failures[] = 'A language-registry mutation bypasses Source Inventory authority'; }
-if ( false === strpos( $main, "SOURCE_INVENTORY_SCHEMA_VERSION = '4'" ) ) { $failures[] = 'Inventory schema was not advanced for projection epochs'; }
+if ( false === strpos( $main, "SOURCE_INVENTORY_SCHEMA_VERSION = '5'" ) ) { $failures[] = 'Inventory schema was not advanced for source-type scoped queue indexes'; }
 foreach ( array( 'devenia_workflow_source_inventory_epoch', 'devenia_workflow_source_inventory_rebuild', 'devenia_workflow_obligation_projection_epoch', 'devenia_workflow_obligation_projection_lease' ) as $owned_option ) {
 	if ( false === strpos( $uninstall, "'{$owned_option}'" ) ) { $failures[] = "uninstall omits {$owned_option}"; }
 }
@@ -77,4 +81,4 @@ if ( $failures ) {
 	exit( 1 );
 }
 
-echo json_encode( array( 'success' => true, 'contracts' => 45, 'regression_fixture' => 'One deep commit Interface owns Job CAS/create plus exact projection; Generation receipts bind input/projection epochs, shard digests and indexes; pagination binds one snapshot and incomplete stores fail closed.' ), JSON_PRETTY_PRINT ) . PHP_EOL;
+echo json_encode( array( 'success' => true, 'contracts' => 49, 'regression_fixture' => 'One deep commit Interface owns Job CAS/create plus exact projection; Generation receipts bind input/projection epochs, source-type shard indexes and digests; pagination binds scope plus one snapshot and incomplete stores fail closed.' ), JSON_PRETTY_PRINT ) . PHP_EOL;

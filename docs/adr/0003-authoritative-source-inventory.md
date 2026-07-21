@@ -31,9 +31,18 @@ stable-cursor unresolved obligation reads, selecting the next Translation Job, a
 Exhaustion Proof. The next-job adapter delegates creation to the current
 Translation Job discover operation; the seven model-facing Translation Job operations remain unchanged.
 
+Obligation queue reads, next-Job selection, dependency traversal, and Exhaustion
+Proof accept one explicit source-type scope: `all`, `page`, or `post`. The scope
+is part of the cursor snapshot and uses generation-bound per-type unresolved
+indexes. Dependency ordering cannot cross from a scoped page phase into a post
+or vice versa. This keeps phase policy behind the same Inventory Interface
+instead of requiring coordinators to join source and obligation cursors into a
+shadow queue.
+
 Exhaustion is true only when the active generation is clean and completed,
-`included_sources * target_languages` equals the stored obligation count, zero
-obligations are unresolved, and all obligations are `published_verified`.
+`included_sources_in_scope * target_languages` equals the stored obligation
+count in scope, zero scoped obligations are unresolved, and all scoped
+obligations are `published_verified`.
 
 ## Consequences
 

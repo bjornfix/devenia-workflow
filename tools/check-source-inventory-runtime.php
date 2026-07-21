@@ -35,7 +35,9 @@ $insert_post = static function ( array $values ) use ( &$created ): int {
 
 try {
 	global $wpdb;
-	$old_source = $insert_post( array( 'post_title' => 'Inventory old zero-translation source', 'post_content' => '<!-- wp:paragraph --><p>Old public source.</p><!-- /wp:paragraph -->' ) );
+	$old_post = $insert_post( array( 'post_type' => 'post', 'post_name' => 'inventory-earlier-post-' . strtolower( wp_generate_password( 6, false, false ) ), 'post_title' => 'Inventory earlier post source', 'post_content' => '<!-- wp:paragraph --><p>Earlier public post.</p><!-- /wp:paragraph -->' ) );
+	$old_post_url = get_permalink( $old_post );
+	$old_source = $insert_post( array( 'post_name' => 'inventory-page-source-' . strtolower( wp_generate_password( 6, false, false ) ), 'post_title' => 'Inventory old zero-translation source', 'post_content' => '<!-- wp:paragraph --><p>Old public source with a <a href="' . esc_url( $old_post_url ) . '">cross-type post dependency</a>.</p><!-- /wp:paragraph -->' ) );
 
 	for ( $i = 0; $i < 501; ++$i ) {
 		$id = $insert_post( array( 'post_title' => 'Inventory newer translation ' . $i, 'post_content' => '<!-- wp:paragraph --><p>Localized fixture.</p><!-- /wp:paragraph -->' ) );
@@ -66,6 +68,49 @@ try {
 	if ( 'password_protected' !== $password_reason ) { $failures[] = 'password exclusion reason missing'; }
 	if ( 1 !== absint( $noindex_applicable ) ) { $failures[] = 'public noindex source was incorrectly excluded'; }
 	if ( absint( $manifest['target_languages'] ?? 0 ) !== $old_obligations ) { $failures[] = 'source by target-language projection is incomplete'; }
+
+	$next_page = $invoke( 'translation_job_next', array( array( 'source_type' => 'page', 'observability_label' => 'runtime-pages-first' ) ) );
+	if ( 'page' !== (string) ( $next_page['obligation']['source_post_type'] ?? '' ) || ! is_array( $next_page['discover'] ?? null ) ) { $failures[] = 'page-scoped next Job did not delegate the selected page to Job discovery'; }
+	$next_post = $invoke( 'translation_job_next', array( array( 'source_type' => 'post', 'observability_label' => 'runtime-posts-phase' ) ) );
+	if ( 'post' !== (string) ( $next_post['obligation']['source_post_type'] ?? '' ) || ! is_array( $next_post['discover'] ?? null ) ) { $failures[] = 'post-scoped next Job did not delegate the selected post to Job discovery'; }
+	$page_queue = $invoke( 'translation_obligation_queue', array( array( 'cursor' => 0, 'limit' => 50, 'source_type' => 'page' ) ) );
+	$page_queue_types = array_unique( array_map( static function ( $row ) { return (string) ( $row['source_post_type'] ?? '' ); }, (array) ( $page_queue['items'] ?? array() ) ) );
+	if ( empty( $page_queue['success'] ) || array( 'page' ) !== array_values( $page_queue_types ) ) { $failures[] = 'page-scoped obligation queue exposed a non-page obligation'; }
+	$post_queue = $invoke( 'translation_obligation_queue', array( array( 'cursor' => 0, 'limit' => 50, 'source_type' => 'post' ) ) );
+	$post_queue_types = array_unique( array_map( static function ( $row ) { return (string) ( $row['source_post_type'] ?? '' ); }, (array) ( $post_queue['items'] ?? array() ) ) );
+	if ( empty( $post_queue['success'] ) || array( 'post' ) !== array_values( $post_queue_types ) ) { $failures[] = 'post-scoped obligation queue exposed a non-post obligation'; }
+	$page_cursor = $invoke( 'translation_obligation_queue', array( array( 'cursor' => 0, 'limit' => 1, 'source_type' => 'page' ) ) );
+	$scope_mismatch = $invoke( 'translation_obligation_queue', array( array( 'cursor' => max( 1, absint( $page_cursor['next_cursor'] ?? 1 ) ), 'limit' => 1, 'source_type' => 'post', 'snapshot' => (string) ( $page_cursor['snapshot'] ?? '' ) ) ) );
+	if ( 'inventory_snapshot_stale' !== (string) ( $scope_mismatch['code'] ?? '' ) ) { $failures[] = 'page cursor snapshot was reusable under post scope'; }
+	$default_queue = $invoke( 'translation_obligation_queue', array( array( 'cursor' => 0, 'limit' => 10 ) ) );
+	$all_queue = $invoke( 'translation_obligation_queue', array( array( 'cursor' => 0, 'limit' => 10, 'source_type' => 'all' ) ) );
+	if ( (array) ( $default_queue['items'] ?? array() ) !== (array) ( $all_queue['items'] ?? array() ) || (string) ( $default_queue['snapshot'] ?? '' ) !== (string) ( $all_queue['snapshot'] ?? '' ) ) { $failures[] = 'omitted source scope no longer preserves whole-site queue behavior'; }
+	$index_name = $invoke( 'inventory_store_index_name', array( $generation ) );
+	$active_index = get_option( $index_name, array() );
+	$active_manifest_backup = get_option( Devenia_Workflow::OPTION_SOURCE_INVENTORY_ACTIVE, array() );
+	$corrupt_index = $active_index;
+	$corrupt_index['unresolved_source_type_shard_counts']['page'][0] = 1 + absint( $corrupt_index['unresolved_source_type_shard_counts']['page'][0] ?? 0 );
+	$corrupt_manifest = $active_manifest_backup;
+	$corrupt_manifest['inventory_index_digest'] = hash( 'sha256', wp_json_encode( $corrupt_index ) ?: '' );
+	try {
+		update_option( $index_name, $corrupt_index, false );
+		update_option( Devenia_Workflow::OPTION_SOURCE_INVENTORY_ACTIVE, $corrupt_manifest, false );
+		$corrupt_type_queue = $invoke( 'translation_obligation_queue', array( array( 'cursor' => 0, 'limit' => 1, 'source_type' => 'page' ) ) );
+	} finally {
+		update_option( $index_name, $active_index, false );
+		update_option( Devenia_Workflow::OPTION_SOURCE_INVENTORY_ACTIVE, $active_manifest_backup, false );
+	}
+	if ( 'inventory_store_rebuild_required' !== (string) ( $corrupt_type_queue['code'] ?? '' ) ) { $failures[] = 'corrupt per-type unresolved directory did not fail closed'; }
+	$page_fixture = current( array_filter( $obligation_rows, static function ( $row ) use ( $old_source ) { return absint( $row['source_id'] ?? 0 ) === $old_source; } ) );
+	if ( is_array( $page_fixture ) ) {
+		$selection = $invoke( 'translation_job_dependency_ordered_selection', array( $manifest, $active_index, array( absint( $page_fixture['obligation_id'] ?? 0 ) ), 'page' ) );
+		if ( empty( $selection['success'] ) || $old_source !== absint( $selection['item']['source_id'] ?? 0 ) ) { $failures[] = 'page-scoped dependency traversal crossed into a linked post'; }
+	} else { $failures[] = 'cross-type dependency fixture was unavailable'; }
+	$page_source_count = count( array_filter( $source_rows, static function ( $row ) { return 1 === absint( $row['applicable'] ?? 0 ) && 'page' === (string) ( $row['post_type'] ?? '' ); } ) );
+	$page_excluded_count = count( array_filter( $source_rows, static function ( $row ) { return 1 !== absint( $row['applicable'] ?? 0 ) && 'page' === (string) ( $row['post_type'] ?? '' ); } ) );
+	$page_proof = $invoke( 'translation_exhaustion_proof', array( array( 'source_type' => 'page', 'refresh' => false ) ) );
+	$expected_page_obligations = $page_source_count * absint( $manifest['target_languages'] ?? 0 );
+	if ( 'page' !== (string) ( $page_proof['source_type'] ?? '' ) || $expected_page_obligations !== absint( $page_proof['expected_obligations'] ?? -1 ) || $expected_page_obligations !== absint( $page_proof['projected_obligations'] ?? -1 ) || $page_excluded_count !== absint( $page_proof['excluded_sources'] ?? -1 ) || ! isset( $page_proof['excluded_by_reason'], $page_proof['state_counts'], $page_proof['inventory_input_signature'], $page_proof['source_inventory_epoch'], $page_proof['obligation_projection_epoch'] ) ) { $failures[] = 'page-scoped exhaustion proof omitted scoped arithmetic or authority evidence'; }
 
 	$old_obligation = current( array_filter( $obligation_rows, static function ( $row ) use ( $old_source ) { return absint( $row['source_id'] ?? 0 ) === $old_source; } ) );
 	if ( ! is_array( $old_obligation ) ) {
@@ -198,4 +243,4 @@ try {
 }
 
 if ( $failures ) { fwrite( STDERR, wp_json_encode( array( 'success' => false, 'failures' => $failures ), JSON_PRETTY_PRINT ) . PHP_EOL ); exit( 1 ); }
-echo wp_json_encode( array( 'success' => true, 'contracts' => array( '501_newer_translations_do_not_hide_old_source', 'structured_exclusions', 'public_noindex_included', 'complete_projection', 'deep_lifecycle_owned_exact_row_sync', 'serialized_projection_writers', 'expired_lease_takeover', 'snapshot_rejected_after_epoch_change', 'missing_shard_fail_closed', 'terminal_nonempty_page_completeness', 'translation_save_authority_invalidation', 'taxonomy_authority_invalidation', 'projection_epoch_fail_closed_after_interruption', 'exhaustion_arithmetic', 'fixture_cleanup_and_rebuild' ) ), JSON_PRETTY_PRINT ) . PHP_EOL;
+echo wp_json_encode( array( 'success' => true, 'contracts' => array( '501_newer_translations_do_not_hide_old_source', 'structured_exclusions', 'public_noindex_included', 'complete_projection', 'source_type_scoped_next_job', 'source_type_scoped_queue', 'source_type_scoped_exhaustion', 'deep_lifecycle_owned_exact_row_sync', 'serialized_projection_writers', 'expired_lease_takeover', 'snapshot_rejected_after_epoch_change', 'missing_shard_fail_closed', 'terminal_nonempty_page_completeness', 'translation_save_authority_invalidation', 'taxonomy_authority_invalidation', 'projection_epoch_fail_closed_after_interruption', 'exhaustion_arithmetic', 'fixture_cleanup_and_rebuild' ) ), JSON_PRETTY_PRINT ) . PHP_EOL;

@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.656
+Stable tag: 0.1.657
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.657 =
+* Add one source-type scope to obligation queue reads, next-Job selection, dependency ordering, and Exhaustion Proof, allowing pages and posts to be completed in explicit phases without a shadow queue.
+* Bind scoped cursors and per-type unresolved counts to the same immutable Inventory Generation and fail-closed shard receipts.
 
 = 0.1.656 =
 * Reopen repairable published-content or published-surface authority drift as a fresh finite translator and Quality generation during Job discovery or claim, while corrupt or incomplete immutable evidence continues to fail closed.
