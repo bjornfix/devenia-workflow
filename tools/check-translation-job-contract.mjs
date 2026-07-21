@@ -41,6 +41,10 @@ pass(() => assert.match(
 pass(() => assert.match(runtimeSource, /'artifact_store_failed'/));
 pass(() => assert.match(runtimeSource, /TRANSLATION_JOB_CORRECTABLE_PUBLISH_PREFLIGHT_CODES[\s\S]*applied_content_revision_mismatch/));
 pass(() => assert.match(runtimeSource, /translation_job_reopen_correctable_publish_preflight[\s\S]*publish_preflight_correction_history[\s\S]*from_generation[\s\S]*to_generation[\s\S]*publish_preflight_correction_generation_limit[\s\S]*'submission_generation'\s*=>\s*\$generation \+ 1/));
+pass(() => assert.match(runtimeSource, /translation_job_discover[\s\S]*translation_job_refresh_drifted_surface\( \$job, 'discover_published_authority_drift' \)/));
+pass(() => assert.match(runtimeSource, /translation_job_claim_under_lifecycle_lease[\s\S]*translation_job_refresh_drifted_surface\( \$job, 'claim_published_authority_drift' \)/));
+pass(() => assert.match(runtimeSource, /discover_published_authority_drift[\s\S]*claim_published_authority_drift[\s\S]*translation_job_validate_published_authority\( \$job, \$translation_id, true \)[\s\S]*published_content_revision_stale[\s\S]*published_surface_revision_stale[\s\S]*published_authority_manual_repair_required/));
+pass(() => assert.match(runtimeSource, /'authority_code'\s*=>\s*\$authority_code[\s\S]*'live_verification_passed'\s*=>\s*false/));
 pass(() => assert.match(runtimeSource, /update_option\( \$artifact_key, \$artifact_record, false \)/));
 pass(() => assert.match(runtimeSource, /\$stored\['source_revision'\][\s\S]*\$job\['source_revision'\]/));
 pass(() => assert.match(runtimeSource, /translation_job_pack_artifact_record\( \$artifact_record \)/));

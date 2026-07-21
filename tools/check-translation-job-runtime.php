@@ -31,6 +31,9 @@ $show_on_front_before = get_option( 'show_on_front', $runtime_option_missing );
 $page_on_front_before = get_option( 'page_on_front', $runtime_option_missing );
 $page_for_posts_before = get_option( 'page_for_posts', $runtime_option_missing );
 $source_inventory_dirty_before = get_option( 'devenia_workflow_source_inventory_dirty' );
+$source_inventory_active_before = get_option( 'devenia_workflow_source_inventory_active' );
+$source_inventory_rebuild_before = get_option( 'devenia_workflow_source_inventory_rebuild' );
+$source_inventory_epoch_before = get_option( 'devenia_workflow_source_inventory_epoch' );
 $nav_menu_locations_before = get_theme_mod( 'nav_menu_locations', array() );
 $runtime_menu_ids = array();
 $runtime_source_menu_id = 0;
@@ -156,6 +159,14 @@ $quality_payload = static function ( array $claim, string $artifact_revision, st
 		'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
 	);
 };
+
+// This oracle exercises the Translation Job Interface independently from the
+// whole-site Inventory Generation Store. Fixture sources are intentionally
+// drafts and therefore have no public obligation row. Preserve and restore the
+// exact inventory control options so Job transitions cannot mutate a real dev
+// generation or leave its epoch/dirty state changed by fixture hooks.
+delete_option( 'devenia_workflow_source_inventory_active' );
+delete_option( 'devenia_workflow_source_inventory_rebuild' );
 
 try {
 	$query_identity_unknown_id = 2147483000;
@@ -1873,6 +1884,62 @@ try {
 	$attempt_limit_job['status'] = 'ready_to_publish';
 	update_option( $attempt_limit_job_key, $attempt_limit_job, false );
 
+	// A persisted generation-1 Job with a complete immutable Artifact/Quality
+	// chain but a stale applied Surface authority must be discoverable as work
+	// again. Keep this proof before the later runtime scenarios intentionally
+	// consume generations 2 and 3, so the production finite-generation ceiling
+	// remains part of the assertion instead of becoming a fixture dependency.
+	$published_drift_fixture_before = get_option( $attempt_limit_job_key );
+	$published_drift_fixture = $published_drift_fixture_before;
+	$published_drift_fixture['status'] = 'published';
+	$published_drift_fixture['translation_id'] = $translation_id;
+	$published_drift_fixture['applied_surface_revision'] = 'sr_runtime_stale_applied_surface';
+	$published_drift_fixture['published_at'] = gmdate( 'c' );
+	$published_drift_fixture['live_verification_passed'] = true;
+	$published_drift_fixture['active_run_id'] = '';
+	update_option( $attempt_limit_job_key, $published_drift_fixture, false );
+	$published_drift_obligation = array();
+	$published_drift_discover = array();
+	$published_drift_reopened_job = array();
+	try {
+		$published_drift_source_surface = $call( 'source_publication_surface_revision', get_post( $source_id ) );
+		$published_drift_source_contract = $call( 'translation_job_publication_surface_contract_revision', get_post( $source_id ), $language );
+		$published_drift_obligation = $call( 'project_translation_obligation', $source_id, $language, $published_drift_source_surface, $published_drift_source_contract );
+		$published_drift_discover = $call( 'translation_job_discover', array( 'source_id' => $source_id, 'language' => $language, 'observability_label' => 'runtime-published-authority-drift' ) );
+		$published_drift_reopened_job = get_option( $attempt_limit_job_key );
+	} finally {
+		$published_drift_current_job = get_option( $attempt_limit_job_key );
+		if ( is_array( $published_drift_current_job ) && ! empty( $published_drift_current_job ) ) {
+			$restore_published_drift_job = $call( 'translation_job_transition', $published_drift_current_job, $published_drift_fixture_before );
+			if ( empty( $restore_published_drift_job['success'] ) ) {
+				throw new RuntimeException( 'Generation-1 published authority drift fixture could not restore the exact Job through its transition seam: ' . wp_json_encode( $restore_published_drift_job ) );
+			}
+			// The transition seam intentionally merges lifecycle fields. The fixture
+			// then restores the byte-exact precondition so later runtime scenarios do
+			// not inherit synthetic published-only keys.
+			update_option( $attempt_limit_job_key, $published_drift_fixture_before, false );
+		}
+	}
+	$published_drift_history = is_array( $published_drift_reopened_job['surface_refresh_history'] ?? null ) ? $published_drift_reopened_job['surface_refresh_history'] : array();
+	$published_drift_latest = $published_drift_history ? (array) end( $published_drift_history ) : array();
+	$published_drift_restored_job = get_option( $attempt_limit_job_key );
+	if (
+		1 !== absint( $published_drift_fixture_before['submission_generation'] ?? 0 )
+		|| 'publication_authority_stale' !== (string) ( $published_drift_obligation['state'] ?? '' )
+		|| empty( $published_drift_discover['success'] )
+		|| 'changes_requested' !== (string) ( $published_drift_reopened_job['status'] ?? '' )
+		|| 2 !== absint( $published_drift_reopened_job['submission_generation'] ?? 0 )
+		|| ! empty( $published_drift_reopened_job['live_verification_passed'] )
+		|| 'discover_published_authority_drift' !== (string) ( $published_drift_latest['reason'] ?? '' )
+		|| ! in_array( (string) ( $published_drift_latest['authority_code'] ?? '' ), array( 'published_content_revision_stale', 'published_surface_revision_stale' ), true )
+		|| 'ready_to_publish' !== (string) ( $published_drift_restored_job['status'] ?? '' )
+		|| 1 !== absint( $published_drift_restored_job['submission_generation'] ?? 0 )
+		|| (string) ( $published_drift_fixture_before['artifact_revision'] ?? '' ) !== (string) ( $published_drift_restored_job['artifact_revision'] ?? '' )
+		|| (string) ( $published_drift_fixture_before['quality_revision'] ?? '' ) !== (string) ( $published_drift_restored_job['quality_revision'] ?? '' )
+	) {
+		throw new RuntimeException( 'Discover did not reopen repairable generation-1 published authority drift as exactly one fresh translator/Quality generation and restore the fixture: ' . wp_json_encode( compact( 'published_drift_obligation', 'published_drift_discover', 'published_drift_reopened_job', 'published_drift_latest', 'published_drift_restored_job' ) ) );
+	}
+
 	// A passing generation-1 Quality Decision must reopen in the same publish
 	// call when the public surface changes after the snapshot commits but before
 	// the staged-write transaction acquires its locks. The existing WordPress SQL
@@ -2901,6 +2968,7 @@ try {
 	$published_evidence = get_option( $published_evidence_key );
 	delete_option( $published_evidence_key );
 	$missing_evidence_obligation = $call( 'project_translation_obligation', $source_id, $language, $source_surface_a, $source_contract_a );
+	$missing_evidence_refresh = $call( 'translation_job_refresh_drifted_surface', $published_authority_job, 'discover_published_authority_drift' );
 	update_option( $published_evidence_key, $published_evidence, false );
 	$published_artifact_key = 'devenia_workflow_translation_artifact_' . (string) ( $published_authority_job['artifact_revision'] ?? '' );
 	$published_artifact_exact = get_option( $published_artifact_key );
@@ -2911,8 +2979,10 @@ try {
 		'publication_contract_stale' !== (string) ( $stale_contract_obligation['state'] ?? '' )
 		|| 'publication_authority_stale' !== (string) ( $missing_evidence_obligation['state'] ?? '' )
 		|| 'publication_authority_stale' !== (string) ( $missing_artifact_obligation['state'] ?? '' )
+		|| 'published_authority_manual_repair_required' !== (string) ( $missing_evidence_refresh['code'] ?? '' )
+		|| 'quality_evidence_missing' !== (string) ( $missing_evidence_refresh['authority_code'] ?? '' )
 	) {
-		throw new RuntimeException( 'Unverified published obligation accepted a stale publication contract or missing immutable Artifact/Quality evidence binding: ' . wp_json_encode( compact( 'stale_contract_obligation', 'missing_evidence_obligation', 'missing_artifact_obligation' ) ) );
+		throw new RuntimeException( 'Unverified published obligation accepted a stale contract/evidence binding or ordinary drift recovery accepted corrupt authority: ' . wp_json_encode( compact( 'stale_contract_obligation', 'missing_evidence_obligation', 'missing_artifact_obligation', 'missing_evidence_refresh' ) ) );
 	}
 	$live_verification = $call( 'translation_job_verify_live', array( 'job_id' => $job_id, 'timeout' => 3 ) );
 	$verified_authority_job = get_option( $published_job_key );
@@ -3887,11 +3957,6 @@ try {
 		update_option( 'devenia_workflow_public_header_enrollment', $public_header_enrollment_before, false );
 	}
 	Devenia_Workflow::languages( true );
-	if ( false === $source_inventory_dirty_before ) {
-		delete_option( 'devenia_workflow_source_inventory_dirty' );
-	} else {
-		update_option( 'devenia_workflow_source_inventory_dirty', $source_inventory_dirty_before, false );
-	}
 	foreach ( array_unique( $runtime_menu_ids ) as $runtime_menu_id ) {
 		if ( $runtime_menu_id > 0 && '1' === (string) get_term_meta( $runtime_menu_id, '_devenia_workflow_localized_menu_managed', true ) ) {
 			wp_delete_nav_menu( $runtime_menu_id );
@@ -3950,6 +4015,20 @@ try {
 	}
 	foreach ( array_unique( $option_keys ) as $option_key ) {
 		delete_option( $option_key );
+	}
+	foreach (
+		array(
+			'devenia_workflow_source_inventory_active' => $source_inventory_active_before,
+			'devenia_workflow_source_inventory_rebuild' => $source_inventory_rebuild_before,
+			'devenia_workflow_source_inventory_epoch' => $source_inventory_epoch_before,
+			'devenia_workflow_source_inventory_dirty' => $source_inventory_dirty_before,
+		) as $inventory_option_key => $inventory_option_before
+	) {
+		if ( false === $inventory_option_before ) {
+			delete_option( $inventory_option_key );
+		} else {
+			update_option( $inventory_option_key, $inventory_option_before, false );
+		}
 	}
 }
 

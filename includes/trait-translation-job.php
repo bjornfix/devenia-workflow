@@ -423,6 +423,15 @@ trait Devenia_Workflow_Translation_Job {
 			if ( ! empty( $refresh['job'] ) ) {
 				$job = $refresh['job'];
 			}
+			if ( 'published' === (string) ( $job['status'] ?? '' ) ) {
+				$authority_refresh = self::translation_job_refresh_drifted_surface( $job, 'discover_published_authority_drift' );
+				if ( empty( $authority_refresh['success'] ) ) {
+					return $authority_refresh;
+				}
+				if ( ! empty( $authority_refresh['job'] ) ) {
+					$job = $authority_refresh['job'];
+				}
+			}
 		} finally {
 			self::translation_job_release_lifecycle_lease( $lifecycle_lease );
 		}
@@ -497,6 +506,15 @@ trait Devenia_Workflow_Translation_Job {
 			$existing_lock = null;
 			if ( 'quality' === $role ) {
 				return array_merge( $contract_refresh, array( 'success' => false, 'code' => 'contract_refresh_required', 'message' => 'The publication surface contract changed. The Job was reopened for a fresh translator generation before Quality could claim it.' ) );
+			}
+		}
+		if ( ! is_array( $existing_lock ) && 'translator' === $role && 'published' === (string) ( $job['status'] ?? '' ) ) {
+			$authority_refresh = self::translation_job_refresh_drifted_surface( $job, 'claim_published_authority_drift' );
+			if ( empty( $authority_refresh['success'] ) ) {
+				return $authority_refresh;
+			}
+			if ( ! empty( $authority_refresh['job'] ) ) {
+				$job = $authority_refresh['job'];
 			}
 		}
 		if ( ! is_array( $existing_lock ) && in_array( (string) ( $job['status'] ?? '' ), array( 'quality_pending', 'ready_to_publish' ), true ) ) {
@@ -2188,7 +2206,8 @@ trait Devenia_Workflow_Translation_Job {
 	}
 
 	/**
-	 * Reopen the exact current Job after server-observed public baseline drift.
+	 * Reopen the exact current Job after server-observed public baseline or
+	 * published-authority drift.
 	 *
 	 * Old artifacts, Quality Decisions, evidence receipts, and Runs stay immutable.
 	 * The publish path additionally requires proof that its owned transaction was
@@ -2196,7 +2215,7 @@ trait Devenia_Workflow_Translation_Job {
 	 */
 	private static function translation_job_refresh_drifted_surface( array $job, string $reason, array $publication_failure = array() ): array {
 		$reason = sanitize_key( $reason );
-		if ( ! in_array( $reason, array( 'claim_baseline_mismatch', 'quality_packet_baseline_mismatch', 'quality_submission_baseline_mismatch', 'publish_baseline_mismatch', 'repair_visible_media_drift' ), true ) ) {
+		if ( ! in_array( $reason, array( 'claim_baseline_mismatch', 'quality_packet_baseline_mismatch', 'quality_submission_baseline_mismatch', 'publish_baseline_mismatch', 'repair_visible_media_drift', 'discover_published_authority_drift', 'claim_published_authority_drift' ), true ) ) {
 			return array( 'success' => false, 'code' => 'surface_refresh_reason_invalid', 'message' => 'Surface Refresh requires a fixed server-owned lifecycle reason.' );
 		}
 		$status = sanitize_key( (string) ( $job['status'] ?? '' ) );
@@ -2219,8 +2238,28 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		$translation_id = self::translation_job_resolve_publication_translation_id( $job, $artifact );
 		$current_surface_revision = $translation_id ? self::translation_job_current_surface_revision( $translation_id ) : '';
-		$baseline_surface_revision = (string) ( $artifact['baseline_surface_revision'] ?? '' );
-		if ( hash_equals( $baseline_surface_revision, $current_surface_revision ) ) {
+		$published_authority_refresh = in_array( $reason, array( 'discover_published_authority_drift', 'claim_published_authority_drift' ), true );
+		$authority_code = '';
+		if ( $published_authority_refresh ) {
+			$authority = self::translation_job_validate_published_authority( $job, $translation_id, true );
+			if ( ! empty( $authority['success'] ) ) {
+				return array( 'success' => true, 'refreshed' => false, 'job' => $job, 'current_surface_revision' => $current_surface_revision );
+			}
+			$authority_code = sanitize_key( (string) ( $authority['code'] ?? '' ) );
+			if ( ! in_array( $authority_code, array( 'published_content_revision_stale', 'published_surface_revision_stale' ), true ) ) {
+				return array(
+					'success' => false,
+					'code' => 'published_authority_manual_repair_required',
+					'authority_code' => $authority_code,
+					'message' => 'Published authority is incomplete or corrupt and cannot be reopened as ordinary translation drift.',
+					'job' => self::translation_job_public_job( $job ),
+				);
+			}
+		}
+		$baseline_surface_revision = $published_authority_refresh
+			? (string) ( $job['applied_surface_revision'] ?? '' )
+			: (string) ( $artifact['baseline_surface_revision'] ?? '' );
+		if ( ! $published_authority_refresh && hash_equals( $baseline_surface_revision, $current_surface_revision ) ) {
 			return array( 'success' => true, 'refreshed' => false, 'job' => $job, 'baseline_surface_revision' => $baseline_surface_revision, 'current_surface_revision' => $current_surface_revision );
 		}
 
@@ -2275,6 +2314,7 @@ trait Devenia_Workflow_Translation_Job {
 			'current_surface_revision' => $current_surface_revision,
 			'reason' => $reason,
 			'publication_failure_code' => 'publish_baseline_mismatch' === $reason ? sanitize_key( (string) ( $publication_failure['code'] ?? '' ) ) : '',
+			'authority_code' => $authority_code,
 			'refreshed_at' => gmdate( 'c' ),
 			'from_generation' => $generation,
 			'to_generation' => $generation + 1,
@@ -2290,6 +2330,7 @@ trait Devenia_Workflow_Translation_Job {
 				'surface_revision' => '',
 				'quality_revision' => '',
 				'active_run_id' => '',
+				'live_verification_passed' => false,
 			)
 		);
 		if ( empty( $transition['success'] ) ) {
