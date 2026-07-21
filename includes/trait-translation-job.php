@@ -1537,18 +1537,28 @@ trait Devenia_Workflow_Translation_Job {
 	}
 
 	/**
-	 * Describe the only valid destination for each internal source link.
+	 * Describe the only valid destination for each translator-owned source link.
 	 *
 	 * A localized destination is authoritative only while its WordPress post is
 	 * published. Otherwise the English source URL remains the explicit fallback;
 	 * callers must never infer a localized slug that is not in the registry.
+	 * Links outside the typed fragment projection remain owned by their native
+	 * block/runtime Adapter and cannot become Translation Artifact obligations.
 	 *
 	 * @return array<int,array<string,mixed>>
 	 */
 	private static function translation_job_link_policy( WP_Post $source, string $language ): array {
 		$map = self::localized_internal_link_map( $language );
 		$links = array();
-		foreach ( self::translation_job_anchor_hrefs( (string) $source->post_content ) as $href ) {
+		$source_fragments = self::translation_job_source_fragments( self::source_design_contract( $source ) );
+		$fragment_hrefs = array();
+		foreach ( $source_fragments as $fragment ) {
+			$fragment_hrefs = array_merge(
+				$fragment_hrefs,
+				self::translation_job_anchor_hrefs( (string) ( $fragment['source_html'] ?? '' ) )
+			);
+		}
+		foreach ( array_values( array_unique( $fragment_hrefs ) ) as $href ) {
 			$parts = wp_parse_url( $href );
 			if ( ! is_array( $parts ) ) {
 				continue;
@@ -1603,6 +1613,13 @@ trait Devenia_Workflow_Translation_Job {
 	 */
 	private static function translation_job_artifact_link_policy( WP_Post $source, string $language, $localized_fragments ): array {
 		$link_policy = self::translation_job_link_policy( $source, $language );
+		$expected_targets = array();
+		foreach ( $link_policy as $link ) {
+			$expected = (string) ( $link['target_url'] ?? '' );
+			if ( '' !== $expected ) {
+				$expected_targets[ self::normalized_comparable_url( $expected ) ] = $expected;
+			}
+		}
 		$actual = array();
 		foreach ( is_array( $localized_fragments ) ? $localized_fragments : array() as $fragment ) {
 			$html = is_array( $fragment ) ? (string) ( $fragment['html'] ?? '' ) : '';
@@ -1625,11 +1642,19 @@ trait Devenia_Workflow_Translation_Job {
 				);
 			}
 		}
+		foreach ( $actual as $actual_key => $actual_url ) {
+			if ( ! isset( $expected_targets[ $actual_key ] ) ) {
+				$issues[] = array(
+					'actual_url' => $actual_url,
+					'policy' => 'unexpected_internal_target',
+				);
+			}
+		}
 		if ( $issues ) {
 			return array(
 				'success' => false,
 				'code' => 'artifact_link_policy_invalid',
-				'message' => 'Artifact must use every authoritative link target from the bounded packet.',
+				'message' => 'Artifact internal links must exactly match the authoritative targets in the bounded packet.',
 				'issues' => $issues,
 			);
 		}

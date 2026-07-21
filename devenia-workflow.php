@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.658
+ * Version: 0.1.659
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -71,7 +71,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.658';
+	const VERSION = '0.1.659';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -23103,7 +23103,7 @@ final class Devenia_Workflow {
 		$issues   = array();
 		$warnings = array();
 
-		if ( ! preg_match_all( '/\bhref=([\"\'])([^\"\']*)\1/i', $content, $matches ) ) {
+		if ( ! preg_match_all( '/\bhref=([\"\'])([^\"\']*)\1/i', $content, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE ) ) {
 			return array(
 				'passed'        => true,
 				'issues'        => array(),
@@ -23116,7 +23116,9 @@ final class Devenia_Workflow {
 			);
 		}
 
-		foreach ( $matches[2] as $raw_url ) {
+		foreach ( $matches as $match ) {
+			$raw_url = (string) ( $match[2][0] ?? '' );
+			$href_offset = absint( $match[2][1] ?? 0 );
 			$url = trim( html_entity_decode( (string) $raw_url, ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ) );
 			if ( '' === $url ) {
 				$issues[] = self::qa_item(
@@ -23131,6 +23133,9 @@ final class Devenia_Workflow {
 			}
 
 			if ( '#' === $url[0] || preg_match( '/^(mailto|tel|sms|javascript):/i', $url ) ) {
+				continue;
+			}
+			if ( (bool) apply_filters( 'devenia_workflow_is_runtime_projected_link_href', false, $url, $href_offset, $content ) ) {
 				continue;
 			}
 
@@ -23202,7 +23207,7 @@ final class Devenia_Workflow {
 			'issue_count'   => count( $issues ),
 			'warning_count' => count( $warnings ),
 			'summary'       => array(
-				'link_count' => count( $matches[2] ),
+				'link_count' => count( $matches ),
 			),
 		);
 	}

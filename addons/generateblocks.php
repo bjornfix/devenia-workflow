@@ -22,6 +22,46 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 		add_filter( 'devenia_workflow_normalize_gutenberg_content_for_storage', array( __CLASS__, 'normalize_gutenberg_content_for_storage' ) );
 		add_filter( 'devenia_workflow_gutenberg_content_safety', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
 		add_filter( 'devenia_workflow_gutenberg_guardrails', array( __CLASS__, 'gutenberg_guardrails' ), 10, 3 );
+		add_filter( 'devenia_workflow_is_runtime_projected_link_href', array( __CLASS__, 'is_runtime_projected_link_href' ), 10, 4 );
+	}
+
+	/**
+	 * Accept the native Query-loop permalink placeholder only inside the exact
+	 * GenerateBlocks text-link block that owns its runtime projection.
+	 */
+	public static function is_runtime_projected_link_href( bool $accepted, string $url, int $href_offset, string $content ): bool {
+		if ( $accepted || '{{post_permalink}}' !== $url || $href_offset < 1 ) {
+			return $accepted;
+		}
+
+		$prefix = substr( $content, 0, $href_offset );
+		if ( ! is_string( $prefix ) ) {
+			return false;
+		}
+		$query_open_count = preg_match_all( '/<!--\s+wp:generateblocks\/query\b/i', $prefix );
+		$query_close_count = preg_match_all( '/<!--\s+\/wp:generateblocks\/query\s+-->/i', $prefix );
+		if ( $query_open_count <= $query_close_count ) {
+			return false;
+		}
+
+		$text_open = strripos( $prefix, '<!-- wp:generateblocks/text ' );
+		$text_close = strripos( $prefix, '<!-- /wp:generateblocks/text -->' );
+		if ( false === $text_open || ( false !== $text_close && $text_close > $text_open ) ) {
+			return false;
+		}
+		$comment_end = strpos( $content, '-->', $text_open );
+		if ( false === $comment_end || $comment_end >= $href_offset ) {
+			return false;
+		}
+		$comment = substr( $content, $text_open, $comment_end + 3 - $text_open );
+		if ( ! is_string( $comment ) || ! preg_match( '/<!--\s+wp:generateblocks\/text\s+(\{.*\})\s+-->/s', $comment, $matches ) ) {
+			return false;
+		}
+		$attrs = json_decode( (string) $matches[1], true );
+
+		return is_array( $attrs )
+			&& 'a' === (string) ( $attrs['tagName'] ?? '' )
+			&& $url === (string) ( $attrs['htmlAttributes']['href'] ?? '' );
 	}
 
 	/**

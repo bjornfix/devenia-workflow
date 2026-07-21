@@ -220,7 +220,14 @@ try {
 			'post_status' => 'draft',
 			'post_title' => 'Translation Job source fixture',
 			'post_excerpt' => 'A useful source excerpt.',
-			'post_content' => '<!-- wp:paragraph --><p><strong>Useful source</strong><br>Read <a href="' . esc_url( $linked_source_url ) . '">the linked source</a>, then <a href="mailto:hello@example.com?subject=Source%20question&amp;body=Hello%20from%20the%20source">contact us</a> for a concrete next step.</p><!-- /wp:paragraph -->',
+			'post_content' => '<!-- wp:paragraph --><p><strong>Useful source</strong><br>Read <a href="' . esc_url( $linked_source_url ) . '">the linked source</a>, then <a href="mailto:hello@example.com?subject=Source%20question&amp;body=Hello%20from%20the%20source">contact us</a> for a concrete next step.</p><!-- /wp:paragraph -->'
+				. '<!-- wp:generateblocks/query {"uniqueId":"runtime-query","tagName":"section","query":{"post_type":["page"]}} --><section>'
+				. '<!-- wp:generateblocks/looper {"uniqueId":"runtime-loop","tagName":"div"} --><div>'
+				. '<!-- wp:generateblocks/loop-item {"uniqueId":"runtime-item","tagName":"div"} --><div>'
+				. '<!-- wp:generateblocks/text {"uniqueId":"runtime-dynamic-link","tagName":"a","htmlAttributes":{"href":"{{post_permalink}}"}} -->'
+				. '<a class="gb-text" href="{{post_permalink}}">View plugin</a>'
+				. '<!-- /wp:generateblocks/text --></div><!-- /wp:generateblocks/loop-item -->'
+				. '</div><!-- /wp:generateblocks/looper --></section><!-- /wp:generateblocks/query -->',
 		),
 		true
 	);
@@ -961,6 +968,7 @@ try {
 	$localized_packet_link = 1 === count( $localized_packet_link_rows ) ? (array) $localized_packet_link_rows[0] : array();
 	$expected_packet_link_url = (string) ( $untranslated_packet_link['target_url'] ?? '' );
 	$expected_localized_packet_link_url = (string) ( $localized_packet_link['target_url'] ?? '' );
+	$dynamic_packet_links = array_values( array_filter( (array) $links, static function ( $row ): bool { return is_array( $row ) && false !== strpos( (string) ( $row['source_url'] ?? '' ), '{{post_permalink}}' ); } ) );
 	if (
 		empty( $packet['success'] )
 		|| $translation_id !== absint( $packet['packet']['route']['existing']['translation_id'] ?? 0 )
@@ -968,6 +976,7 @@ try {
 		|| 1 !== count( $fragments )
 		|| false === stripos( (string) $fragments[0]['source_html'], '<strong>' )
 		|| 2 !== count( $links )
+		|| ! empty( $dynamic_packet_links )
 		|| 1 !== count( $untranslated_packet_link_rows )
 		|| 1 !== count( $localized_packet_link_rows )
 		|| '' === $expected_packet_link_url
@@ -1009,6 +1018,23 @@ try {
 	);
 	$pre_submit_surface_revision = $call( 'translation_job_current_surface_revision', $translation_id );
 	$invalid_artifact = $artifact;
+	$extra_internal_link_artifact = $artifact;
+	$extra_internal_link_artifact['localized_fragments'][0]['html'] .= '<a href="' . esc_url( home_url( '/invented-localized-route/' ) ) . '">Oppdiktet mål</a>';
+	$extra_internal_link_submit = $call(
+		'translation_job_submit_artifact',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $translator_run_id,
+			'claim_token' => $translator_token,
+			'artifact' => $extra_internal_link_artifact,
+			'usage' => array( 'input_tokens' => 1200, 'cached_input_tokens' => 0, 'output_tokens' => 500, 'attempts' => 1, 'duration_ms' => 1000, 'estimated_cost_microusd' => 100 ),
+		)
+	);
+	$extra_internal_link_issues = (array) ( $extra_internal_link_submit['issues'] ?? array() );
+	$unexpected_internal_issues = array_values( array_filter( $extra_internal_link_issues, static function ( $issue ): bool { return is_array( $issue ) && 'unexpected_internal_target' === (string) ( $issue['policy'] ?? '' ); } ) );
+	if ( ! empty( $extra_internal_link_submit['success'] ) || 'artifact_link_policy_invalid' !== (string) ( $extra_internal_link_submit['code'] ?? '' ) || 1 !== count( $unexpected_internal_issues ) ) {
+		throw new RuntimeException( 'An extra invented internal target was not rejected through Translation Artifact submit: ' . wp_json_encode( $extra_internal_link_submit ) );
+	}
 	$invalid_contact_artifact = $artifact;
 	$invalid_contact_artifact['localized_fragments'][0]['html'] = str_replace(
 		array( 'Sp%C3%B8rsm%C3%A5l%20om%20testen', 'Hei%20fra%20oversettelsen' ),
@@ -1129,11 +1155,26 @@ try {
 	$artifact_revision = (string) $submit['artifact_revision'];
 	$option_keys[] = 'devenia_workflow_translation_artifact_' . $artifact_revision;
 	$legacy_staged_record = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . $artifact_revision ) );
+	$staged_gutenberg = (string) ( $legacy_staged_record['surface_manifest']['content']['gutenberg'] ?? '' );
+	$source_gutenberg = (string) get_post_field( 'post_content', $source_id );
+	$extract_runtime_query = static function ( string $content ): string {
+		$start = strpos( $content, '<!-- wp:generateblocks/query {"uniqueId":"runtime-query"' );
+		$closing = '<!-- /wp:generateblocks/query -->';
+		$end = false !== $start ? strpos( $content, $closing, $start ) : false;
+		return false !== $start && false !== $end ? substr( $content, $start, $end + strlen( $closing ) - $start ) : '';
+	};
+	$source_query_subtree = $extract_runtime_query( $source_gutenberg );
+	$staged_query_subtree = $extract_runtime_query( $staged_gutenberg );
+	$loose_dynamic_guardrails = $call( 'link_integrity_guardrails', '<!-- wp:paragraph --><p><a href="{{post_permalink}}">Loose placeholder</a></p><!-- /wp:paragraph -->', $language );
+	$loose_dynamic_issues = array_values( array_filter( (array) ( $loose_dynamic_guardrails['issues'] ?? array() ), static function ( $issue ): bool { return is_array( $issue ) && 'unresolved_internal_content_link' === (string) ( $issue['code'] ?? '' ); } ) );
 	if (
 		$legacy_effective_route !== (array) ( $legacy_staged_record['surface_manifest']['route']['canonical_route'] ?? array() )
+		|| '' === $source_query_subtree
+		|| $source_query_subtree !== $staged_query_subtree
+		|| 1 !== count( $loose_dynamic_issues )
 		|| metadata_exists( 'post', $translation_id, '_devenia_translation_canonical_route_v1' )
 	) {
-		throw new RuntimeException( 'Staging did not sign the deterministic legacy Canonical Route Contract without a public write: ' . wp_json_encode( $legacy_staged_record['surface_manifest']['route'] ?? array() ) );
+		throw new RuntimeException( 'Staging did not preserve the deterministic Canonical Route and exact native dynamic Query subtree, or a loose placeholder escaped validation: ' . wp_json_encode( array( 'route' => $legacy_staged_record['surface_manifest']['route'] ?? array(), 'source_query_hash' => hash( 'sha256', $source_query_subtree ), 'staged_query_hash' => hash( 'sha256', $staged_query_subtree ), 'loose_dynamic_issues' => $loose_dynamic_issues ) ) );
 	}
 	$legacy_missing_meta_verification = $call(
 		'translation_job_verify_applied_surface',
@@ -3842,6 +3883,8 @@ try {
 			'translation_saved' => $translation_id > 0,
 			'correction_context_included' => true,
 			'link_policy_in_packets' => true,
+			'native_dynamic_query_link_preserved_outside_fragment_policy' => true,
+			'extra_internal_target_rejected_at_artifact_submit' => true,
 			'invented_localized_link_blocked' => true,
 			'third_bounded_runs_available' => true,
 			'full_fragment_wrappers_normalized' => true,
