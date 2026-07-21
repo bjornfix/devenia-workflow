@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.652
+**Stable tag:** 0.1.653
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.653
+
+- Keeps whole-site queue reads bounded through source/projection epochs, generation-bound shard receipts, direct source bindings, a seekable unresolved-shard directory, snapshot cursors, and one deep Job/projection commit interface; terminal pages prove completeness, and interrupted, concurrent, stale, or incomplete authority fails closed.
 
 ### 0.1.652
 

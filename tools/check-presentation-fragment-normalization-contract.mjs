@@ -39,8 +39,8 @@ assert.match(
 );
 assert.match(
 	stage,
-	/'localized_fragments'\s*=>\s*self::translation_job_normalized_presentation_fragments\s*\(/,
-	"New surface manifests must stage storage-normalized presentation fragments",
+	/'localized_fragments'\s*=>\s*\(array\)\s*self::wordpress_utf8mb3_safe_storage_value\s*\(\s*self::translation_job_normalized_presentation_fragments\s*\(/,
+	"New surface manifests must stage normalized presentation fragments through the WordPress storage adapter",
 );
 assert.doesNotMatch(
 	stage,

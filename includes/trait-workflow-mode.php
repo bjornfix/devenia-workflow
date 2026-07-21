@@ -40,6 +40,7 @@ trait Devenia_Workflow_Mode {
 
 		$previous = self::workflow_mode();
 		update_option( self::OPTION_WORKFLOW_MODE, $mode, false );
+		if ( $previous !== $mode ) { self::mark_source_inventory_dirty(); }
 		$status             = self::workflow_mode_status();
 		$status['previous'] = $previous;
 		$status['updated']  = $previous !== $mode;

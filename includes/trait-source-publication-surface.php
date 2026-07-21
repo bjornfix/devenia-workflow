@@ -156,6 +156,11 @@ trait Devenia_Workflow_Source_Publication_Surface {
 	 */
 	public static function mark_source_inventory_dirty_on_media_meta( $meta_id, int $object_id, string $meta_key, $meta_value = null ): void {
 		unset( $meta_id, $meta_value );
+		$post = get_post( $object_id );
+		if ( $post instanceof WP_Post && self::is_translatable_post_type( (string) $post->post_type ) ) {
+			self::mark_source_inventory_dirty( $object_id );
+			return;
+		}
 		if ( '_thumbnail_id' === $meta_key ) {
 			self::mark_source_inventory_dirty( $object_id );
 			return;

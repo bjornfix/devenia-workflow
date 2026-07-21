@@ -25,6 +25,18 @@ function devenia_workflow_uninstall_site(): void {
 		'devenia_workflow_reviewer_style_profiles',
 		'devenia_workflow_localized_menu_identities',
 		'devenia_workflow_translation_rule_events_schema',
+		'devenia_workflow_mode',
+		'devenia_workflow_translation_author_archives',
+		'devenia_workflow_runtime_mutation_provenance',
+		'devenia_workflow_public_header_manifest',
+		'devenia_workflow_pending_public_header_manifest',
+		'devenia_workflow_public_header_enrollment',
+		'devenia_workflow_source_inventory_schema',
+		'devenia_workflow_source_inventory_active',
+		'devenia_workflow_source_inventory_dirty',
+		'devenia_workflow_source_inventory_epoch',
+		'devenia_workflow_obligation_projection_epoch',
+		'devenia_workflow_obligation_projection_lease',
 	);
 
 	foreach ( $options as $option ) {

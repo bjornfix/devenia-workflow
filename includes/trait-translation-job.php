@@ -393,9 +393,22 @@ trait Devenia_Workflow_Translation_Job {
 					'source_hash' => (string) ( $source_approval['source_hash'] ?? '' ),
 				),
 			);
-			if ( ! self::atomic_create_option( self::translation_job_job_key( $job_id ), $job ) ) {
-				$job = self::translation_job_get_job( $job_id );
-			}
+			$create = self::inventory_store_commit_job_projection(
+				'discover_job',
+				static function () use ( $job_id, $job ): array {
+				$current = self::translation_job_get_job( $job_id );
+				if ( $current ) {
+					$job = $current;
+				} elseif ( ! self::atomic_create_option( self::translation_job_job_key( $job_id ), $job ) ) {
+					$job = self::translation_job_get_job( $job_id );
+				}
+				return $job
+					? array( 'success' => true, 'stored_job' => $job )
+					: array( 'success' => false, 'code' => 'translation_job_create_failed' );
+				}
+			);
+			if ( empty( $create['success'] ) ) { return $create; }
+			$job = $create['stored_job'];
 		}
 		$lifecycle_lease = self::translation_job_acquire_lifecycle_lease( $job, 'discover' );
 		if ( empty( $lifecycle_lease['success'] ) ) {
@@ -979,6 +992,7 @@ trait Devenia_Workflow_Translation_Job {
 		if ( ! $initial_job ) { return self::error( 'Translation Job not found.' ); }
 		$lifecycle_lease = self::translation_job_acquire_lifecycle_lease( $initial_job, 'publish' );
 		if ( empty( $lifecycle_lease['success'] ) ) { return $lifecycle_lease; }
+		++self::$inventory_authorized_mutation_depth;
 		try {
 		$job = self::translation_job_get_job( $job_id );
 		if ( ! $job ) { return self::error( 'Translation Job not found after lifecycle lease acquisition.' ); }
@@ -1136,6 +1150,7 @@ trait Devenia_Workflow_Translation_Job {
 		$needs_verification = ! empty( $publication['needs_live_verification'] );
 		$orphaned_runs_finalized = self::translation_job_finalize_orphaned_runs( $job );
 		$next = self::translation_job_transition( $job, array( 'status' => 'published', 'translation_id' => $translation_id, 'content_revision' => self::translation_job_translation_revision( $translation_id ), 'applied_surface_revision' => self::translation_job_current_surface_revision( $translation_id ), 'published_at' => gmdate( 'c' ), 'live_verification_passed' => null ) );
+		if ( empty( $next['success'] ) ) { self::mark_source_inventory_dirty(); }
 		if ( ! empty( $next['success'] ) ) { delete_post_meta( $translation_id, '_devenia_workflow_publication_attempt_id' ); }
 		return array(
 			'success' => ! empty( $next['success'] ),
@@ -1160,6 +1175,7 @@ trait Devenia_Workflow_Translation_Job {
 			'orphaned_runs_finalized' => $orphaned_runs_finalized,
 		);
 		} finally {
+			self::$inventory_authorized_mutation_depth = max( 0, self::$inventory_authorized_mutation_depth - 1 );
 			self::translation_job_release_lifecycle_lease( $lifecycle_lease );
 		}
 	}
@@ -1784,15 +1800,26 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_transition( array $job, array $patch ): array {
 		$key = self::translation_job_job_key( (string) $job['job_id'] );
 		$next = array_merge( $job, $patch, array( 'updated_at' => gmdate( 'c' ) ) );
-		global $wpdb;
-		$updated = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Job lifecycle requires compare-and-swap semantics.
-			$wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s, autoload = %s WHERE option_name = %s AND option_value = %s", maybe_serialize( $next ), 'off', $key, maybe_serialize( $job ) )
+		$result = self::inventory_store_commit_job_projection(
+			'transition_job',
+			static function () use ( $key, $next, $job ): array {
+			global $wpdb;
+			$updated = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Job lifecycle requires compare-and-swap semantics.
+				$wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s, autoload = %s WHERE option_name = %s AND option_value = %s", maybe_serialize( $next ), 'off', $key, maybe_serialize( $job ) )
+			);
+			wp_cache_delete( $key, 'options' );
+			$stored_job = 1 === $updated ? $next : self::translation_job_get_job( (string) $job['job_id'] );
+			if ( ! $stored_job ) {
+				return array( 'success' => false, 'code' => 'job_state_conflict_projection_rebuild_required' );
+			}
+			if ( 1 !== $updated ) {
+				return array( 'success' => false, 'code' => 'job_state_conflict', 'message' => 'Translation Job changed concurrently.', 'job' => $stored_job, 'stored_job' => $stored_job );
+			}
+			return array( 'success' => true, 'job' => $next, 'stored_job' => $next );
+			}
 		);
-		wp_cache_delete( $key, 'options' );
-		if ( 1 !== $updated ) {
-			return array( 'success' => false, 'code' => 'job_state_conflict', 'message' => 'Translation Job changed concurrently.', 'job' => self::translation_job_get_job( (string) $job['job_id'] ) );
-		}
-		return array( 'success' => true, 'job' => $next );
+		unset( $result['stored_job'] );
+		return $result;
 	}
 
 	private static function translation_job_internal_step_identity( string $step ): array {

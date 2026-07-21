@@ -455,6 +455,41 @@ generation-keyed, non-autoloaded option shards first and activates them only by
 flipping the completed generation manifest. Translation Job discovery and
 Exhaustion Proof consume this same Interface.
 
+The **Inventory Input Epoch** is the monotonic authority revision for source and
+translation surfaces, their metadata and taxonomy relations, Workflow Mode, the target-language registry and other inputs that
+change obligation coverage or publication contracts. Readers never clear it.
+An Inventory Generation binds the exact Input Epoch and an input-policy
+signature; only a rebuild can activate a Generation at the current values.
+
+The **Obligation Projection Epoch** is the durable revision shared by Inventory
+Generation activation and Translation Job lifecycle writers. Both cross one
+global writer lease. Translation Job callers use one deep commit Interface;
+lease ordering, Job CAS/create, exact-row projection, state counts and recovery
+remain inside the Inventory Generation Store. The Store advances the Epoch
+before the Job mutation and advances the active manifest only after the exact
+row, binding index and receipts persist. An interrupted writer therefore leaves
+an explicit mismatch instead of a silently stale queue. A rebuild activates only
+when both Epochs captured before projection are still current.
+
+Every Generation receipt binds exact source and obligation counts, shard counts,
+per-shard digests, the complete source and source-language binding indexes, and
+a seekable per-shard unresolved directory. Source cursors resume through their
+exact row binding; obligation cursors seek through the directory without
+materializing every unresolved ID. Exact Job commits update one row shard and
+one directory count instead of sorting the whole queue. Normal cursor reads touch only the
+requested bound shards; every terminal page, including a non-empty last page, and Exhaustion Proof require
+a complete strict Store read. A missing, changed or corrupt shard is never
+interpreted as an empty queue.
+
+Queue readers use an opaque cursor snapshot bound to schema, Generation and both
+Epochs, read the active Generation without re-projecting the complete
+source-language Cartesian product, and revalidate the same view before returning.
+Next-Job dependency traversal loads rows through the binding index and has a hard
+traversal budget rather than scanning every obligation. A source-dirty Generation fails
+closed with `inventory_rebuild_required`; an incomplete obligation projection
+fails closed with `inventory_projection_rebuild_required`. Only an explicit
+rebuild may establish a new clean snapshot after either invariant fails.
+
 ## Translation Obligation
 
 The current required outcome for one included Source Inventory row and one

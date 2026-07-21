@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.652
+ * Version: 0.1.653
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -71,7 +71,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.652';
+	const VERSION = '0.1.653';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -106,7 +106,9 @@ final class Devenia_Workflow {
 	const OPTION_SOURCE_INVENTORY_SCHEMA = 'devenia_workflow_source_inventory_schema';
 	const OPTION_SOURCE_INVENTORY_ACTIVE = 'devenia_workflow_source_inventory_active';
 	const OPTION_SOURCE_INVENTORY_DIRTY = 'devenia_workflow_source_inventory_dirty';
-	const SOURCE_INVENTORY_SCHEMA_VERSION = '3';
+	const OPTION_SOURCE_INVENTORY_EPOCH = 'devenia_workflow_source_inventory_epoch';
+	const OPTION_OBLIGATION_PROJECTION_EPOCH = 'devenia_workflow_obligation_projection_epoch';
+	const SOURCE_INVENTORY_SCHEMA_VERSION = '4';
 	const OPTION_LANGUAGE_RULE_EVENTS_SCHEMA = 'devenia_workflow_translation_rule_events_schema';
 	const LANGUAGE_RULE_EVENTS_SCHEMA_VERSION = '1';
 
@@ -280,6 +282,9 @@ final class Devenia_Workflow {
 		add_action( 'deleted_post', array( __CLASS__, 'mark_source_inventory_dirty' ), 40, 1 );
 		add_action( 'trashed_post', array( __CLASS__, 'mark_source_inventory_dirty' ), 40, 1 );
 		add_action( 'untrashed_post', array( __CLASS__, 'mark_source_inventory_dirty' ), 40, 1 );
+		add_action( 'set_object_terms', array( __CLASS__, 'mark_source_inventory_dirty_on_object_terms' ), 40, 6 );
+		add_action( 'edited_term', array( __CLASS__, 'mark_source_inventory_dirty_on_term_change' ), 40, 3 );
+		add_action( 'delete_term', array( __CLASS__, 'mark_source_inventory_dirty_on_term_delete' ), 40, 5 );
 		add_action( 'added_post_meta', array( __CLASS__, 'mark_source_inventory_dirty_on_media_meta' ), 40, 4 );
 		add_action( 'updated_post_meta', array( __CLASS__, 'mark_source_inventory_dirty_on_media_meta' ), 40, 4 );
 		add_action( 'deleted_post_meta', array( __CLASS__, 'mark_source_inventory_dirty_on_media_meta' ), 40, 4 );
@@ -2602,6 +2607,7 @@ final class Devenia_Workflow {
 		}
 
 		update_option( self::OPTION_LANGUAGES, $languages, false );
+		self::mark_source_inventory_dirty();
 		self::languages( true );
 		self::record_runtime_language_mutation_provenance( $language, $section, $source, $operator_identity, $delete ? 'runtime_text_delete' : 'runtime_text_update' );
 
@@ -2761,6 +2767,7 @@ final class Devenia_Workflow {
 		}
 
 		update_option( self::OPTION_LANGUAGES, $languages, false );
+		self::mark_source_inventory_dirty();
 		self::languages( true );
 
 		return array(
@@ -6677,6 +6684,7 @@ final class Devenia_Workflow {
 				}
 				$languages[ $language ][ $section ] = self::sanitize_public_text_tree( $decoded );
 				update_option( self::OPTION_LANGUAGES, $languages, false );
+				self::mark_source_inventory_dirty();
 				self::languages( true );
 			}
 		}
