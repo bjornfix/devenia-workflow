@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.664
+ * Version: 0.1.665
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -71,7 +71,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.664';
+	const VERSION = '0.1.665';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -14104,6 +14104,9 @@ final class Devenia_Workflow {
 		if ( '' === $public_url || ! preg_match( '#^https?://#i', $public_url ) ) {
 			return self::error( 'A public HTTP(S) URL inspected in a browser is required.', 'source_content_integrity_public_url_required' );
 		}
+		if ( ! self::source_review_url_matches_canonical_reader_surface( $source, $public_url ) ) {
+			return self::error( 'The reviewed URL must be the canonical reader surface for this source.', 'source_content_integrity_review_url_mismatch' );
+		}
 
 		$text_fields = array(
 			'audit_notes'        => 80,
@@ -25507,8 +25510,7 @@ final class Devenia_Workflow {
 
 		$is_rtl = self::is_rtl_language( $language );
 		if ( $is_rtl ) {
-			self::mirror_rtl_blocks_from_source( $blocks, $source_blocks );
-			$blocks = apply_filters( 'devenia_workflow_mirror_rtl_block_layout', $blocks, $source_blocks, $language );
+			self::project_core_rtl_layout_from_source( $blocks, $source_blocks );
 		}
 		$blocks = apply_filters( 'devenia_workflow_project_block_layout', $blocks, $source_blocks, $language, $is_rtl );
 
@@ -25520,74 +25522,74 @@ final class Devenia_Workflow {
 		return isset( $languages[ $language ]['direction'] ) && 'rtl' === (string) $languages[ $language ]['direction'];
 	}
 
-	private static function mirror_rtl_blocks_from_source( array &$blocks, array $source_blocks ): void {
+	private static function project_core_rtl_layout_from_source( array &$blocks, array $source_blocks ): void {
 		foreach ( $blocks as $index => &$block ) {
 			if ( ! isset( $source_blocks[ $index ] ) || ! is_array( $source_blocks[ $index ] ) ) {
 				continue;
 			}
 
 			$source_block = $source_blocks[ $index ];
-			if ( isset( $block['attrs'], $source_block['attrs'] ) && is_array( $block['attrs'] ) && is_array( $source_block['attrs'] ) ) {
-				self::mirror_rtl_attrs_from_source( $block['attrs'], $source_block['attrs'] );
+			$block_name   = (string) ( $block['blockName'] ?? '' );
+			if ( $block_name === (string) ( $source_block['blockName'] ?? '' ) && 0 === strpos( $block_name, 'core/' ) ) {
+				$block['attrs'] = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
+				$source_attrs   = is_array( $source_block['attrs'] ?? null ) ? $source_block['attrs'] : array();
+				self::project_typed_core_rtl_attrs( $block_name, $block['attrs'], $source_attrs );
 			}
 
 			if ( isset( $block['innerBlocks'], $source_block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) && is_array( $source_block['innerBlocks'] ) ) {
-				self::mirror_rtl_blocks_from_source( $block['innerBlocks'], $source_block['innerBlocks'] );
+				self::project_core_rtl_layout_from_source( $block['innerBlocks'], $source_block['innerBlocks'] );
 			}
 		}
 		unset( $block );
 	}
 
-	private static function mirror_rtl_attrs_from_source( array &$attrs, array $source_attrs ): void {
-		self::mirror_rtl_attr_pairs_from_source( $attrs, $source_attrs );
-
-		foreach ( $attrs as $key => &$value ) {
-			if ( isset( $source_attrs[ $key ] ) && is_array( $value ) && is_array( $source_attrs[ $key ] ) ) {
-				self::mirror_rtl_attrs_from_source( $value, $source_attrs[ $key ] );
+	private static function project_typed_core_rtl_attrs( string $block_name, array &$attrs, array $source_attrs ): void {
+		$spacing_blocks = array( 'core/group', 'core/columns', 'core/column', 'core/cover', 'core/media-text' );
+		if ( in_array( $block_name, $spacing_blocks, true ) ) {
+			foreach ( array( array( 'style', 'spacing', 'margin' ), array( 'style', 'spacing', 'padding' ) ) as $path ) {
+				self::mirror_typed_core_pair( $attrs, $source_attrs, $path, 'left', 'right' );
 			}
 		}
-		unset( $value );
-	}
 
-	private static function mirror_rtl_attr_pairs_from_source( array &$attrs, array $source_attrs ): void {
-		foreach ( array_keys( $source_attrs ) as $left_key ) {
-			if ( false === strpos( $left_key, 'Left' ) ) {
-				continue;
-			}
-
-			$right_key = str_replace( 'Left', 'Right', $left_key );
-			if ( ! array_key_exists( $right_key, $source_attrs ) && ! array_key_exists( $left_key, $attrs ) ) {
-				continue;
-			}
-
-			$source_left  = $source_attrs[ $left_key ] ?? null;
-			$source_right = $source_attrs[ $right_key ] ?? null;
-			if ( self::directional_attr_values_equivalent( $source_left, $source_right ) ) {
-				continue;
-			}
-
-			$target_left  = $attrs[ $left_key ] ?? $source_left;
-			$target_right = $attrs[ $right_key ] ?? $source_right;
-
-			if ( null !== $source_left && null !== $source_right ) {
-				$attrs[ $left_key ]  = $target_right;
-				$attrs[ $right_key ] = $target_left;
-			} elseif ( null !== $source_left ) {
-				$attrs[ $right_key ] = $target_left;
-				unset( $attrs[ $left_key ] );
-			} else {
-				$attrs[ $left_key ] = $target_right;
-				unset( $attrs[ $right_key ] );
-			}
+		if ( 'core/media-text' === $block_name && isset( $source_attrs['mediaPosition'] ) ) {
+			$attrs['mediaPosition'] = 'right' === (string) $source_attrs['mediaPosition'] ? 'left' : 'right';
+		}
+		if ( in_array( $block_name, array( 'core/image', 'core/buttons' ), true ) && isset( $source_attrs['align'] ) && in_array( $source_attrs['align'], array( 'left', 'right' ), true ) ) {
+			$attrs['align'] = 'right' === $source_attrs['align'] ? 'left' : 'right';
+		}
+		if ( in_array( $block_name, array( 'core/paragraph', 'core/heading', 'core/button' ), true ) && isset( $source_attrs['textAlign'] ) && in_array( $source_attrs['textAlign'], array( 'left', 'right' ), true ) ) {
+			$attrs['textAlign'] = 'right' === $source_attrs['textAlign'] ? 'left' : 'right';
 		}
 	}
 
-	private static function directional_attr_values_equivalent( $left_value, $right_value ): bool {
-		if ( is_array( $left_value ) || is_array( $right_value ) ) {
-			return $left_value === $right_value;
+	private static function mirror_typed_core_pair( array &$attrs, array $source_attrs, array $path, string $left, string $right ): void {
+		$target =& $attrs;
+		$source = $source_attrs;
+		foreach ( $path as $segment ) {
+			if ( ! isset( $source[ $segment ] ) || ! is_array( $source[ $segment ] ) ) {
+				return;
+			}
+			$source = $source[ $segment ];
+			if ( ! isset( $target[ $segment ] ) || ! is_array( $target[ $segment ] ) ) {
+				$target[ $segment ] = array();
+			}
+			$target =& $target[ $segment ];
 		}
-
-		return trim( (string) $left_value ) === trim( (string) $right_value );
+		$source_left  = $source[ $left ] ?? null;
+		$source_right = $source[ $right ] ?? null;
+		if ( $source_left === $source_right ) {
+			return;
+		}
+		if ( null !== $source_right ) {
+			$target[ $left ] = $source_right;
+		} else {
+			unset( $target[ $left ] );
+		}
+		if ( null !== $source_left ) {
+			$target[ $right ] = $source_left;
+		} else {
+			unset( $target[ $right ] );
+		}
 	}
 
 	/**

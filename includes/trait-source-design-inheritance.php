@@ -54,8 +54,8 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 	/**
 	 * Validate that source content is suitable as a canonical design tree.
 	 *
-	 * The Gutenberg/block-editor plugin owns the implementation behind this seam.
-	 * AI Translations only consumes the result so source inheritance cannot quietly
+	 * The private Site Presentation Adapter owns the implementation behind this seam.
+	 * Workflow only consumes the result so source inheritance cannot quietly
 	 * project a flat or unfinished source layout into every language.
 	 *
 	 * @return array<string,mixed>
@@ -88,9 +88,10 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 		$result = apply_filters(
 			'devenia_source_content_design_validation',
 			array(
-				'available'      => true,
-				'passed'         => true,
-				'not_applicable' => true,
+				'available'      => false,
+				'passed'         => false,
+				'not_applicable' => false,
+				'code'           => 'source_design_validation_unavailable',
 				'reason'         => 'no_source_design_policy_registered',
 			),
 			$source,

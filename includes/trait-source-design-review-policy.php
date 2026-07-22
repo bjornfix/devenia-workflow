@@ -22,7 +22,7 @@ trait Devenia_Workflow_Source_Design_Review_Policy {
 		}
 		$review = self::source_design_review_state( $source, $validation );
 		$validation_passed = ! empty( $validation['passed'] );
-		$review_passed     = ! empty( $review['passed'] ) && 'validation_passed' !== (string) ( $review['state'] ?? '' );
+		$review_passed     = ! empty( $validation['available'] ) && ! empty( $review['passed'] ) && 'validation_passed' !== (string) ( $review['state'] ?? '' );
 
 		return array(
 			'passed'      => $validation_passed || $review_passed,
@@ -43,6 +43,15 @@ trait Devenia_Workflow_Source_Design_Review_Policy {
 			return array(
 				'passed'        => true,
 				'state'         => 'validation_passed',
+				'source_id'     => $source_id,
+				'source_hash'   => self::source_hash( $source ),
+				'review_needed' => false,
+			);
+		}
+		if ( empty( $validation['available'] ) ) {
+			return array(
+				'passed'        => false,
+				'state'         => 'source_design_validation_unavailable',
 				'source_id'     => $source_id,
 				'source_hash'   => self::source_hash( $source ),
 				'review_needed' => false,
@@ -101,6 +110,9 @@ trait Devenia_Workflow_Source_Design_Review_Policy {
 		if ( '' === $public_url || ! preg_match( '#^https?://#i', $public_url ) ) {
 			return self::error( 'A public HTTP(S) URL inspected in a browser is required.', 'source_design_review_public_url_required' );
 		}
+		if ( ! self::source_review_url_matches_canonical_reader_surface( $source, $public_url ) ) {
+			return self::error( 'The reviewed URL must be the canonical reader surface for this source.', 'source_design_review_url_mismatch' );
+		}
 
 		$text_fields = array(
 			'contract_notes'       => 100,
@@ -119,6 +131,9 @@ trait Devenia_Workflow_Source_Design_Review_Policy {
 		}
 
 		$validation = self::source_editorial_design_validation( $source, (string) $source->post_content );
+		if ( empty( $validation['available'] ) ) {
+			return self::error( 'Source design review cannot be recorded while the configured validation Adapter is unavailable.', 'source_design_validation_unavailable' );
+		}
 		$summary    = self::source_editorial_design_validation_summary( $validation );
 		$reviewer   = sanitize_text_field( (string) ( $input['reviewer'] ?? 'Devenia Workflow' ) );
 		$evidence   = array(
@@ -152,5 +167,33 @@ trait Devenia_Workflow_Source_Design_Review_Policy {
 			'source_design_review' => self::source_design_review_state( $source, $validation ),
 			'editorial_source_validation' => $summary,
 		);
+	}
+
+	/** Bind review evidence to the exact source reader route, allowing query-only browser flags. */
+	private static function source_review_url_matches_canonical_reader_surface( WP_Post $source, string $url ): bool {
+		$canonical = get_permalink( (int) $source->ID );
+		if ( ! is_string( $canonical ) || '' === $canonical ) {
+			return false;
+		}
+		$review_parts    = wp_parse_url( $url );
+		$canonical_parts = wp_parse_url( $canonical );
+		if ( ! is_array( $review_parts ) || ! is_array( $canonical_parts ) ) {
+			return false;
+		}
+		$review_host    = strtolower( (string) ( $review_parts['host'] ?? '' ) );
+		$canonical_host = strtolower( (string) ( $canonical_parts['host'] ?? '' ) );
+		$review_scheme  = strtolower( (string) ( $review_parts['scheme'] ?? '' ) );
+		$canonical_scheme = strtolower( (string) ( $canonical_parts['scheme'] ?? '' ) );
+		$review_port    = (int) ( $review_parts['port'] ?? 0 );
+		$canonical_port = (int) ( $canonical_parts['port'] ?? 0 );
+		$review_path    = '/' . trim( (string) ( $review_parts['path'] ?? '' ), '/' );
+		$canonical_path = '/' . trim( (string) ( $canonical_parts['path'] ?? '' ), '/' );
+
+		return '' !== $review_scheme
+			&& '' !== $review_host
+			&& hash_equals( $canonical_scheme, $review_scheme )
+			&& hash_equals( $canonical_host, $review_host )
+			&& $canonical_port === $review_port
+			&& hash_equals( $canonical_path, $review_path );
 	}
 }
