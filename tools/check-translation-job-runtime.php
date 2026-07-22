@@ -13,6 +13,10 @@ $localized_link_source_id = 0;
 $localized_link_target_id = 0;
 $translation_id = 0;
 $nested_route_translation_id = 0;
+$new_page_route_translation_id = 0;
+$new_page_apply_source_id = 0;
+$new_page_apply_translation_id = 0;
+$new_page_apply_parent_ids = array();
 $nested_route_parent_ids = array();
 $source_thumbnail_id = 0;
 $source_thumbnail_file = '';
@@ -370,6 +374,40 @@ try {
 		wp_delete_post( $nested_route_parent_id, true );
 	}
 	$nested_route_parent_ids = array();
+	// A new page publication must persist the exact staged route before the
+	// applied-surface verifier compares route evidence. This is the create-path
+	// counterpart to the established-route fixture above.
+	$new_page_route_slug = 'runtime-new-page-route-' . strtolower( wp_generate_password( 6, false, false ) );
+	$new_page_route_translation_id = wp_insert_post(
+		array(
+			'post_type' => 'page',
+			'post_status' => 'draft',
+			'post_title' => 'Runtime new page route',
+			'post_name' => $new_page_route_slug,
+		),
+		true
+	);
+	if ( is_wp_error( $new_page_route_translation_id ) || $new_page_route_translation_id < 1 ) {
+		throw new RuntimeException( 'Could not create the new-page route fixture.' );
+	}
+	$new_page_expected_path = trim( $language . '/' . $new_page_route_slug, '/' );
+	$new_page_mismatch_result = $call( 'establish_page_localized_path_after_save', (int) $new_page_route_translation_id, $language, $new_page_expected_path . '-wrong' );
+	if (
+		'localized_page_path_mismatch' !== (string) ( $new_page_mismatch_result['code'] ?? '' )
+		|| metadata_exists( 'post', $new_page_route_translation_id, '_devenia_translation_localized_path' )
+	) {
+		throw new RuntimeException( 'A mismatched staged page route was persisted instead of failing closed: ' . wp_json_encode( $new_page_mismatch_result ) );
+	}
+	$new_page_path_result = $call( 'establish_page_localized_path_after_save', (int) $new_page_route_translation_id, $language, $new_page_expected_path );
+	if (
+		empty( $new_page_path_result['success'] )
+		|| $new_page_expected_path !== (string) get_post_meta( $new_page_route_translation_id, '_devenia_translation_localized_path', true )
+		|| $new_page_expected_path !== (string) ( $new_page_path_result['observed_path'] ?? '' )
+	) {
+		throw new RuntimeException( 'A new page translation did not establish its exact staged localized route before surface verification: ' . wp_json_encode( $new_page_path_result ) );
+	}
+	wp_delete_post( $new_page_route_translation_id, true );
+	$new_page_route_translation_id = 0;
 	$call( 'localized_internal_link_map', $language, true );
 	$call( 'localized_link_expected_target_map', $language, true );
 	$call( 'localized_link_module', $language, true );
@@ -1026,6 +1064,86 @@ try {
 		'localized_fragments' => $localized,
 		'seo' => array( 'title' => 'Oversatt testside', 'description' => 'En nyttig beskrivelse av den oversatte testsiden.', 'focus_keyword' => '' ),
 	);
+	// Exercise the owning staged-apply Interface for a genuinely new nested
+	// page. The translator artifact deliberately omits localized_path; staging
+	// must derive it, and apply must persist it before surface verification.
+	$new_page_apply_source_id = wp_insert_post(
+		array(
+			'post_type' => 'page',
+			'post_status' => 'draft',
+			'post_title' => 'Translation Job new-page apply source',
+			'post_excerpt' => (string) get_post_field( 'post_excerpt', $source_id ),
+			'post_content' => (string) get_post_field( 'post_content', $source_id ),
+		),
+		true
+	);
+	if ( is_wp_error( $new_page_apply_source_id ) || $new_page_apply_source_id < 1 ) {
+		throw new RuntimeException( 'Could not create the new-page staged-apply source fixture.' );
+	}
+	$new_page_apply_parent_segment = 'runtime-sideforelder-' . strtolower( wp_generate_password( 6, false, false ) );
+	$new_page_apply_slug = 'runtime-ny-side-' . strtolower( wp_generate_password( 6, false, false ) );
+	$new_page_apply_parent_id = wp_insert_post(
+		array(
+			'post_type' => 'page',
+			'post_status' => 'draft',
+			'post_title' => 'Runtime localized parent',
+			'post_name' => $new_page_apply_parent_segment,
+		),
+		true
+	);
+	if ( is_wp_error( $new_page_apply_parent_id ) || $new_page_apply_parent_id < 1 ) {
+		throw new RuntimeException( 'Could not create the new-page localized parent fixture.' );
+	}
+	$new_page_apply_parent_ids[] = (int) $new_page_apply_parent_id;
+	update_post_meta( $new_page_apply_parent_id, '_devenia_translation_language', $language );
+	$new_page_apply_artifact = $artifact;
+	$new_page_apply_artifact['localized_slug'] = $new_page_apply_slug;
+	$new_page_apply_artifact['localized_parent_id'] = (int) $new_page_apply_parent_id;
+	$new_page_apply_artifact['localized_parent_path'] = $new_page_apply_parent_segment;
+	unset( $new_page_apply_artifact['localized_path'] );
+	$new_page_apply_source = get_post( $new_page_apply_source_id );
+	$new_page_apply_job = array(
+		'job_id' => 'tj_runtime_new_page_apply_' . strtolower( wp_generate_password( 8, false, false ) ),
+		'source_id' => $new_page_apply_source_id,
+		'target_language' => $language,
+		'source_revision' => $call( 'source_publication_surface_revision', $new_page_apply_source ),
+		'publication_surface_contract_revision' => $call( 'translation_job_publication_surface_contract_revision', $new_page_apply_source, $language ),
+		'submission_generation' => 1,
+	);
+	$new_page_apply_stage = $call( 'translation_job_stage_artifact', $new_page_apply_job, $new_page_apply_artifact );
+	$new_page_apply_route = (array) ( $new_page_apply_stage['manifest']['route'] ?? array() );
+	$new_page_apply_resolved_parent_id = absint( $new_page_apply_route['localized_parent_id'] ?? 0 );
+	$new_page_apply_record = array(
+		'artifact' => $new_page_apply_artifact,
+		'content_revision' => (string) ( $new_page_apply_stage['content_revision'] ?? '' ),
+		'surface_revision' => (string) ( $new_page_apply_stage['surface_revision'] ?? '' ),
+		'surface_manifest' => (array) ( $new_page_apply_stage['manifest'] ?? array() ),
+		'baseline_surface_revision' => '',
+		'writer_principal' => array( 'principal_id' => 'runtime-new-page-writer', 'run_id' => 'runtime-new-page-writer-run' ),
+	);
+	$new_page_apply_result = ! empty( $new_page_apply_stage['success'] )
+		? $call( 'translation_job_apply_staged_artifact_uncommitted', $new_page_apply_job, $new_page_apply_record, array( 'publication_attempt_id' => 'runtime-new-page-apply', 'term_scope' => array(), 'identity_scope' => array() ), 0 )
+		: $new_page_apply_stage;
+	$new_page_apply_translation_id = absint( $new_page_apply_result['translation_id'] ?? 0 );
+	$new_page_apply_expected_path = trim( (string) ( $new_page_apply_route['localized_path'] ?? '' ), '/' );
+	if (
+		empty( $new_page_apply_result['success'] )
+		|| (int) $new_page_apply_parent_id !== $new_page_apply_resolved_parent_id
+		|| '' === $new_page_apply_expected_path
+		|| $new_page_apply_expected_path !== (string) get_post_meta( $new_page_apply_translation_id, '_devenia_translation_localized_path', true )
+		|| $new_page_apply_expected_path !== (string) $call( 'expected_localized_path_for_post', $new_page_apply_translation_id, $language )
+		|| empty( $new_page_apply_result['surface_verification']['success'] )
+	) {
+		throw new RuntimeException( 'A new nested page with omitted artifact path did not derive, apply, persist, and verify one exact staged route: ' . wp_json_encode( array( 'stage' => $new_page_apply_stage, 'apply' => $new_page_apply_result ) ) );
+	}
+	wp_delete_post( $new_page_apply_translation_id, true );
+	$new_page_apply_translation_id = 0;
+	foreach ( $new_page_apply_parent_ids as $new_page_apply_parent_id ) {
+		wp_delete_post( $new_page_apply_parent_id, true );
+	}
+	$new_page_apply_parent_ids = array();
+	wp_delete_post( $new_page_apply_source_id, true );
+	$new_page_apply_source_id = 0;
 	$pre_submit_surface_revision = $call( 'translation_job_current_surface_revision', $translation_id );
 	$invalid_artifact = $artifact;
 	if ( ! is_int( $accessible_fragment_index ) ) {
@@ -4001,10 +4119,25 @@ try {
 			'active_staged_transaction_claimed_commit_terminalized_without_publication' => true,
 			'active_snapshot_transaction_claimed_commit_terminalized_without_snapshot_authority' => true,
 			'active_restore_transaction_claimed_commit_terminalized_without_restore_progress' => true,
+			'new_page_localized_path_established_before_surface_verification' => true,
 		);
 } catch ( Throwable $error ) {
 	$runtime_error = $error;
 } finally {
+	if ( $new_page_route_translation_id > 0 ) {
+		wp_delete_post( $new_page_route_translation_id, true );
+	}
+	if ( $new_page_apply_translation_id > 0 ) {
+		wp_delete_post( $new_page_apply_translation_id, true );
+	}
+	foreach ( $new_page_apply_parent_ids as $new_page_apply_parent_id ) {
+		if ( $new_page_apply_parent_id > 0 ) {
+			wp_delete_post( $new_page_apply_parent_id, true );
+		}
+	}
+	if ( $new_page_apply_source_id > 0 ) {
+		wp_delete_post( $new_page_apply_source_id, true );
+	}
 	if ( $runtime_batch_http ) {
 		remove_filter( 'devenia_workflow_frontend_cache_batch_adapter_result', $runtime_batch_http, 10 );
 	}

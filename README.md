@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.660
+**Stable tag:** 0.1.661
 
 **License:** GPLv2 or later
 
@@ -143,6 +143,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.661
+
+- Derives every new translated page path from the resolved WordPress parent and localized slug before staging.
+- Applies the signed route through the publication Module and fails closed if the saved hierarchy differs.
 
 ### 0.1.660
 

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.660
+ * Version: 0.1.661
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -71,7 +71,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.660';
+	const VERSION = '0.1.661';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -10834,6 +10834,54 @@ final class Devenia_Workflow {
 	}
 
 	/**
+	 * Establish exact localized route evidence for one saved page translation.
+	 *
+	 * WordPress owns the observed hierarchy. The staged route is persisted only
+	 * when it is identical to that observed hierarchy, so publication cannot
+	 * sign a requested path that WordPress did not actually create.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function establish_page_localized_path_after_save( int $translation_id, string $language, string $localized_path ): array {
+		$post = get_post( $translation_id );
+		$expected_path = self::normalize_stored_localized_route_path( $localized_path );
+		$observed_path = self::expected_localized_path_for_post( $translation_id, $language );
+
+		if ( ! $post instanceof WP_Post || 'page' !== (string) $post->post_type || '' === $expected_path || $expected_path !== $observed_path ) {
+			return array(
+				'success'                 => false,
+				'code'                    => 'localized_page_path_mismatch',
+				'message'                 => 'The staged localized page path does not match the WordPress page hierarchy after save.',
+				'translation_id'          => $translation_id,
+				'expected_path'           => $expected_path,
+				'observed_path'           => $observed_path,
+			);
+		}
+
+		update_post_meta( $translation_id, self::META_LOCALIZED_PATH, $expected_path );
+		$stored_path = self::normalize_stored_localized_route_path( get_post_meta( $translation_id, self::META_LOCALIZED_PATH, true ) );
+		if ( $expected_path !== $stored_path ) {
+			return array(
+				'success'        => false,
+				'code'           => 'localized_page_path_store_failed',
+				'message'        => 'The exact localized page path could not be persisted after save.',
+				'translation_id' => $translation_id,
+				'expected_path'  => $expected_path,
+				'observed_path'  => $observed_path,
+				'stored_path'    => $stored_path,
+			);
+		}
+
+		return array(
+			'success'        => true,
+			'translation_id' => $translation_id,
+			'expected_path'  => $expected_path,
+			'observed_path'  => $observed_path,
+			'stored_path'    => $stored_path,
+		);
+	}
+
+	/**
 	 * Resolve the exact Canonical Route Contract used by staging and storage.
 	 *
 	 * Established route evidence is immutable and returned byte-for-byte. A
@@ -11034,10 +11082,13 @@ final class Devenia_Workflow {
 			return self::error( 'Localized slug must not end with a WordPress duplicate suffix such as -2. Resolve the route collision instead.' );
 		}
 		$localized_path = '';
-		if ( $published_route_locked && 'post' === $target_post_type ) {
+		if ( $published_route_locked ) {
 			$localized_path = trim( (string) get_post_meta( $translation_id, self::META_LOCALIZED_PATH, true ), '/' );
-		} elseif ( 'post' === $target_post_type && ! empty( $input['localized_path'] ) ) {
-			$localized_path = trim( sanitize_text_field( (string) $input['localized_path'] ), '/' );
+		} elseif ( ! empty( $input['localized_path'] ) ) {
+			$localized_path = self::normalize_stored_localized_route_path( $input['localized_path'] );
+			if ( '' === $localized_path ) {
+				return self::error( 'Localized path must be a relative path without a URL, query, or fragment.' );
+			}
 			$path_year_issue = self::validate_years_in_url_parts(
 				explode( '/', $localized_path ),
 				! empty( $input['allow_year_in_url'] ),
@@ -11209,7 +11260,12 @@ final class Devenia_Workflow {
 				'translation_id' => $translation_id,
 			) );
 		}
-		if ( 'post' === $target_post_type && '' !== $localized_path ) {
+		if ( $creating_translation && 'page' === $target_post_type ) {
+			$page_path_result = self::establish_page_localized_path_after_save( $translation_id, $language, $localized_path );
+			if ( empty( $page_path_result['success'] ) ) {
+				return self::rollback_new_translation_after_upsert_failure( $translation_id, $creating_translation, $page_path_result );
+			}
+		} elseif ( 'post' === $target_post_type && '' !== $localized_path ) {
 			update_post_meta( $translation_id, self::META_LOCALIZED_PATH, $localized_path );
 		}
 		$publication_attempt_id = sanitize_text_field( (string) ( $input['publication_attempt_id'] ?? '' ) );
@@ -11951,6 +12007,14 @@ final class Devenia_Workflow {
 	 */
 	private static function localized_parent_path_for_post( int $post_id, string $language ): string {
 		return self::strip_language_prefix_from_path( self::localized_path_for_post( $post_id, $language ), $language );
+	}
+
+	/**
+	 * Exact localized path a new page will have under one resolved parent.
+	 */
+	private static function expected_localized_path_for_new_page( int $parent_id, string $slug, string $language ): string {
+		$parent_path = $parent_id ? self::localized_path_for_post( $parent_id, $language ) : self::language_prefix( $language );
+		return self::normalize_stored_localized_route_path( trim( $parent_path . '/' . sanitize_title( $slug ), '/' ) );
 	}
 
 	/**

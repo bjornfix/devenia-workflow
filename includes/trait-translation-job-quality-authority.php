@@ -748,8 +748,18 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				if ( empty( $parent_result['success'] ) ) { return $parent_result; }
 				$parent_id = absint( $parent_result['parent_id'] ?? 0 );
 				$parent_path = (string) ( $parent_result['parent_path'] ?? $parent_path );
+				$expected_path = self::expected_localized_path_for_new_page( $parent_id, $slug, $language );
+				$raw_requested_path = trim( (string) ( $artifact['localized_path'] ?? '' ) );
+				$requested_path = self::normalize_stored_localized_route_path( $raw_requested_path );
+				if ( '' !== $raw_requested_path && '' === $requested_path ) {
+					return array( 'success' => false, 'code' => 'staged_localized_page_path_invalid', 'message' => 'The requested localized page path must be a relative path without a URL, query, or fragment.' );
+				}
+				if ( '' !== $requested_path && $requested_path !== $expected_path ) {
+					return array( 'success' => false, 'code' => 'staged_localized_page_path_mismatch', 'message' => 'The requested localized page path does not match the resolved WordPress parent hierarchy.', 'expected_path' => $expected_path, 'requested_path' => $requested_path );
+				}
 				$route['localized_parent_id'] = $parent_id;
 				$route['localized_parent_path'] = $parent_path;
+				$route['localized_path'] = $expected_path;
 			}
 			if ( self::translation_slug_conflicts( $slug, (string) $source->post_type, $parent_id, 0 ) ) { return array( 'success' => false, 'code' => 'staged_localized_slug_collision', 'message' => 'The staged localized route collides with existing content.' ); }
 		}
@@ -1359,6 +1369,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		}
 		$status = $translation_id && 'publish' === get_post_status( $translation_id ) ? 'publish' : 'draft';
 		$writer = isset( $artifact_record['writer_principal'] ) && is_array( $artifact_record['writer_principal'] ) ? $artifact_record['writer_principal'] : array();
+		$staged_route_surface = (array) ( $artifact_record['surface_manifest']['route'] ?? array() );
 		$upsert = array_merge(
 			$artifact,
 			array(
@@ -1379,6 +1390,10 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'writer_process_id' => (string) ( $writer['run_id'] ?? '' ),
 				'writer_actor' => (string) ( $writer['principal_id'] ?? '' ),
 				'publication_attempt_id' => sanitize_text_field( (string) ( $surface_snapshot['publication_attempt_id'] ?? '' ) ),
+				'localized_slug' => (string) ( $staged_route_surface['post_name'] ?? $staged_route_surface['localized_slug'] ?? '' ),
+				'localized_path' => (string) ( $staged_route_surface['localized_path'] ?? '' ),
+				'localized_parent_id' => absint( $staged_route_surface['post_parent'] ?? $staged_route_surface['localized_parent_id'] ?? 0 ),
+				'localized_parent_path' => (string) ( $staged_route_surface['localized_parent_path'] ?? '' ),
 			)
 		);
 		self::$translation_job_internal_identity = array(

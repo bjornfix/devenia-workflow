@@ -39,6 +39,13 @@ if [[ "$batch_result" != 'Frontend cache batch contract passed.' ]]; then
 	exit 1
 fi
 
+page_route_result="$("$php_bin" "$plugin_root/tools/check-new-page-localized-path-contract.php")"
+printf '%s\n' "$page_route_result"
+if [[ "$page_route_result" != 'New-page localized-path contract passed.' ]]; then
+	printf '%s\n' 'New-page localized-path contract did not return the exact success proof.' >&2
+	exit 1
+fi
+
 if "$wp_cli_bin" option get devenia_workflow_version --path="$wp_path" --skip-plugins --skip-themes >/dev/null 2>&1; then
 	"$wp_cli_bin" option delete devenia_workflow_version --path="$wp_path" --skip-plugins --skip-themes >/dev/null
 fi
@@ -125,8 +132,8 @@ job_result="$("$wp_cli_bin" eval-file \
 printf '%s\n' "$job_result"
 RESULT="$job_result" "$php_bin" -r '
 	$result = json_decode((string) getenv("RESULT"), true);
-	if (!is_array($result) || true !== ($result["success"] ?? null) || true !== ($result["ordinary_translation_job_wrong_index_preserved_raw_authority"] ?? null)) {
-		fwrite(STDERR, "Translation Job runtime did not prove wrong-index fail-closed raw authority.\n");
+	if (!is_array($result) || true !== ($result["success"] ?? null) || true !== ($result["ordinary_translation_job_wrong_index_preserved_raw_authority"] ?? null) || true !== ($result["new_page_localized_path_established_before_surface_verification"] ?? null)) {
+		fwrite(STDERR, "Translation Job runtime did not prove wrong-index and new-page route authority.\n");
 		exit(1);
 	}
 '
