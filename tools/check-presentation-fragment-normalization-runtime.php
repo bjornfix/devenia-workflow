@@ -129,6 +129,10 @@ final class Devenia_Workflow_Presentation_Normalization_Runtime_Test {
 		return $content;
 	}
 
+	private static function project_block_layout_from_source( string $content, string $source_content, string $language ): string {
+		return $content;
+	}
+
 	private static function is_rtl_language( string $language ): bool {
 		return 'ar' === $language;
 	}

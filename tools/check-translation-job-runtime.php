@@ -224,8 +224,8 @@ try {
 				. '<!-- wp:generateblocks/query {"uniqueId":"runtime-query","tagName":"section","query":{"post_type":["page"]}} --><section>'
 				. '<!-- wp:generateblocks/looper {"uniqueId":"runtime-loop","tagName":"div"} --><div>'
 				. '<!-- wp:generateblocks/loop-item {"uniqueId":"runtime-item","tagName":"div"} --><div>'
-				. '<!-- wp:generateblocks/text {"uniqueId":"runtime-dynamic-link","tagName":"a","htmlAttributes":{"href":"{{post_permalink}}"}} -->'
-				. '<a class="gb-text" href="{{post_permalink}}">View plugin</a>'
+				. '<!-- wp:generateblocks/text {"uniqueId":"runtime-dynamic-link","tagName":"a","htmlAttributes":{"href":"{{post_permalink}}","aria-label":"View {{post_title}} plugin details","data-devenia-card-action":"plugin-details"}} -->'
+				. '<a class="gb-text" href="{{post_permalink}}" aria-label="View {{post_title}} plugin details" data-devenia-card-action="plugin-details">View plugin →</a>'
 				. '<!-- /wp:generateblocks/text --></div><!-- /wp:generateblocks/loop-item -->'
 				. '</div><!-- /wp:generateblocks/looper --></section><!-- /wp:generateblocks/query -->',
 		),
@@ -973,7 +973,7 @@ try {
 		empty( $packet['success'] )
 		|| $translation_id !== absint( $packet['packet']['route']['existing']['translation_id'] ?? 0 )
 		|| $runtime_localized_path !== (string) ( $packet['packet']['route']['existing']['localized_path'] ?? '' )
-		|| 1 !== count( $fragments )
+		|| 3 !== count( $fragments )
 		|| false === stripos( (string) $fragments[0]['source_html'], '<strong>' )
 		|| 2 !== count( $links )
 		|| ! empty( $dynamic_packet_links )
@@ -1006,8 +1006,18 @@ try {
 		$packet_link_markup[] = '<a href="' . esc_url( (string) ( $link['target_url'] ?? '' ) ) . '">den lenkede kilden</a>';
 	}
 	$localized = array();
+	$accessible_fragment_index = null;
 	foreach ( $fragments as $fragment ) {
-		$localized[] = array( 'key' => (string) $fragment['key'], 'html' => '<strong>Nyttig innhold</strong><br>Les ' . implode( ' og ', $packet_link_markup ) . ', og <a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.' );
+		$role = (string) ( $fragment['role'] ?? '' );
+		if ( 'devenia_generateblocks_card_action' === $role ) {
+			$value = 'Se om den passer →';
+		} elseif ( 'devenia_generateblocks_card_accessible_name' === $role ) {
+			$value = 'Se om {{post_title}} passer for nettstedet';
+			$accessible_fragment_index = count( $localized );
+		} else {
+			$value = '<strong>Nyttig innhold</strong><br>Les ' . implode( ' og ', $packet_link_markup ) . ', og <a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.';
+		}
+		$localized[] = array( 'key' => (string) $fragment['key'], 'html' => $value );
 	}
 	$artifact = array(
 		'title' => 'Oversatt testside',
@@ -1018,6 +1028,26 @@ try {
 	);
 	$pre_submit_surface_revision = $call( 'translation_job_current_surface_revision', $translation_id );
 	$invalid_artifact = $artifact;
+	if ( ! is_int( $accessible_fragment_index ) ) {
+		throw new RuntimeException( 'Dynamic card accessible-name fragment was not exposed by the GP-MCP Adapter: ' . wp_json_encode( array_map( static function ( array $fragment ): array { return array( 'key' => $fragment['key'] ?? '', 'role' => $fragment['role'] ?? '', 'block' => $fragment['block'] ?? '', 'source_html' => $fragment['source_html'] ?? '' ); }, $fragments ) ) );
+	}
+	$missing_dynamic_token_artifact = $artifact;
+	$missing_dynamic_token_artifact['localized_fragments'][ $accessible_fragment_index ]['html'] = 'Se om innstikket passer for nettstedet';
+	$missing_dynamic_token_submit = $call(
+		'translation_job_submit_artifact',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $translator_run_id,
+			'claim_token' => $translator_token,
+			'artifact' => $missing_dynamic_token_artifact,
+			'usage' => array( 'input_tokens' => 1200, 'cached_input_tokens' => 0, 'output_tokens' => 500, 'attempts' => 1, 'duration_ms' => 1000, 'estimated_cost_microusd' => 100 ),
+		)
+	);
+	$missing_dynamic_token_findings = (array) ( $missing_dynamic_token_submit['invalid_fragments'] ?? array() );
+	$dynamic_tag_findings = array_values( array_filter( $missing_dynamic_token_findings, static function ( $finding ): bool { return is_array( $finding ) && 'dynamic_tags_changed' === (string) ( $finding['reason'] ?? '' ); } ) );
+	if ( ! empty( $missing_dynamic_token_submit['success'] ) || 'artifact_fragment_value_invalid' !== (string) ( $missing_dynamic_token_submit['code'] ?? '' ) || 1 !== count( $dynamic_tag_findings ) ) {
+		throw new RuntimeException( 'A localized card accessible name was allowed to drop its dynamic title token: ' . wp_json_encode( $missing_dynamic_token_submit ) );
+	}
 	$extra_internal_link_artifact = $artifact;
 	$extra_internal_link_artifact['localized_fragments'][0]['html'] .= '<a href="' . esc_url( home_url( '/invented-localized-route/' ) ) . '">Oppdiktet mål</a>';
 	$extra_internal_link_submit = $call(
@@ -1165,16 +1195,23 @@ try {
 	};
 	$source_query_subtree = $extract_runtime_query( $source_gutenberg );
 	$staged_query_subtree = $extract_runtime_query( $staged_gutenberg );
+	$staged_query_tokens = array();
+	preg_match_all( '/\{\{[^{}]+\}\}/u', $staged_query_subtree, $staged_query_token_matches );
+	$staged_query_tokens = array_values( $staged_query_token_matches[0] ?? array() );
+	$staged_query_token_counts = array_count_values( $staged_query_tokens );
 	$loose_dynamic_guardrails = $call( 'link_integrity_guardrails', '<!-- wp:paragraph --><p><a href="{{post_permalink}}">Loose placeholder</a></p><!-- /wp:paragraph -->', $language );
 	$loose_dynamic_issues = array_values( array_filter( (array) ( $loose_dynamic_guardrails['issues'] ?? array() ), static function ( $issue ): bool { return is_array( $issue ) && 'unresolved_internal_content_link' === (string) ( $issue['code'] ?? '' ); } ) );
 	if (
 		$legacy_effective_route !== (array) ( $legacy_staged_record['surface_manifest']['route']['canonical_route'] ?? array() )
 		|| '' === $source_query_subtree
-		|| $source_query_subtree !== $staged_query_subtree
+		|| $source_query_subtree === $staged_query_subtree
+		|| false === strpos( $staged_query_subtree, '>Se om den passer →</a>' )
+		|| false === strpos( $staged_query_subtree, 'aria-label="Se om {{post_title}} passer for nettstedet"' )
+		|| array( '{{post_permalink}}' => 2, '{{post_title}}' => 2 ) !== $staged_query_token_counts
 		|| 1 !== count( $loose_dynamic_issues )
 		|| metadata_exists( 'post', $translation_id, '_devenia_translation_canonical_route_v1' )
 	) {
-		throw new RuntimeException( 'Staging did not preserve the deterministic Canonical Route and exact native dynamic Query subtree, or a loose placeholder escaped validation: ' . wp_json_encode( array( 'route' => $legacy_staged_record['surface_manifest']['route'] ?? array(), 'source_query_hash' => hash( 'sha256', $source_query_subtree ), 'staged_query_hash' => hash( 'sha256', $staged_query_subtree ), 'loose_dynamic_issues' => $loose_dynamic_issues ) ) );
+		throw new RuntimeException( 'Staging did not preserve the deterministic Canonical Route and token-safe localized dynamic Query contract, or a loose placeholder escaped validation: ' . wp_json_encode( array( 'route' => $legacy_staged_record['surface_manifest']['route'] ?? array(), 'source_query_hash' => hash( 'sha256', $source_query_subtree ), 'staged_query_hash' => hash( 'sha256', $staged_query_subtree ), 'staged_query_tokens' => $staged_query_tokens, 'loose_dynamic_issues' => $loose_dynamic_issues ) ) );
 	}
 	$legacy_missing_meta_verification = $call(
 		'translation_job_verify_applied_surface',
@@ -2134,11 +2171,19 @@ try {
 				return array( 'success' => false, 'code' => 'runtime_refresh_packet_fragment_invalid', 'fragment_index' => $fragment_index, 'fragment_key' => $key );
 			}
 			$fragment_keys[ $key ] = true;
+			$role = (string) ( $fragment['role'] ?? '' );
+			if ( 'devenia_generateblocks_card_action' === $role ) {
+				$localized_html = 'Se om den passer →';
+			} elseif ( 'devenia_generateblocks_card_accessible_name' === $role ) {
+				$localized_html = 'Se om {{post_title}} passer for nettstedet';
+			} else {
+				$localized_html = '<strong>Nyttig innhold</strong><br>'
+					. ( $link_markup ? 'Les ' . implode( ' og ', $link_markup ) . ', og ' : '' )
+					. '<a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.';
+			}
 			$localized_fragments[] = array(
 				'key' => $key,
-				'html' => '<strong>Nyttig innhold</strong><br>'
-					. ( $link_markup ? 'Les ' . implode( ' og ', $link_markup ) . ', og ' : '' )
-					. '<a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.',
+				'html' => $localized_html,
 			);
 		}
 
@@ -3588,11 +3633,19 @@ try {
 				return array( 'success' => false, 'code' => 'runtime_correction_packet_fragment_invalid', 'fragment_index' => $fragment_index, 'fragment_key' => $key );
 			}
 			$fragment_keys[ $key ] = true;
+			$role = (string) ( $fragment['role'] ?? '' );
+			if ( 'devenia_generateblocks_card_action' === $role ) {
+				$localized_html = 'Se om den passer →';
+			} elseif ( 'devenia_generateblocks_card_accessible_name' === $role ) {
+				$localized_html = 'Se om {{post_title}} passer for nettstedet';
+			} else {
+				$localized_html = '<strong>Nyttig innhold</strong><br>'
+					. ( $link_markup ? 'Les ' . implode( ' og ', $link_markup ) . ', og ' : '' )
+					. '<a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.';
+			}
 			$localized_fragments[] = array(
 				'key' => $key,
-				'html' => '<strong>Nyttig innhold</strong><br>'
-					. ( $link_markup ? 'Les ' . implode( ' og ', $link_markup ) . ', og ' : '' )
-					. '<a href="mailto:hello@example.com?subject=Sp%C3%B8rsm%C3%A5l%20om%20testen&amp;body=Hei%20fra%20oversettelsen">kontakt oss</a> for et konkret neste steg.',
+				'html' => $localized_html,
 			);
 		}
 

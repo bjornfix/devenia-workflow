@@ -384,6 +384,22 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				}
 			}
 
+			foreach ( self::translatable_block_html_fragments( $name, $attrs, $html ) as $html_fragment ) {
+				$value = (string) ( $html_fragment['source_html'] ?? '' );
+				if ( '' === trim( wp_strip_all_tags( $value ) ) ) {
+					continue;
+				}
+				$records[] = array(
+					'key'     => self::translatable_block_html_fragment_key( $current_path, $name, $html_fragment ),
+					'html'    => wp_kses_post( $value ),
+					'path'    => $current_path,
+					'block'   => $name . ':html:' . (string) ( $html_fragment['id'] ?? '' ),
+					'heading' => ! empty( $html_fragment['heading'] ),
+					'text'    => self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $value ) ) ),
+					'role'    => (string) ( $html_fragment['role'] ?? 'text' ),
+				);
+			}
+
 			if ( 'core/details' === $name ) {
 				$summary_html = self::core_details_summary_html( $html );
 				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $summary_html ) ) );
@@ -1516,6 +1532,23 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				}
 			}
 
+			foreach ( self::translatable_block_html_fragments( $name, $attrs, $html ) as $html_fragment ) {
+				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( (string) ( $html_fragment['source_html'] ?? '' ) ) ) );
+				if ( '' === $text ) {
+					continue;
+				}
+				$fragments[] = array(
+					'key'         => self::translatable_block_html_fragment_key( $current_path, $name, $html_fragment ),
+					'path'        => $current_path,
+					'block'       => $name . ':html:' . (string) ( $html_fragment['id'] ?? '' ),
+					'role'        => (string) ( $html_fragment['role'] ?? 'text' ),
+					'format'      => 'inline_html',
+					'heading'     => ! empty( $html_fragment['heading'] ),
+					'text'        => $text,
+					'source_html' => (string) ( $html_fragment['source_html'] ?? '' ),
+				);
+			}
+
 			if ( 'core/details' === $name ) {
 				$summary_html = self::core_details_summary_html( $html );
 				$text = self::normalize_review_text( wp_strip_all_tags( strip_shortcodes( $summary_html ) ) );
@@ -1637,6 +1670,50 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 				}
 			}
 
+			if ( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
+				foreach ( self::translatable_block_html_fragments( $name, $attrs, (string) $block['innerHTML'] ) as $html_fragment ) {
+					$key = self::translatable_block_html_fragment_key( $current_path, $name, $html_fragment );
+					if ( ! array_key_exists( $key, $fragments ) ) {
+						continue;
+					}
+
+					$source_html = (string) ( $html_fragment['source_html'] ?? '' );
+					$updated     = apply_filters(
+						'devenia_workflow_project_translatable_block_html_fragment',
+						(string) $block['innerHTML'],
+						$source_html,
+						$fragments[ $key ],
+						$html_fragment
+					);
+					if ( ! is_string( $updated ) || $updated === $block['innerHTML'] ) {
+						continue;
+					}
+
+					$block['innerHTML'] = $updated;
+					if ( isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
+						foreach ( $block['innerContent'] as &$part ) {
+							if ( ! is_string( $part ) ) {
+								continue;
+							}
+							$projected_part = apply_filters(
+								'devenia_workflow_project_translatable_block_html_fragment',
+								$part,
+								$source_html,
+								$fragments[ $key ],
+								$html_fragment
+							);
+							if ( is_string( $projected_part ) ) {
+								$part = $projected_part;
+							}
+						}
+						unset( $part );
+					} elseif ( empty( $block['innerBlocks'] ) ) {
+						$block['innerContent'] = array( $updated );
+					}
+					$stats['projected_count']++;
+				}
+			}
+
 			if ( 'core/details' === $name && isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
 				$key = self::source_design_fragment_key( $name, $attrs, $current_path, 'summary' );
 				if ( array_key_exists( $key, $fragments ) ) {
@@ -1666,11 +1743,14 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 
 				$old_value = (string) ( $attr_fragment['text'] ?? '' );
 				$new_value = $fragments[ $key ];
+				$html_value = 'attribute_plain_text' === (string) ( $attr_fragment['html_context'] ?? '' )
+					? esc_attr( $new_value )
+					: $new_value;
 				self::set_nested_array_value( $block['attrs'], (array) ( $attr_fragment['attr_path'] ?? array() ), $new_value );
 				if ( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ) {
-					$block['innerHTML'] = self::replace_source_design_structured_html_value( $block['innerHTML'], $old_value, $new_value );
+					$block['innerHTML'] = self::replace_source_design_structured_html_value( $block['innerHTML'], $old_value, $html_value );
 					if ( isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
-						$block['innerContent'] = self::replace_source_design_inner_content_value( $block['innerContent'], $old_value, $new_value );
+						$block['innerContent'] = self::replace_source_design_inner_content_value( $block['innerContent'], $old_value, $html_value );
 					} elseif ( empty( $block['innerBlocks'] ) ) {
 						$block['innerContent'] = array( $block['innerHTML'] );
 					}
@@ -2096,17 +2176,45 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 
 		$filtered = apply_filters( 'devenia_workflow_structured_text_attr_fragments', $fragments, $block_name, $attrs );
 		if ( ! is_array( $filtered ) ) {
-			return $fragments;
+			throw new UnexpectedValueException( 'Structured text fragment Adapter must return an array.' );
+		}
+		foreach ( $filtered as $fragment ) {
+			if ( ! is_array( $fragment ) || empty( $fragment['attr_path'] ) || ! array_key_exists( 'text', $fragment ) ) {
+				throw new UnexpectedValueException( 'Structured text fragment Adapter returned an invalid row.' );
+			}
 		}
 
-		return array_values(
-			array_filter(
-				$filtered,
-				static function ( $fragment ): bool {
-					return is_array( $fragment ) && ! empty( $fragment['attr_path'] ) && array_key_exists( 'text', $fragment );
-				}
-			)
-		);
+		return array_values( $filtered );
+	}
+
+	/**
+	 * Adapter-provided static copy segments inside otherwise dynamic block HTML.
+	 *
+	 * @param array<string,mixed> $attrs Block attributes.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function translatable_block_html_fragments( string $block_name, array $attrs, string $html ): array {
+		$filtered = apply_filters( 'devenia_workflow_translatable_block_html_fragments', array(), $block_name, $attrs, $html );
+		if ( ! is_array( $filtered ) ) {
+			throw new UnexpectedValueException( 'Translatable block HTML fragment Adapter must return an array.' );
+		}
+		foreach ( $filtered as $fragment ) {
+			if (
+				! is_array( $fragment )
+				|| '' === trim( (string) ( $fragment['id'] ?? '' ) )
+				|| '' === trim( (string) ( $fragment['source_html'] ?? '' ) )
+			) {
+				throw new UnexpectedValueException( 'Translatable block HTML fragment Adapter returned an invalid row.' );
+			}
+		}
+
+		return array_values( $filtered );
+	}
+
+	/** Stable key for an Adapter-owned HTML copy segment. */
+	private static function translatable_block_html_fragment_key( string $path, string $block_name, array $fragment ): string {
+		$id = preg_replace( '/[^a-z0-9_-]/i', '-', (string) ( $fragment['id'] ?? '' ) ) ?: 'text';
+		return 'block-html:' . preg_replace( '/[^0-9.]/', '', $path ) . ':' . str_replace( '/', '_', $block_name ) . ':' . strtolower( $id );
 	}
 
 	/**
@@ -2543,8 +2651,21 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 			return self::core_image_html_shell( $html );
 		}
 
-		$structured_fragments = self::structured_text_attr_fragments( $block_name, $attrs );
 		$shell = $html;
+		foreach ( self::translatable_block_html_fragments( $block_name, $attrs, $html ) as $html_fragment ) {
+			$masked = apply_filters(
+				'devenia_workflow_project_translatable_block_html_fragment',
+				$shell,
+				(string) ( $html_fragment['source_html'] ?? '' ),
+				'{{text}}',
+				$html_fragment
+			);
+			if ( is_string( $masked ) ) {
+				$shell = $masked;
+			}
+		}
+
+		$structured_fragments = self::structured_text_attr_fragments( $block_name, $attrs );
 		foreach ( $structured_fragments as $attr_fragment ) {
 			$shell = self::replace_source_design_structured_html_value( $shell, (string) ( $attr_fragment['text'] ?? '' ), '{{text}}' );
 		}

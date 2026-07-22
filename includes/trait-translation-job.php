@@ -767,6 +767,16 @@ trait Devenia_Workflow_Translation_Job {
 			return $coverage;
 		}
 		$source = get_post( (int) $job['source_id'] );
+		$artifact_policy = $source instanceof WP_Post
+			? apply_filters( 'devenia_workflow_translation_job_artifact_policy', array( 'success' => true ), $source, $artifact, $job )
+			: array( 'success' => false, 'code' => 'job_source_missing', 'message' => 'Translation Job source is unavailable.' );
+		if ( ! is_array( $artifact_policy ) || empty( $artifact_policy['success'] ) ) {
+			return is_array( $artifact_policy ) ? $artifact_policy : array( 'success' => false, 'code' => 'artifact_policy_invalid', 'message' => 'Translation Artifact policy returned an invalid result.' );
+		}
+		$inventory_policy = self::translation_job_dynamic_inventory_policy( $source, (string) $job['target_language'] );
+		if ( empty( $inventory_policy['success'] ) ) {
+			return $inventory_policy;
+		}
 		$link_policy = $source instanceof WP_Post
 			? self::translation_job_artifact_link_policy( $source, (string) $job['target_language'], $artifact['localized_fragments'] ?? array() )
 			: array( 'success' => false, 'code' => 'job_source_missing', 'message' => 'Translation Job source is unavailable.' );
@@ -1663,6 +1673,95 @@ trait Devenia_Workflow_Translation_Job {
 	}
 
 	/**
+	 * Require a localized direct-child Query inventory to cover every published
+	 * source child exactly once before the overview Artifact can stage.
+	 */
+	private static function translation_job_dynamic_inventory_policy( WP_Post $source, string $language ): array {
+		$contracts = apply_filters(
+			'devenia_workflow_dynamic_inventory_contracts',
+			array(),
+			parse_blocks( self::normalize_gutenberg_content_for_storage( (string) $source->post_content ) )
+		);
+		if ( ! is_array( $contracts ) ) {
+			return array( 'success' => false, 'code' => 'dynamic_inventory_contract_invalid', 'issues' => array( 'contract_collection_must_be_array' ) );
+		}
+		if ( empty( $contracts ) ) {
+			return array( 'success' => true, 'contract_count' => 0 );
+		}
+
+		foreach ( $contracts as $contract ) {
+			if ( ! is_array( $contract ) || '' === (string) ( $contract['type'] ?? '' ) ) {
+				return array( 'success' => false, 'code' => 'dynamic_inventory_contract_invalid', 'issues' => array( 'typed_contract_row_required' ) );
+			}
+			if ( 'translated_direct_children' !== (string) $contract['type'] ) {
+				return array( 'success' => false, 'code' => 'dynamic_inventory_contract_invalid', 'issues' => array( 'unsupported_contract_type' ) );
+			}
+			if ( empty( $contract['valid'] ) ) {
+				return array( 'success' => false, 'code' => 'dynamic_inventory_contract_invalid', 'issues' => (array) ( $contract['issues'] ?? array() ) );
+			}
+			$post_types = array_values( array_filter( array_map( 'sanitize_key', (array) ( $contract['post_types'] ?? array( 'page' ) ) ) ) );
+			if ( ! $post_types ) {
+				return array( 'success' => false, 'code' => 'dynamic_inventory_contract_invalid', 'issues' => array( 'post_type_required' ) );
+			}
+
+			$source_child_ids = get_posts(
+				array(
+					'post_type'      => $post_types,
+					'post_status'    => 'publish',
+					'post_parent'    => (int) $source->ID,
+					'posts_per_page' => -1,
+					'fields'         => 'ids',
+					'orderby'        => 'ID',
+					'order'          => 'ASC',
+				)
+			);
+			$source_child_ids = array_values( array_filter( array_map( 'absint', is_array( $source_child_ids ) ? $source_child_ids : array() ) ) );
+			$translation_map  = self::batch_translation_index_ids( $source_child_ids, $language, array( 'publish' ) );
+			$missing_source_ids = array_values( array_diff( $source_child_ids, array_map( 'absint', array_keys( $translation_map ) ) ) );
+			$target_parent_id = self::find_translation_id( (int) $source->ID, $language, self::translation_workflow_post_statuses( false ) );
+			$target_child_ids = $target_parent_id > 0
+				? get_posts(
+					array(
+						'post_type'      => $post_types,
+						'post_status'    => 'publish',
+						'post_parent'    => $target_parent_id,
+						'posts_per_page' => -1,
+						'fields'         => 'ids',
+						'orderby'        => 'ID',
+						'order'          => 'ASC',
+					)
+				)
+				: array();
+			$rendered_cards = array();
+			foreach ( is_array( $target_child_ids ) ? $target_child_ids : array() as $target_child_id ) {
+				$target_child = get_post( absint( $target_child_id ) );
+				if ( $target_child instanceof WP_Post ) {
+					$rendered_cards[] = array( 'id' => (int) $target_child->ID, 'excerpt' => (string) $target_child->post_excerpt );
+				}
+			}
+
+			$validation = apply_filters(
+				'devenia_workflow_validate_dynamic_inventory',
+				array( 'success' => true ),
+				$rendered_cards,
+				array_values( array_map( 'absint', $translation_map ) ),
+				max( 1, absint( $contract['max_characters'] ?? 120 ) )
+			);
+			if ( $missing_source_ids || ! is_array( $validation ) || empty( $validation['success'] ) ) {
+				return array(
+					'success'            => false,
+					'code'               => 'dynamic_inventory_incomplete',
+					'missing_source_ids' => $missing_source_ids,
+					'target_parent_id'    => $target_parent_id,
+					'validation'          => is_array( $validation ) ? $validation : array(),
+				);
+			}
+		}
+
+		return array( 'success' => true, 'contract_count' => count( $contracts ) );
+	}
+
+	/**
 	 * Extract href values without changing Gutenberg serialization.
 	 *
 	 * @return array<int,string>
@@ -1732,10 +1831,12 @@ trait Devenia_Workflow_Translation_Job {
 		}
 
 		$source_values = array();
+		$source_fragments_by_key = array();
 		foreach ( $source_fragments as $source_fragment ) {
 			$key = (string) ( $source_fragment['key'] ?? '' );
 			if ( '' !== $key ) {
 				$source_values[ $key ] = (string) ( $source_fragment['source_html'] ?? $source_fragment['html'] ?? $source_fragment['text'] ?? '' );
+				$source_fragments_by_key[ $key ] = $source_fragment;
 			}
 		}
 		$invalid = array();
@@ -1767,6 +1868,21 @@ trait Devenia_Workflow_Translation_Job {
 			$source_placeholder = strtolower( $source_plain );
 			if ( in_array( $localized_placeholder, $placeholder_values, true ) && $localized_placeholder !== $source_placeholder ) {
 				$invalid[] = array( 'key' => $key, 'reason' => 'placeholder_value_forbidden' );
+				continue;
+			}
+
+			$adapter_validation = apply_filters(
+				'devenia_workflow_validate_localized_fragment_value',
+				array( 'success' => true ),
+				(array) ( $source_fragments_by_key[ $key ] ?? array() ),
+				$row,
+				$value
+			);
+			if ( ! is_array( $adapter_validation ) || empty( $adapter_validation['success'] ) ) {
+				$invalid[] = array(
+					'key'    => $key,
+					'reason' => sanitize_key( (string) ( is_array( $adapter_validation ) ? ( $adapter_validation['code'] ?? 'adapter_validation_failed' ) : 'adapter_validation_failed' ) ),
+				);
 			}
 		}
 		if ( $invalid ) {
@@ -1966,6 +2082,9 @@ trait Devenia_Workflow_Translation_Job {
 				'key' => (string) ( $fragment['key'] ?? '' ),
 				'source_html' => (string) ( $fragment['source_html'] ?? $fragment['text'] ?? '' ),
 				'heading' => ! empty( $fragment['heading'] ),
+				'role' => (string) ( $fragment['role'] ?? '' ),
+				'block' => (string) ( $fragment['block'] ?? '' ),
+				'format' => (string) ( $fragment['format'] ?? '' ),
 			);
 		}
 		return $fragments;

@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.659
+Stable tag: 0.1.660
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,11 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.660 =
+* Add a generic Adapter port for localized static copy inside dynamic block HTML while preserving source-owned tokens and structure.
+* Let block adapters validate Artifact fragment values and top-level Artifact policy before staging.
+* Cover localized GenerateBlocks Query card actions without requiring byte-identical static English copy.
 
 = 0.1.659 =
 * Scope Translation Artifact link obligations to the typed source fragments a translator can change, preserve native dynamic Query links through block projection, and reject extra invented internal targets.
