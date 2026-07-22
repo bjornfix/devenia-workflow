@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.665
+Stable tag: 0.1.666
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -27,6 +27,8 @@ It is designed for controlled translation workflows where an AI assistant, autom
 * Keep language menus in sync with available translations.
 * Run QA checks for source-language carryover, terminology, structure, script issues, and link integrity.
 * Require a Quality Decision bound to the exact complete artifact before publishing.
+* Stage complete source rewrites behind a separate source-writer and independent Quality lifecycle before public mutation.
+* Prime fresh writing and review runs with vendor-neutral effectiveness guidance, with source-specific policy supplied dynamically through an Adapter.
 * Integrate with Frontend Text Edit for supported rendered frontend text fixes.
 * Capture human edits and reviewer feedback as learning that can become style guidance or QA rules.
 * Support authored-original intake when content starts in a non-source language.
@@ -93,6 +95,11 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.666 =
+* Add an immutable Source Rewrite Artifact and independent Quality lifecycle with exact publication and separate live verification.
+* Block ordinary public source-copy changes and downstream translation while a current source rewrite lacks verified approval.
+* Prime fresh writing, translation, and Quality runs with research-led effectiveness guidance and a bounded source-scoped policy Adapter, without site-specific copy in the public plugin.
 
 = 0.1.665 =
 * Fail closed when the private Source Design Adapter is unavailable.

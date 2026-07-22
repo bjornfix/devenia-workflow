@@ -422,6 +422,40 @@ publicly viewable source non-public and is not an exclusion reason.
 
 The Workflow Module that makes the canonical `devenia_source_content_design_validation` Interface authoritative for every translatable canonical `page` and `post`. It consumes one site-owned validation Adapter, binds any explicit no-rewrite review to the current source hash, and prevents design inheritance, publication-experience approval, direct published-source saves, and translation fitness from bypassing the result. Workflow owns the gate and evidence lifecycle; it does not own site-specific layout classes, geometry, palette, typography, or source copy.
 
+## Source Rewrite Quality Authority
+
+The deep Module that keeps customer-facing source copy changes away from the
+public reader surface until one immutable Staged Source Rewrite Artifact has a
+Quality Decision from a fresh Run Principal distinct from its writer. Its
+Interface binds the complete old and proposed copy surfaces, source publication
+surface revision, writer preservation brief, reviewer evidence, and exact
+publication candidate. Structural counts and text-similarity signals may be
+diagnostic evidence but never Quality authority. Quality judges the whole-page
+commercial argument: buyer, problem, desired result, credible proof, offer,
+boundaries, next action, the emotional connection created by the words, and the
+purpose that makes every section worth reading. Publication accepts no caller
+boolean or replacement content; it applies only the exact approved artifact.
+Every fresh source-writer, translator, and Quality Run receives a role-specific
+Copy Quality Priming packet before it acts. The public plugin teaches the
+transferable mechanisms behind concrete Ogilvy campaigns, contrasts generic
+slop with purposeful copy, names the whole-page and literary-craft expectations,
+and links a legal primary-reading library for real uncertainty. Ogilvy is an
+effectiveness discipline here, never a period style or surface voice to imitate;
+the authority asks whether the page works for its intended reader and purpose. A bounded
+`devenia_workflow_copy_quality_site_policy` Adapter may add source-scoped
+purpose, audience, facts, emphasis, prohibited claims, review questions, and
+contrasts as runtime data; Workflow contains no site-specific product copy,
+page IDs, or domains. Runs acknowledge the
+exact priming revision; uncertainty fails closed instead of becoming an invented
+rule. The Source Rewrite Publish Adapter alone receives request-local authority
+to cross both the neutral content-write preflight and final WordPress save seam.
+It consumes the prefixed `mcp_expose_validate_content_write_policy()` Interface
+owned by MCP Expose Abilities; Workflow never dispatches the owner's raw hook
+and fails closed when that Interface is unavailable.
+After exact storage and cache invalidation, a separate live verifier must find
+the approved reader-facing copy on origin and canonical surfaces before the new
+source hash becomes translation authority.
+
 ## Source Publication Surface
 
 The deep Module that gives Source Inventory, Translation Jobs, Staged

@@ -49,6 +49,7 @@ function devenia_workflow_uninstall_site(): void {
 		'devenia_workflow_translation_run_',
 		'devenia_workflow_translation_artifact_',
 		'devenia_workflow_translation_quality_',
+		'devenia_workflow_source_rewrite_',
 		'devenia_workflow_inventory_',
 	);
 	foreach ( $option_prefixes as $option_prefix ) {

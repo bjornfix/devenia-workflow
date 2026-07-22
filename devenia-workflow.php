@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.665
+ * Version: 0.1.666
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -28,6 +28,8 @@ require_once __DIR__ . '/includes/trait-execution-identity.php';
 require_once __DIR__ . '/includes/trait-quality-engine.php';
 require_once __DIR__ . '/includes/trait-presentation-adapter.php';
 require_once __DIR__ . '/includes/trait-source-editor-adapter.php';
+require_once __DIR__ . '/includes/trait-copy-quality-priming.php';
+require_once __DIR__ . '/includes/trait-source-rewrite-quality-authority.php';
 require_once __DIR__ . '/includes/trait-workflow-mode.php';
 require_once __DIR__ . '/includes/trait-translation-read-models.php';
 require_once __DIR__ . '/includes/trait-translation-provenance.php';
@@ -66,12 +68,14 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Localized_Presentation_Publication;
 	use Devenia_Workflow_Translation_Job_Quality_Authority;
 	use Devenia_Workflow_Source_Editor_Adapter;
+	use Devenia_Workflow_Copy_Quality_Priming;
+	use Devenia_Workflow_Source_Rewrite_Quality_Authority;
 	use Devenia_Workflow_Mode;
 	use Devenia_Workflow_Internal_Content_Link_Resolver;
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.665';
+	const VERSION = '0.1.666';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -234,6 +238,7 @@ final class Devenia_Workflow {
 	 * Bootstrap hooks.
 	 */
 	public static function init(): void {
+		add_filter( 'mcp_content_write_preflight', array( __CLASS__, 'validate_source_rewrite_quality_preflight' ), 20, 2 );
 		add_filter( 'locale', array( __CLASS__, 'filter_locale' ) );
 		add_filter( 'language_attributes', array( __CLASS__, 'filter_language_attributes' ) );
 		add_filter( 'devenia_workflow_translation_language_codes', array( __CLASS__, 'filter_runtime_language_codes' ) );
@@ -274,6 +279,7 @@ final class Devenia_Workflow {
 		add_action( 'admin_post_devenia_workflow_save_translation_runtime_text', array( __CLASS__, 'handle_admin_runtime_text_save' ) );
 		add_action( 'admin_post_devenia_workflow_save_translation_author_archive', array( __CLASS__, 'handle_admin_author_archive_save' ) );
 		add_filter( 'wp_insert_post_data', array( __CLASS__, 'normalize_invalid_translation_content_before_save' ), 5, 2 );
+		add_filter( 'wp_insert_post_data', array( __CLASS__, 'guard_unapproved_source_rewrite_before_save' ), 8, 4 );
 		add_filter( 'wp_insert_post_data', array( __CLASS__, 'block_unready_source_post_publish_before_save' ), 9, 2 );
 		add_action( 'pre_post_update', array( __CLASS__, 'block_invalid_translation_content_save' ), 5, 2 );
 		add_action( 'post_updated', array( __CLASS__, 'capture_manual_reviewer_style_on_post_update' ), 30, 3 );

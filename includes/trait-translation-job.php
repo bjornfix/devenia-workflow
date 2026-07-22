@@ -20,8 +20,8 @@ trait Devenia_Workflow_Translation_Job {
 	}
 	const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 6;
 	const TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS = 3;
-	const TRANSLATION_JOB_LTR_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v1';
-	const TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v3-rtl-grid-gap';
+	const TRANSLATION_JOB_LTR_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v2-copy-quality-priming';
+	const TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v4-rtl-grid-gap-copy-quality-priming';
 	const TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES = array(
 		'staged_surface_drifted',
 		'staged_surface_drifted_before_locked_write',
@@ -151,11 +151,12 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_artifact_schema(): array {
 		return array(
 			'type' => 'object',
-			'required' => array( 'job_id', 'run_id', 'claim_token', 'artifact', 'usage' ),
+			'required' => array( 'job_id', 'run_id', 'claim_token', 'priming_revision', 'artifact', 'usage' ),
 			'properties' => array(
 				'job_id' => array( 'type' => 'string' ),
 				'run_id' => array( 'type' => 'string' ),
 				'claim_token' => array( 'type' => 'string' ),
+				'priming_revision' => array( 'type' => 'string' ),
 				'artifact' => array(
 					'type' => 'object',
 					'required' => array( 'title', 'localized_fragments' ),
@@ -200,11 +201,12 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_quality_schema(): array {
 		return array(
 			'type' => 'object',
-			'required' => array( 'job_id', 'run_id', 'claim_token', 'artifact_revision', 'surface_revision', 'decision', 'evidence_receipt_ids', 'reviewer_attestations', 'reviewer_observations', 'browser_receipts', 'usage' ),
+			'required' => array( 'job_id', 'run_id', 'claim_token', 'priming_revision', 'artifact_revision', 'surface_revision', 'decision', 'evidence_receipt_ids', 'reviewer_attestations', 'reviewer_observations', 'browser_receipts', 'usage' ),
 			'properties' => array(
 				'job_id' => array( 'type' => 'string' ),
 				'run_id' => array( 'type' => 'string' ),
 				'claim_token' => array( 'type' => 'string' ),
+				'priming_revision' => array( 'type' => 'string' ),
 				'artifact_revision' => array( 'type' => 'string' ),
 				'surface_revision' => array( 'type' => 'string' ),
 				'decision' => array( 'type' => 'string', 'enum' => array( 'pass', 'revise', 'reject' ) ),
@@ -761,12 +763,19 @@ trait Devenia_Workflow_Translation_Job {
 		if ( self::translation_job_source_is_stale( $job ) ) {
 			return array( 'success' => false, 'code' => 'job_superseded', 'message' => 'The source changed before artifact submission.' );
 		}
+		$source = get_post( (int) $job['source_id'] );
+		if ( ! $source instanceof WP_Post ) {
+			return array( 'success' => false, 'code' => 'job_source_missing', 'message' => 'Translation Job source is unavailable.' );
+		}
+		$priming = self::translation_job_validate_priming_acknowledgement( $input, 'translator', $source, (string) $job['target_language'] );
+		if ( empty( $priming['success'] ) ) {
+			return $priming;
+		}
 		$artifact = isset( $input['artifact'] ) && is_array( $input['artifact'] ) ? $input['artifact'] : array();
 		$coverage = self::translation_job_fragment_coverage( $job, $artifact['localized_fragments'] ?? array() );
 		if ( empty( $coverage['success'] ) ) {
 			return $coverage;
 		}
-		$source = get_post( (int) $job['source_id'] );
 		$artifact_policy = $source instanceof WP_Post
 			? apply_filters( 'devenia_workflow_translation_job_artifact_policy', array( 'success' => true ), $source, $artifact, $job )
 			: array( 'success' => false, 'code' => 'job_source_missing', 'message' => 'Translation Job source is unavailable.' );
@@ -812,8 +821,9 @@ trait Devenia_Workflow_Translation_Job {
 				'target_language' => (string) $job['target_language'],
 				'submission_generation' => $submission_generation,
 				'baseline_surface_revision' => $baseline_surface_revision,
-				'writer_principal_id' => (string) ( $writer_principal['principal_id'] ?? '' ),
-				'artifact'        => $artifact,
+					'writer_principal_id' => (string) ( $writer_principal['principal_id'] ?? '' ),
+					'priming_revision' => (string) $priming['priming_revision'],
+					'artifact'        => $artifact,
 			)
 		);
 		$content_revision = (string) $staging['content_revision'];
@@ -830,6 +840,7 @@ trait Devenia_Workflow_Translation_Job {
 			'baseline_surface_revision' => $baseline_surface_revision,
 			'submission_generation' => $submission_generation,
 			'writer_principal' => $writer_principal,
+			'priming_revision' => (string) $priming['priming_revision'],
 			'staged' => true,
 			'staged_validation' => array(
 				'passed' => true,
@@ -911,6 +922,10 @@ trait Devenia_Workflow_Translation_Job {
 		if ( empty( $source_approval['passed'] ) || self::translation_job_source_is_stale( $job ) ) {
 			return array( 'success' => false, 'code' => 'source_quality_approval_required', 'message' => 'Quality cannot pass against an unapproved or changed source revision.', 'source_approval' => $source_approval );
 		}
+		$priming = self::translation_job_validate_priming_acknowledgement( $input, 'quality', $source, (string) $job['target_language'] );
+		if ( empty( $priming['success'] ) ) {
+			return $priming;
+		}
 		if ( ! hash_equals( (string) ( $job['artifact_revision'] ?? '' ), sanitize_text_field( (string) ( $input['artifact_revision'] ?? '' ) ) ) ) {
 			return array( 'success' => false, 'code' => 'artifact_revision_mismatch', 'message' => 'Quality Decision does not match the current artifact revision.' );
 		}
@@ -971,7 +986,7 @@ trait Devenia_Workflow_Translation_Job {
 		$evidence_record = ! empty( $evidence_receipts['record'] ) && is_array( $evidence_receipts['record'] ) ? $evidence_receipts['record'] : array();
 		$corrections = array_values( array_map( 'sanitize_text_field', is_array( $input['corrections'] ?? null ) ? $input['corrections'] : array() ) );
 		$quality = array(
-			'quality_revision' => self::translation_job_revision( array( $job['artifact_revision'], $artifact_record['surface_revision'], (string) $job['publication_surface_contract_revision'], $decision, $evidence_record['evidence_revision'] ?? '', $evidence, $corrections ) ),
+			'quality_revision' => self::translation_job_revision( array( $job['artifact_revision'], $artifact_record['surface_revision'], (string) $job['publication_surface_contract_revision'], (string) $priming['priming_revision'], $decision, $evidence_record['evidence_revision'] ?? '', $evidence, $corrections ) ),
 			'job_id' => (string) $job['job_id'],
 			'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'],
 			'artifact_revision' => (string) $job['artifact_revision'],
@@ -986,6 +1001,7 @@ trait Devenia_Workflow_Translation_Job {
 			'evidence_revision' => (string) ( $evidence_record['evidence_revision'] ?? '' ),
 			'usage' => $usage['usage'],
 			'reviewer_principal' => $reviewer_principal,
+			'priming_revision' => (string) $priming['priming_revision'],
 			'corrections' => $corrections,
 			'coordinator_id' => (string) $run['coordinator_id'],
 			'run_id' => (string) $run['run_id'],
@@ -997,7 +1013,7 @@ trait Devenia_Workflow_Translation_Job {
 		$quality_key = self::translation_job_quality_key( $quality['quality_revision'] );
 		if ( ! self::atomic_create_option( $quality_key, $quality ) ) {
 			$existing_quality = get_option( $quality_key );
-			$identity_fields = array( 'quality_revision', 'job_id', 'artifact_revision', 'content_revision', 'surface_revision', 'translation_id', 'evidence_revision', 'submission_generation', 'publication_surface_contract_revision' );
+			$identity_fields = array( 'quality_revision', 'job_id', 'artifact_revision', 'content_revision', 'surface_revision', 'translation_id', 'evidence_revision', 'submission_generation', 'publication_surface_contract_revision', 'priming_revision' );
 			$existing_identity = array_intersect_key( is_array( $existing_quality ) ? $existing_quality : array(), array_flip( $identity_fields ) );
 			$submitted_identity = array_intersect_key( $quality, array_flip( $identity_fields ) );
 			if ( count( $existing_identity ) !== count( $identity_fields ) || self::translation_job_canonicalize( $existing_identity ) !== self::translation_job_canonicalize( $submitted_identity ) ) {
@@ -1241,6 +1257,30 @@ trait Devenia_Workflow_Translation_Job {
 		return array( 'success' => true, 'job' => self::translation_job_public_job( $job ), 'runs' => $runs, 'quality_decision' => is_array( $quality ) ? $quality : null, 'cost' => $totals, 'contract_stale' => ! empty( $contract['contract_stale'] ), 'next_role' => ! empty( $contract['contract_stale'] ) ? 'translator' : null, 'publication_surface_contract' => $contract );
 	}
 
+	/** @return array<string,mixed> */
+	private static function translation_job_role_priming( string $role, WP_Post $source, string $language ): array {
+		return self::copy_quality_role_priming(
+			$role,
+			array(
+				'workflow'     => 'translation',
+				'source_id'    => (int) $source->ID,
+				'post_type'    => (string) $source->post_type,
+				'source_title' => (string) $source->post_title,
+				'language'     => sanitize_key( $language ),
+			)
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function translation_job_validate_priming_acknowledgement( array $input, string $role, WP_Post $source, string $language ): array {
+		$expected = (string) ( self::translation_job_role_priming( $role, $source, $language )['priming_revision'] ?? '' );
+		$received = self::translation_job_clean_id( (string) ( $input['priming_revision'] ?? '' ) );
+		if ( '' === $received || '' === $expected || ! hash_equals( $expected, $received ) ) {
+			return array( 'success' => false, 'code' => 'translation_job_priming_not_acknowledged', 'message' => 'The Run must fetch, read, and acknowledge the exact current role-priming revision before acting.', 'expected_priming_revision' => $expected );
+		}
+		return array( 'success' => true, 'priming_revision' => $expected );
+	}
+
 	private static function translation_job_translation_packet( array $job, array $run, WP_Post $source ): array {
 		$contract = self::source_design_contract( $source );
 		$fragments = self::translation_job_source_fragments( $contract );
@@ -1279,6 +1319,7 @@ trait Devenia_Workflow_Translation_Job {
 			'taxonomy' => self::post_taxonomy_payload( $source ),
 			'links' => self::translation_job_link_policy( $source, $language ),
 			'language_profile' => self::translation_job_language_profile( (int) $source->ID, $language ),
+			'role_priming' => self::translation_job_role_priming( 'translator', $source, $language ),
 			'source_approval' => self::translation_job_source_approval( $source ),
 			'validation_contract' => array( 'exact_fragment_coverage' => true, 'localized_route' => true, 'deterministic_qa' => true, 'staged_public_mutation' => false, 'quality_authority' => 'server_receipts_plus_principal_bound_attestations' ),
 			'submission_contract' => self::translation_job_submission_contract( 'translator' ),
@@ -1319,6 +1360,7 @@ trait Devenia_Workflow_Translation_Job {
 				'policy' => 'Review decoded email, subject, and body. Subject/body must be natural target-language copy, not unchanged source-language query text.',
 			),
 			'language_profile' => self::translation_job_language_profile( (int) $source->ID, (string) $job['target_language'] ),
+			'role_priming' => self::translation_job_role_priming( 'quality', $source, (string) $job['target_language'] ),
 			'required_checks' => self::translation_job_quality_checks(),
 			'evidence_contract' => array(
 				'server_receipt_note' => 'Use only the immutable receipt IDs issued in this packet.',
@@ -1485,6 +1527,7 @@ trait Devenia_Workflow_Translation_Job {
 					'job_id' => '<packet.job.job_id>',
 					'run_id' => '<packet.run.run_id>',
 					'claim_token' => '<same claim token used to fetch this packet>',
+					'priming_revision' => '<packet.role_priming.priming_revision>',
 					'artifact_revision' => '<packet.artifact.artifact_revision>',
 					'surface_revision' => '<packet.surface_revision>',
 					'decision' => 'pass|revise|reject',
@@ -1506,6 +1549,7 @@ trait Devenia_Workflow_Translation_Job {
 				'job_id' => '<packet.job.job_id>',
 				'run_id' => '<packet.run.run_id>',
 				'claim_token' => '<same claim token used to fetch this packet>',
+				'priming_revision' => '<packet.role_priming.priming_revision>',
 				'artifact' => array(
 					'title' => '<localized title>',
 					'excerpt' => '<localized excerpt>',
@@ -2554,6 +2598,7 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_source_approval( WP_Post $source ): array {
 		$source_hash = self::source_hash( $source );
 		$source_surface_revision = self::source_publication_surface_revision( $source );
+		$pending_rewrite = self::source_rewrite_pending_for_source( $source );
 		$validation = self::source_content_integrity_validation( $source );
 		$evidence = self::json_post_meta_value( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_EVIDENCE );
 		$reviewed_at = (string) get_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWED_AT, true );
@@ -2561,9 +2606,11 @@ trait Devenia_Workflow_Translation_Job {
 		$publication = self::publication_experience_readiness_for_post( $source, self::source_language_code(), 'pre_publish' );
 		$evidence_source_hash = (string) ( $evidence['source_hash'] ?? '' );
 		$evidence_surface_revision = (string) ( $evidence['source_publication_surface_revision'] ?? '' );
-		$passed = empty( $validation['issue_count'] )
+		$evidence_authorized = ! empty( $evidence['content_integrity_already_clean'] ) || ! empty( $evidence['source_rewrite_quality_passed'] );
+		$passed = empty( $pending_rewrite['pending'] )
+			&& empty( $validation['issue_count'] )
 			&& ! empty( $publication['passed'] )
-			&& ! empty( $evidence['content_integrity_already_clean'] )
+			&& $evidence_authorized
 			&& '' !== $reviewed_at
 			&& '' !== $reviewer
 			&& '' !== $evidence_source_hash
@@ -2582,6 +2629,8 @@ trait Devenia_Workflow_Translation_Job {
 			'reviewer' => $reviewer,
 			'content_integrity_passed' => empty( $validation['issue_count'] ),
 			'publication_experience_passed' => ! empty( $publication['passed'] ),
+			'approval_authority' => ! empty( $evidence['source_rewrite_quality_passed'] ) ? 'source_rewrite_quality' : ( ! empty( $evidence['content_integrity_already_clean'] ) ? 'reviewed_no_rewrite_needed' : '' ),
+			'pending_source_rewrite' => $pending_rewrite,
 			'evidence_matches_source' => '' !== $evidence_source_hash && hash_equals( $source_hash, $evidence_source_hash ),
 			'evidence_matches_publication_surface' => '' !== $evidence_surface_revision && hash_equals( $source_surface_revision, $evidence_surface_revision ),
 		);

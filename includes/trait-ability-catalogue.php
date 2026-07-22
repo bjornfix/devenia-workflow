@@ -18,6 +18,7 @@ trait Devenia_Workflow_Ability_Catalogue {
 		return self::normalize_ability_catalogue(
 			array_merge(
 				self::translation_job_ability_catalogue(),
+				self::source_rewrite_ability_catalogue(),
 				self::source_inventory_ability_catalogue(),
 				array(
 			'devenia-workflow/get-mode' => array(

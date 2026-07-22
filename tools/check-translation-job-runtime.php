@@ -77,6 +77,19 @@ $cache_adapter = static function ( $default_result, array $urls, array $context 
 add_filter( 'devenia_workflow_frontend_cache_invalidation_result', $cache_adapter, 10, 3 );
 
 $call = static function ( string $method, ...$arguments ) {
+	if ( in_array( $method, array( 'translation_job_submit_artifact', 'translation_job_submit_quality_decision' ), true ) && is_array( $arguments[0] ?? null ) && empty( $arguments[0]['priming_revision'] ) ) {
+		$job_method = new ReflectionMethod( Devenia_Workflow::class, 'translation_job_get_job' );
+		$job_method->setAccessible( true );
+		$job = (array) $job_method->invoke( null, (string) ( $arguments[0]['job_id'] ?? '' ) );
+		$source = get_post( absint( $job['source_id'] ?? 0 ) );
+		if ( $source instanceof WP_Post ) {
+			$priming_method = new ReflectionMethod( Devenia_Workflow::class, 'translation_job_role_priming' );
+			$priming_method->setAccessible( true );
+			$role = 'translation_job_submit_artifact' === $method ? 'translator' : 'quality';
+			$priming = (array) $priming_method->invoke( null, $role, $source, (string) ( $job['target_language'] ?? '' ) );
+			$arguments[0]['priming_revision'] = (string) ( $priming['priming_revision'] ?? '' );
+		}
+	}
 	$reflection = new ReflectionMethod( Devenia_Workflow::class, $method );
 	$reflection->setAccessible( true );
 	return $reflection->invokeArgs( null, $arguments );
@@ -154,6 +167,7 @@ $quality_payload = static function ( array $claim, string $artifact_revision, st
 	}
 	return array(
 		'job_id' => $job_id, 'run_id' => $run_id, 'claim_token' => $token,
+		'priming_revision' => (string) ( $packet['role_priming']['priming_revision'] ?? '' ),
 		'artifact_revision' => $artifact_revision, 'surface_revision' => $surface_revision, 'decision' => $decision,
 		'evidence_receipt_ids' => array_values( (array) ( $packet['evidence_contract']['server_receipt_ids'] ?? array() ) ),
 		'reviewer_attestations' => array(
@@ -1032,6 +1046,7 @@ try {
 		|| ! in_array( 'Google Search Console', (array) ( $language_profile['source_qa_preserve_terms'] ?? array() ), true )
 		|| 'devenia-workflow/translation-job-submit-artifact' !== (string) ( $submission_contract['ability'] ?? '' )
 		|| ! in_array( 'usage', (array) ( $submission_contract['input_schema']['required'] ?? array() ), true )
+		|| '<packet.role_priming.priming_revision>' !== (string) ( $submission_contract['payload_example']['priming_revision'] ?? '' )
 		|| ! isset( $artifact_schema_properties['seo'] )
 		|| isset( $artifact_schema_properties['seo_title'] )
 		|| ! isset( $fragment_schema_properties['html'], $fragment_schema_properties['text'] )
@@ -1211,6 +1226,30 @@ try {
 		);
 	} else {
 	$pre_submit_surface_revision = $call( 'translation_job_current_surface_revision', $translation_id );
+	$wrong_priming_job_before = maybe_serialize( get_option( 'devenia_workflow_translation_job_' . $job_id ) );
+	$wrong_priming_run_before = maybe_serialize( get_option( 'devenia_workflow_translation_run_' . $translator_run_id ) );
+	$wrong_priming_claim_before = maybe_serialize( get_option( 'devenia_workflow_translation_job_claim_' . $job_id ) );
+	$wrong_priming_submit = $call(
+		'translation_job_submit_artifact',
+		array(
+			'job_id' => $job_id,
+			'run_id' => $translator_run_id,
+			'claim_token' => $translator_token,
+			'priming_revision' => 'p_intentionally_wrong',
+			'artifact' => $artifact,
+			'usage' => array( 'input_tokens' => 1200, 'cached_input_tokens' => 0, 'output_tokens' => 500, 'attempts' => 1, 'duration_ms' => 1000, 'estimated_cost_microusd' => 100 ),
+		)
+	);
+	if (
+		! empty( $wrong_priming_submit['success'] )
+		|| 'translation_job_priming_not_acknowledged' !== (string) ( $wrong_priming_submit['code'] ?? '' )
+		|| $wrong_priming_job_before !== maybe_serialize( get_option( 'devenia_workflow_translation_job_' . $job_id ) )
+		|| $wrong_priming_run_before !== maybe_serialize( get_option( 'devenia_workflow_translation_run_' . $translator_run_id ) )
+		|| $wrong_priming_claim_before !== maybe_serialize( get_option( 'devenia_workflow_translation_job_claim_' . $job_id ) )
+		|| $pre_submit_surface_revision !== $call( 'translation_job_current_surface_revision', $translation_id )
+	) {
+		throw new RuntimeException( 'A stale or invented translator priming revision did not fail closed before mutation: ' . wp_json_encode( $wrong_priming_submit ) );
+	}
 	$invalid_artifact = $artifact;
 	if ( ! is_int( $accessible_fragment_index ) ) {
 		throw new RuntimeException( 'Dynamic card accessible-name fragment was not exposed by the GP-MCP Adapter: ' . wp_json_encode( array_map( static function ( array $fragment ): array { return array( 'key' => $fragment['key'] ?? '', 'role' => $fragment['role'] ?? '', 'block' => $fragment['block'] ?? '', 'source_html' => $fragment['source_html'] ?? '' ); }, $fragments ) ) );
@@ -1804,6 +1843,7 @@ try {
 		empty( $quality_packet['success'] )
 		|| $links !== ( $quality_packet['packet']['links'] ?? array() )
 		|| 'devenia-workflow/translation-job-submit-quality-decision' !== (string) ( $quality_packet['packet']['submission_contract']['ability'] ?? '' )
+		|| '<packet.role_priming.priming_revision>' !== (string) ( $quality_packet['packet']['submission_contract']['payload_example']['priming_revision'] ?? '' )
 		|| 'array' !== (string) ( $quality_packet['packet']['submission_contract']['input_schema']['properties']['corrections']['type'] ?? '' )
 		|| 'string' !== (string) ( $quality_packet['packet']['submission_contract']['input_schema']['properties']['corrections']['items']['type'] ?? '' )
 		|| 'Source question' !== (string) ( $quality_contact_actions['source'][0]['subject'] ?? '' )

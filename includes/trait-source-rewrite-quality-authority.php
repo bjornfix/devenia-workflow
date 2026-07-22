@@ -1,0 +1,1434 @@
+<?php
+/**
+ * Staged Source Rewrite Artifact and independent Quality authority.
+ *
+ * @package Devenia_Workflow
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
+	private const SOURCE_REWRITE_MAX_RUNS_PER_ROLE = 6;
+	private const SOURCE_REWRITE_MAX_SUBMISSION_GENERATIONS = 3;
+
+	/** @var array<string,mixed> Exact request-local authority set only by source-rewrite-publish. */
+	private static $source_rewrite_publish_authority = array();
+
+	/** @return array<string,array<string,mixed>> */
+	private static function source_rewrite_ability_catalogue(): array {
+		$definitions = array(
+			'source-rewrite-discover' => array( 'Discover Source Rewrite Job', 'Creates or returns the exact current Source Rewrite Job for one canonical page or post.', 'source_rewrite_discover_schema', 'source_rewrite_discover', true, true ),
+			'source-rewrite-claim' => array( 'Claim Source Rewrite Job', 'Claims one bounded source-writer or independent Quality Run.', 'source_rewrite_claim_schema', 'source_rewrite_claim', false, false ),
+			'source-rewrite-abandon' => array( 'Abandon Source Rewrite Run', 'Releases the caller-owned Run without fabricating an artifact or Quality Decision.', 'source_rewrite_abandon_schema', 'source_rewrite_abandon', false, false ),
+			'source-rewrite-fetch-packet' => array( 'Fetch Source Rewrite Packet', 'Returns the complete source/artifact plus role-specific Ogilvy and literary-craft priming for the active Run.', 'source_rewrite_claim_access_schema', 'source_rewrite_fetch_packet', true, true ),
+			'source-rewrite-submit-artifact' => array( 'Submit Source Rewrite Artifact', 'Stores one complete immutable source rewrite and its whole-page preservation brief.', 'source_rewrite_artifact_schema', 'source_rewrite_submit_artifact', false, false ),
+			'source-rewrite-submit-quality-decision' => array( 'Submit Source Rewrite Quality Decision', 'Stores an independent semantic and literary Quality Decision against the exact staged source artifact.', 'source_rewrite_quality_schema', 'source_rewrite_submit_quality_decision', false, false ),
+			'source-rewrite-publish' => array( 'Publish Approved Source Rewrite', 'Applies only the exact independently approved artifact and leaves live verification as a separate required step.', 'source_rewrite_publish_schema', 'source_rewrite_publish', false, false ),
+			'source-rewrite-verify-live' => array( 'Verify Live Source Rewrite', 'Verifies exact reader-facing copy on origin and canonical cache surfaces, then activates hash-bound source approval.', 'source_rewrite_verify_live_schema', 'source_rewrite_verify_live', false, true ),
+			'source-rewrite-status' => array( 'Inspect Source Rewrite Status', 'Returns the authoritative Job, Run, Artifact, Quality, publication, and live-verification state.', 'source_rewrite_status_schema', 'source_rewrite_status', true, true ),
+		);
+		$catalogue = array();
+		foreach ( $definitions as $slug => $definition ) {
+			$catalogue[ 'devenia-workflow/' . $slug ] = array(
+				'label'            => $definition[0],
+				'description'      => $definition[1],
+				'input_schema'     => self::{$definition[2]}(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) use ( $definition ) { return self::run_ability_operation( $definition[3], $input ); },
+				'meta'             => self::ability_meta( $definition[4], false, $definition[5] ),
+			);
+		}
+		return $catalogue;
+	}
+
+	/** @return array<string,string> */
+	private static function source_rewrite_dispatch_handlers(): array {
+		return array(
+			'source_rewrite_discover' => 'source_rewrite_discover',
+			'source_rewrite_claim' => 'source_rewrite_claim',
+			'source_rewrite_abandon' => 'source_rewrite_abandon',
+			'source_rewrite_fetch_packet' => 'source_rewrite_fetch_packet',
+			'source_rewrite_submit_artifact' => 'source_rewrite_submit_artifact',
+			'source_rewrite_submit_quality_decision' => 'source_rewrite_submit_quality_decision',
+			'source_rewrite_publish' => 'source_rewrite_publish',
+			'source_rewrite_verify_live' => 'source_rewrite_verify_live',
+			'source_rewrite_status' => 'source_rewrite_status',
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_discover_schema(): array {
+		return array( 'type' => 'object', 'required' => array( 'source_id' ), 'properties' => array( 'source_id' => array( 'type' => 'integer', 'minimum' => 1 ) ), 'additionalProperties' => false );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_claim_schema(): array {
+		return array(
+			'type' => 'object',
+			'required' => array( 'job_id', 'run_id', 'coordinator_id', 'role' ),
+			'properties' => array(
+				'job_id' => array( 'type' => 'string' ),
+				'run_id' => array( 'type' => 'string' ),
+				'coordinator_id' => array( 'type' => 'string' ),
+				'role' => array( 'type' => 'string', 'enum' => array( 'source_writer', 'quality' ) ),
+				'ttl_seconds' => array( 'type' => 'integer', 'minimum' => 60, 'maximum' => 7200, 'default' => 3600 ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_claim_access_schema(): array {
+		return array( 'type' => 'object', 'required' => array( 'job_id', 'run_id', 'claim_token' ), 'properties' => array( 'job_id' => array( 'type' => 'string' ), 'run_id' => array( 'type' => 'string' ), 'claim_token' => array( 'type' => 'string' ) ), 'additionalProperties' => false );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_abandon_schema(): array {
+		$schema = self::source_rewrite_claim_access_schema();
+		$schema['required'][] = 'reason';
+		$schema['properties']['reason'] = array( 'type' => 'string', 'minLength' => 12, 'maxLength' => 500 );
+		return $schema;
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_artifact_schema(): array {
+		return array(
+			'type' => 'object',
+			'required' => array( 'job_id', 'run_id', 'claim_token', 'priming_revision', 'proposed_title', 'proposed_excerpt', 'proposed_content', 'preservation_brief' ),
+			'properties' => array(
+				'job_id' => array( 'type' => 'string' ), 'run_id' => array( 'type' => 'string' ), 'claim_token' => array( 'type' => 'string' ), 'priming_revision' => array( 'type' => 'string' ),
+				'proposed_title' => array( 'type' => 'string' ), 'proposed_excerpt' => array( 'type' => 'string' ), 'proposed_content' => array( 'type' => 'string' ),
+				'preservation_brief' => array(
+					'type' => 'object',
+					'required' => self::source_rewrite_preservation_brief_fields(),
+					'properties' => array(
+						'buyer' => array( 'type' => 'string' ), 'problem' => array( 'type' => 'string' ), 'desired_result' => array( 'type' => 'string' ), 'promise' => array( 'type' => 'string' ),
+						'proof' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ), 'offer' => array( 'type' => 'string' ), 'capabilities' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+						'boundaries' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ), 'next_action' => array( 'type' => 'string' ), 'page_purpose' => array( 'type' => 'string' ),
+						'emotional_intent' => array( 'type' => 'string' ), 'intentional_changes' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+					),
+					'additionalProperties' => false,
+				),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_quality_schema(): array {
+		$properties = array(
+			'job_id' => array( 'type' => 'string' ), 'run_id' => array( 'type' => 'string' ), 'claim_token' => array( 'type' => 'string' ), 'priming_revision' => array( 'type' => 'string' ),
+			'artifact_revision' => array( 'type' => 'string' ), 'decision' => array( 'type' => 'string', 'enum' => array( 'pass', 'revise' ) ),
+			'reviewed_sections' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ), 'findings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+		);
+		foreach ( self::source_rewrite_quality_evidence_fields() as $field ) { $properties[ $field ] = array( 'type' => 'string', 'minLength' => 120 ); }
+		return array( 'type' => 'object', 'required' => array_merge( array( 'job_id', 'run_id', 'claim_token', 'priming_revision', 'artifact_revision', 'decision' ), self::source_rewrite_quality_evidence_fields(), array( 'reviewed_sections', 'findings' ) ), 'properties' => $properties, 'additionalProperties' => false );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_publish_schema(): array { return array( 'type' => 'object', 'required' => array( 'job_id' ), 'properties' => array( 'job_id' => array( 'type' => 'string' ) ), 'additionalProperties' => false ); }
+	/** @return array<string,mixed> */
+	private static function source_rewrite_verify_live_schema(): array { return array( 'type' => 'object', 'required' => array( 'job_id' ), 'properties' => array( 'job_id' => array( 'type' => 'string' ), 'timeout' => array( 'type' => 'integer', 'minimum' => 2, 'maximum' => 30, 'default' => 5 ) ), 'additionalProperties' => false ); }
+	/** @return array<string,mixed> */
+	private static function source_rewrite_status_schema(): array { return array( 'type' => 'object', 'properties' => array( 'job_id' => array( 'type' => 'string' ), 'source_id' => array( 'type' => 'integer', 'minimum' => 1 ) ), 'additionalProperties' => false ); }
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_discover( array $input ): array {
+		$source_id = absint( $input['source_id'] ?? 0 );
+		$source    = $source_id ? get_post( $source_id ) : null;
+		if ( ! $source instanceof WP_Post || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
+			return self::source_rewrite_error( 'source_not_found', 'Canonical source content not found.' );
+		}
+
+		$baseline_revision = self::source_publication_surface_revision( $source );
+		$job_id            = self::source_rewrite_job_id( $source_id, $baseline_revision );
+		$key               = self::source_rewrite_job_key( $job_id );
+		$existing          = get_option( $key );
+		if ( is_array( $existing ) ) {
+			update_option( self::source_rewrite_latest_key( $source_id ), $job_id, false );
+			return array( 'success' => true, 'created' => false, 'job' => self::source_rewrite_public_job( $existing ) );
+		}
+
+		$now = gmdate( 'c' );
+		$job = array(
+			'schema_version'                      => 1,
+			'policy_revision'                     => self::source_rewrite_policy_revision(),
+			'job_id'                              => $job_id,
+			'source_id'                           => $source_id,
+			'post_type'                           => (string) $source->post_type,
+			'priming_context'                     => self::source_rewrite_priming_context( $source ),
+			'baseline_source_hash'                => self::source_hash( $source ),
+			'baseline_publication_surface_revision'=> $baseline_revision,
+			'submission_generation'               => 1,
+			'status'                              => 'queued',
+			'artifact_revision'                   => '',
+			'quality_revision'                    => '',
+			'active_run_id'                       => '',
+			'run_ids'                             => array(),
+			'created_at'                          => $now,
+			'updated_at'                          => $now,
+		);
+		if ( ! self::atomic_create_option( $key, $job ) ) {
+			$winner = get_option( $key );
+			if ( ! is_array( $winner ) ) {
+				return self::source_rewrite_error( 'job_create_failed', 'Source Rewrite Job creation lost authority without a readable winner.' );
+			}
+			update_option( self::source_rewrite_latest_key( $source_id ), $job_id, false );
+			return array( 'success' => true, 'created' => false, 'job' => self::source_rewrite_public_job( $winner ) );
+		}
+		update_option( self::source_rewrite_latest_key( $source_id ), $job_id, false );
+
+		return array( 'success' => true, 'created' => true, 'job' => self::source_rewrite_public_job( $job ) );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_claim( array $input ): array {
+		$job_id         = self::source_rewrite_clean_id( (string) ( $input['job_id'] ?? '' ) );
+		$run_id         = self::source_rewrite_clean_id( (string) ( $input['run_id'] ?? '' ) );
+		$coordinator_id = self::source_rewrite_clean_id( (string) ( $input['coordinator_id'] ?? '' ) );
+		$role           = sanitize_key( (string) ( $input['role'] ?? '' ) );
+		if ( '' === $job_id || '' === $run_id || '' === $coordinator_id || ! in_array( $role, array( 'source_writer', 'quality' ), true ) ) {
+			return self::source_rewrite_error( 'claim_input_invalid', 'job_id, run_id, coordinator_id, and role source_writer|quality are required.' );
+		}
+
+		$key = self::source_rewrite_job_key( $job_id );
+		$job = get_option( $key );
+		if ( ! is_array( $job ) ) {
+			return self::source_rewrite_error( 'job_not_found', 'Source Rewrite Job not found.' );
+		}
+		$baseline = self::source_rewrite_current_baseline( $job );
+		if ( empty( $baseline['current'] ) ) {
+			return self::source_rewrite_error( 'job_superseded', 'The canonical source changed; discover a Source Rewrite Job for the current surface.', array( 'baseline' => $baseline ) );
+		}
+		$recovered = self::source_rewrite_recover_expired_claim( $job );
+		if ( empty( $recovered['success'] ) ) {
+			return $recovered;
+		}
+		$job = $recovered['job'];
+		if ( (int) ( $job['submission_generation'] ?? 0 ) > self::SOURCE_REWRITE_MAX_SUBMISSION_GENERATIONS ) {
+			return self::source_rewrite_error( 'submission_generation_exhausted', 'The finite Source Rewrite submission-generation budget is exhausted.', array( 'job' => self::source_rewrite_public_job( $job ) ) );
+		}
+		$role_runs = array_filter(
+			(array) ( $job['run_ids'] ?? array() ),
+			static function ( $row ) use ( $role ): bool {
+				return is_array( $row ) && $role === (string) ( $row['role'] ?? '' );
+			}
+		);
+		if ( count( $role_runs ) >= self::SOURCE_REWRITE_MAX_RUNS_PER_ROLE ) {
+			return self::source_rewrite_error( 'run_limit_exhausted', 'The finite Source Rewrite Run budget for this role is exhausted.', array( 'role' => $role, 'job' => self::source_rewrite_public_job( $job ) ) );
+		}
+		$allowed_statuses = 'source_writer' === $role ? array( 'queued', 'changes_requested' ) : array( 'quality_pending' );
+		if ( ! in_array( (string) ( $job['status'] ?? '' ), $allowed_statuses, true ) ) {
+			return self::source_rewrite_error( 'job_not_claimable', 'The Source Rewrite Job is not claimable for this role.', array( 'job' => self::source_rewrite_public_job( $job ) ) );
+		}
+		if ( false !== get_option( self::source_rewrite_run_key( $run_id ) ) ) {
+			return self::source_rewrite_error( 'run_id_conflict', 'run_id already exists.' );
+		}
+		$claim_key = self::source_rewrite_claim_key( $job_id );
+		if ( is_array( get_option( $claim_key ) ) ) {
+			return self::source_rewrite_error( 'job_claim_conflict', 'The Source Rewrite Job is already claimed.' );
+		}
+
+		$token = wp_generate_password( 48, false, false );
+		$now   = time();
+		$ttl   = max( 60, min( 7200, absint( $input['ttl_seconds'] ?? 3600 ) ) );
+		$claim = array(
+			'job_id'                => $job_id,
+			'run_id'                => $run_id,
+			'coordinator_id'        => $coordinator_id,
+			'role'                  => $role,
+			'previous_status'       => (string) $job['status'],
+			'submission_generation' => (int) $job['submission_generation'],
+			'token_hash'            => hash( 'sha256', $token ),
+			'claimed_at'            => gmdate( 'c', $now ),
+			'expires_at'            => gmdate( 'c', $now + $ttl ),
+		);
+		$principal = self::source_rewrite_run_principal( $job, $claim );
+		if ( 'quality' === $role ) {
+			$artifact = get_option( self::source_rewrite_artifact_key( (string) ( $job['artifact_revision'] ?? '' ) ) );
+			$writer   = is_array( $artifact ) && is_array( $artifact['writer_principal'] ?? null ) ? $artifact['writer_principal'] : array();
+			if ( empty( $writer['principal_id'] ) ) {
+				return self::source_rewrite_error( 'artifact_writer_authority_missing', 'The staged source artifact has no authenticated writer principal.' );
+			}
+			if ( $run_id === (string) ( $writer['run_id'] ?? '' ) || hash_equals( (string) $writer['principal_id'], (string) $principal['principal_id'] ) ) {
+				return self::source_rewrite_error( 'writer_reviewer_principal_conflict', 'Quality must use a fresh bounded Run Principal distinct from the source writer.' );
+			}
+		}
+
+		if ( ! self::atomic_create_option( $claim_key, $claim ) ) {
+			return self::source_rewrite_error( 'job_claim_race_lost', 'Another Run claimed the Source Rewrite Job.' );
+		}
+		$run = array(
+			'run_id'                => $run_id,
+			'job_id'                => $job_id,
+			'role'                  => $role,
+			'coordinator_id'        => $coordinator_id,
+			'principal'             => $principal,
+			'status'                => 'running',
+			'submission_generation' => (int) $job['submission_generation'],
+			'started_at'             => gmdate( 'c', $now ),
+		);
+		if ( ! self::atomic_create_option( self::source_rewrite_run_key( $run_id ), $run ) ) {
+			self::atomic_delete_option_value( $claim_key, $claim );
+			return self::source_rewrite_error( 'run_create_failed', 'The bounded Source Rewrite Run could not be created.' );
+		}
+
+		$next          = $job;
+		$next['status'] = 'source_writer' === $role ? 'writer_claimed' : 'quality_claimed';
+		$next['active_run_id'] = $run_id;
+		$next['run_ids'][] = array( 'run_id' => $run_id, 'role' => $role, 'submission_generation' => (int) $job['submission_generation'] );
+		$next['updated_at'] = gmdate( 'c' );
+		if ( ! self::atomic_replace_option_value( $key, $job, $next ) ) {
+			self::atomic_delete_option_value( self::source_rewrite_run_key( $run_id ), $run );
+			self::atomic_delete_option_value( $claim_key, $claim );
+			return self::source_rewrite_error( 'job_claim_transition_conflict', 'The Source Rewrite Job changed before claim activation.' );
+		}
+
+		return array(
+			'success'     => true,
+			'claim_token' => $token,
+			'claim'       => self::source_rewrite_public_claim( $claim ),
+			'run'         => $run,
+			'job'         => self::source_rewrite_public_job( $next ),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_abandon( array $input ): array {
+		$access = self::source_rewrite_claim_access( $input );
+		if ( empty( $access['success'] ) ) {
+			return $access;
+		}
+		$reason = sanitize_textarea_field( (string) ( $input['reason'] ?? '' ) );
+		if ( strlen( trim( $reason ) ) < 12 ) {
+			return self::source_rewrite_error( 'job_abandon_reason_required', 'A concrete reason is required to abandon a Source Rewrite Run.' );
+		}
+		$job = $access['job'];
+		$run = $access['run'];
+		$claim = $access['claim'];
+		$completed = array_merge( $run, array( 'status' => 'completed', 'outcome' => 'abandoned', 'abandon_reason' => $reason, 'completed_at' => gmdate( 'c' ) ) );
+		if ( ! self::atomic_replace_option_value( self::source_rewrite_run_key( (string) $run['run_id'] ), $run, $completed ) ) {
+			return self::source_rewrite_error( 'run_abandon_conflict', 'The Run changed before abandonment could become terminal.', array( 'retryable' => true ) );
+		}
+		$next = $job;
+		$next['status'] = (string) ( $claim['previous_status'] ?? ( 'quality' === (string) $run['role'] ? 'quality_pending' : 'queued' ) );
+		$next['active_run_id'] = '';
+		$next['updated_at'] = gmdate( 'c' );
+		if ( ! self::atomic_replace_option_value( self::source_rewrite_job_key( (string) $job['job_id'] ), $job, $next ) ) {
+			return self::source_rewrite_error( 'job_abandon_transition_conflict', 'The Run is terminal, but the Job changed before abandonment could release it.', array( 'retryable' => true ) );
+		}
+		if ( ! self::atomic_delete_option_value( self::source_rewrite_claim_key( (string) $job['job_id'] ), $claim ) ) {
+			return self::source_rewrite_error( 'claim_abandon_release_conflict', 'The abandoned claim could not be released exactly.', array( 'retryable' => true ) );
+		}
+		return array( 'success' => true, 'message' => 'Source Rewrite Run abandoned and claim released.', 'run' => $completed, 'job' => self::source_rewrite_public_job( $next ) );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_fetch_packet( array $input ): array {
+		$access = self::source_rewrite_claim_access( $input );
+		if ( empty( $access['success'] ) ) {
+			return $access;
+		}
+		$job    = $access['job'];
+		$run    = $access['run'];
+		$source = get_post( (int) $job['source_id'] );
+		if ( ! $source instanceof WP_Post ) {
+			return self::source_rewrite_error( 'source_not_found', 'Canonical source content not found while building the Run packet.' );
+		}
+		$current = self::source_rewrite_source_values( $source );
+		$packet  = array(
+			'job'                  => self::source_rewrite_public_job( $job ),
+			'run'                  => $run,
+			'baseline_source_hash' => (string) $job['baseline_source_hash'],
+			'baseline_publication_surface_revision' => (string) $job['baseline_publication_surface_revision'],
+			'quality_standard'     => self::source_rewrite_quality_standard(),
+			'role_priming'         => self::source_rewrite_role_priming( (string) $run['role'], $job, $source ),
+		);
+		if ( 'source_writer' === (string) $run['role'] ) {
+			$packet['source'] = $current;
+			$packet['current_copy_surface'] = self::source_rewrite_copy_surface( $current['title'], $current['excerpt'], $current['content'] );
+			$packet['required_preservation_brief'] = self::source_rewrite_preservation_brief_fields();
+		} else {
+			$artifact = get_option( self::source_rewrite_artifact_key( (string) $job['artifact_revision'] ) );
+			if ( ! is_array( $artifact ) ) {
+				return self::source_rewrite_error( 'artifact_not_found', 'The exact staged Source Rewrite Artifact is unavailable.' );
+			}
+			$packet['artifact_revision'] = (string) $artifact['artifact_revision'];
+			$packet['current']            = $current;
+			$packet['proposed']           = $artifact['proposed'];
+			$packet['current_copy_surface']  = $artifact['current_copy_surface'];
+			$packet['proposed_copy_surface'] = $artifact['proposed_copy_surface'];
+			$packet['preservation_brief']    = $artifact['preservation_brief'];
+			$packet['writer_principal']      = $artifact['writer_principal'];
+			$packet['required_quality_evidence'] = self::source_rewrite_quality_evidence_fields();
+		}
+
+		return array( 'success' => true, 'packet' => $packet );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_submit_artifact( array $input ): array {
+		$access = self::source_rewrite_claim_access( $input, 'source_writer' );
+		if ( empty( $access['success'] ) ) {
+			return $access;
+		}
+		$job      = $access['job'];
+		$run      = $access['run'];
+		$claim    = $access['claim'];
+		$source   = get_post( (int) $job['source_id'] );
+		$priming  = self::source_rewrite_validate_priming_acknowledgement( $input, 'source_writer', $job, $source );
+		if ( empty( $priming['success'] ) ) {
+			return $priming;
+		}
+		$baseline = self::source_rewrite_current_baseline( $job );
+		if ( ! $source instanceof WP_Post || empty( $baseline['current'] ) ) {
+			return self::source_rewrite_error( 'artifact_baseline_stale', 'The canonical source changed before artifact submission.', array( 'baseline' => $baseline ) );
+		}
+
+		$proposed = array(
+			'title'   => sanitize_text_field( (string) ( $input['proposed_title'] ?? '' ) ),
+			'excerpt' => sanitize_textarea_field( (string) ( $input['proposed_excerpt'] ?? '' ) ),
+			'content' => self::normalize_gutenberg_content_for_storage( (string) ( $input['proposed_content'] ?? '' ) ),
+		);
+		if ( '' === $proposed['title'] || '' === trim( $proposed['content'] ) ) {
+			return self::source_rewrite_error( 'artifact_content_incomplete', 'A complete proposed title and Gutenberg content are required.' );
+		}
+		$brief = self::source_rewrite_validate_preservation_brief( $input['preservation_brief'] ?? null );
+		if ( empty( $brief['success'] ) ) {
+			return $brief;
+		}
+
+		$current_values   = self::source_rewrite_source_values( $source );
+		$current_surface  = self::source_rewrite_copy_surface( $current_values['title'], $current_values['excerpt'], $current_values['content'] );
+		$proposed_surface = self::source_rewrite_copy_surface( $proposed['title'], $proposed['excerpt'], $proposed['content'] );
+		if ( hash_equals( (string) $current_surface['revision'], (string) $proposed_surface['revision'] ) ) {
+			return self::source_rewrite_error( 'artifact_copy_unchanged', 'A Source Rewrite Artifact requires a changed customer-facing copy surface.' );
+		}
+
+		$record = array(
+			'schema_version'       => 1,
+			'policy_revision'      => self::source_rewrite_policy_revision(),
+			'job_id'               => (string) $job['job_id'],
+			'source_id'            => (int) $job['source_id'],
+			'submission_generation'=> (int) $job['submission_generation'],
+			'baseline_source_hash' => (string) $job['baseline_source_hash'],
+			'baseline_publication_surface_revision' => (string) $job['baseline_publication_surface_revision'],
+			'current_copy_surface' => $current_surface,
+			'proposed_copy_surface'=> $proposed_surface,
+			'proposed'             => $proposed,
+			'proposed_content_hash'=> hash( 'sha256', $proposed['content'] ),
+			'preservation_brief'   => $brief['brief'],
+			'priming_revision'     => (string) $priming['priming_revision'],
+			'writer_principal'     => $run['principal'],
+			'submitted_at'         => gmdate( 'c' ),
+		);
+		$artifact_revision = 'sra_' . substr( hash( 'sha256', wp_json_encode( $record ) ?: '' ), 0, 48 );
+		$record['artifact_revision'] = $artifact_revision;
+		$artifact_key = self::source_rewrite_artifact_key( $artifact_revision );
+		if ( ! self::atomic_create_option( $artifact_key, $record ) ) {
+			$stored = get_option( $artifact_key );
+			if ( ! is_array( $stored ) || $stored !== $record ) {
+				return self::source_rewrite_error( 'artifact_revision_conflict', 'The immutable Source Rewrite Artifact revision already belongs to different bytes.' );
+			}
+		}
+
+		$next = $job;
+		$next['status']            = 'quality_pending';
+		$next['artifact_revision'] = $artifact_revision;
+		$next['quality_revision']  = '';
+		$next['active_run_id']     = '';
+		$next['updated_at']        = gmdate( 'c' );
+		if ( ! self::atomic_replace_option_value( self::source_rewrite_job_key( (string) $job['job_id'] ), $job, $next ) ) {
+			return self::source_rewrite_error( 'artifact_job_transition_conflict', 'The Source Rewrite Job changed before artifact activation.' );
+		}
+		$completion = self::source_rewrite_complete_run_and_release( $run, $claim, 'artifact_submitted', array( 'artifact_revision' => $artifact_revision ) );
+		if ( empty( $completion['success'] ) ) {
+			return array_merge( $completion, array( 'job' => self::source_rewrite_public_job( $next ), 'artifact_revision' => $artifact_revision ) );
+		}
+
+		return array(
+			'success'           => true,
+			'artifact_revision' => $artifact_revision,
+			'copy_revision'     => (string) $proposed_surface['revision'],
+			'job'               => self::source_rewrite_public_job( $next ),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_submit_quality_decision( array $input ): array {
+		$access = self::source_rewrite_claim_access( $input, 'quality' );
+		if ( empty( $access['success'] ) ) {
+			return $access;
+		}
+		$job      = $access['job'];
+		$run      = $access['run'];
+		$claim    = $access['claim'];
+		$source   = get_post( (int) $job['source_id'] );
+		$priming  = self::source_rewrite_validate_priming_acknowledgement( $input, 'quality', $job, $source );
+		if ( empty( $priming['success'] ) ) {
+			return $priming;
+		}
+		$artifact_revision = self::source_rewrite_clean_id( (string) ( $input['artifact_revision'] ?? '' ) );
+		if ( $artifact_revision !== (string) ( $job['artifact_revision'] ?? '' ) ) {
+			return self::source_rewrite_error( 'quality_artifact_binding_mismatch', 'Quality must decide the exact active Source Rewrite Artifact revision.' );
+		}
+		$artifact = get_option( self::source_rewrite_artifact_key( $artifact_revision ) );
+		if ( ! is_array( $artifact ) ) {
+			return self::source_rewrite_error( 'artifact_not_found', 'The exact Source Rewrite Artifact is unavailable.' );
+		}
+		$writer = is_array( $artifact['writer_principal'] ?? null ) ? $artifact['writer_principal'] : array();
+		$reviewer = is_array( $run['principal'] ?? null ) ? $run['principal'] : array();
+		if ( empty( $writer['principal_id'] ) || empty( $reviewer['principal_id'] ) || hash_equals( (string) $writer['principal_id'], (string) $reviewer['principal_id'] ) || (string) $writer['run_id'] === (string) $reviewer['run_id'] ) {
+			return self::source_rewrite_error( 'writer_reviewer_principal_conflict', 'Quality authority requires a fresh reviewer Run Principal distinct from the source writer.' );
+		}
+
+		$decision = sanitize_key( (string) ( $input['decision'] ?? '' ) );
+		if ( ! in_array( $decision, array( 'pass', 'revise' ), true ) ) {
+			return self::source_rewrite_error( 'quality_decision_invalid', 'Quality decision must be pass or revise.' );
+		}
+		$evidence = self::source_rewrite_validate_quality_evidence( $input );
+		if ( empty( $evidence['success'] ) ) {
+			return $evidence;
+		}
+		$baseline = self::source_rewrite_current_baseline( $job );
+		if ( empty( $baseline['current'] ) ) {
+			return self::source_rewrite_error( 'quality_baseline_stale', 'The canonical source changed before the Quality Decision.', array( 'baseline' => $baseline ) );
+		}
+
+		$quality = array(
+			'schema_version'       => 1,
+			'policy_revision'      => self::source_rewrite_policy_revision(),
+			'job_id'               => (string) $job['job_id'],
+			'source_id'            => (int) $job['source_id'],
+			'artifact_revision'    => $artifact_revision,
+			'submission_generation'=> (int) $job['submission_generation'],
+			'baseline_source_hash' => (string) $job['baseline_source_hash'],
+			'baseline_publication_surface_revision' => (string) $job['baseline_publication_surface_revision'],
+			'decision'             => $decision,
+			'reviewer_principal'   => $reviewer,
+			'writer_principal_id'  => (string) $writer['principal_id'],
+			'priming_revision'     => (string) $priming['priming_revision'],
+			'evidence'             => $evidence['evidence'],
+			'decided_at'           => gmdate( 'c' ),
+		);
+		$quality_revision = 'srq_' . substr( hash( 'sha256', wp_json_encode( $quality ) ?: '' ), 0, 48 );
+		$quality['quality_revision'] = $quality_revision;
+		if ( ! self::atomic_create_option( self::source_rewrite_quality_key( $quality_revision ), $quality ) ) {
+			$stored = get_option( self::source_rewrite_quality_key( $quality_revision ) );
+			if ( ! is_array( $stored ) || $stored !== $quality ) {
+				return self::source_rewrite_error( 'quality_revision_conflict', 'The immutable Source Rewrite Quality revision already belongs to different bytes.' );
+			}
+		}
+
+		$next = $job;
+		$can_revise = (int) $job['submission_generation'] < self::SOURCE_REWRITE_MAX_SUBMISSION_GENERATIONS;
+		$next['status']           = 'pass' === $decision ? 'ready_to_publish' : ( $can_revise ? 'changes_requested' : 'exhausted' );
+		$next['quality_revision'] = $quality_revision;
+		$next['active_run_id']    = '';
+		if ( 'revise' === $decision && $can_revise ) {
+			$next['submission_generation'] = (int) $job['submission_generation'] + 1;
+		}
+		$next['updated_at'] = gmdate( 'c' );
+		if ( ! self::atomic_replace_option_value( self::source_rewrite_job_key( (string) $job['job_id'] ), $job, $next ) ) {
+			return self::source_rewrite_error( 'quality_job_transition_conflict', 'The Source Rewrite Job changed before Quality activation.' );
+		}
+		$completion = self::source_rewrite_complete_run_and_release( $run, $claim, 'quality_decided', array( 'quality_revision' => $quality_revision, 'decision' => $decision ) );
+		if ( empty( $completion['success'] ) ) {
+			return array_merge( $completion, array( 'job' => self::source_rewrite_public_job( $next ), 'quality_revision' => $quality_revision, 'decision' => $decision ) );
+		}
+
+		return array(
+			'success'          => true,
+			'decision'         => $decision,
+			'quality_revision' => $quality_revision,
+			'job'              => self::source_rewrite_public_job( $next ),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_publish( array $input ): array {
+		$job_id = self::source_rewrite_clean_id( (string) ( $input['job_id'] ?? '' ) );
+		$job_key = self::source_rewrite_job_key( $job_id );
+		$job = get_option( $job_key );
+		if ( ! is_array( $job ) ) {
+			return self::source_rewrite_error( 'job_not_found', 'Source Rewrite Job not found.' );
+		}
+		if ( ! in_array( (string) ( $job['status'] ?? '' ), array( 'ready_to_publish', 'published' ), true ) ) {
+			return self::source_rewrite_error( 'job_not_ready_to_publish', 'Source Rewrite publication requires the exact passing Quality Decision.', array( 'job' => self::source_rewrite_public_job( $job ) ) );
+		}
+
+		$lease = self::source_rewrite_acquire_publish_lease( $job );
+		if ( empty( $lease['success'] ) ) {
+			return $lease;
+		}
+		try {
+			$job = get_option( $job_key );
+			if ( ! is_array( $job ) ) {
+				return self::source_rewrite_error( 'job_not_found_after_lease', 'Source Rewrite Job disappeared after publication lease acquisition.' );
+			}
+			$source = get_post( absint( $job['source_id'] ?? 0 ) );
+			if ( ! $source instanceof WP_Post ) {
+				return self::source_rewrite_error( 'source_not_found', 'Canonical source content is unavailable for publication.' );
+			}
+			$authority = self::source_rewrite_authority_chain( $job );
+			if ( empty( $authority['success'] ) ) {
+				return $authority;
+			}
+			$artifact = $authority['artifact'];
+			$proposed = $artifact['proposed'];
+			$proposed_surface = $artifact['proposed_copy_surface'];
+			$current_values = self::source_rewrite_source_values( $source );
+			$current_surface = self::source_rewrite_copy_surface( $current_values['title'], $current_values['excerpt'], $current_values['content'] );
+			$already_applied = hash_equals( (string) $proposed_surface['revision'], (string) $current_surface['revision'] )
+				&& hash_equals( (string) $artifact['proposed_content_hash'], hash( 'sha256', (string) $current_values['content'] ) );
+			if ( ! $already_applied && empty( self::source_rewrite_current_baseline( $job )['current'] ) ) {
+				return self::source_rewrite_error( 'publication_baseline_stale', 'The canonical source changed after Quality approval and does not equal the approved artifact.' );
+			}
+
+			if ( ! $already_applied ) {
+				self::$source_rewrite_publish_authority = array(
+					'job_id'               => (string) $job['job_id'],
+					'source_id'            => (int) $job['source_id'],
+					'artifact_revision'    => (string) $artifact['artifact_revision'],
+					'quality_revision'     => (string) $job['quality_revision'],
+					'proposed_copy_revision'=> (string) $proposed_surface['revision'],
+					'proposed_content_hash'=> (string) $artifact['proposed_content_hash'],
+				);
+				try {
+					if ( ! function_exists( 'mcp_expose_validate_content_write_policy' ) ) {
+						return self::source_rewrite_error( 'content_write_policy_interface_unavailable', 'The owning MCP content-write policy Interface is unavailable; Source Rewrite publication fails closed.' );
+					}
+					$preflight_input = array(
+						'title'                  => (string) $proposed['title'],
+						'excerpt'                => (string) $proposed['excerpt'],
+						'content_write_mode'     => 'full_rebuild',
+						'content_write_operation' => 'update',
+					);
+					$preflight = mcp_expose_validate_content_write_policy(
+						$source,
+						(string) $source->post_type,
+						'publish',
+						(string) $proposed['content'],
+						$preflight_input,
+						'devenia-workflow/source-rewrite-publish'
+					);
+					if ( is_wp_error( $preflight ) || true !== $preflight ) {
+						return self::source_rewrite_error( 'publication_preflight_rejected', 'The exact approved Source Rewrite Artifact failed a public-write preflight.', array( 'preflight' => $preflight ) );
+					}
+					$updated = wp_update_post(
+						array(
+							'ID'           => (int) $source->ID,
+							'post_title'   => (string) $proposed['title'],
+							'post_excerpt' => (string) $proposed['excerpt'],
+							'post_content' => (string) $proposed['content'],
+							'post_status'  => 'publish',
+						),
+						true
+					);
+					if ( is_wp_error( $updated ) || (int) $updated !== (int) $source->ID ) {
+						return self::source_rewrite_error( 'publication_write_failed', 'WordPress did not commit the exact approved Source Rewrite Artifact.', array( 'write_result' => $updated ) );
+					}
+				} finally {
+					self::$source_rewrite_publish_authority = array();
+				}
+				$source = get_post( (int) $source->ID );
+			}
+
+			$applied_values = $source instanceof WP_Post ? self::source_rewrite_source_values( $source ) : array();
+			$applied_surface = $source instanceof WP_Post
+				? self::source_rewrite_copy_surface( $applied_values['title'], $applied_values['excerpt'], $applied_values['content'] )
+				: array( 'revision' => '' );
+			if (
+				! $source instanceof WP_Post
+				|| ! hash_equals( (string) $proposed_surface['revision'], (string) ( $applied_surface['revision'] ?? '' ) )
+				|| ! hash_equals( (string) $artifact['proposed_content_hash'], hash( 'sha256', (string) ( $applied_values['content'] ?? '' ) ) )
+			) {
+				return self::source_rewrite_error( 'publication_write_verification_failed', 'Stored source bytes do not equal the exact Quality-approved artifact.', array( 'published' => null ) );
+			}
+
+			$purge_urls = self::source_rewrite_purge_urls( $source );
+			$invalidation = apply_filters(
+				'devenia_workflow_frontend_cache_invalidation_result',
+				null,
+				$purge_urls,
+				array( 'event' => 'source_rewrite_publish', 'source_id' => (int) $source->ID, 'job_id' => (string) $job['job_id'] )
+			);
+			$next = $job;
+			$next['status']                     = 'published';
+			$next['applied_source_hash']        = self::source_hash( $source );
+			$next['applied_publication_surface_revision'] = self::source_publication_surface_revision( $source );
+			$next['applied_copy_revision']      = (string) $applied_surface['revision'];
+			$next['published_at']               = (string) ( $job['published_at'] ?? gmdate( 'c' ) );
+			$next['live_verification_passed']   = null;
+			$next['purge_urls']                 = $purge_urls;
+			$next['cache_invalidation']         = is_array( $invalidation ) ? $invalidation : array( 'success' => false, 'code' => 'cache_invalidation_adapter_missing' );
+			$next['updated_at']                 = gmdate( 'c' );
+			if ( $next !== $job && ! self::atomic_replace_option_value( $job_key, $job, $next ) ) {
+				$current_job = get_option( $job_key );
+				if ( ! is_array( $current_job ) || 'published' !== (string) ( $current_job['status'] ?? '' ) || ! hash_equals( (string) $next['applied_copy_revision'], (string) ( $current_job['applied_copy_revision'] ?? '' ) ) ) {
+					return self::source_rewrite_error( 'publication_job_transition_conflict', 'Source bytes were applied, but the Job publication receipt could not be reconciled.', array( 'severity' => 'critical', 'published' => true ) );
+				}
+				$next = $current_job;
+			}
+
+			return array(
+				'success'                 => ! empty( $next['cache_invalidation']['success'] ),
+				'published'               => true,
+				'needs_live_verification' => true,
+				'code'                    => ! empty( $next['cache_invalidation']['success'] ) ? 'source_rewrite_published' : 'source_rewrite_cache_invalidation_failed',
+				'message'                 => 'Source Rewrite published. Run source-rewrite-verify-live to complete hash-bound source approval.',
+				'job'                     => self::source_rewrite_public_job( $next ),
+				'purge_urls'              => $purge_urls,
+				'cache_invalidation'      => $next['cache_invalidation'],
+			);
+		} finally {
+			self::source_rewrite_release_publish_lease( $lease );
+		}
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_verify_live( array $input ): array {
+		$job_id = self::source_rewrite_clean_id( (string) ( $input['job_id'] ?? '' ) );
+		$job_key = self::source_rewrite_job_key( $job_id );
+		$job = get_option( $job_key );
+		if ( ! is_array( $job ) || 'published' !== (string) ( $job['status'] ?? '' ) ) {
+			return self::source_rewrite_error( 'job_not_published', 'Live verification requires a published Source Rewrite Job.' );
+		}
+		$authority = self::source_rewrite_authority_chain( $job, true );
+		if ( empty( $authority['success'] ) ) {
+			return $authority;
+		}
+		$source = get_post( absint( $job['source_id'] ?? 0 ) );
+		if ( ! $source instanceof WP_Post || 'publish' !== (string) $source->post_status ) {
+			return self::source_rewrite_error( 'source_not_published', 'The approved canonical source is not published.' );
+		}
+		$artifact = $authority['artifact'];
+		$current = self::source_rewrite_source_values( $source );
+		$current_surface = self::source_rewrite_copy_surface( $current['title'], $current['excerpt'], $current['content'] );
+		if (
+			! hash_equals( (string) $artifact['proposed_copy_surface']['revision'], (string) $current_surface['revision'] )
+			|| ! hash_equals( (string) $artifact['proposed_content_hash'], hash( 'sha256', (string) $current['content'] ) )
+		) {
+			return self::source_rewrite_error( 'published_source_drifted', 'The stored source no longer equals the exact Quality-approved artifact.' );
+		}
+
+		$timeout = max( 2, min( 30, absint( $input['timeout'] ?? 5 ) ) );
+		$url = esc_url_raw( (string) get_permalink( $source ) );
+		$integrity = self::frontend_public_surface_integrity_for_url( $url, self::source_language_code(), $timeout, 'source_rewrite' );
+		$copy_receipts = array();
+		$copy_issues = array();
+		foreach ( array( 'origin', 'canonical' ) as $cache_surface ) {
+			$response = self::fetch_frontend_cache_surface( $url, $timeout, $cache_surface );
+			$body = (string) ( $response['body'] ?? '' );
+			$decoded_body = html_entity_decode( $body, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+			$body_text = self::normalize_review_text( wp_strip_all_tags( $decoded_body ) );
+			$missing = array();
+			foreach ( (array) ( $artifact['proposed_copy_surface']['fragments'] ?? array() ) as $fragment ) {
+				$field = (string) ( $fragment['field'] ?? '' );
+				$text  = self::normalize_review_text( (string) ( $fragment['text'] ?? '' ) );
+				if ( '' === $text || 'excerpt' === $field ) {
+					continue;
+				}
+				$found = str_starts_with( $field, 'action:' )
+					? false !== strpos( $decoded_body, $text )
+					: false !== strpos( $body_text, $text );
+				if ( ! $found ) {
+					$missing[] = $field;
+				}
+			}
+			$passed = ! empty( $response['success'] ) && 200 === (int) ( $response['status_code'] ?? 0 ) && empty( $missing );
+			$copy_receipts[ $cache_surface ] = array(
+				'passed'       => $passed,
+				'status_code'  => (int) ( $response['status_code'] ?? 0 ),
+				'final_url'    => (string) ( $response['final_url'] ?? $url ),
+				'body_digest'  => hash( 'sha256', (string) ( $response['body'] ?? '' ) ),
+				'missing_fields'=> $missing,
+			);
+			if ( ! $passed ) {
+				$copy_issues[] = array( 'cache_surface' => $cache_surface, 'missing_fields' => $missing, 'status_code' => (int) ( $response['status_code'] ?? 0 ) );
+			}
+		}
+		$content_integrity = self::source_content_integrity_validation( $source );
+		$publication_experience = self::publication_experience_readiness_for_post( $source, self::source_language_code(), 'source_rewrite_verify_live' );
+		$passed = ! empty( $integrity['success'] )
+			&& ! empty( $integrity['passed'] )
+			&& empty( $copy_issues )
+			&& empty( $content_integrity['issue_count'] )
+			&& ! empty( $publication_experience['passed'] );
+		if ( ! $passed ) {
+			$failed = $job;
+			$failed['live_verification_passed'] = false;
+			$failed['live_verification'] = array( 'integrity' => $integrity, 'copy_receipts' => $copy_receipts, 'content_integrity' => $content_integrity, 'publication_experience' => $publication_experience );
+			$failed['updated_at'] = gmdate( 'c' );
+			self::atomic_replace_option_value( $job_key, $job, $failed );
+			return self::source_rewrite_error( 'source_rewrite_live_verification_failed', 'The published source failed exact origin/canonical or publication-quality verification.', array( 'passed' => false, 'job' => self::source_rewrite_public_job( $failed ), 'verification' => $failed['live_verification'] ) );
+		}
+
+		$quality = $authority['quality'];
+		$evidence = array(
+			'source_rewrite_quality_passed' => true,
+			'content_integrity_already_clean' => false,
+			'job_id'          => (string) $job['job_id'],
+			'artifact_revision'=> (string) $job['artifact_revision'],
+			'quality_revision'=> (string) $job['quality_revision'],
+			'source_hash'     => self::source_hash( $source ),
+			'source_publication_surface_revision' => self::source_publication_surface_revision( $source ),
+			'audit_notes'     => 'Exact staged Source Rewrite Artifact, independent Quality Decision, stored WordPress bytes, and origin/canonical rendered copy all match.',
+			'reviewer_statement' => 'The independent Quality Run approved this exact artifact revision; live verification found every required reader-facing fragment on both cache surfaces.',
+			'quality_evidence'=> $quality['evidence'],
+			'live_verification'=> array( 'integrity' => $integrity, 'copy_receipts' => $copy_receipts ),
+			'reviewed_at'     => gmdate( 'c' ),
+			'reviewer'        => (string) ( $quality['reviewer_principal']['principal_id'] ?? 'source-rewrite-quality' ),
+		);
+		update_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_HASH, hash( 'sha256', wp_json_encode( array( $evidence['source_hash'], $evidence['source_publication_surface_revision'], $evidence['artifact_revision'], $evidence['quality_revision'] ) ) ?: '' ) );
+		update_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWED_AT, $evidence['reviewed_at'] );
+		update_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWER, $evidence['reviewer'] );
+		update_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_NOTE, 'Approved through the exact Source Rewrite Quality lifecycle.' );
+		self::update_json_post_meta( (int) $source->ID, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_EVIDENCE, $evidence );
+
+		$next = $job;
+		$next['live_verification_passed'] = true;
+		$next['live_verification'] = array( 'integrity' => $integrity, 'copy_receipts' => $copy_receipts, 'content_integrity' => $content_integrity, 'publication_experience' => $publication_experience );
+		$next['verified_at'] = gmdate( 'c' );
+		$next['updated_at'] = gmdate( 'c' );
+		if ( ! self::atomic_replace_option_value( $job_key, $job, $next ) ) {
+			return self::source_rewrite_error( 'live_verification_job_transition_conflict', 'Live evidence passed, but the Source Rewrite Job receipt changed before activation.', array( 'retryable' => true ) );
+		}
+		return array( 'success' => true, 'passed' => true, 'job' => self::source_rewrite_public_job( $next ), 'verification' => $next['live_verification'], 'source_approval' => $evidence );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_status( array $input ): array {
+		$job_id = self::source_rewrite_clean_id( (string) ( $input['job_id'] ?? '' ) );
+		if ( '' === $job_id && ! empty( $input['source_id'] ) ) {
+			$source_id = absint( $input['source_id'] );
+			$job_id = self::source_rewrite_clean_id( (string) get_option( self::source_rewrite_latest_key( $source_id ) ) );
+			$source = get_post( $source_id );
+			if ( '' === $job_id && $source instanceof WP_Post ) {
+				$job_id = self::source_rewrite_job_id( (int) $source->ID, self::source_publication_surface_revision( $source ) );
+			}
+		}
+		$job = get_option( self::source_rewrite_job_key( $job_id ) );
+		if ( ! is_array( $job ) ) {
+			return self::source_rewrite_error( 'job_not_found', 'Source Rewrite Job not found.' );
+		}
+		$runs = array();
+		foreach ( (array) ( $job['run_ids'] ?? array() ) as $row ) {
+			$run = get_option( self::source_rewrite_run_key( (string) ( $row['run_id'] ?? '' ) ) );
+			if ( is_array( $run ) ) {
+				$runs[] = $run;
+			}
+		}
+		$artifact = ! empty( $job['artifact_revision'] ) ? get_option( self::source_rewrite_artifact_key( (string) $job['artifact_revision'] ) ) : null;
+		$quality  = ! empty( $job['quality_revision'] ) ? get_option( self::source_rewrite_quality_key( (string) $job['quality_revision'] ) ) : null;
+		return array( 'success' => true, 'job' => self::source_rewrite_public_job( $job ), 'runs' => $runs, 'artifact' => is_array( $artifact ) ? $artifact : null, 'quality_decision' => is_array( $quality ) ? $quality : null );
+	}
+
+	/**
+	 * Final storage Adapter guard. Unauthorized published source-copy changes are
+	 * replaced with the current stored bytes, including draft-to-publish attempts.
+	 *
+	 * @param array<string,mixed> $data Sanitized post data.
+	 * @param array<string,mixed> $postarr Slashed post input.
+	 * @param array<string,mixed> $unsanitized_postarr Raw post input.
+	 * @return array<string,mixed>
+	 */
+	public static function guard_unapproved_source_rewrite_before_save( array $data, array $postarr, array $unsanitized_postarr = array(), bool $update = false ): array {
+		unset( $unsanitized_postarr, $update );
+		$post_id = absint( $postarr['ID'] ?? $data['ID'] ?? 0 );
+		$current = $post_id ? get_post( $post_id ) : null;
+		if ( ! $current instanceof WP_Post || ! self::is_translatable_post_type( (string) $current->post_type ) || self::is_translation_post( $post_id ) ) {
+			return $data;
+		}
+		$target_status = sanitize_key( (string) ( $data['post_status'] ?? $current->post_status ) );
+		if ( 'publish' !== $target_status && 'publish' !== (string) $current->post_status ) {
+			return $data;
+		}
+		$proposed = array(
+			'title'   => sanitize_text_field( (string) ( $data['post_title'] ?? $current->post_title ) ),
+			'excerpt' => sanitize_textarea_field( (string) ( $data['post_excerpt'] ?? $current->post_excerpt ) ),
+			'content' => self::normalize_gutenberg_content_for_storage( (string) ( $data['post_content'] ?? $current->post_content ) ),
+		);
+		$current_values = self::source_rewrite_source_values( $current );
+		$current_surface = self::source_rewrite_copy_surface( $current_values['title'], $current_values['excerpt'], $current_values['content'] );
+		$proposed_surface = self::source_rewrite_copy_surface( $proposed['title'], $proposed['excerpt'], $proposed['content'] );
+		if ( hash_equals( (string) $current_surface['revision'], (string) $proposed_surface['revision'] ) || self::source_rewrite_request_authorizes( $current, $proposed, $proposed_surface ) ) {
+			return $data;
+		}
+		$data['post_title']   = (string) $current->post_title;
+		$data['post_excerpt'] = (string) $current->post_excerpt;
+		$data['post_content'] = (string) $current->post_content;
+		if ( 'publish' !== (string) $current->post_status ) {
+			$data['post_status'] = (string) $current->post_status;
+		}
+		return $data;
+	}
+
+	/**
+	 * Adapt Source Rewrite Quality Authority to the neutral public write seam.
+	 *
+	 * @param mixed               $result  Earlier preflight result.
+	 * @param array<string,mixed> $context Neutral public write context.
+	 * @return true|WP_Error
+	 */
+	public static function validate_source_rewrite_quality_preflight( $result, array $context ) {
+		if ( true !== $result ) {
+			return $result;
+		}
+		$post      = $context['post'] ?? null;
+		$post_type = sanitize_key( (string) ( $context['post_type'] ?? '' ) );
+		$content   = (string) ( $context['content'] ?? '' );
+		$input     = is_array( $context['input'] ?? null ) ? $context['input'] : array();
+		if ( ! $post instanceof WP_Post || ! in_array( $post_type, array( 'page', 'post' ), true ) || self::is_translation_post( (int) $post->ID ) ) {
+			return true;
+		}
+
+		$current  = self::source_rewrite_source_values( $post );
+		$proposed = array(
+			'title'   => array_key_exists( 'title', $input ) ? sanitize_text_field( (string) $input['title'] ) : $current['title'],
+			'excerpt' => array_key_exists( 'excerpt', $input ) ? sanitize_textarea_field( (string) $input['excerpt'] ) : $current['excerpt'],
+			'content' => self::normalize_gutenberg_content_for_storage( $content ),
+		);
+		$current_surface  = self::source_rewrite_copy_surface( $current['title'], $current['excerpt'], $current['content'] );
+		$proposed_surface = self::source_rewrite_copy_surface( $proposed['title'], $proposed['excerpt'], $proposed['content'] );
+		if ( hash_equals( (string) $current_surface['revision'], (string) $proposed_surface['revision'] ) ) {
+			return true;
+		}
+
+		if ( self::source_rewrite_request_authorizes( $post, $proposed, $proposed_surface ) ) {
+			return true;
+		}
+
+		return new WP_Error(
+			'devenia_source_rewrite_quality_required',
+			'A source copy mutation requires an exact staged artifact and an independent Quality decision before publication.',
+			array(
+				'source_id'               => (int) $post->ID,
+				'current_copy_revision'   => (string) $current_surface['revision'],
+				'proposed_copy_revision'  => (string) $proposed_surface['revision'],
+				'current_fragment_count'  => count( $current_surface['fragments'] ),
+				'proposed_fragment_count' => count( $proposed_surface['fragments'] ),
+				'suggested_ability'       => 'devenia-workflow/source-rewrite-discover',
+			)
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_claim_access( array $input, string $required_role = '' ): array {
+		$job_id = self::source_rewrite_clean_id( (string) ( $input['job_id'] ?? '' ) );
+		$run_id = self::source_rewrite_clean_id( (string) ( $input['run_id'] ?? '' ) );
+		$token  = (string) ( $input['claim_token'] ?? '' );
+		$job    = get_option( self::source_rewrite_job_key( $job_id ) );
+		$claim  = get_option( self::source_rewrite_claim_key( $job_id ) );
+		$run    = get_option( self::source_rewrite_run_key( $run_id ) );
+		if ( ! is_array( $job ) || ! is_array( $claim ) || ! is_array( $run ) ) {
+			return self::source_rewrite_error( 'claim_access_missing', 'The active Source Rewrite claim or Run is unavailable.' );
+		}
+		if (
+			$run_id !== (string) ( $claim['run_id'] ?? '' )
+			|| $run_id !== (string) ( $job['active_run_id'] ?? '' )
+			|| '' === $token
+			|| ! hash_equals( (string) ( $claim['token_hash'] ?? '' ), hash( 'sha256', $token ) )
+			|| strtotime( (string) ( $claim['expires_at'] ?? '' ) ) <= time()
+		) {
+			return self::source_rewrite_error( 'claim_access_denied', 'The Source Rewrite claim token, Run, or lease is invalid.' );
+		}
+		$generation = (int) ( $job['submission_generation'] ?? 0 );
+		if (
+			(string) ( $job['job_id'] ?? '' ) !== (string) ( $claim['job_id'] ?? '' )
+			|| (string) ( $job['job_id'] ?? '' ) !== (string) ( $run['job_id'] ?? '' )
+			|| (string) ( $claim['role'] ?? '' ) !== (string) ( $run['role'] ?? '' )
+			|| (string) ( $claim['coordinator_id'] ?? '' ) !== (string) ( $run['coordinator_id'] ?? '' )
+			|| 'running' !== (string) ( $run['status'] ?? '' )
+			|| $generation !== (int) ( $claim['submission_generation'] ?? -1 )
+			|| $generation !== (int) ( $run['submission_generation'] ?? -1 )
+		) {
+			return self::source_rewrite_error( 'claim_record_binding_mismatch', 'The Source Rewrite Job, Claim, and Run records do not share one active role and submission generation.' );
+		}
+		if ( '' !== $required_role && $required_role !== (string) ( $run['role'] ?? '' ) ) {
+			return self::source_rewrite_error( 'claim_role_mismatch', 'The active Source Rewrite Run has the wrong role for this operation.' );
+		}
+
+		return array( 'success' => true, 'job' => $job, 'claim' => $claim, 'run' => $run );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_recover_expired_claim( array $job ): array {
+		$claim_key = self::source_rewrite_claim_key( (string) $job['job_id'] );
+		$claim = get_option( $claim_key );
+		if ( ! is_array( $claim ) || strtotime( (string) ( $claim['expires_at'] ?? '' ) ) > time() ) {
+			return array( 'success' => true, 'job' => $job, 'recovered' => false );
+		}
+		$run_id = (string) ( $claim['run_id'] ?? '' );
+		$run_key = self::source_rewrite_run_key( $run_id );
+		$run = get_option( $run_key );
+		if ( is_array( $run ) && 'running' === (string) ( $run['status'] ?? '' ) ) {
+			$expired = array_merge( $run, array( 'status' => 'completed', 'outcome' => 'claim_expired', 'completed_at' => gmdate( 'c' ) ) );
+			if ( ! self::atomic_replace_option_value( $run_key, $run, $expired ) ) {
+				return self::source_rewrite_error( 'expired_run_transition_conflict', 'The expired Source Rewrite Run changed during recovery.', array( 'retryable' => true ) );
+			}
+		}
+		$next = $job;
+		if ( $run_id === (string) ( $job['active_run_id'] ?? '' ) ) {
+			$next['status'] = (string) ( $claim['previous_status'] ?? ( 'quality' === (string) ( $claim['role'] ?? '' ) ? 'quality_pending' : 'queued' ) );
+			$next['active_run_id'] = '';
+			$next['updated_at'] = gmdate( 'c' );
+			if ( ! self::atomic_replace_option_value( self::source_rewrite_job_key( (string) $job['job_id'] ), $job, $next ) ) {
+				return self::source_rewrite_error( 'expired_job_recovery_conflict', 'The Job changed while its expired claim was being recovered.', array( 'retryable' => true ) );
+			}
+		}
+		if ( ! self::atomic_delete_option_value( $claim_key, $claim ) ) {
+			$current_claim = get_option( $claim_key );
+			if ( false !== $current_claim ) {
+				return self::source_rewrite_error( 'expired_claim_release_conflict', 'The expired claim could not be released exactly.', array( 'retryable' => true ) );
+			}
+		}
+		return array( 'success' => true, 'job' => $next, 'recovered' => true );
+	}
+
+	/** @param array<string,mixed> $extra @return array<string,mixed> */
+	private static function source_rewrite_complete_run_and_release( array $run, array $claim, string $outcome, array $extra = array() ): array {
+		$completed = array_merge( $run, $extra, array( 'status' => 'completed', 'outcome' => $outcome, 'completed_at' => gmdate( 'c' ) ) );
+		$run_key = self::source_rewrite_run_key( (string) $run['run_id'] );
+		if ( ! self::atomic_replace_option_value( $run_key, $run, $completed ) ) {
+			$current_run = get_option( $run_key );
+			if ( ! is_array( $current_run ) || 'completed' !== (string) ( $current_run['status'] ?? '' ) || $outcome !== (string) ( $current_run['outcome'] ?? '' ) ) {
+				return self::source_rewrite_error( 'run_completion_conflict', 'The immutable result was stored, but the Run could not become terminal.', array( 'severity' => 'critical', 'retryable' => true ) );
+			}
+			$completed = $current_run;
+		}
+		$claim_key = self::source_rewrite_claim_key( (string) $claim['job_id'] );
+		if ( ! self::atomic_delete_option_value( $claim_key, $claim ) ) {
+			$current_claim = get_option( $claim_key );
+			if ( false !== $current_claim ) {
+				return self::source_rewrite_error( 'claim_release_conflict', 'The terminal Run could not release its exact claim.', array( 'severity' => 'critical', 'retryable' => true ) );
+			}
+		}
+		return array( 'success' => true, 'run' => $completed );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_current_baseline( array $job ): array {
+		$source = get_post( absint( $job['source_id'] ?? 0 ) );
+		if ( ! $source instanceof WP_Post ) {
+			return array( 'current' => false, 'reason' => 'source_missing' );
+		}
+		$current_hash    = self::source_hash( $source );
+		$current_surface = self::source_publication_surface_revision( $source );
+		$current = hash_equals( (string) ( $job['baseline_source_hash'] ?? '' ), $current_hash )
+			&& hash_equals( (string) ( $job['baseline_publication_surface_revision'] ?? '' ), $current_surface );
+		return array( 'current' => $current, 'source_hash' => $current_hash, 'publication_surface_revision' => $current_surface );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_pending_for_source( WP_Post $source ): array {
+		$job_id = self::source_rewrite_job_id( (int) $source->ID, self::source_publication_surface_revision( $source ) );
+		$job = get_option( self::source_rewrite_job_key( $job_id ) );
+		$pending = is_array( $job ) && ! in_array( (string) ( $job['status'] ?? '' ), array( 'published', 'cancelled' ), true );
+		return array(
+			'pending' => $pending,
+			'job_id'  => $pending ? $job_id : '',
+			'status'  => is_array( $job ) ? sanitize_key( (string) ( $job['status'] ?? '' ) ) : '',
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_authority_chain( array $job, bool $allow_published = false ): array {
+		$allowed = $allow_published ? array( 'ready_to_publish', 'published' ) : array( 'ready_to_publish' );
+		if ( ! in_array( (string) ( $job['status'] ?? '' ), $allowed, true ) || empty( $job['artifact_revision'] ) || empty( $job['quality_revision'] ) ) {
+			return self::source_rewrite_error( 'source_rewrite_authority_missing', 'The Job has no passing exact Artifact and Quality authority chain.' );
+		}
+		$artifact = get_option( self::source_rewrite_artifact_key( (string) $job['artifact_revision'] ) );
+		$quality  = get_option( self::source_rewrite_quality_key( (string) $job['quality_revision'] ) );
+		if ( ! is_array( $artifact ) || ! is_array( $quality ) || 'pass' !== (string) ( $quality['decision'] ?? '' ) ) {
+			return self::source_rewrite_error( 'source_rewrite_authority_record_missing', 'The exact Artifact or passing Quality record is unavailable.' );
+		}
+		$source = get_post( absint( $job['source_id'] ?? 0 ) );
+		if ( ! $source instanceof WP_Post ) {
+			return self::source_rewrite_error( 'source_not_found', 'Canonical source content is unavailable while validating Source Rewrite authority.' );
+		}
+		$current_writer_priming = (string) ( self::source_rewrite_role_priming( 'source_writer', $job, $source )['priming_revision'] ?? '' );
+		$current_quality_priming = (string) ( self::source_rewrite_role_priming( 'quality', $job, $source )['priming_revision'] ?? '' );
+		if (
+			'' === $current_writer_priming
+			|| '' === $current_quality_priming
+			|| ! hash_equals( $current_writer_priming, (string) ( $artifact['priming_revision'] ?? '' ) )
+			|| ! hash_equals( $current_quality_priming, (string) ( $quality['priming_revision'] ?? '' ) )
+		) {
+			return self::source_rewrite_error( 'source_rewrite_priming_stale', 'The source-scoped writing or Quality policy changed after approval. A fresh artifact and Quality Decision are required.' );
+		}
+		if (
+			(string) ( $artifact['artifact_revision'] ?? '' ) !== (string) ( $quality['artifact_revision'] ?? '' )
+			|| (string) ( $artifact['artifact_revision'] ?? '' ) !== (string) $job['artifact_revision']
+			|| (string) ( $quality['quality_revision'] ?? '' ) !== (string) $job['quality_revision']
+			|| (string) ( $artifact['policy_revision'] ?? '' ) !== self::source_rewrite_policy_revision()
+			|| (string) ( $quality['policy_revision'] ?? '' ) !== self::source_rewrite_policy_revision()
+			|| (string) ( $artifact['job_id'] ?? '' ) !== (string) ( $job['job_id'] ?? '' )
+			|| (string) ( $quality['job_id'] ?? '' ) !== (string) ( $job['job_id'] ?? '' )
+			|| (int) ( $artifact['source_id'] ?? 0 ) !== (int) ( $job['source_id'] ?? 0 )
+			|| (int) ( $quality['source_id'] ?? 0 ) !== (int) ( $job['source_id'] ?? 0 )
+			|| (string) ( $artifact['baseline_source_hash'] ?? '' ) !== (string) ( $job['baseline_source_hash'] ?? '' )
+			|| (string) ( $quality['baseline_source_hash'] ?? '' ) !== (string) ( $job['baseline_source_hash'] ?? '' )
+			|| (string) ( $artifact['baseline_publication_surface_revision'] ?? '' ) !== (string) ( $job['baseline_publication_surface_revision'] ?? '' )
+			|| (string) ( $quality['baseline_publication_surface_revision'] ?? '' ) !== (string) ( $job['baseline_publication_surface_revision'] ?? '' )
+			|| (int) ( $artifact['submission_generation'] ?? 0 ) !== (int) ( $quality['submission_generation'] ?? -1 )
+			|| (int) ( $artifact['submission_generation'] ?? 0 ) !== (int) ( $job['submission_generation'] ?? -1 )
+		) {
+			return self::source_rewrite_error( 'source_rewrite_authority_binding_mismatch', 'Artifact, Quality, policy, or generation bindings do not match.' );
+		}
+		$writer   = is_array( $artifact['writer_principal'] ?? null ) ? $artifact['writer_principal'] : array();
+		$reviewer = is_array( $quality['reviewer_principal'] ?? null ) ? $quality['reviewer_principal'] : array();
+		if ( empty( $writer['principal_id'] ) || empty( $reviewer['principal_id'] ) || hash_equals( (string) $writer['principal_id'], (string) $reviewer['principal_id'] ) || (string) ( $writer['run_id'] ?? '' ) === (string) ( $reviewer['run_id'] ?? '' ) ) {
+			return self::source_rewrite_error( 'writer_reviewer_principal_conflict', 'Writer and Quality authority must come from distinct fresh Run Principals.' );
+		}
+		return array( 'success' => true, 'artifact' => $artifact, 'quality' => $quality, 'writer_principal' => $writer, 'reviewer_principal' => $reviewer );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_acquire_publish_lease( array $job ): array {
+		$key = self::source_rewrite_publish_lease_key( (string) $job['job_id'] );
+		$current = get_option( $key );
+		if ( is_array( $current ) && strtotime( (string) ( $current['expires_at'] ?? '' ) ) <= time() ) {
+			self::atomic_delete_option_value( $key, $current );
+			$current = get_option( $key );
+		}
+		if ( is_array( $current ) ) {
+			return self::source_rewrite_error( 'source_rewrite_publish_lease_conflict', 'Another coordinator owns this Source Rewrite publication.', array( 'retryable' => true, 'expires_at' => (string) ( $current['expires_at'] ?? '' ) ) );
+		}
+		$lease = array(
+			'job_id'     => (string) $job['job_id'],
+			'token_hash' => hash( 'sha256', wp_generate_password( 48, false, false ) ),
+			'acquired_at'=> gmdate( 'c' ),
+			'expires_at' => gmdate( 'c', time() + 120 ),
+		);
+		if ( ! self::atomic_create_option( $key, $lease ) ) {
+			return self::source_rewrite_error( 'source_rewrite_publish_lease_race_lost', 'Another coordinator acquired Source Rewrite publication first.', array( 'retryable' => true ) );
+		}
+		return array( 'success' => true, 'key' => $key, 'lease' => $lease );
+	}
+
+	private static function source_rewrite_release_publish_lease( array $lease ): void {
+		if ( ! empty( $lease['key'] ) && is_array( $lease['lease'] ?? null ) ) {
+			self::atomic_delete_option_value( (string) $lease['key'], $lease['lease'] );
+		}
+	}
+
+	/** @return array<int,string> */
+	private static function source_rewrite_purge_urls( WP_Post $source ): array {
+		$urls = array( (string) get_permalink( $source ), home_url( '/' ) );
+		if ( (int) $source->post_parent > 0 ) {
+			$urls[] = (string) get_permalink( (int) $source->post_parent );
+		}
+		$urls = apply_filters( 'devenia_workflow_source_rewrite_purge_urls', $urls, $source );
+		return array_values( array_unique( array_filter( array_map( 'esc_url_raw', is_array( $urls ) ? $urls : array() ) ) ) );
+	}
+
+	private static function source_rewrite_request_authorizes( WP_Post $source, array $proposed, array $proposed_surface ): bool {
+		$authority = self::$source_rewrite_publish_authority;
+		if (
+			(int) ( $authority['source_id'] ?? 0 ) !== (int) $source->ID
+			|| empty( $authority['job_id'] )
+			|| empty( $authority['artifact_revision'] )
+			|| empty( $authority['quality_revision'] )
+			|| ! hash_equals( (string) ( $authority['proposed_copy_revision'] ?? '' ), (string) ( $proposed_surface['revision'] ?? '' ) )
+			|| ! hash_equals( (string) ( $authority['proposed_content_hash'] ?? '' ), hash( 'sha256', (string) ( $proposed['content'] ?? '' ) ) )
+		) {
+			return false;
+		}
+		$job = get_option( self::source_rewrite_job_key( (string) $authority['job_id'] ) );
+		if ( ! is_array( $job ) || (string) ( $job['artifact_revision'] ?? '' ) !== (string) $authority['artifact_revision'] || (string) ( $job['quality_revision'] ?? '' ) !== (string) $authority['quality_revision'] ) {
+			return false;
+		}
+		$chain = self::source_rewrite_authority_chain( $job );
+		if ( empty( $chain['success'] ) ) {
+			return false;
+		}
+		$artifact_proposed = (array) ( $chain['artifact']['proposed'] ?? array() );
+		return (string) ( $artifact_proposed['title'] ?? '' ) === (string) ( $proposed['title'] ?? '' )
+			&& (string) ( $artifact_proposed['excerpt'] ?? '' ) === (string) ( $proposed['excerpt'] ?? '' );
+	}
+
+	/** @return array{revision:string,fragments:array<int,array<string,mixed>>} */
+	private static function source_rewrite_copy_surface( string $title, string $excerpt, string $content ): array {
+		$fragments = array(
+			array( 'field' => 'title', 'text' => self::normalize_review_text( $title ) ),
+			array( 'field' => 'excerpt', 'text' => self::normalize_review_text( $excerpt ) ),
+			array( 'field' => 'content:document', 'block' => 'document', 'heading' => false, 'unique_id' => '', 'text' => self::normalize_review_text( wp_strip_all_tags( $content ) ) ),
+		);
+		foreach ( self::text_fragments_for_copy_quality( $content ) as $index => $fragment ) {
+			$fragments[] = array(
+				'field'     => 'content:' . (int) $index,
+				'block'     => sanitize_text_field( (string) ( $fragment['block'] ?? '' ) ),
+				'heading'   => ! empty( $fragment['heading'] ),
+				'unique_id' => sanitize_text_field( (string) ( $fragment['unique_id'] ?? '' ) ),
+				'text'      => self::normalize_review_text( (string) ( $fragment['text'] ?? '' ) ),
+			);
+		}
+		foreach ( self::source_rewrite_customer_action_fragments( $content ) as $index => $fragment ) {
+			$fragments[] = array(
+				'field'     => 'action:' . (int) $index,
+				'block'     => 'document:' . (string) $fragment['attribute'],
+				'heading'   => false,
+				'unique_id' => '',
+				'text'      => (string) $fragment['value'],
+			);
+		}
+		return array( 'revision' => hash( 'sha256', wp_json_encode( $fragments ) ?: '' ), 'fragments' => $fragments );
+	}
+
+	/** @return array<int,array{attribute:string,value:string}> */
+	private static function source_rewrite_customer_action_fragments( string $content ): array {
+		$fragments = array();
+		foreach ( array( 'href', 'aria-label', 'alt' ) as $attribute ) {
+			$pattern = '/\b' . preg_quote( $attribute, '/' ) . '\s*=\s*(["\'])(.*?)\1/isu';
+			if ( ! preg_match_all( $pattern, $content, $matches, PREG_SET_ORDER ) ) {
+				continue;
+			}
+			foreach ( $matches as $match ) {
+				$value = self::normalize_review_text( html_entity_decode( (string) ( $match[2] ?? '' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+				if ( '' !== $value ) {
+					$fragments[] = array( 'attribute' => $attribute, 'value' => $value );
+				}
+			}
+		}
+		return $fragments;
+	}
+
+	/** @return array{title:string,excerpt:string,content:string} */
+	private static function source_rewrite_source_values( WP_Post $source ): array {
+		return array(
+			'title'   => (string) $source->post_title,
+			'excerpt' => (string) $source->post_excerpt,
+			'content' => self::normalize_gutenberg_content_for_storage( (string) $source->post_content ),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_validate_preservation_brief( $raw ): array {
+		if ( ! is_array( $raw ) ) {
+			return self::source_rewrite_error( 'preservation_brief_missing', 'The complete source rewrite preservation brief is required.' );
+		}
+		$text_fields = array( 'buyer', 'problem', 'desired_result', 'promise', 'offer', 'next_action', 'page_purpose', 'emotional_intent' );
+		$list_fields = array( 'proof', 'capabilities', 'boundaries', 'intentional_changes' );
+		$brief       = array();
+		$errors      = array();
+		foreach ( $text_fields as $field ) {
+			$value = self::normalize_review_text( (string) ( $raw[ $field ] ?? '' ) );
+			if ( strlen( $value ) < 55 || self::source_rewrite_generic_evidence( $value ) ) {
+				$errors[] = $field;
+			}
+			$brief[ $field ] = sanitize_textarea_field( $value );
+		}
+		foreach ( $list_fields as $field ) {
+			$values = self::source_rewrite_string_list( $raw[ $field ] ?? array() );
+			if ( count( $values ) < 2 ) {
+				$errors[] = $field;
+			}
+			$brief[ $field ] = $values;
+		}
+		if ( $errors ) {
+			return self::source_rewrite_error( 'preservation_brief_incomplete', 'The writer preservation brief must explain the complete buyer, purpose, emotional movement, commercial argument, capabilities, proof, boundaries, and intentional changes.', array( 'fields' => $errors ) );
+		}
+		return array( 'success' => true, 'brief' => $brief );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_validate_quality_evidence( array $input ): array {
+		$text_fields = self::source_rewrite_quality_evidence_fields();
+		$evidence    = array();
+		$errors      = array();
+		foreach ( $text_fields as $field ) {
+			$value = self::normalize_review_text( (string) ( $input[ $field ] ?? '' ) );
+			if ( strlen( $value ) < 120 || self::source_rewrite_generic_evidence( $value ) ) {
+				$errors[] = $field;
+			}
+			$evidence[ $field ] = sanitize_textarea_field( $value );
+		}
+		$evidence['reviewed_sections'] = self::source_rewrite_string_list( $input['reviewed_sections'] ?? array() );
+		$evidence['findings']          = self::source_rewrite_string_list( $input['findings'] ?? array() );
+		if ( count( $evidence['reviewed_sections'] ) < 4 ) {
+			$errors[] = 'reviewed_sections';
+		}
+		if ( count( $evidence['findings'] ) < 2 ) {
+			$errors[] = 'findings';
+		}
+		if ( $errors ) {
+			return self::source_rewrite_error( 'quality_evidence_incomplete', 'Source Rewrite Quality requires concrete whole-page semantic, emotional, literary, factual, product-depth, boundary, and action evidence.', array( 'fields' => array_values( array_unique( $errors ) ) ) );
+		}
+		return array( 'success' => true, 'evidence' => $evidence );
+	}
+
+	/** @return array<int,string> */
+	private static function source_rewrite_quality_evidence_fields(): array {
+		return array(
+			'whole_page_purpose_assessment',
+			'emotional_connection_assessment',
+			'literary_craft_assessment',
+			'buyer_problem_result_assessment',
+			'promise_proof_assessment',
+			'capability_complexity_assessment',
+			'boundaries_assessment',
+			'next_action_assessment',
+			'natural_non_slop_assessment',
+		);
+	}
+
+	/** @return array<int,string> */
+	private static function source_rewrite_preservation_brief_fields(): array {
+		return array( 'buyer', 'problem', 'desired_result', 'promise', 'proof', 'offer', 'capabilities', 'boundaries', 'next_action', 'page_purpose', 'emotional_intent', 'intentional_changes' );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_quality_standard(): array {
+		return array(
+			'authority' => 'independent_semantic_quality',
+			'principles' => array(
+				'Judge what the page says, why it exists, and what the words make the reader understand, feel, and want to do.',
+				'Preserve factual product depth, proof, boundaries, use cases, and technical complexity without flattening them into generic marketing.',
+				'Apply literary craft through concrete language, human voice, rhythm, tension and release, memorable specificity, honest emotional connection, and freedom from cliché.',
+				'Apply the Ogilvy whole-page argument: buyer, problem, desired result, promise, proof, offer, and value-led next action.',
+			),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_role_priming( string $role, array $job = array(), $source = null ): array {
+		$context = isset( $job['priming_context'] ) && is_array( $job['priming_context'] )
+			? $job['priming_context']
+			: self::source_rewrite_priming_context( $source );
+		return self::copy_quality_role_priming( $role, $context );
+	}
+
+	/**
+	 * Pin mutable source facts at discovery so publish and separate live
+	 * verification interpret the approved policy against the same snapshot.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function source_rewrite_priming_context( $source ): array {
+		return array(
+			'workflow'     => 'source_rewrite',
+			'source_id'    => $source instanceof WP_Post ? (int) $source->ID : 0,
+			'post_type'    => $source instanceof WP_Post ? (string) $source->post_type : '',
+			'source_title' => $source instanceof WP_Post ? (string) $source->post_title : '',
+			'language'     => self::source_language_code(),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_validate_priming_acknowledgement( array $input, string $role, array $job = array(), $source = null ): array {
+		$expected = (string) ( self::source_rewrite_role_priming( $role, $job, $source )['priming_revision'] ?? '' );
+		$received = self::source_rewrite_clean_id( (string) ( $input['priming_revision'] ?? '' ) );
+		if ( '' === $received || ! hash_equals( $expected, $received ) ) {
+			return self::source_rewrite_error(
+				'source_rewrite_priming_not_acknowledged',
+				'The Run must fetch, read, and acknowledge the exact role priming revision before acting.',
+				array( 'role' => $role, 'expected_priming_revision' => $expected )
+			);
+		}
+		return array( 'success' => true, 'priming_revision' => $expected );
+	}
+
+	/** @return array<int,string> */
+	private static function source_rewrite_string_list( $raw ): array {
+		if ( is_string( $raw ) ) {
+			$raw = array( $raw );
+		}
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+		$values = array();
+		foreach ( $raw as $value ) {
+			$value = sanitize_textarea_field( self::normalize_review_text( (string) $value ) );
+			if ( strlen( $value ) >= 12 && ! self::source_rewrite_generic_evidence( $value ) ) {
+				$values[] = $value;
+			}
+		}
+		return array_values( array_unique( $values ) );
+	}
+
+	private static function source_rewrite_generic_evidence( string $value ): bool {
+		$value = strtolower( trim( preg_replace( '/\s+/', ' ', $value ) ?: '' ) );
+		return in_array( $value, array( '', 'ok', 'looks good', 'all good', 'checked', 'reviewed', 'approved', 'no issues', 'not applicable' ), true );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_run_principal( array $job, array $claim ): array {
+		$material = implode(
+			'|',
+			array(
+				(string) $job['job_id'],
+				(string) $job['submission_generation'],
+				self::source_rewrite_policy_revision(),
+				(string) $claim['run_id'],
+				(string) $claim['role'],
+				(string) get_current_user_id(),
+				(string) $claim['token_hash'],
+			)
+		);
+		return array(
+			'principal_id'      => 'srp_' . substr( hash( 'sha256', $material ), 0, 32 ),
+			'job_id'            => (string) $job['job_id'],
+			'run_id'            => (string) $claim['run_id'],
+			'role'              => (string) $claim['role'],
+			'wordpress_user_id' => get_current_user_id(),
+			'authority'         => 'server_issued_source_rewrite_claim',
+			'coordinator_label' => (string) $claim['coordinator_id'],
+			'claim_digest'      => (string) $claim['token_hash'],
+			'issued_at'         => (string) $claim['claimed_at'],
+			'expires_at'        => (string) $claim['expires_at'],
+		);
+	}
+
+	private static function source_rewrite_job_id( int $source_id, string $baseline_revision ): string {
+		return 'srj_' . substr( hash( 'sha256', $source_id . '|' . $baseline_revision . '|' . self::source_rewrite_policy_revision() ), 0, 40 );
+	}
+	private static function source_rewrite_policy_revision(): string { return 'source-rewrite-quality-v3'; }
+	private static function source_rewrite_job_key( string $job_id ): string { return 'devenia_workflow_source_rewrite_job_' . self::source_rewrite_clean_id( $job_id ); }
+	private static function source_rewrite_claim_key( string $job_id ): string { return 'devenia_workflow_source_rewrite_claim_' . self::source_rewrite_clean_id( $job_id ); }
+	private static function source_rewrite_run_key( string $run_id ): string { return 'devenia_workflow_source_rewrite_run_' . self::source_rewrite_clean_id( $run_id ); }
+	private static function source_rewrite_artifact_key( string $revision ): string { return 'devenia_workflow_source_rewrite_artifact_' . self::source_rewrite_clean_id( $revision ); }
+	private static function source_rewrite_quality_key( string $revision ): string { return 'devenia_workflow_source_rewrite_quality_' . self::source_rewrite_clean_id( $revision ); }
+	private static function source_rewrite_publish_lease_key( string $job_id ): string { return 'devenia_workflow_source_rewrite_publish_lease_' . self::source_rewrite_clean_id( $job_id ); }
+	private static function source_rewrite_latest_key( int $source_id ): string { return 'devenia_workflow_source_rewrite_latest_' . absint( $source_id ); }
+	private static function source_rewrite_clean_id( string $value ): string { return substr( sanitize_key( $value ), 0, 96 ); }
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_public_job( array $job ): array {
+		return array(
+			'job_id'                              => (string) ( $job['job_id'] ?? '' ),
+			'source_id'                           => absint( $job['source_id'] ?? 0 ),
+			'post_type'                           => sanitize_key( (string) ( $job['post_type'] ?? '' ) ),
+			'baseline_source_hash'                => (string) ( $job['baseline_source_hash'] ?? '' ),
+			'baseline_publication_surface_revision'=> (string) ( $job['baseline_publication_surface_revision'] ?? '' ),
+			'submission_generation'               => absint( $job['submission_generation'] ?? 1 ),
+			'status'                              => sanitize_key( (string) ( $job['status'] ?? '' ) ),
+			'artifact_revision'                   => (string) ( $job['artifact_revision'] ?? '' ),
+			'quality_revision'                    => (string) ( $job['quality_revision'] ?? '' ),
+			'applied_source_hash'                 => (string) ( $job['applied_source_hash'] ?? '' ),
+			'applied_publication_surface_revision'=> (string) ( $job['applied_publication_surface_revision'] ?? '' ),
+			'applied_copy_revision'               => (string) ( $job['applied_copy_revision'] ?? '' ),
+			'published_at'                        => (string) ( $job['published_at'] ?? '' ),
+			'live_verification_passed'            => array_key_exists( 'live_verification_passed', $job ) ? $job['live_verification_passed'] : null,
+			'verified_at'                         => (string) ( $job['verified_at'] ?? '' ),
+			'active_run_id'                       => (string) ( $job['active_run_id'] ?? '' ),
+			'run_ids'                             => is_array( $job['run_ids'] ?? null ) ? $job['run_ids'] : array(),
+			'created_at'                          => (string) ( $job['created_at'] ?? '' ),
+			'updated_at'                          => (string) ( $job['updated_at'] ?? '' ),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_public_claim( array $claim ): array {
+		$public = $claim;
+		unset( $public['token_hash'] );
+		return $public;
+	}
+
+	/** @param array<string,mixed> $data @return array<string,mixed> */
+	private static function source_rewrite_error( string $code, string $message, array $data = array() ): array {
+		return array_merge( array( 'success' => false, 'code' => $code, 'message' => $message ), $data );
+	}
+}

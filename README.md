@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.664
+**Stable tag:** 0.1.666
 
 **License:** GPLv2 or later
 
@@ -129,6 +129,15 @@ The plugin remains active if the Abilities API is unavailable, but workflow abil
 - `devenia-workflow/translation-job-submit-quality-decision`
 - `devenia-workflow/translation-job-publish`
 - `devenia-workflow/translation-job-status`
+- `devenia-workflow/source-rewrite-discover`
+- `devenia-workflow/source-rewrite-claim`
+- `devenia-workflow/source-rewrite-abandon`
+- `devenia-workflow/source-rewrite-fetch-packet`
+- `devenia-workflow/source-rewrite-submit-artifact`
+- `devenia-workflow/source-rewrite-submit-quality-decision`
+- `devenia-workflow/source-rewrite-publish`
+- `devenia-workflow/source-rewrite-verify-live`
+- `devenia-workflow/source-rewrite-status`
 
 Additional abilities cover source inspection, workflow mode, language configuration, QA, localized routes, taxonomy, internal links, review evidence, and frontend verification.
 
@@ -143,6 +152,18 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.666
+
+- Adds an immutable Source Rewrite Artifact and independent Quality lifecycle with exact publication and separate live verification.
+- Blocks ordinary public source-copy changes and downstream translation while a current source rewrite lacks verified approval.
+- Primes fresh writing, translation, and Quality runs with vendor-neutral effectiveness guidance and a bounded source-scoped policy Adapter, without embedding site-specific copy in the public plugin.
+
+### 0.1.665
+
+- Fails closed when the private Source Design Adapter is unavailable.
+- Replaces generic Left/Right key inference with a typed Core RTL projection Adapter.
+- Binds no-rewrite evidence to the source's canonical reader route.
 
 ### 0.1.664
 

@@ -61,6 +61,14 @@ pass(() => assert.match(runtimeSource, /Spawn one translator subagent[\s\S]*a di
 pass(() => assert.match(runtimeSource, /'same_subagent_forbidden'\s*=>\s*true[\s\S]*'role_reuse_forbidden'\s*=>\s*true/));
 pass(() => assert.match(runtimeSource, /'distinct_run_principal'\s*=>\s*true[\s\S]*'quality_decision_binds_artifact_revision'\s*=>\s*true/));
 pass(() => assert.equal((runtimeSource.match(/'subagent_separation_contract'\s*=>\s*self::translation_job_subagent_separation_contract\(\)/g) || []).length, 2));
+pass(() => {
+	const submissionContract = runtimeSource.match(/private static function translation_job_submission_contract[\s\S]*?\n\t}/)?.[0] || "";
+	assert.equal(
+		(submissionContract.match(/'priming_revision'\s*=>\s*'<packet\.role_priming\.priming_revision>'/g) || []).length,
+		2,
+		"translator and Quality payload examples must acknowledge the exact packet priming revision",
+	);
+});
 pass(() => assert.match(runtimeSource, /private static function translation_job_bounded_artifact_view\s*\(/));
 pass(() => assert.match(runtimeSource, /TRANSLATION_JOB_CORRECTABLE_PUBLISH_PREFLIGHT_CODES[\s\S]*localized_slug_copied_from_source/));
 pass(() => assert.match(runtimeSource, /translation_job_reopen_correctable_publish_preflight\( \$job, \$failure \)/));

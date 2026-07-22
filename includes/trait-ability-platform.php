@@ -22,6 +22,7 @@ trait Devenia_Workflow_Ability_Platform {
 	private static function ability_dispatch_handlers(): array {
 		return array_merge(
 			self::translation_job_dispatch_handlers(),
+			self::source_rewrite_dispatch_handlers(),
 			array(
 			'rebuild_source_inventory'         => 'rebuild_source_inventory',
 			'source_inventory'                 => 'source_inventory',

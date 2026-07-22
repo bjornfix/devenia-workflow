@@ -85,6 +85,28 @@ HTML;
 		$failures[] = 'details_summary_missing';
 	}
 
+	$priming_method = new ReflectionMethod( Devenia_Workflow::class, 'copy_quality_role_priming' );
+	$priming_method->setAccessible( true );
+	$translator_priming = (array) $priming_method->invoke( null, 'translator' );
+	$quality_priming    = (array) $priming_method->invoke( null, 'quality' );
+	if (
+		'translator' !== (string) ( $translator_priming['role'] ?? '' )
+		|| count( (array) ( $translator_priming['ogilvy_examples'] ?? array() ) ) < 4
+		|| count( (array) ( $translator_priming['primary_reading_library'] ?? array() ) ) < 4
+		|| false === strpos( wp_json_encode( $translator_priming ), 'electric clock' )
+		|| false === strpos( wp_json_encode( $translator_priming ), 'Do not translate mechanically' )
+	) {
+		$failures[] = 'translator_role_priming_incomplete';
+	}
+	if (
+		'quality' !== (string) ( $quality_priming['role'] ?? '' )
+		|| count( (array) ( $quality_priming['ogilvy_examples'] ?? array() ) ) < 4
+		|| count( (array) ( $quality_priming['primary_reading_library'] ?? array() ) ) < 4
+		|| false === strpos( wp_json_encode( $quality_priming ), 'Reject the page if' )
+	) {
+		$failures[] = 'quality_role_priming_incomplete';
+	}
+
 	// A large Quality packet must expose every review fragment exactly once while
 	// keeping the generated publication document behind the Workflow boundary.
 	$large_localized_fragments = array();
