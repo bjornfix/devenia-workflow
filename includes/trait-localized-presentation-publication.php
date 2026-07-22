@@ -56,9 +56,12 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 				! $parent instanceof WP_Post
 				|| 'page' !== (string) $parent->post_type
 				|| sanitize_key( $language ) !== $parent_language
-				|| $parent_path !== $observed_parent_path
+				|| ( '' !== $parent_path && $parent_path !== $observed_parent_path )
 			) {
 				return array( 'success' => false, 'code' => 'legacy_staged_page_parent_route_changed', 'message' => 'The signed legacy staged parent route no longer matches WordPress.', 'mutation_started' => false, 'signed_parent_id' => $parent_id, 'signed_parent_path' => $parent_path, 'observed_parent_path' => $observed_parent_path );
+			}
+			if ( '' === $parent_path ) {
+				$route['localized_parent_path'] = $observed_parent_path;
 			}
 		} elseif ( '' !== $parent_path ) {
 			return array( 'success' => false, 'code' => 'legacy_staged_page_parent_missing', 'message' => 'The legacy staged page route names a parent path without a signed parent identity.', 'mutation_started' => false, 'signed_parent_path' => $parent_path );

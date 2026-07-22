@@ -1171,6 +1171,7 @@ try {
 	);
 	$legacy_new_page_expected_path = trim( (string) ( $legacy_new_page_apply_record['surface_manifest']['route']['localized_path'] ?? '' ), '/' );
 	$legacy_new_page_apply_record['surface_manifest']['route']['localized_path'] = '';
+	$legacy_new_page_apply_record['surface_manifest']['route']['localized_parent_path'] = '';
 	$legacy_new_page_apply_record['surface_revision'] = $call( 'translation_job_surface_revision', $legacy_new_page_apply_record['surface_manifest'] );
 	$legacy_new_page_apply_record_before = maybe_serialize( $legacy_new_page_apply_record );
 	$legacy_changed_parent_route = $legacy_new_page_apply_record['surface_manifest']['route'];

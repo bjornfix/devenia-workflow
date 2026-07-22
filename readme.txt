@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.662
+Stable tag: 0.1.663
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -93,6 +93,10 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.663 =
+* Derive a missing legacy parent path from the exact signed translated-parent identity after language and hierarchy validation.
+* Keep every non-empty signed parent path as an exact fail-closed route assertion.
 
 = 0.1.662 =
 * Publish pre-0.1.661 new-page artifacts by deriving their one valid path from the signed parent and slug.
