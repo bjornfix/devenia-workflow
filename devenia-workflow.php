@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.663
+ * Version: 0.1.664
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -71,7 +71,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.663';
+	const VERSION = '0.1.664';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -20264,7 +20264,7 @@ final class Devenia_Workflow {
 			$existing = get_post( $post_id );
 			$post_type = $existing instanceof WP_Post ? (string) $existing->post_type : '';
 		}
-		if ( 'post' !== $post_type ) {
+		if ( ! in_array( $post_type, array( 'page', 'post' ), true ) ) {
 			return $data;
 		}
 		if ( 'publish' !== (string) ( $data['post_status'] ?? '' ) ) {
@@ -22482,7 +22482,7 @@ final class Devenia_Workflow {
 	}
 
 	/**
-	 * Guard that source-post design is valid before translation fitness passes.
+	 * Guard that source content design is valid before translation fitness passes.
 	 *
 	 * Translation fitness is where broad scans, review gates, and queue hygiene
 	 * meet. A translation cannot be considered source-faithful when the source
@@ -22493,7 +22493,7 @@ final class Devenia_Workflow {
 	private static function source_editorial_design_guardrails( int $source_id, string $source_content ): array {
 		$issues = array();
 		$source = $source_id ? get_post( $source_id ) : null;
-		if ( ! $source instanceof WP_Post || 'post' !== (string) $source->post_type ) {
+		if ( ! $source instanceof WP_Post || ! in_array( (string) $source->post_type, array( 'page', 'post' ), true ) ) {
 			return array(
 				'passed'        => true,
 				'issues'        => array(),
@@ -22557,7 +22557,7 @@ final class Devenia_Workflow {
 	private static function source_design_fragment_role_guardrails( string $content, string $source_content = '', int $source_id = 0, string $language = '' ): array {
 		$issues = array();
 		$source = $source_id ? get_post( $source_id ) : null;
-		if ( '' === trim( $source_content ) || ! $source instanceof WP_Post || 'post' !== (string) $source->post_type ) {
+		if ( '' === trim( $source_content ) || ! $source instanceof WP_Post || ! in_array( (string) $source->post_type, array( 'page', 'post' ), true ) ) {
 			return array(
 				'passed'        => true,
 				'issues'        => array(),

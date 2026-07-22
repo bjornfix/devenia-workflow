@@ -418,6 +418,10 @@ translation, and non-public post-type objects remain visible in inventory
 evidence but are excluded with a structured reason. `noindex` does not make a
 publicly viewable source non-public and is not an exclusion reason.
 
+## Source Content Design Gate
+
+The Workflow Module that makes the canonical `devenia_source_content_design_validation` Interface authoritative for every translatable canonical `page` and `post`. It consumes one site-owned validation Adapter, binds any explicit no-rewrite review to the current source hash, and prevents design inheritance, publication-experience approval, direct published-source saves, and translation fitness from bypassing the result. Workflow owns the gate and evidence lifecycle; it does not own site-specific layout classes, geometry, palette, typography, or source copy.
+
 ## Source Publication Surface
 
 The deep Module that gives Source Inventory, Translation Jobs, Staged

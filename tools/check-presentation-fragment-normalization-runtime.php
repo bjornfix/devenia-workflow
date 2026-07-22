@@ -87,10 +87,12 @@ function get_post_thumbnail_id( $post_id ): int {
 }
 
 require_once dirname( __DIR__ ) . '/includes/trait-source-design-inheritance.php';
+require_once dirname( __DIR__ ) . '/includes/trait-localized-presentation-publication.php';
 require_once dirname( __DIR__ ) . '/includes/trait-translation-job-quality-authority.php';
 
 final class Devenia_Workflow_Presentation_Normalization_Runtime_Test {
 	use Devenia_Workflow_Translation_Source_Design_Inheritance;
+	use Devenia_Workflow_Localized_Presentation_Publication;
 	use Devenia_Workflow_Translation_Job_Quality_Authority;
 
 	public const META_SOURCE_DESIGN_HASH = '_devenia_translation_source_design_hash';
@@ -240,8 +242,9 @@ $manifest = array(
 		'focus_keyword' => '',
 	),
 	'route'          => array(
-		'post_name'   => $translation->post_name,
-		'post_parent' => 0,
+		'translation_id' => 41811,
+		'post_name'      => $translation->post_name,
+		'post_parent'    => 0,
 	),
 	'media'          => array(
 		'featured_image_id' => 0,

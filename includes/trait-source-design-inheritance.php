@@ -52,7 +52,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 	}
 
 	/**
-	 * Validate that a source post is suitable as a canonical design tree.
+	 * Validate that source content is suitable as a canonical design tree.
 	 *
 	 * The Gutenberg/block-editor plugin owns the implementation behind this seam.
 	 * AI Translations only consumes the result so source inheritance cannot quietly
@@ -61,12 +61,12 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 	 * @return array<string,mixed>
 	 */
 	private static function source_editorial_design_validation( WP_Post $source, string $content = '' ): array {
-		if ( 'post' !== (string) $source->post_type ) {
+		if ( ! in_array( (string) $source->post_type, array( 'page', 'post' ), true ) ) {
 			return array(
 				'available'      => true,
 				'passed'         => true,
 				'not_applicable' => true,
-				'reason'         => 'editorial_post_gate_applies_to_posts_only',
+				'reason'         => 'source_design_gate_applies_to_translatable_content_only',
 			);
 		}
 
@@ -86,7 +86,7 @@ trait Devenia_Workflow_Translation_Source_Design_Inheritance {
 			'operation' => 'source_design_inheritance',
 		);
 		$result = apply_filters(
-			'devenia_workflow_source_design_validation',
+			'devenia_source_content_design_validation',
 			array(
 				'available'      => true,
 				'passed'         => true,
