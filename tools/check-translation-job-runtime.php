@@ -16,6 +16,7 @@ $nested_route_translation_id = 0;
 $new_page_route_translation_id = 0;
 $new_page_apply_source_id = 0;
 $new_page_apply_translation_id = 0;
+$legacy_new_page_apply_translation_id = 0;
 $new_page_apply_parent_ids = array();
 $nested_route_parent_ids = array();
 $source_thumbnail_id = 0;
@@ -1121,6 +1122,22 @@ try {
 		'baseline_surface_revision' => '',
 		'writer_principal' => array( 'principal_id' => 'runtime-new-page-writer', 'run_id' => 'runtime-new-page-writer-run' ),
 	);
+	$new_page_explicit_route_before = maybe_serialize( $new_page_apply_record['surface_manifest']['route'] );
+	$new_page_explicit_route_resolution = $call( 'translation_job_effective_staged_route_surface', $new_page_apply_source, $language, $new_page_apply_record['surface_manifest']['route'] );
+	$post_route_source = clone $new_page_apply_source;
+	$post_route_source->post_type = 'post';
+	$post_route_fixture = array( 'localized_slug' => 'post-route', 'localized_path' => 'https://invalid.example/path', 'localized_parent_id' => 999 );
+	$post_route_resolution = $call( 'translation_job_effective_staged_route_surface', $post_route_source, $language, $post_route_fixture );
+	if (
+		empty( $new_page_explicit_route_resolution['success'] )
+		|| ! empty( $new_page_explicit_route_resolution['compatibility_derived'] )
+		|| $new_page_explicit_route_before !== maybe_serialize( $new_page_explicit_route_resolution['route'] ?? array() )
+		|| empty( $post_route_resolution['success'] )
+		|| ! empty( $post_route_resolution['compatibility_derived'] )
+		|| maybe_serialize( $post_route_fixture ) !== maybe_serialize( $post_route_resolution['route'] ?? array() )
+	) {
+		throw new RuntimeException( 'Legacy new-page compatibility changed an explicit future route or a post route: ' . wp_json_encode( array( 'explicit' => $new_page_explicit_route_resolution, 'post' => $post_route_resolution ) ) );
+	}
 	$new_page_apply_result = ! empty( $new_page_apply_stage['success'] )
 		? $call( 'translation_job_apply_staged_artifact_uncommitted', $new_page_apply_job, $new_page_apply_record, array( 'publication_attempt_id' => 'runtime-new-page-apply', 'term_scope' => array(), 'identity_scope' => array() ), 0 )
 		: $new_page_apply_stage;
@@ -1138,12 +1155,60 @@ try {
 	}
 	wp_delete_post( $new_page_apply_translation_id, true );
 	$new_page_apply_translation_id = 0;
+	// Artifacts staged before 0.1.661 signed the resolved parent and slug but
+	// retained an empty localized_path. Publication must derive the one possible
+	// path from those signed route inputs without changing the approved manifest.
+	$legacy_new_page_apply_artifact = $new_page_apply_artifact;
+	$legacy_new_page_apply_artifact['localized_slug'] = 'runtime-legacy-side-' . strtolower( wp_generate_password( 6, false, false ) );
+	$legacy_new_page_apply_stage = $call( 'translation_job_stage_artifact', $new_page_apply_job, $legacy_new_page_apply_artifact );
+	$legacy_new_page_apply_record = array(
+		'artifact' => $legacy_new_page_apply_artifact,
+		'content_revision' => (string) ( $legacy_new_page_apply_stage['content_revision'] ?? '' ),
+		'surface_revision' => (string) ( $legacy_new_page_apply_stage['surface_revision'] ?? '' ),
+		'surface_manifest' => (array) ( $legacy_new_page_apply_stage['manifest'] ?? array() ),
+		'baseline_surface_revision' => '',
+		'writer_principal' => array( 'principal_id' => 'runtime-legacy-new-page-writer', 'run_id' => 'runtime-legacy-new-page-writer-run' ),
+	);
+	$legacy_new_page_expected_path = trim( (string) ( $legacy_new_page_apply_record['surface_manifest']['route']['localized_path'] ?? '' ), '/' );
+	$legacy_new_page_apply_record['surface_manifest']['route']['localized_path'] = '';
+	$legacy_new_page_apply_record['surface_revision'] = $call( 'translation_job_surface_revision', $legacy_new_page_apply_record['surface_manifest'] );
+	$legacy_new_page_apply_record_before = maybe_serialize( $legacy_new_page_apply_record );
+	$legacy_changed_parent_route = $legacy_new_page_apply_record['surface_manifest']['route'];
+	$legacy_changed_parent_route['localized_parent_path'] .= '-changed';
+	$legacy_changed_parent_resolution = $call( 'translation_job_effective_staged_route_surface', $new_page_apply_source, $language, $legacy_changed_parent_route );
+	if ( ! empty( $legacy_changed_parent_resolution['success'] ) || ! in_array( (string) ( $legacy_changed_parent_resolution['code'] ?? '' ), array( 'localized_parent_path_mismatch', 'legacy_staged_page_parent_route_changed' ), true ) ) {
+		throw new RuntimeException( 'A legacy staged page route was derived after its signed parent path changed: ' . wp_json_encode( $legacy_changed_parent_resolution ) );
+	}
+	$legacy_new_page_apply_result = ! empty( $legacy_new_page_apply_stage['success'] )
+		? $call( 'translation_job_apply_staged_artifact_uncommitted', $new_page_apply_job, $legacy_new_page_apply_record, array( 'publication_attempt_id' => 'runtime-legacy-new-page-apply', 'term_scope' => array(), 'identity_scope' => array() ), 0 )
+		: $legacy_new_page_apply_stage;
+	$legacy_new_page_apply_translation_id = absint( $legacy_new_page_apply_result['translation_id'] ?? 0 );
+	if (
+		empty( $legacy_new_page_apply_result['success'] )
+		|| '' === $legacy_new_page_expected_path
+		|| $legacy_new_page_expected_path !== (string) get_post_meta( $legacy_new_page_apply_translation_id, '_devenia_translation_localized_path', true )
+		|| empty( $legacy_new_page_apply_result['surface_verification']['success'] )
+		|| $legacy_new_page_apply_record_before !== maybe_serialize( $legacy_new_page_apply_record )
+		|| (string) $legacy_new_page_apply_record['surface_revision'] !== (string) ( $legacy_new_page_apply_result['surface_verification']['approved_surface_revision'] ?? '' )
+	) {
+		throw new RuntimeException( 'A pre-0.1.661 new-page artifact with an empty staged path did not derive, apply, persist, and verify the route bound by its signed parent and slug: ' . wp_json_encode( array( 'stage' => $legacy_new_page_apply_stage, 'apply' => $legacy_new_page_apply_result, 'expected_path' => $legacy_new_page_expected_path ) ) );
+	}
+	wp_delete_post( $legacy_new_page_apply_translation_id, true );
+	$legacy_new_page_apply_translation_id = 0;
 	foreach ( $new_page_apply_parent_ids as $new_page_apply_parent_id ) {
 		wp_delete_post( $new_page_apply_parent_id, true );
 	}
 	$new_page_apply_parent_ids = array();
 	wp_delete_post( $new_page_apply_source_id, true );
 	$new_page_apply_source_id = 0;
+	$route_scope_only = 'new-page-route' === (string) getenv( 'DEVENIA_WORKFLOW_RUNTIME_SCOPE' );
+	if ( $route_scope_only ) {
+		$runtime_result = array(
+			'success' => true,
+			'new_page_localized_path_established_before_surface_verification' => true,
+			'legacy_new_page_localized_path_derived_from_signed_route_inputs' => true,
+		);
+	} else {
 	$pre_submit_surface_revision = $call( 'translation_job_current_surface_revision', $translation_id );
 	$invalid_artifact = $artifact;
 	if ( ! is_int( $accessible_fragment_index ) ) {
@@ -4120,7 +4185,9 @@ try {
 			'active_snapshot_transaction_claimed_commit_terminalized_without_snapshot_authority' => true,
 			'active_restore_transaction_claimed_commit_terminalized_without_restore_progress' => true,
 			'new_page_localized_path_established_before_surface_verification' => true,
+			'legacy_new_page_localized_path_derived_from_signed_route_inputs' => true,
 		);
+	}
 } catch ( Throwable $error ) {
 	$runtime_error = $error;
 } finally {
@@ -4129,6 +4196,9 @@ try {
 	}
 	if ( $new_page_apply_translation_id > 0 ) {
 		wp_delete_post( $new_page_apply_translation_id, true );
+	}
+	if ( $legacy_new_page_apply_translation_id > 0 ) {
+		wp_delete_post( $legacy_new_page_apply_translation_id, true );
 	}
 	foreach ( $new_page_apply_parent_ids as $new_page_apply_parent_id ) {
 		if ( $new_page_apply_parent_id > 0 ) {

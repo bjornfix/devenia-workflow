@@ -1369,7 +1369,11 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		}
 		$status = $translation_id && 'publish' === get_post_status( $translation_id ) ? 'publish' : 'draft';
 		$writer = isset( $artifact_record['writer_principal'] ) && is_array( $artifact_record['writer_principal'] ) ? $artifact_record['writer_principal'] : array();
-		$staged_route_surface = (array) ( $artifact_record['surface_manifest']['route'] ?? array() );
+		$staged_route_resolution = self::translation_job_effective_staged_route_surface( $source, (string) $job['target_language'], (array) ( $artifact_record['surface_manifest']['route'] ?? array() ) );
+		if ( empty( $staged_route_resolution['success'] ) ) {
+			return $staged_route_resolution;
+		}
+		$staged_route_surface = (array) ( $staged_route_resolution['route'] ?? array() );
 		$upsert = array_merge(
 			$artifact,
 			array(
@@ -1457,7 +1461,9 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		if ( (string) ( $content['title'] ?? '' ) !== (string) $post->post_title || (string) ( $content['excerpt'] ?? '' ) !== (string) $post->post_excerpt || (string) ( $content['gutenberg'] ?? '' ) !== (string) $post->post_content ) { $failed[] = 'content'; }
 		$seo = (array) ( $manifest['seo'] ?? array() );
 		if ( (string) ( $seo['title'] ?? '' ) !== (string) get_post_meta( $translation_id, 'rank_math_title', true ) || (string) ( $seo['description'] ?? '' ) !== (string) get_post_meta( $translation_id, 'rank_math_description', true ) || (string) ( $seo['focus_keyword'] ?? '' ) !== (string) get_post_meta( $translation_id, 'rank_math_focus_keyword', true ) ) { $failed[] = 'seo'; }
-		$route = (array) ( $manifest['route'] ?? array() );
+		$route_resolution = self::translation_job_effective_staged_route_surface( $source, (string) ( $manifest['language'] ?? '' ), (array) ( $manifest['route'] ?? array() ) );
+		$route = (array) ( $route_resolution['route'] ?? array() );
+		if ( empty( $route_resolution['success'] ) ) { $failed[] = 'route_contract'; }
 		$expected_slug = (string) ( $route['post_name'] ?? $route['localized_slug'] ?? '' );
 		if ( '' !== $expected_slug && $expected_slug !== (string) $post->post_name ) { $failed[] = 'route_slug'; }
 		if ( isset( $route['post_parent'] ) && (int) $route['post_parent'] !== (int) $post->post_parent ) { $failed[] = 'route_parent'; }

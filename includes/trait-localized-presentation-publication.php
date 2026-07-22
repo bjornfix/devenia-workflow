@@ -11,6 +11,69 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 trait Devenia_Workflow_Localized_Presentation_Publication {
 	/**
+	 * Resolve the effective route represented by one immutable staged manifest.
+	 *
+	 * New page artifacts staged before 0.1.661 contain the resolved parent and
+	 * slug but an empty localized path. Those signed inputs have exactly one
+	 * WordPress route while their parent identity/path still agree. Deriving that
+	 * path here preserves the approved manifest and does not grant URL-migration
+	 * authority. Existing translations, posts, canonical-route manifests, and
+	 * future artifacts with an explicit path are returned byte-for-byte unchanged.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function translation_job_effective_staged_route_surface( WP_Post $source, string $language, array $route ): array {
+		if (
+			'page' !== (string) $source->post_type
+			|| '' !== trim( (string) ( $route['localized_path'] ?? '' ) )
+			|| absint( $route['translation_id'] ?? 0 ) > 0
+			|| array_key_exists( 'canonical_route', $route )
+		) {
+			return array( 'success' => true, 'route' => $route, 'compatibility_derived' => false );
+		}
+
+		$raw_slug = (string) ( $route['post_name'] ?? $route['localized_slug'] ?? '' );
+		$slug = sanitize_title( $raw_slug );
+		$parent_id = absint( $route['post_parent'] ?? $route['localized_parent_id'] ?? 0 );
+		$parent_path = self::normalize_localized_parent_path( (string) ( $route['localized_parent_path'] ?? '' ), $language );
+		if ( '' === $slug || $raw_slug !== $slug || self::has_wordpress_duplicate_slug_suffix( $slug ) ) {
+			return array( 'success' => false, 'code' => 'legacy_staged_page_route_unresolvable', 'message' => 'The legacy staged page route does not contain one valid signed slug.', 'mutation_started' => false );
+		}
+
+		$parent_authority = self::authoritative_source_parent_for_translation( $source, $language, $parent_id, $parent_path );
+		if ( empty( $parent_authority['success'] ) ) {
+			return array_merge( $parent_authority, array( 'mutation_started' => false ) );
+		}
+		$authoritative_parent_id = absint( $parent_authority['parent_id'] ?? $parent_id );
+		if ( $authoritative_parent_id !== $parent_id ) {
+			return array( 'success' => false, 'code' => 'legacy_staged_page_parent_changed', 'message' => 'The signed legacy staged parent no longer matches the authoritative translated source parent.', 'mutation_started' => false, 'signed_parent_id' => $parent_id, 'authoritative_parent_id' => $authoritative_parent_id );
+		}
+		if ( $parent_id ) {
+			$parent = get_post( $parent_id );
+			$parent_language = sanitize_key( (string) get_post_meta( $parent_id, self::META_LANGUAGE, true ) );
+			$observed_parent_path = self::localized_parent_path_for_post( $parent_id, $language );
+			if (
+				! $parent instanceof WP_Post
+				|| 'page' !== (string) $parent->post_type
+				|| sanitize_key( $language ) !== $parent_language
+				|| $parent_path !== $observed_parent_path
+			) {
+				return array( 'success' => false, 'code' => 'legacy_staged_page_parent_route_changed', 'message' => 'The signed legacy staged parent route no longer matches WordPress.', 'mutation_started' => false, 'signed_parent_id' => $parent_id, 'signed_parent_path' => $parent_path, 'observed_parent_path' => $observed_parent_path );
+			}
+		} elseif ( '' !== $parent_path ) {
+			return array( 'success' => false, 'code' => 'legacy_staged_page_parent_missing', 'message' => 'The legacy staged page route names a parent path without a signed parent identity.', 'mutation_started' => false, 'signed_parent_path' => $parent_path );
+		}
+
+		$derived_path = self::expected_localized_path_for_new_page( $parent_id, $slug, $language );
+		if ( '' === $derived_path ) {
+			return array( 'success' => false, 'code' => 'legacy_staged_page_path_unresolvable', 'message' => 'The legacy staged page route could not be derived from its signed parent and slug.', 'mutation_started' => false );
+		}
+		$route['localized_path'] = $derived_path;
+
+		return array( 'success' => true, 'route' => $route, 'compatibility_derived' => true, 'derived_path' => $derived_path );
+	}
+
+	/**
 	 * Issue one opaque activation capability for the exact raw stored pending
 	 * manifest. Callers cannot substitute an item revision because the
 	 * receipt also binds every ephemeral authority and relation receipt.

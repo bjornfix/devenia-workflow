@@ -132,7 +132,7 @@ job_result="$("$wp_cli_bin" eval-file \
 printf '%s\n' "$job_result"
 RESULT="$job_result" "$php_bin" -r '
 	$result = json_decode((string) getenv("RESULT"), true);
-	if (!is_array($result) || true !== ($result["success"] ?? null) || true !== ($result["ordinary_translation_job_wrong_index_preserved_raw_authority"] ?? null) || true !== ($result["new_page_localized_path_established_before_surface_verification"] ?? null)) {
+	if (!is_array($result) || true !== ($result["success"] ?? null) || true !== ($result["ordinary_translation_job_wrong_index_preserved_raw_authority"] ?? null) || true !== ($result["new_page_localized_path_established_before_surface_verification"] ?? null) || true !== ($result["legacy_new_page_localized_path_derived_from_signed_route_inputs"] ?? null)) {
 		fwrite(STDERR, "Translation Job runtime did not prove wrong-index and new-page route authority.\n");
 		exit(1);
 	}

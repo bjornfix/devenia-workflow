@@ -203,6 +203,7 @@ const publicHeaderRuntime = readFileSync(new URL("./check-public-header-projecti
 const liveFrontendBatchRuntime = readFileSync(new URL("./check-frontend-cache-batch-wordpress-live.php", import.meta.url), "utf8");
 const lockWorker = readFileSync(new URL("./public-header-relation-lock-worker.php", import.meta.url), "utf8");
 const databaseRuntimeSuite = readFileSync(new URL("./run-database-runtime-suite.sh", import.meta.url), "utf8");
+const translationJobRuntimeSuite = readFileSync(new URL("./run-translation-job-runtime-suite.sh", import.meta.url), "utf8");
 const activationInputStart = publicHeaderRuntime.indexOf("$activation_input = static function");
 const activationInputEnd = publicHeaderRuntime.indexOf("$option_keys =", activationInputStart);
 assert.ok(activationInputStart > 0 && activationInputEnd > activationInputStart, "the runtime activation-input helper must remain bounded");
@@ -508,6 +509,8 @@ assert.match(databaseRuntimeSuite, /DATABASE_EXPECTATION:-mariadb[\s\S]*mariadb\
 assert.match(databaseRuntimeSuite, /check-primary-navigation-parser\.php[\s\S]*Primary navigation parser contract passed\./, "the repository-owned release runtime suite must execute and verify the lightweight primary-navigation parser contract");
 assert.match(databaseRuntimeSuite, /check-frontend-cache-batch\.php[\s\S]*Frontend cache batch contract passed\./, "the repository-owned release runtime suite must execute and verify bounded frontend cache batching");
 assert.doesNotMatch(databaseRuntimeSuite, /GITHUB_|\.github\/workflows|github\.com|workflow_(?:dispatch|run)|repository_dispatch/i, "the canonical database runtime suite must run without GitHub or GitHub Actions");
+assert.match(translationJobRuntimeSuite, /check-new-page-localized-path-contract\.php[\s\S]*DEVENIA_WORKFLOW_RUNTIME_SCOPE=new-page-route[\s\S]*check-translation-job-runtime\.php[\s\S]*legacy_new_page_localized_path_derived_from_signed_route_inputs[\s\S]*translation-job-change-scoped/, "route/publication releases must have a bounded Translation Job gate instead of exercising the unrelated Public Header stress suite on shared dev hosting");
+assert.doesNotMatch(translationJobRuntimeSuite, /check-public-header-projection-wordpress-runtime\.php/, "the change-scoped Translation Job gate must not run the unrelated Public Header stress suite");
 assert.match(publication, /activate_public_header_projection_set[\s\S]*unset\( \$active_manifest\['authority_receipts'\] \)[\s\S]*unset\( \$active_manifest\['relation_receipts'\] \)/, "ephemeral intake and relation receipts must never persist as active reader authority");
 assert.match(migrationInterface, /devenia_workflow_public_header_migration_before_final_authority_revalidation[\s\S]*public_header_manifest\(\)[\s\S]*validate_public_header_authority_receipts/, "schema-1 migration must revalidate exact active and intake authority before staging");
 assert.match(plugin, /localized_link_expected_target_map[\s\S]*source_language_code\(\) === \$language/, "localized link relation logic must use configured source-language authority");
@@ -589,8 +592,7 @@ assert.doesNotMatch(liveFrontendBatchRuntime, /devenia\.com|\b(?:nb|de|fr|es|sv|
 assert.match(publication, /fetch_frontend_cache_surfaces[\s\S]*devenia_workflow_frontend_cache_batch_adapter_result[\s\S]*request_multiple[\s\S]*public_header_batch_result_key_mismatch[\s\S]*WP_HTTP_Requests_Response/, "the plugin-owned whole-batch Adapter and the real cURL multi result must cross the same exact-key and response-normalization path");
 assert.match(publication, /'verify' => ABSPATH \. WPINC \. '\/certificates\/ca-bundle\.crt'/, "the direct Requests batch must retain WordPress-owned CA trust instead of depending on the host system root store");
 assert.doesNotMatch(publication.match(/private static function fetch_frontend_cache_surfaces[\s\S]*?\n\t}/)?.[0] ?? "", /pre_http_request|http_request_args|http_response/, "the plugin-owned batch Adapter must not partially emulate WordPress HTTP filter contracts");
-assert.match(publicHeaderRuntime, /<nav id="site-navigation"><ul class="menu">/, "the exact WordPress Public Header runtime must render the owned menu-list boundary");
-assert.match(publicHeaderRuntime, /devenia_workflow_frontend_cache_batch_adapter_result/, "the exact WordPress Public Header runtime must inject its complete keyed oracle through the plugin-owned batch Adapter seam");
+assert.doesNotMatch(publicHeaderRuntime, /devenia_workflow_frontend_cache_batch_adapter_result|<nav id="site-navigation"><ul class="menu">/, "the server-side Public Header stress runtime must not recreate the retired self-fetch oracle");
 assert.match(runtime, /\$runtime_batch_http[\s\S]*devenia_workflow_frontend_cache_batch_adapter_result[\s\S]*sync_public_header_projection[\s\S]*remove_filter\( 'devenia_workflow_frontend_cache_batch_adapter_result'/, "the exact Translation Job runtime must keep Public Header verification deterministic through the same whole-batch Adapter while retaining its separate single-request media fixture");
 assert.match(runtime, /<nav id="site-navigation"><ul class="menu">/, "the exact Translation Job runtime must render the owned primary menu-list boundary consumed by the production parser");
 assert.match(publication, /verify_public_header_projection_set[\s\S]*self_referential_http_disabled[\s\S]*verify_pre_enrollment_public_header_navigation[\s\S]*self_referential_http_disabled/, "ordinary same-request forward checks must not self-fetch the WordPress origin");
@@ -641,7 +643,8 @@ assert.match(publication, /expected_localized_primary_navigation[\s\S]*public_he
 assert.match(publication, /if \( \$actual === \$expected \)/);
 assert.match(publication, /sync_public_header_projection[\s\S]*'homepage'[\s\S]*'blog_archive'/);
 assert.match(publication, /public_header_failure_after_activation[\s\S]*public_header_projection_rollback[\s\S]*verify_public_header_projection_set[\s\S]*public_header_projection_severe_rollback_failure/);
-assert.match(publicHeaderRuntime, /verification_fault_remaining > 0[\s\S]*--\$verification_fault_remaining/, "verification faults must be scoped to the failing verification and must not poison rollback verification");
+assert.doesNotMatch(publicHeaderRuntime, /verification_fault_remaining|verification_extra_anchor/, "the server runtime must not retain dead self-fetch fault injection after live verification moved to the coordinator");
+assert.match(publicHeaderRuntime, /forward_live_verification_delegated[\s\S]*rollback_live_verification_delegated/, "schema rollback must prove stored authority while making the delegated live-verification boundary explicit");
 assert.match(publication, /TERM_META_PUBLIC_HEADER_MANIFEST_REVISION/);
 assert.match(publication, /localized_menu_items_in_render_order[\s\S]*\$append\( \$item_id \)/, "nested menus must be compared in WordPress walker depth-first order");
 assert.match(plugin, /frontend_integrity_language_filter[\s\S]*source_language_code\(\)[\s\S]*target_languages/);
@@ -709,7 +712,7 @@ for (const evidence of [
 	"locked_non_pending_state_race_rejected",
 	"unenrolled_unrelated_menus_ignored",
 	"unenrolled_locked_primary_source_authority_races_rejected",
-	"unenrolled_all_post_activation_failure_phases_recovered",
+	"unenrolled_server_owned_post_activation_failure_phases_recovered",
 	"unenrolled_failure_restored_exact_option_state",
 	"unenrolled_schema2_atomic_activation_verified",
 	"managed_identity_missing_failed_closed",
@@ -739,12 +742,10 @@ for (const evidence of [
 	"pending_manifest_race_rejected",
 	"invalidation_failure_cache_safe_rollback",
 	"idempotent_enrollment_transition_exercised",
-	"verification_failure_cache_safe_rollback",
-	"extra_anchor_verification_failed_closed",
 	"retirement_failure_cache_safe_rollback",
 	"rollback_cache_failure_structured_critical",
 	"changed_old_receipt_never_reactivated",
-	"source_and_targets_home_blog_origin_canonical_verified",
+	"live_header_verification_delegated_to_external_coordinator",
 ]) {
 	assert.match(publicHeaderRuntime, new RegExp(evidence));
 }
