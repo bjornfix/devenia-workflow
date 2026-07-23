@@ -10,6 +10,21 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 trait Devenia_Workflow_Staged_Preview_Capability {
+	/** Apply the fail-closed response boundary for one resolved staged-preview request. */
+	private static function staged_preview_apply_response_policy( bool $authorized ): void {
+		if ( ! $authorized ) {
+			status_header( 404 );
+			global $wp_query;
+			if ( is_object( $wp_query ) && is_callable( array( $wp_query, 'set_404' ) ) ) {
+				$wp_query->set_404();
+			}
+			return;
+		}
+
+		self::staged_preview_prevent_page_cache();
+		remove_action( 'template_redirect', 'redirect_canonical', 10 );
+	}
+
 	/** Keep an authorized staged preview out of ecosystem page caches. */
 	private static function staged_preview_prevent_page_cache(): void {
 		if ( ! defined( 'DONOTCACHEPAGE' ) ) {

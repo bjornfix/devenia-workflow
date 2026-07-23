@@ -1186,7 +1186,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		if ( '' === $token ) { return; }
 		nocache_headers(); header( 'X-Robots-Tag: noindex, nofollow, noarchive', true ); header( 'Referrer-Policy: no-referrer', true );
 		$authority = self::translation_job_preview_authority( $token );
-		if ( empty( $authority['success'] ) || ! self::translation_job_preview_request_matches( $authority ) ) { status_header( 404 ); global $wp_query; if ( is_object( $wp_query ) && is_callable( array( $wp_query, 'set_404' ) ) ) { $wp_query->set_404(); } }
+		self::staged_preview_apply_response_policy( ! empty( $authority['success'] ) && self::translation_job_preview_request_matches( $authority ) );
 	}
 
 	/** Return the validated request-local target context for one staged preview. */

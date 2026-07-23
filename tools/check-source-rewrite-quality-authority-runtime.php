@@ -408,6 +408,22 @@ $bounded_claim = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test:
 if ( ! empty( $bounded_claim['success'] ) || 'submission_generation_exhausted' !== (string) ( $bounded_claim['code'] ?? '' ) ) {
 	throw new RuntimeException( 'Source Rewrite claims were not bounded by the finite submission-generation budget.' );
 }
+$GLOBALS['srq_options'][ $bounded_job_key ]['status'] = 'exhausted';
+$bounded_successor = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::discover( array( 'source_id' => 41812 ) );
+$bounded_successor_repeat = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::discover( array( 'source_id' => 41812 ) );
+if (
+	empty( $bounded_successor['success'] )
+	|| empty( $bounded_successor['created'] )
+	|| $bounded_job_id === (string) ( $bounded_successor['job']['job_id'] ?? '' )
+	|| 1 !== (int) ( $bounded_successor['job']['submission_generation'] ?? 0 )
+	|| 2 !== (int) ( $bounded_successor['job']['retry_cycle'] ?? 0 )
+	|| 'queued' !== (string) ( $bounded_successor['job']['status'] ?? '' )
+	|| $bounded_job_id !== (string) ( $bounded_successor['job']['supersedes_job_id'] ?? '' )
+	|| ! empty( $bounded_successor_repeat['created'] )
+	|| (string) ( $bounded_successor['job']['job_id'] ?? '' ) !== (string) ( $bounded_successor_repeat['job']['job_id'] ?? '' )
+) {
+	throw new RuntimeException( 'Explicit rediscovery did not create exactly one bounded successor cycle after terminal exhaustion.' );
+}
 
 $preflight_fixture_job = array(
 	'job_id' => 'srj_preflight_fixture',

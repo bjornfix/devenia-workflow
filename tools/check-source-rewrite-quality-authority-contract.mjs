@@ -69,7 +69,7 @@ assert.match(authority, /quality_proposed_design_gate_failed/);
 assert.match(authority, /source_rewrite_transition_after_publish_preflight_failure/);
 assert.match(authority, /publication_preflight_rejected[\s\S]*changes_requested/);
 assert.match(plugin, /the_posts[\s\S]*filter_source_rewrite_preview_posts/);
-assert.match(plugin, /template_redirect[\s\S]*apply_source_rewrite_preview_response_policy/);
+assert.match(plugin, /add_action\(\s*'template_redirect',\s*array\(\s*__CLASS__,\s*'apply_source_rewrite_preview_response_policy'\s*\),\s*0\s*\)/);
 assert.match(authority, /source_rewrite_preview_descriptor[\s\S]*staged_preview_capability_token/);
 assert.match(previewCapability, /staged_preview_capability_token[\s\S]*hash_hmac[\s\S]*wp_salt/);
 assert.match(authority, /source_rewrite_preview_authority[\s\S]*quality_claimed[\s\S]*expires_at/);
@@ -78,7 +78,9 @@ assert.match(authority, /source_rewrite_validate_browser_receipts[\s\S]*response
 assert.match(authority, /source_rewrite_preview_request_matches[\s\S]*page_id[\s\S]*post_id[\s\S]*expected_id/);
 assert.match(authority, /browser_receipts[\s\S]*preview_identity/);
 assert.match(previewCapability, /staged_preview_prevent_page_cache[\s\S]*DONOTCACHEPAGE[\s\S]*WordPress\.NamingConventions\.PrefixAllGlobals\.NonPrefixedConstantFound/);
+assert.match(previewCapability, /staged_preview_apply_response_policy[\s\S]*! \$authorized[\s\S]*status_header\( 404 \)[\s\S]*return;[\s\S]*remove_action\(\s*'template_redirect',\s*'redirect_canonical',\s*10\s*\)/);
 assert.match(authority, /staged_preview_prevent_page_cache[\s\S]*X-Robots-Tag: noindex, nofollow, noarchive[\s\S]*Referrer-Policy: no-referrer/);
+assert.match(authority, /apply_source_rewrite_preview_response_policy[\s\S]*staged_preview_apply_response_policy\( ! empty\( \$authority\['success'\] \) && self::source_rewrite_preview_request_matches\( \$authority \) \)/);
 assert.doesNotMatch(authority, /define\(\s*'DONOTCACHEPAGE'/);
 assert.doesNotMatch(authority, /add_query_arg\([^;]*claim_token/);
 

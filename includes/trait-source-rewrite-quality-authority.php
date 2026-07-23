@@ -179,12 +179,32 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		}
 
 		$baseline_revision = self::source_publication_surface_revision( $source );
-		$job_id            = self::source_rewrite_job_id( $source_id, $baseline_revision );
-		$key               = self::source_rewrite_job_key( $job_id );
-		$existing          = get_option( $key );
-		if ( is_array( $existing ) ) {
-			update_option( self::source_rewrite_latest_key( $source_id ), $job_id, false );
+		$latest_job_id     = self::source_rewrite_clean_id( (string) get_option( self::source_rewrite_latest_key( $source_id ), '' ) );
+		$latest            = '' !== $latest_job_id ? get_option( self::source_rewrite_job_key( $latest_job_id ) ) : null;
+		$existing          = is_array( $latest )
+			&& $source_id === absint( $latest['source_id'] ?? 0 )
+			&& $baseline_revision === (string) ( $latest['baseline_publication_surface_revision'] ?? '' )
+			&& self::source_rewrite_policy_revision() === (string) ( $latest['policy_revision'] ?? '' )
+			? $latest
+			: null;
+		if ( ! is_array( $existing ) ) {
+			$base_job_id = self::source_rewrite_job_id( $source_id, $baseline_revision );
+			$base_job = get_option( self::source_rewrite_job_key( $base_job_id ) );
+			$existing = is_array( $base_job ) ? $base_job : null;
+		}
+		if ( is_array( $existing ) && 'exhausted' !== (string) ( $existing['status'] ?? '' ) ) {
+			update_option( self::source_rewrite_latest_key( $source_id ), (string) $existing['job_id'], false );
 			return array( 'success' => true, 'created' => false, 'job' => self::source_rewrite_public_job( $existing ) );
+		}
+
+		$retry_cycle       = is_array( $existing ) ? max( 1, absint( $existing['retry_cycle'] ?? 1 ) ) + 1 : 1;
+		$supersedes_job_id = is_array( $existing ) ? (string) ( $existing['job_id'] ?? '' ) : '';
+		$job_id            = self::source_rewrite_job_id( $source_id, $baseline_revision, $retry_cycle );
+		$key               = self::source_rewrite_job_key( $job_id );
+		$winner            = get_option( $key );
+		if ( is_array( $winner ) ) {
+			update_option( self::source_rewrite_latest_key( $source_id ), $job_id, false );
+			return array( 'success' => true, 'created' => false, 'job' => self::source_rewrite_public_job( $winner ) );
 		}
 
 		$now = gmdate( 'c' );
@@ -197,6 +217,8 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'priming_context'                     => self::source_rewrite_priming_context( $source ),
 			'baseline_source_hash'                => self::source_hash( $source ),
 			'baseline_publication_surface_revision'=> $baseline_revision,
+			'retry_cycle'                         => $retry_cycle,
+			'supersedes_job_id'                    => $supersedes_job_id,
 			'submission_generation'               => 1,
 			'status'                              => 'queued',
 			'artifact_revision'                   => '',
@@ -1534,13 +1556,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		header( 'X-Robots-Tag: noindex, nofollow, noarchive', true );
 		header( 'Referrer-Policy: no-referrer', true );
 		$authority = self::source_rewrite_preview_authority( $token );
-		if ( empty( $authority['success'] ) || ! self::source_rewrite_preview_request_matches( $authority ) ) {
-			status_header( 404 );
-			global $wp_query;
-			if ( is_object( $wp_query ) && is_callable( array( $wp_query, 'set_404' ) ) ) {
-				$wp_query->set_404();
-			}
-		}
+		self::staged_preview_apply_response_policy( ! empty( $authority['success'] ) && self::source_rewrite_preview_request_matches( $authority ) );
 	}
 
 	/** @return array<string,mixed> */
@@ -1863,8 +1879,12 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		);
 	}
 
-	private static function source_rewrite_job_id( int $source_id, string $baseline_revision ): string {
-		return 'srj_' . substr( hash( 'sha256', $source_id . '|' . $baseline_revision . '|' . self::source_rewrite_policy_revision() ), 0, 40 );
+	private static function source_rewrite_job_id( int $source_id, string $baseline_revision, int $retry_cycle = 1 ): string {
+		$material = $source_id . '|' . $baseline_revision . '|' . self::source_rewrite_policy_revision();
+		if ( $retry_cycle > 1 ) {
+			$material .= '|retry-cycle:' . $retry_cycle;
+		}
+		return 'srj_' . substr( hash( 'sha256', $material ), 0, 40 );
 	}
 	private static function source_rewrite_policy_revision(): string { return 'source-rewrite-quality-v4-rendered-preview'; }
 	private static function source_rewrite_job_key( string $job_id ): string { return 'devenia_workflow_source_rewrite_job_' . self::source_rewrite_clean_id( $job_id ); }
@@ -1884,6 +1904,8 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'post_type'                           => sanitize_key( (string) ( $job['post_type'] ?? '' ) ),
 			'baseline_source_hash'                => (string) ( $job['baseline_source_hash'] ?? '' ),
 			'baseline_publication_surface_revision'=> (string) ( $job['baseline_publication_surface_revision'] ?? '' ),
+			'retry_cycle'                         => max( 1, absint( $job['retry_cycle'] ?? 1 ) ),
+			'supersedes_job_id'                    => (string) ( $job['supersedes_job_id'] ?? '' ),
 			'submission_generation'               => absint( $job['submission_generation'] ?? 1 ),
 			'status'                              => sanitize_key( (string) ( $job['status'] ?? '' ) ),
 			'artifact_revision'                   => (string) ( $job['artifact_revision'] ?? '' ),

@@ -19,6 +19,13 @@ if [[ "$preview_lifecycle_result" != 'Translation Preview Context lifecycle runt
 	exit 1
 fi
 
+preview_capability_result="$("$php_bin" "$plugin_root/tools/check-staged-preview-capability-runtime.php")"
+printf '%s\n' "$preview_capability_result"
+if [[ "$preview_capability_result" != 'Staged Preview Capability host-binding and canonical-redirect runtime passed.' ]]; then
+	printf '%s\n' 'Staged Preview Capability runtime did not return the exact canonical-redirect proof.' >&2
+	exit 1
+fi
+
 route_result="$("$php_bin" "$plugin_root/tools/check-new-page-localized-path-contract.php")"
 printf '%s\n' "$route_result"
 if [[ "$route_result" != 'New-page localized-path contract passed.' ]]; then
