@@ -19,6 +19,29 @@ if [[ "$route_result" != 'New-page localized-path contract passed.' ]]; then
 	exit 1
 fi
 
+preview_result="$("$wp_cli_bin" eval-file \
+	"$plugin_root/tools/check-new-translation-staged-preview-wordpress-runtime.php" \
+	--path="$wp_path" \
+	--skip-themes)"
+printf '%s\n' "$preview_result"
+RESULT="$preview_result" "$php_bin" -r '
+	$result = json_decode((string) getenv("RESULT"), true);
+	$required = ["success", "target_runtime_language", "localized_presentation_context", "exact_staged_content", "zero_source_mutation", "existing_translation_preview", "host_relation_change_denied"];
+	foreach ($required as $key) {
+		if (!is_array($result) || true !== ($result[$key] ?? null)) {
+			fwrite(STDERR, "Staged preview runtime missing exact proof: {$key}\n");
+			exit(1);
+		}
+	}
+'
+
+identity_result="$($php_bin "$plugin_root/tools/check-translation-first-publication-identity-runtime.php")"
+printf '%s\n' "$identity_result"
+if [[ "$identity_result" != 'First-publication Translation Identity Authority runtime passed.' ]]; then
+	printf '%s\n' 'First-publication Translation Identity Authority did not return the exact success proof.' >&2
+	exit 1
+fi
+
 job_result="$(DEVENIA_WORKFLOW_RUNTIME_SCOPE=new-page-route "$wp_cli_bin" eval-file \
 	"$plugin_root/tools/check-translation-job-runtime.php" \
 	--path="$wp_path" \

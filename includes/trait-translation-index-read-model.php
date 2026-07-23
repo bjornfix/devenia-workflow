@@ -187,7 +187,7 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 		$target_url = (string) get_permalink( $translation_id );
 		$target_url = $target_url ?: '';
 		$source_path = $source_url ? self::normalized_url_path( $source_url ) : '';
-		$target_path = $target_url ? self::normalized_url_path( $target_url ) : '';
+		$target_path = $target_url ? self::frontend_route_path_from_url( $target_url ) : '';
 		$localized_path = self::localized_path_for_post( $translation_id, $language );
 
 		$result = $wpdb->replace( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Intentional custom registry table write.
@@ -568,6 +568,7 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 				continue;
 			}
 
+			$raw_source_path = (string) ( $row['source_path'] ?? '' );
 			$normalized[] = array(
 				'id'                     => $translation_id,
 				'translation_post_id'    => $translation_id,
@@ -575,7 +576,7 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 				'source_post_id'         => $source_id,
 				'language'               => $language,
 				'localized_path'         => trim( (string) ( $row['localized_path'] ?? '' ), '/' ),
-				'source_path'            => trim( (string) ( $row['source_path'] ?? '' ), '/' ),
+				'source_path'            => in_array( $raw_source_path, array( '/', '//' ), true ) ? '/' : trim( $raw_source_path, '/' ),
 				'target_path'            => trim( (string) ( $row['target_path'] ?? '' ), '/' ),
 				'target_url'             => esc_url_raw( (string) ( $row['target_url'] ?? '' ) ),
 				'translation_status'     => self::sanitize_translation_status( (string) ( $row['translation_status'] ?? '' ) ),
@@ -641,7 +642,7 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 		static $cache = array();
 
 		$language    = sanitize_key( $language );
-		$source_path = trim( $source_path, '/' );
+		$source_path = in_array( $source_path, array( '/', '//' ), true ) ? '/' : trim( $source_path, '/' );
 		$post_status = self::sanitize_translation_post_statuses( $post_status, false );
 		$status_key  = implode( '|', array_map( 'sanitize_key', $post_status ) );
 		$cache_key   = $language . ':' . md5( $source_path ) . ':' . $status_key;
@@ -684,16 +685,26 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 		foreach ( $rows as $row ) {
 			$source_id      = absint( $row['source_id'] ?? 0 );
 			$translation_id = absint( $row['id'] ?? 0 );
-			$source_path    = trim( (string) ( $row['source_path'] ?? '' ), '/' );
-			$source_url     = '' === $source_path ? '' : home_url( '/' . $source_path . '/' );
-			$stored_target_path = trim( (string) ( $row['target_path'] ?? '' ), '/' );
-			$target_path    = $stored_target_path;
-			$target_url     = esc_url_raw( (string) ( $row['target_url'] ?? '' ) );
-
-			if ( '' === $target_path && '' !== $target_url ) {
-				$target_path = self::normalized_url_path( $target_url );
+			$stored_source_path = (string) ( $row['source_path'] ?? '' );
+			$source_is_root = in_array( $stored_source_path, array( '/', '//' ), true );
+			$source_path    = $source_is_root ? '/' : trim( $stored_source_path, '/' );
+			$source_url     = $source_is_root ? home_url( '/' ) : ( '' === $source_path ? '' : home_url( '/' . $source_path . '/' ) );
+			if ( '' === $source_url && ! $source_is_root ) {
+				$source_candidate = esc_url_raw( (string) get_permalink( $source_id ) );
+				$source_parts = '' !== $source_candidate ? wp_parse_url( $source_candidate ) : false;
+				if ( is_array( $source_parts ) && $source_id === self::wordpress_content_query_id_from_parts( $source_parts ) ) {
+					$source_url = $source_candidate;
+				}
 			}
-			if ( '' === $target_url || '' === $target_path || ( '' === $source_url && '' === $source_path ) ) {
+			$indexed_target_url = esc_url_raw( (string) ( $row['target_url'] ?? '' ) );
+			$live_target_url = esc_url_raw( (string) get_permalink( $translation_id ) );
+			$target_url     = '' !== $live_target_url ? $live_target_url : $indexed_target_url;
+			$target_parts   = '' !== $target_url ? wp_parse_url( $target_url ) : false;
+			$query_identity = is_array( $target_parts ) ? self::wordpress_content_query_id_from_parts( $target_parts ) : 0;
+			$stored_target_path = $query_identity ? '' : trim( (string) ( $row['target_path'] ?? '' ), '/' );
+			$target_path    = '' !== $target_url ? self::frontend_route_path_from_url( $target_url ) : '';
+
+			if ( '' === $target_url || ( ! $query_identity && '' === $target_path ) || ( '' === $source_url && '' === $source_path ) ) {
 				continue;
 			}
 
@@ -710,6 +721,23 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 				)
 			);
 
+			$observed_target_url  = $target_url;
+			$observed_target_path = $target_path;
+			$canonical_route      = get_post_meta( $translation_id, self::META_CANONICAL_ROUTE, true );
+			$canonical_route      = is_array( $canonical_route ) ? $canonical_route : array();
+			$established_url      = esc_url_raw( (string) ( $canonical_route['url'] ?? '' ) );
+			$established_path     = trim( (string) ( $canonical_route['path'] ?? '' ), '/' );
+			if ( '' !== $established_url && '' !== $established_path ) {
+				$target_url  = $established_url;
+				$target_path = $established_path;
+				$canonical_path = $established_path;
+				$localized_variants = array_values(
+					array_unique(
+						array_filter( array( $stored_localized_path, $stored_target_path, trim( (string) $observed_target_path, '/' ), $established_path ) )
+					)
+				);
+			}
+
 			$row['source_url']  = $source_url;
 			$row['url']         = (string) $target_url;
 			$row['target_url']  = (string) $target_url;
@@ -717,10 +745,10 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 			$row['target_path'] = $target_path;
 			$row['localized_path'] = $canonical_path ?: $stored_localized_path;
 			$row['localized_path_variants'] = $localized_variants;
-			$row['established_canonical_route'] = array();
-			$row['observed_target_url'] = '';
-			$row['observed_target_path'] = '';
-			$row['route_drift'] = false;
+			$row['established_canonical_route'] = $canonical_route;
+			$row['observed_target_url'] = $established_url && $established_url !== $observed_target_url ? $observed_target_url : '';
+			$row['observed_target_path'] = $established_path && $established_path !== trim( (string) $observed_target_path, '/' ) ? trim( (string) $observed_target_path, '/' ) : '';
+			$row['route_drift'] = '' !== $row['observed_target_url'] || '' !== $row['observed_target_path'];
 
 			$frontend_rows[] = $row;
 		}

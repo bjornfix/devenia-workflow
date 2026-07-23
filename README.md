@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.666
+**Stable tag:** 0.1.667
 
 **License:** GPLv2 or later
 
@@ -152,6 +152,14 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.667
+
+- Binds Source Rewrite Quality to a short-lived exact-artifact theme preview and four desktop/mobile render receipts without exposing claim tokens or mutating public content.
+- Gives Translation Quality the same claim-bound staged theme preview, including a non-mutating canonical theme shell for translations that do not yet have a WordPress post.
+- Binds each preview and immutable receipt to the exact resolved theme host; relation changes and altered Quality bytes fail closed.
+- Returns stale or preflight-rejected approvals to one bounded correction generation with the exact failure context.
+- Strengthens semantic and rendered-information-architecture attestations, first-publication guarding, live reader-copy verification, and canonical link/route identity handling.
 
 ### 0.1.666
 

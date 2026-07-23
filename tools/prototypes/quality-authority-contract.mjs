@@ -8,7 +8,7 @@ const REQUIRED_QUALITY_KINDS = new Set([
 	"offer_contact",
 	"http_live_dom",
 ]);
-const REQUIRED_REVIEWER_KINDS = new Set(["natural_language", "factual_accuracy"]);
+const REQUIRED_REVIEWER_KINDS = new Set(["natural_language", "factual_accuracy", "rendered_information_architecture"]);
 const VIEWPORT_SCHEMES = new Map([
 	["desktop", { width: 1440, height: 1100, device_scale_factor: 1 }],
 	["mobile", { width: 390, height: 844, device_scale_factor: 1 }],

@@ -16,6 +16,8 @@ const mainSource = readFileSync(new URL("../devenia-workflow.php", import.meta.u
 const executionIdentitySource = readFileSync(new URL("../includes/trait-execution-identity.php", import.meta.url), "utf8");
 const translationProvenanceSource = readFileSync(new URL("../includes/trait-translation-provenance.php", import.meta.url), "utf8");
 const runtimeSource = readFileSync(new URL("./check-translation-job-runtime.php", import.meta.url), "utf8");
+const newTranslationPreviewRuntime = readFileSync(new URL("./check-new-translation-staged-preview-wordpress-runtime.php", import.meta.url), "utf8");
+const firstTranslationPublicationRunner = readFileSync(new URL("./run-first-translation-publication-runtime.sh", import.meta.url), "utf8");
 const source = `${jobSource}\n${authoritySource}`;
 const failures = [];
 const requireMatch = (pattern, message) => {
@@ -36,6 +38,7 @@ const submitQuality = functionBody("translation_job_submit_quality_decision", "t
 const qualitySchema = functionBody("translation_job_quality_schema", "translation_job_publish_schema");
 const validateUsage = functionBody("translation_job_validate_usage", "translation_job_finish_run");
 const claim = functionBody("translation_job_claim", "translation_job_fetch_packet");
+const verifyLive = functionBody("translation_job_verify_live", "translation_job_status_schema");
 const evidenceReceipts = functionBody("translation_job_quality_evidence_receipts", "translation_job_browser_receipt");
 const browserReceipt = functionBody("translation_job_browser_receipt", "translation_job_apply_staged_artifact");
 const resolvePublicationTranslation = functionBody("translation_job_resolve_publication_translation_id", "translation_job_apply_staged_artifact");
@@ -291,6 +294,47 @@ if (!browserReceipt || !/trust['\"]?\s*=>\s*['\"]reviewer_attested/.test(browser
 }
 
 requireMatch(/translation_job_browser_receipt[\s\S]*artifact_revision[\s\S]*surface_revision[\s\S]*viewport_scheme[\s\S]*color_scheme/, "Browser Render Receipt must bind artifact, surface, policy viewport scheme, and color scheme");
+requireMatch(/translation_job_quality_packet[\s\S]*rendered_preview[\s\S]*translation_job_preview_descriptor/, "Quality packet must expose the exact claim-bound staged translation preview");
+requireMatch(/translation_job_browser_receipt[\s\S]*translation_job_preview_descriptor[\s\S]*preview_identity[\s\S]*reviewer_attested_exact_staged_preview/, "Browser receipts must bind the exact staged translation Preview Capability");
+if (/\$browser\s*=\s*'pass'\s*===\s*\$decision\s*\?/.test(evidenceReceipts || "")) {
+	failures.push("Every Translation Quality decision must validate exact staged-preview receipts; revise/reject cannot store raw caller receipt data");
+}
+requireMatch(/translation_job_submit_quality_decision[\s\S]*translation_job_quality_evidence_receipts[\s\S]*empty\( \$evidence_receipts\['success'\] \)[\s\S]*return/, "Every Translation Quality decision must fail when immutable evidence resolution fails");
+if (/'pass' === \$decision\s*&&\s*\(\s*empty\( \$evidence_receipts\['success'\] \)/.test(submitQuality || "")) {
+	failures.push("Quality evidence resolution failure is still conditional on decision=pass");
+}
+if (/\$failed\s*\)[\s\S]{0,240}server_quality_receipts_failed/.test(authoritySource)) {
+	failures.push("Server Quality must issue authentic failed receipts so revise/reject can preserve the observed failure");
+}
+requireMatch(/translation_job_quality_evidence_receipts[\s\S]*'pass' === \$decision[\s\S]*server_quality_receipt_failed/, "Only a passing Quality decision may require every authentic server receipt outcome to pass");
+requireMatch(/translation_job_preview_descriptor[\s\S]*\$host_scope[\s\S]*\$host_identity[\s\S]*staged_preview_capability_token/, "Translation Preview Capability must bind its resolved host ID and scope before signing");
+requireMatch(/translation_job_preview_host[\s\S]*preview_host_id[\s\S]*preview_host_scope[\s\S]*host_identity/, "Translation Preview Adapter must resolve one explicit host identity");
+requireMatch(/translation_job_preview_bound_host[\s\S]*artifact_record\['translation_id'\][\s\S]*canonical_source_theme_shell/, "Translation Preview Adapter must preserve the approved pre-publication host after a first translation is created");
+requireMatch(/translation_job_preview_host[\s\S]*translation_job_preview_bound_host[\s\S]*translation_job_resolve_publication_translation_id[\s\S]*translation_preview_host_relation_changed/, "Active preview issuance must fail when relation discovery changes the artifact-bound host");
+requireMatch(/translation_job_preview_authority[\s\S]*translation_job_preview_host[\s\S]*\$host_identity[\s\S]*staged_preview_capability_token/, "Translation preview authority must recompute the current host identity before accepting a capability");
+requireMatch(/translation_job_browser_receipt[\s\S]*'url'[\s\S]*preview_host_id[\s\S]*preview_host_scope[\s\S]*translation-rendered-quality-v1/, "Immutable Translation browser receipts must retain URL, host identity, and policy identity");
+requireMatch(/translation_job_validate_stored_browser_receipts[\s\S]*translation_job_preview_host[\s\S]*preview_url[\s\S]*preview_host_id[\s\S]*preview_host_scope/, "Publication must re-resolve and validate the exact staged-preview URL and host identity");
+requireMatch(/translation_job_validate_stored_browser_receipts[\s\S]*'published'[\s\S]*translation_job_preview_bound_host[\s\S]*translation_job_preview_host/, "Post-publication verification must retain the approved pre-publication host while ready-to-publish authority still checks current relations");
+requireMatch(/translation_job_translation_identity_authorized[\s\S]*artifact_translation_id[\s\S]*quality_translation_id[\s\S]*resolved_translation_id[\s\S]*require_applied_surface/, "Translation authority must explicitly model the first-publication zero-to-created identity transition");
+requireMatch(/translation_job_validate_published_authority[\s\S]*translation_job_translation_identity_authorized/, "Published authority must use the explicit Translation Identity Authority Interface");
+if (!verifyLive || !/translation_job_validate_published_authority\(\s*\$job,\s*\$translation_id,\s*true\s*\)/.test(verifyLive) || !/authority_code/.test(verifyLive) || verifyLive.indexOf("translation_job_validate_published_authority") > verifyLive.indexOf("verify_live_translation")) {
+	failures.push("verify-live must validate full applied Translation Identity Authority and expose its concrete failure before reading the public surface");
+}
+if (!/check-translation-job-runtime\.php[\s\S]*first_translation_publish_verify_preserved_zero_bound_authority[\s\S]*first_translation_wrong_relation_rejected/.test(firstTranslationPublicationRunner)) {
+	failures.push("the full first-translation public publish-to-verify lifecycle must be an explicit dev runtime gate");
+}
+requireMatch(/translation_job_browser_receipt[\s\S]*expected_language[\s\S]*expected_direction[\s\S]*checked_at/, "Browser receipts must bind target document identity and active claim time");
+requireMatch(/\$missing\s*\|\|\s*\$invalid[\s\S]*browser_receipts_incomplete/, "Browser receipt validation must fail closed when any submitted receipt is invalid");
+requireMatch(/filter_translation_job_preview_posts[\s\S]*canonical_source_theme_shell|preview_host_scope[\s\S]*canonical_source_theme_shell/, "New translations must use the canonical source theme shell without a public mutation");
+requireMatch(/translation_job_validate_stored_browser_receipts[\s\S]*preview_identity[\s\S]*reviewer_attested_exact_staged_preview/, "Publication must revalidate immutable exact-preview browser evidence");
+requireMatch(/translation_job_preview_request_matches[\s\S]*page_id[\s\S]*post_id[\s\S]*expected_id/, "Translation preview capability must be bound to its exact request host");
+requireMatch(/filter_translation_job_preview_post_metadata[\s\S]*META_LOCALIZED_PATH[\s\S]*META_SOURCE_DESIGN_HASH[\s\S]*META_FEATURED_IMAGE_ALT/, "Translation preview must project staged route, media, and presentation metadata through the generic read seam");
+if (!/filter_translation_job_preview_seo_title|filter_translation_job_preview_canonical/.test(authoritySource) || !/rank_math\/frontend\/title[\s\S]*rank_math\/opengraph\/facebook\/title[\s\S]*rank_math\/opengraph\/twitter\/title[\s\S]*rank_math\/frontend\/description[\s\S]*rank_math\/opengraph\/facebook\/description[\s\S]*rank_math\/opengraph\/twitter\/description[\s\S]*rank_math\/frontend\/canonical/.test(readFileSync(new URL("../addons/rankmath.php", import.meta.url), "utf8"))) {
+	failures.push("staged SEO must remain generic in Core and be projected through the optional Rank Math Adapter");
+}
+if (!/target_runtime_language[\s\S]*localized_presentation_context[\s\S]*exact_staged_content[\s\S]*zero_source_mutation[\s\S]*host_relation_change_denied/.test(newTranslationPreviewRuntime)) {
+	failures.push("first-translation staged preview runtime must prove target language, downstream presentation, exact content, and zero source mutation");
+}
 requireMatch(/http_live_dom[\s\S]*issuer[\s\S]*(?:workflow|server)/, "Quality PASS must include a built-in server HTTP/live-DOM receipt");
 requireMatch(/translation_job_surface_revision[\s\S]*['\"]seo['\"][\s\S]*taxonom(?:y|ies)[\s\S]*route[\s\S]*media/, "Artifact Surface Revision must include SEO, taxonomy, route, and visible media");
 

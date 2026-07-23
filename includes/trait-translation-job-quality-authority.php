@@ -874,13 +874,17 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			if ( ! is_array( $receipt ) ) {
 				return array( 'success' => false, 'code' => 'quality_receipt_missing', 'message' => 'A submitted server Quality receipt ID does not exist.', 'receipt_id' => $receipt_id );
 			}
+			$receipt_hash_input = $receipt;
+			unset( $receipt_hash_input['receipt_id'], $receipt_hash_input['issued_at'] );
+			$expected_receipt_id = 'qer_' . substr( hash( 'sha256', wp_json_encode( self::translation_job_canonicalize( $receipt_hash_input ) ) ?: '' ), 0, 40 );
 			if (
-				(string) ( $receipt['artifact_revision'] ?? '' ) !== (string) $artifact_record['artifact_revision']
+				! hash_equals( $expected_receipt_id, (string) ( $receipt['receipt_id'] ?? '' ) )
+				|| ! hash_equals( $expected_receipt_id, $receipt_id )
+				|| (string) ( $receipt['artifact_revision'] ?? '' ) !== (string) $artifact_record['artifact_revision']
 				|| (string) ( $receipt['surface_revision'] ?? '' ) !== (string) $artifact_record['surface_revision']
 				|| (string) ( $receipt['publication_surface_contract_revision'] ?? '' ) !== (string) $job['publication_surface_contract_revision']
 				|| (string) ( $receipt['principal_id'] ?? '' ) !== (string) ( $reviewer_principal['principal_id'] ?? '' )
 				|| 'workflow' !== (string) ( $receipt['issuer'] ?? '' )
-				|| empty( $receipt['passed'] )
 				|| 'quality-authority-v1' !== (string) ( $receipt['policy_revision'] ?? '' )
 			) {
 				return array( 'success' => false, 'code' => 'quality_receipt_binding_mismatch', 'message' => 'A server Quality receipt belongs to another artifact, surface, or Quality principal.', 'receipt_id' => $receipt_id );
@@ -893,13 +897,17 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		if ( $missing_kinds || 6 !== count( $receipt_ids ) || 6 !== count( $resolved_kinds ) ) {
 			return array( 'success' => false, 'code' => 'quality_receipt_set_incomplete', 'message' => 'The mandatory server Quality receipt set is incomplete.', 'missing_kinds' => $missing_kinds );
 		}
+		if ( 'pass' === $decision && array_filter( $resolved, static function ( array $receipt ): bool { return empty( $receipt['passed'] ); } ) ) {
+			return array( 'success' => false, 'code' => 'server_quality_receipt_failed', 'message' => 'A passing Quality Decision requires every authentic server receipt outcome to pass.' );
+		}
 
 		$attestations = array();
+		$required_attestation_kinds = self::translation_job_required_reviewer_attestation_kinds();
 		foreach ( (array) ( $input['reviewer_attestations'] ?? array() ) as $row ) {
 			if ( ! is_array( $row ) ) { continue; }
 			$kind = sanitize_key( (string) ( $row['kind'] ?? '' ) );
 			$observation = trim( sanitize_textarea_field( (string) ( $row['observation'] ?? '' ) ) );
-			if ( ! in_array( $kind, array( 'natural_language', 'factual_accuracy' ), true ) || strlen( $observation ) < 40 || self::is_generic_review_evidence( $observation ) ) { continue; }
+			if ( ! in_array( $kind, $required_attestation_kinds, true ) || strlen( $observation ) < 40 || self::is_generic_review_evidence( $observation ) ) { continue; }
 			$attestations[ $kind ] = array(
 				'kind' => $kind,
 				'passed' => ! empty( $row['passed'] ),
@@ -911,12 +919,13 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'trust' => 'reviewer_attested',
 			);
 		}
-		if ( array_diff( array( 'natural_language', 'factual_accuracy' ), array_keys( $attestations ) ) ) {
-			return array( 'success' => false, 'code' => 'reviewer_attestations_incomplete', 'message' => 'Quality requires concrete natural-language and factual-accuracy attestations.' );
+		if ( array_diff( $required_attestation_kinds, array_keys( $attestations ) ) || array_diff( array_keys( $attestations ), $required_attestation_kinds ) ) {
+			return array( 'success' => false, 'code' => 'reviewer_attestations_incomplete', 'message' => 'Quality requires concrete natural-language, factual-accuracy, and rendered information-architecture attestations.' );
 		}
-		$browser = 'pass' === $decision
-			? self::translation_job_browser_receipt( $job, $artifact_record, $input['browser_receipts'] ?? array(), $reviewer_principal, $input['browser_adapter_receipt_ids'] ?? array() )
-			: array( 'success' => true, 'receipts' => $input['browser_receipts'] ?? array() );
+		if ( 'pass' === $decision && array_filter( $attestations, static function ( array $attestation ): bool { return empty( $attestation['passed'] ); } ) ) {
+			return array( 'success' => false, 'code' => 'reviewer_attestation_failed', 'message' => 'A passing Quality Decision requires every mandatory reviewer attestation to pass.' );
+		}
+		$browser = self::translation_job_browser_receipt( $job, $artifact_record, $input['browser_receipts'] ?? array(), $reviewer_principal, $input['browser_adapter_receipt_ids'] ?? array() );
 		if ( empty( $browser['success'] ) ) { return $browser; }
 		$record = array(
 			'job_id'           => (string) $job['job_id'],
@@ -928,6 +937,10 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'server_receipts'   => $resolved,
 			'reviewer_attestations' => $attestations,
 			'browser_attestations'  => $browser['receipts'],
+			'preview_identity'      => (string) ( $browser['preview_identity'] ?? '' ),
+			'preview_url'           => (string) ( $browser['preview_url'] ?? '' ),
+			'preview_host_id'       => absint( $browser['preview_host_id'] ?? 0 ),
+			'preview_host_scope'    => (string) ( $browser['preview_host_scope'] ?? '' ),
 			'issued_at'         => gmdate( 'c' ),
 			'issuer'            => 'devenia-workflow-quality-authority',
 		);
@@ -984,9 +997,6 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'http_live_dom' => ! empty( $frontend['success'] ) && ! empty( $frontend['passed'] ) && $staged_dom_passed,
 		);
 		$failed = array_keys( array_filter( $states, static function ( $passed ): bool { return ! $passed; } ) );
-		if ( $failed ) {
-			return array( 'success' => false, 'code' => 'server_quality_receipts_failed', 'message' => 'Workflow server checks failed and cannot issue Quality receipts.', 'failed_receipts' => $failed, 'frontend' => $frontend );
-		}
 		$receipts = array();
 		$receipt_ids = array();
 		foreach ( $states as $name => $passed ) {
@@ -1014,7 +1024,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$receipt_ids[] = $receipt_id;
 			$receipts[] = $body;
 		}
-		return array( 'success' => true, 'receipt_ids' => $receipt_ids, 'receipts' => $receipts, 'http_live_dom_scope' => $surface_scope );
+		return array( 'success' => true, 'receipt_ids' => $receipt_ids, 'receipts' => $receipts, 'failed_receipts' => $failed, 'http_live_dom_scope' => $surface_scope );
 	}
 
 	/**
@@ -1046,6 +1056,220 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		);
 	}
 
+	/** @return array<string,mixed> */
+	private static function translation_job_preview_bound_host( array $job, array $artifact_record ): array {
+		$translation_id = absint( $artifact_record['translation_id'] ?? 0 );
+		$translation = $translation_id ? get_post( $translation_id ) : null;
+		$source = get_post( absint( $job['source_id'] ?? 0 ) );
+		if ( $translation_id > 0 && ! $translation instanceof WP_Post ) {
+			return array( 'success' => false, 'code' => 'translation_preview_bound_host_missing' );
+		}
+		$host = $translation instanceof WP_Post ? $translation : $source;
+		if ( ! $host instanceof WP_Post ) {
+			return array( 'success' => false, 'code' => 'translation_preview_authority_missing' );
+		}
+		$host_scope = $translation instanceof WP_Post ? 'existing_translation' : 'canonical_source_theme_shell';
+		return array( 'success' => true, 'translation_id' => $translation_id, 'host' => $host, 'preview_host_id' => (int) $host->ID, 'preview_host_scope' => $host_scope, 'host_identity' => $host_scope . ':' . (int) $host->ID );
+	}
+
+	/** @return array<string,mixed> */
+	private static function translation_job_preview_host( array $job, array $artifact_record ): array {
+		$bound_host = self::translation_job_preview_bound_host( $job, $artifact_record );
+		if ( empty( $bound_host['success'] ) ) {
+			return $bound_host;
+		}
+		$current_translation_id = self::translation_job_resolve_publication_translation_id( $job, $artifact_record );
+		if ( $current_translation_id !== absint( $bound_host['translation_id'] ?? 0 ) ) {
+			return array( 'success' => false, 'code' => 'translation_preview_host_relation_changed' );
+		}
+		return $bound_host;
+	}
+
+	/** @return array<string,mixed> */
+	private static function translation_job_preview_descriptor( array $job, array $run, array $artifact_record ): array {
+		$claim = get_option( self::translation_job_claim_key( (string) ( $job['job_id'] ?? '' ) ) );
+		$preview_host = self::translation_job_preview_host( $job, $artifact_record );
+		if ( ! is_array( $claim ) || empty( $preview_host['success'] ) || 'quality' !== (string) ( $run['role'] ?? '' ) ) {
+			return array( 'success' => false, 'code' => 'translation_preview_authority_missing' );
+		}
+		$host = $preview_host['host'];
+		$expires = strtotime( (string) ( $claim['expires_at'] ?? '' ) );
+		$host_identity = (string) $preview_host['host_identity'];
+		$token = self::staged_preview_capability_token( 'translation', (string) $job['job_id'], (string) $run['run_id'], (string) $artifact_record['artifact_revision'], $expires, (string) ( $claim['token_hash'] ?? '' ), $host_identity );
+		$base_url = add_query_arg( 'post' === (string) $host->post_type ? 'p' : 'page_id', (string) $host->ID, home_url( '/' ) );
+		$url = add_query_arg( 'devenia_translation_artifact_preview', $token, $base_url );
+		return array(
+			'success' => true, 'url' => esc_url_raw( $url ), 'preview_identity' => hash( 'sha256', $token ),
+			'artifact_revision' => (string) $artifact_record['artifact_revision'], 'surface_revision' => (string) $artifact_record['surface_revision'],
+			'translation_id' => absint( $preview_host['translation_id'] ?? 0 ), 'preview_host_id' => (int) $preview_host['preview_host_id'], 'preview_host_scope' => (string) $preview_host['preview_host_scope'],
+			'target_language' => sanitize_key( (string) ( $job['target_language'] ?? '' ) ), 'expires_at' => (string) $claim['expires_at'], 'cache_policy' => 'private_no_store',
+			'indexing_policy' => 'noindex_nofollow_noarchive',
+			'viewports' => array( 'desktop' => array( 'width' => 1140, 'height' => 800, 'device_scale_factor' => 1 ), 'mobile' => array( 'width' => 390, 'height' => 844, 'device_scale_factor' => 1 ) ),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function translation_job_preview_authority( string $token ): array {
+		$parts = self::staged_preview_capability_parts( $token, 'translation' );
+		if ( empty( $parts ) ) { return array( 'success' => false, 'code' => 'translation_preview_invalid' ); }
+		$job = self::translation_job_get_job( (string) $parts['job_id'] );
+		$run = get_option( self::translation_job_run_key( (string) $parts['run_id'] ) );
+		$claim = get_option( self::translation_job_claim_key( (string) $parts['job_id'] ) );
+		$artifact = self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( (string) $parts['artifact_revision'] ) ) );
+		$preview_host = is_array( $job ) && is_array( $artifact ) ? self::translation_job_preview_host( $job, $artifact ) : array();
+		$host_identity = ! empty( $preview_host['success'] ) ? (string) $preview_host['host_identity'] : '';
+		$expected = is_array( $claim ) && '' !== $host_identity ? self::staged_preview_capability_token( 'translation', (string) $parts['job_id'], (string) $parts['run_id'], (string) $parts['artifact_revision'], (int) $parts['expires'], (string) ( $claim['token_hash'] ?? '' ), $host_identity ) : '';
+		if (
+			! is_array( $job ) || ! is_array( $run ) || ! is_array( $claim ) || ! is_array( $artifact )
+			|| 'quality_claimed' !== (string) ( $job['status'] ?? '' ) || 'quality' !== (string) ( $run['role'] ?? '' ) || 'running' !== (string) ( $run['status'] ?? '' )
+			|| (string) $parts['run_id'] !== (string) ( $job['active_run_id'] ?? '' ) || (string) $parts['run_id'] !== (string) ( $claim['run_id'] ?? '' )
+			|| (string) $parts['artifact_revision'] !== (string) ( $job['artifact_revision'] ?? '' ) || (string) $parts['artifact_revision'] !== (string) ( $artifact['artifact_revision'] ?? '' )
+			|| $host_identity !== (string) ( $parts['host_identity'] ?? '' )
+			|| (int) $parts['expires'] <= time() || (int) $parts['expires'] !== strtotime( (string) ( $claim['expires_at'] ?? '' ) )
+			|| '' === $expected || ! hash_equals( $expected, (string) $parts['token'] )
+		) { return array( 'success' => false, 'code' => 'translation_preview_expired_or_denied' ); }
+		return array( 'success' => true, 'job' => $job, 'run' => $run, 'claim' => $claim, 'artifact' => $artifact, 'preview_identity' => hash( 'sha256', (string) $parts['token'] ), 'preview_host_id' => (int) $preview_host['preview_host_id'], 'preview_host_scope' => (string) $preview_host['preview_host_scope'] );
+	}
+
+	private static function translation_job_preview_request_matches( array $authority, $query = null ): bool {
+		$query = is_object( $query ) ? $query : ( $GLOBALS['wp_query'] ?? null );
+		$page_id = is_object( $query ) && is_callable( array( $query, 'get' ) ) ? absint( $query->get( 'page_id' ) ) : 0;
+		$post_id = is_object( $query ) && is_callable( array( $query, 'get' ) ) ? absint( $query->get( 'p' ) ) : 0;
+		$expected_id = absint( $authority['preview_host_id'] ?? 0 );
+		return $expected_id > 0 && 1 === count( array_filter( array( $page_id, $post_id ) ) ) && $expected_id === max( $page_id, $post_id );
+	}
+
+	/** @param array<int,mixed> $posts @return array<int,mixed> */
+	public static function filter_translation_job_preview_posts( array $posts, $query ): array {
+		$token = (string) get_query_var( 'devenia_translation_artifact_preview' );
+		if ( '' === $token ) { return $posts; }
+		$authority = self::translation_job_preview_authority( $token );
+		if ( empty( $authority['success'] ) || ! self::translation_job_preview_request_matches( $authority, $query ) ) { return $posts; }
+		$artifact = $authority['artifact'];
+		$translation_id = self::translation_job_resolve_publication_translation_id( $authority['job'], $artifact );
+		$source_id = absint( $authority['job']['source_id'] ?? 0 );
+		$host_id = $translation_id > 0 ? $translation_id : $source_id;
+		$content = (array) ( $artifact['surface_manifest']['content'] ?? array() );
+		$route = (array) ( $artifact['surface_manifest']['route'] ?? array() );
+		$matched = false;
+		foreach ( $posts as $index => $post ) {
+			if ( $post instanceof WP_Post && $host_id === (int) $post->ID ) {
+				$preview = clone $post; $preview->post_title = (string) ( $content['title'] ?? '' ); $preview->post_excerpt = (string) ( $content['excerpt'] ?? '' ); $preview->post_content = (string) ( $content['gutenberg'] ?? '' ); $preview->post_status = 'publish';
+				$preview->post_name = (string) ( $route['post_name'] ?? $route['localized_slug'] ?? $preview->post_name ); $preview->post_parent = absint( $route['post_parent'] ?? $route['localized_parent_id'] ?? $preview->post_parent );
+				$posts[ $index ] = $preview; $matched = true;
+			}
+		}
+		$query_host_id = is_object( $query ) && is_callable( array( $query, 'get' ) ) ? max( absint( $query->get( 'page_id' ) ), absint( $query->get( 'p' ) ) ) : 0;
+		if ( ! $matched && $host_id === $query_host_id ) {
+			$host = get_post( $host_id );
+			if ( $host instanceof WP_Post ) {
+				$preview = clone $host; $preview->post_title = (string) ( $content['title'] ?? '' ); $preview->post_excerpt = (string) ( $content['excerpt'] ?? '' ); $preview->post_content = (string) ( $content['gutenberg'] ?? '' ); $preview->post_status = 'publish';
+				$preview->post_name = (string) ( $route['post_name'] ?? $route['localized_slug'] ?? $preview->post_name ); $preview->post_parent = absint( $route['post_parent'] ?? $route['localized_parent_id'] ?? $preview->post_parent );
+				$posts[] = $preview;
+				if ( is_object( $query ) ) { $query->is_404 = false; $query->is_singular = true; $query->is_page = 'page' === (string) $host->post_type; $query->is_single = 'post' === (string) $host->post_type; $query->post_count = 1; $query->found_posts = 1; }
+			}
+		}
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) { define( 'DONOTCACHEPAGE', true ); }
+		return $posts;
+	}
+
+	public static function apply_translation_job_preview_response_policy(): void {
+		$token = (string) get_query_var( 'devenia_translation_artifact_preview' );
+		if ( '' === $token ) { return; }
+		nocache_headers(); header( 'X-Robots-Tag: noindex, nofollow, noarchive', true ); header( 'Referrer-Policy: no-referrer', true );
+		$authority = self::translation_job_preview_authority( $token );
+		if ( empty( $authority['success'] ) || ! self::translation_job_preview_request_matches( $authority ) ) { status_header( 404 ); global $wp_query; if ( is_object( $wp_query ) && is_callable( array( $wp_query, 'set_404' ) ) ) { $wp_query->set_404(); } }
+	}
+
+	/** Return the validated request-local target context for one staged preview. */
+	private static function translation_job_active_preview_context(): array {
+		$token = (string) get_query_var( 'devenia_translation_artifact_preview' );
+		$authority = '' !== $token ? self::translation_job_preview_authority( $token ) : array();
+		if ( empty( $authority['success'] ) || ! self::translation_job_preview_request_matches( $authority ) ) { return array(); }
+		$manifest = (array) ( $authority['artifact']['surface_manifest'] ?? array() );
+		$translation_id = absint( $authority['artifact']['translation_id'] ?? $authority['job']['translation_id'] ?? 0 );
+		$host_id = $translation_id > 0 ? $translation_id : absint( $authority['job']['source_id'] ?? 0 );
+		$route = (array) ( $manifest['route'] ?? array() );
+		$canonical_route = (array) ( $route['canonical_route'] ?? array() );
+		$target_url = esc_url_raw( (string) ( $canonical_route['url'] ?? '' ) );
+		if ( '' === $target_url && '' !== trim( (string) ( $route['localized_path'] ?? '' ), '/' ) ) {
+			$target_url = home_url( '/' . trim( (string) $route['localized_path'], '/' ) . '/' );
+		}
+		return array(
+			'language' => sanitize_key( (string) ( $authority['job']['target_language'] ?? '' ) ),
+			'source_id' => absint( $authority['job']['source_id'] ?? 0 ),
+			'host_id' => $host_id,
+			'preview_identity' => (string) ( $authority['preview_identity'] ?? '' ),
+			'manifest' => $manifest,
+			'target_url' => $target_url,
+		);
+	}
+
+	/** Project staged translation metadata through WordPress' read seam only. */
+	public static function filter_translation_job_preview_post_metadata( $value, int $object_id, string $meta_key, bool $single, string $meta_type = 'post' ) {
+		$context = self::translation_job_active_preview_context();
+		if ( 'post' !== $meta_type || empty( $context ) || (int) ( $context['host_id'] ?? 0 ) !== $object_id ) { return $value; }
+		$manifest = (array) $context['manifest'];
+		$route = (array) ( $manifest['route'] ?? array() ); $media = (array) ( $manifest['media'] ?? array() ); $presentation = (array) ( $manifest['presentation'] ?? array() );
+		$metadata = array(
+			self::META_SOURCE_ID => (int) $context['source_id'], self::META_LANGUAGE => (string) $context['language'],
+			self::META_LOCALIZED_PATH => (string) ( $route['localized_path'] ?? '' ), self::META_CANONICAL_ROUTE => (array) ( $route['canonical_route'] ?? array() ),
+			self::META_SOURCE_DESIGN_HASH => (string) ( $presentation['source_design_hash'] ?? '' ), self::META_LOCALIZED_FRAGMENTS => wp_json_encode( (array) ( $presentation['localized_fragments'] ?? array() ) ),
+			self::META_FEATURED_IMAGE_ALT => (string) ( $media['featured_image_alt'] ?? '' ), '_thumbnail_id' => absint( $media['featured_image']['attachment_id'] ?? 0 ),
+		);
+		if ( ! array_key_exists( $meta_key, $metadata ) ) { return $value; }
+		return $single ? $metadata[ $meta_key ] : array( $metadata[ $meta_key ] );
+	}
+
+	/** Project staged logical taxonomy labels for theme readers. */
+	public static function filter_translation_job_preview_terms( $terms, int $post_id, string $taxonomy ) {
+		$context = self::translation_job_active_preview_context();
+		if ( empty( $context ) || (int) ( $context['host_id'] ?? 0 ) !== $post_id ) { return $terms; }
+		$rows = (array) ( $context['manifest']['taxonomies'][ $taxonomy ] ?? array() );
+		$projected = array();
+		foreach ( $rows as $index => $row ) {
+			if ( ! is_array( $row ) ) { continue; }
+			$projected[] = new WP_Term( (object) array( 'term_id' => -1 - $index, 'term_taxonomy_id' => -1 - $index, 'taxonomy' => $taxonomy, 'name' => (string) ( $row['name'] ?? '' ), 'slug' => (string) ( $row['slug'] ?? '' ), 'term_group' => 0, 'term_order' => 0, 'parent' => 0, 'description' => (string) ( $row['description'] ?? '' ), 'count' => 1, 'filter' => 'raw' ) );
+		}
+		return $projected;
+	}
+
+	public static function filter_translation_job_preview_seo_title( string $title ): string { $context = self::translation_job_active_preview_context(); return ! empty( $context ) ? (string) ( $context['manifest']['seo']['title'] ?? $title ) : $title; }
+	public static function filter_translation_job_preview_seo_description( string $description ): string { $context = self::translation_job_active_preview_context(); return ! empty( $context ) ? (string) ( $context['manifest']['seo']['description'] ?? $description ) : $description; }
+	public static function filter_translation_job_preview_canonical( string $url ): string { $context = self::translation_job_active_preview_context(); return ! empty( $context['target_url'] ) ? (string) $context['target_url'] : $url; }
+	public static function filter_translation_job_preview_canonical_url( string $url, $post = null ): string { unset( $post ); return self::filter_translation_job_preview_canonical( $url ); }
+
+	/** Keep staged translation previews in the target WordPress locale. */
+	public static function filter_translation_job_preview_locale( string $locale ): string {
+		$context = self::translation_job_active_preview_context();
+		return ! empty( $context['language'] )
+			? self::wordpress_locale_for_language( (string) $context['language'] )
+			: $locale;
+	}
+
+	/** Switch gettext after the preview query has established its authority. */
+	public static function switch_translation_job_preview_locale(): void {
+		$context = self::translation_job_active_preview_context();
+		if ( empty( $context['language'] ) || ! function_exists( 'switch_to_locale' ) ) { return; }
+		$locale = self::wordpress_locale_for_language( (string) $context['language'] );
+		if ( '' !== $locale && $locale !== determine_locale() ) { switch_to_locale( $locale ); }
+	}
+
+	/** Keep the preview document identity aligned with its target language. */
+	public static function filter_translation_job_preview_language_attributes( string $output ): string {
+		$context = self::translation_job_active_preview_context();
+		if ( empty( $context['language'] ) ) { return $output; }
+		$language = (string) $context['language'];
+		$locale = self::html_lang_for_language( $language );
+		$direction = self::is_rtl_language( $language ) ? 'rtl' : 'ltr';
+		$output = preg_match( '/\\blang=(["\']).*?\\1/', $output )
+			? (string) preg_replace( '/\\blang=(["\']).*?\\1/', 'lang="' . esc_attr( $locale ) . '"', $output, 1 )
+			: trim( $output . ' lang="' . esc_attr( $locale ) . '"' );
+		return preg_match( '/\\bdir=(["\']).*?\\1/', $output )
+			? (string) preg_replace( '/\\bdir=(["\']).*?\\1/', 'dir="' . esc_attr( $direction ) . '"', $output, 1 )
+			: trim( $output . ' dir="' . esc_attr( $direction ) . '"' );
+	}
+
 	/**
 	 * Validate four reviewer-attested browser receipts bound to the staged surface.
 	 *
@@ -1053,6 +1277,16 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	 * @return array<string,mixed>
 	 */
 	private static function translation_job_browser_receipt( array $job, array $artifact_record, $raw_receipts, array $reviewer_principal, $browser_adapter_receipt_ids = array() ): array {
+		$run_id = self::source_rewrite_clean_id( (string) ( $reviewer_principal['run_id'] ?? '' ) );
+		$run = '' !== $run_id ? get_option( self::translation_job_run_key( $run_id ) ) : null;
+		$claim = get_option( self::translation_job_claim_key( (string) ( $job['job_id'] ?? '' ) ) );
+		if ( ! is_array( $run ) || ! is_array( $claim ) ) {
+			return array( 'success' => false, 'code' => 'browser_preview_authority_missing', 'message' => 'Rendered Quality evidence requires the active claim-bound staged preview.' );
+		}
+		$preview = self::translation_job_preview_descriptor( $job, $run, $artifact_record );
+		if ( empty( $preview['success'] ) ) {
+			return array( 'success' => false, 'code' => 'browser_preview_authority_missing', 'message' => 'The exact staged translation preview is unavailable.', 'preview' => $preview );
+		}
 		$raw_receipts = is_array( $raw_receipts ) ? $raw_receipts : array();
 		$required = array( 'desktop:light', 'desktop:dark', 'mobile:light', 'mobile:dark' );
 		$seen = array();
@@ -1070,18 +1304,27 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$dom = strtolower( sanitize_text_field( (string) ( $row['response_digest'] ?? '' ) ) );
 			$layout = strtolower( sanitize_text_field( (string) ( $row['layout_digest'] ?? '' ) ) );
 			$dimensions = is_array( $row['viewport'] ?? null ) ? $row['viewport'] : array();
-			$policy_dimensions = 'desktop' === $viewport ? array( 1140, 800, 1 ) : array( 390, 844, 1 );
+			$expected_dimensions = (array) ( $preview['viewports'][ $viewport ] ?? array() );
+			$policy_dimensions = array( absint( $expected_dimensions['width'] ?? 0 ), absint( $expected_dimensions['height'] ?? 0 ), absint( $expected_dimensions['device_scale_factor'] ?? 0 ) );
+			$document_language = strtolower( sanitize_text_field( (string) ( $row['document_language'] ?? '' ) ) );
+			$document_direction = sanitize_key( (string) ( $row['document_direction'] ?? '' ) );
+			$target_language = sanitize_key( (string) ( $job['target_language'] ?? '' ) );
+			$expected_language = strtolower( self::html_lang_for_language( $target_language ) );
+			$expected_direction = self::is_rtl_language( $target_language ) ? 'rtl' : 'ltr';
 			$reasons = array();
-			if ( ! in_array( $key, $required, true ) ) { $reasons[] = 'viewport_scheme_or_color_scheme'; }
+			if ( ! in_array( $key, $required, true ) || isset( $seen[ $key ] ) ) { $reasons[] = 'viewport_scheme_or_color_scheme'; }
 			if ( (string) $artifact_record['artifact_revision'] !== (string) ( $row['artifact_revision'] ?? '' ) ) { $reasons[] = 'artifact_revision'; }
 			if ( (string) $artifact_record['surface_revision'] !== (string) ( $row['surface_revision'] ?? '' ) ) { $reasons[] = 'surface_revision'; }
-			if ( '' === $url ) { $reasons[] = 'url'; }
+			if ( (string) $preview['url'] !== $url ) { $reasons[] = 'url'; }
 			if ( ! preg_match( '/^[a-f0-9]{64}$/', $screenshot ) ) { $reasons[] = 'screenshot_digest'; }
 			if ( ! preg_match( '/^[a-f0-9]{64}$/', $dom ) ) { $reasons[] = 'response_digest'; }
 			if ( ! preg_match( '/^[a-f0-9]{64}$/', $layout ) ) { $reasons[] = 'layout_digest'; }
 			if ( array( absint( $dimensions['width'] ?? 0 ), absint( $dimensions['height'] ?? 0 ), absint( $dimensions['device_scale_factor'] ?? 0 ) ) !== $policy_dimensions ) { $reasons[] = 'viewport_dimensions'; }
-			if ( '' === sanitize_text_field( (string) ( $row['document_language'] ?? '' ) ) ) { $reasons[] = 'document_language'; }
-			if ( ! in_array( sanitize_key( (string) ( $row['document_direction'] ?? '' ) ), array( 'ltr', 'rtl' ), true ) ) { $reasons[] = 'document_direction'; }
+			if ( '' === $expected_language || $expected_language !== $document_language ) { $reasons[] = 'document_language'; }
+			if ( $expected_direction !== $document_direction ) { $reasons[] = 'document_direction'; }
+			$checked_at = strtotime( (string) ( $row['checked_at'] ?? '' ) );
+			$claimed_at = strtotime( (string) ( $claim['claimed_at'] ?? '' ) );
+			if ( $checked_at <= 0 || $checked_at < $claimed_at || $checked_at > min( time() + 60, strtotime( (string) $preview['expires_at'] ) ) ) { $reasons[] = 'checked_at'; }
 			if ( $reasons ) {
 				$invalid[ '' !== trim( $key, ':' ) ? $key : 'unknown' ] = $reasons;
 				continue;
@@ -1092,26 +1335,39 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'surface_revision'  => (string) $artifact_record['surface_revision'],
 				'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'],
 				'principal_id'      => (string) ( $reviewer_principal['principal_id'] ?? '' ),
+				'preview_identity'  => (string) $preview['preview_identity'],
+				'url'               => (string) $preview['url'],
+				'preview_host_id'   => (int) $preview['preview_host_id'],
+				'preview_host_scope'=> (string) $preview['preview_host_scope'],
 				'viewport_scheme'   => $viewport,
 				'viewport'          => array( 'width' => $policy_dimensions[0], 'height' => $policy_dimensions[1], 'device_scale_factor' => $policy_dimensions[2] ),
 				'color_scheme'      => $scheme,
-				'url'               => $url,
 				'response_digest'   => $dom,
-				'document_language' => sanitize_text_field( (string) $row['document_language'] ),
-				'document_direction'=> sanitize_key( (string) $row['document_direction'] ),
+				'document_language' => $document_language,
+				'document_direction'=> $document_direction,
 				'layout_digest'     => $layout,
 				'screenshot_digest' => $screenshot,
 				'checked_at'        => sanitize_text_field( (string) ( $row['checked_at'] ?? gmdate( 'c' ) ) ),
-				'adapter'           => sanitize_key( (string) ( $row['adapter'] ?? 'fresh_quality_browser' ) ),
-				'trust'             => 'reviewer_attested',
+				'adapter'           => 'fresh_quality_browser',
+				'policy_revision'   => 'translation-rendered-quality-v1',
+				'trust'             => 'reviewer_attested_exact_staged_preview',
 			);
 		}
 		$missing = array_values( array_diff( $required, array_keys( $seen ) ) );
 		$adapter_ids = array_values( array_filter( array_map( 'sanitize_text_field', (array) $browser_adapter_receipt_ids ) ) );
 		$adapter_ids = apply_filters( 'devenia_workflow_translation_job_browser_adapter_receipt_ids', $adapter_ids, $job, $artifact_record, $reviewer_principal );
-		return $missing
+		return $missing || $invalid
 			? array( 'success' => false, 'code' => 'browser_receipts_incomplete', 'missing' => $missing, 'invalid' => $invalid )
-			: array( 'success' => true, 'receipts' => $receipts, 'receipt_count' => count( $receipts ), 'browser_adapter_receipt_ids' => $adapter_ids );
+			: array(
+				'success' => true,
+				'receipts' => $receipts,
+				'receipt_count' => count( $receipts ),
+				'preview_identity' => (string) $preview['preview_identity'],
+				'preview_url' => (string) $preview['url'],
+				'preview_host_id' => (int) $preview['preview_host_id'],
+				'preview_host_scope' => (string) $preview['preview_host_scope'],
+				'browser_adapter_receipt_ids' => $adapter_ids,
+			);
 	}
 
 	/**
@@ -2300,9 +2556,95 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$kinds[] = sanitize_key( (string) ( $receipt['kind'] ?? '' ) );
 		}
 		if ( array_diff( $required, array_unique( $kinds ) ) ) { return array( 'success' => false, 'code' => 'quality_server_receipt_set_incomplete' ); }
-		if ( count( (array) ( $record['browser_attestations'] ?? array() ) ) < 4 || count( (array) ( $record['reviewer_attestations'] ?? array() ) ) < 2 ) { return array( 'success' => false, 'code' => 'quality_reviewer_evidence_incomplete' ); }
+		$reviewer_attestations = (array) ( $record['reviewer_attestations'] ?? array() );
+		$required_attestation_kinds = self::translation_job_required_reviewer_attestation_kinds();
+		$reviewer_kinds = array_keys( $reviewer_attestations );
+		foreach ( $reviewer_attestations as $attestation ) {
+			if ( ! is_array( $attestation ) || empty( $attestation['passed'] ) ) { return array( 'success' => false, 'code' => 'quality_reviewer_evidence_incomplete' ); }
+		}
+		$browser_validation = self::translation_job_validate_stored_browser_receipts( $record, $artifact_record );
+		if (
+			empty( $browser_validation['success'] )
+			|| array_diff( $required_attestation_kinds, $reviewer_kinds )
+			|| array_diff( $reviewer_kinds, $required_attestation_kinds )
+		) { return array( 'success' => false, 'code' => 'quality_reviewer_evidence_incomplete' ); }
 		if ( empty( $quality['usage']['usage_receipt_id'] ) || 'server_payload_estimate' !== (string) ( $quality['usage']['measurement_source'] ?? '' ) ) { return array( 'success' => false, 'code' => 'quality_usage_state_missing' ); }
 		return array( 'success' => true, 'record' => $record );
+	}
+
+	/** Revalidate the immutable staged-preview evidence before public mutation. */
+	private static function translation_job_validate_stored_browser_receipts( array $record, array $artifact_record ): array {
+		$required = array( 'desktop:light', 'desktop:dark', 'mobile:light', 'mobile:dark' );
+		$seen = array();
+		$preview_identity = (string) ( $record['preview_identity'] ?? '' );
+		$job = self::translation_job_get_job( (string) ( $record['job_id'] ?? '' ) );
+		$preview_host = is_array( $job ) && 'published' === (string) ( $job['status'] ?? '' )
+			? self::translation_job_preview_bound_host( $job, $artifact_record )
+			: ( is_array( $job ) ? self::translation_job_preview_host( $job, $artifact_record ) : array() );
+		$preview_url = esc_url_raw( (string) ( $record['preview_url'] ?? '' ) );
+		$preview_host_id = absint( $record['preview_host_id'] ?? 0 );
+		$preview_host_scope = sanitize_key( (string) ( $record['preview_host_scope'] ?? '' ) );
+		$issued_at = strtotime( (string) ( $record['issued_at'] ?? '' ) );
+		$target_language = is_array( $job ) ? sanitize_key( (string) ( $job['target_language'] ?? '' ) ) : '';
+		$expected_language = '' !== $target_language ? strtolower( self::html_lang_for_language( $target_language ) ) : '';
+		$expected_direction = self::is_rtl_language( $target_language ) ? 'rtl' : 'ltr';
+		foreach ( (array) ( $record['browser_attestations'] ?? array() ) as $receipt ) {
+			if ( ! is_array( $receipt ) ) { return array( 'success' => false, 'code' => 'quality_browser_evidence_invalid' ); }
+			$viewport = sanitize_key( (string) ( $receipt['viewport_scheme'] ?? '' ) );
+			$key = $viewport . ':' . sanitize_key( (string) ( $receipt['color_scheme'] ?? '' ) );
+			$expected_dimensions = 'desktop' === $viewport ? array( 1140, 800, 1 ) : array( 390, 844, 1 );
+			$dimensions = (array) ( $receipt['viewport'] ?? array() );
+			if (
+				! in_array( $key, $required, true ) || isset( $seen[ $key ] )
+				|| (string) ( $artifact_record['artifact_revision'] ?? '' ) !== (string) ( $receipt['artifact_revision'] ?? '' )
+				|| (string) ( $artifact_record['surface_revision'] ?? '' ) !== (string) ( $receipt['surface_revision'] ?? '' )
+				|| (string) ( $artifact_record['publication_surface_contract_revision'] ?? '' ) !== (string) ( $receipt['publication_surface_contract_revision'] ?? '' )
+				|| (string) ( $record['reviewer_principal']['principal_id'] ?? '' ) !== (string) ( $receipt['principal_id'] ?? '' )
+				|| '' === $preview_identity || ! hash_equals( $preview_identity, (string) ( $receipt['preview_identity'] ?? '' ) )
+				|| '' === $preview_url || $preview_url !== esc_url_raw( (string) ( $receipt['url'] ?? '' ) )
+				|| empty( $preview_host['success'] ) || $preview_host_id !== (int) ( $preview_host['preview_host_id'] ?? 0 ) || $preview_host_scope !== (string) ( $preview_host['preview_host_scope'] ?? '' )
+				|| $preview_host_id !== absint( $receipt['preview_host_id'] ?? 0 ) || $preview_host_scope !== sanitize_key( (string) ( $receipt['preview_host_scope'] ?? '' ) )
+				|| array( absint( $dimensions['width'] ?? 0 ), absint( $dimensions['height'] ?? 0 ), absint( $dimensions['device_scale_factor'] ?? 0 ) ) !== $expected_dimensions
+				|| ! preg_match( '/^[a-f0-9]{64}$/', (string) ( $receipt['response_digest'] ?? '' ) )
+				|| ! preg_match( '/^[a-f0-9]{64}$/', (string) ( $receipt['layout_digest'] ?? '' ) )
+				|| ! preg_match( '/^[a-f0-9]{64}$/', (string) ( $receipt['screenshot_digest'] ?? '' ) )
+				|| '' === $expected_language || $expected_language !== strtolower( (string) ( $receipt['document_language'] ?? '' ) )
+				|| $expected_direction !== (string) ( $receipt['document_direction'] ?? '' )
+				|| 'fresh_quality_browser' !== (string) ( $receipt['adapter'] ?? '' )
+				|| 'translation-rendered-quality-v1' !== (string) ( $receipt['policy_revision'] ?? '' )
+				|| 'reviewer_attested_exact_staged_preview' !== (string) ( $receipt['trust'] ?? '' )
+				|| strtotime( (string) ( $receipt['checked_at'] ?? '' ) ) <= 0 || $issued_at <= 0 || strtotime( (string) ( $receipt['checked_at'] ?? '' ) ) > $issued_at + 60
+			) { return array( 'success' => false, 'code' => 'quality_browser_evidence_invalid' ); }
+			$seen[ $key ] = true;
+		}
+		return array_diff( $required, array_keys( $seen ) )
+			? array( 'success' => false, 'code' => 'quality_browser_evidence_incomplete' )
+			: array( 'success' => true );
+	}
+
+	/** Authorize either a stable translation identity or the bounded first-publication transition. */
+	private static function translation_job_translation_identity_authorized( array $job, array $artifact_record, array $quality, int $translation_id, bool $require_applied_surface, int $resolved_translation_id ): bool {
+		$job_translation_id = absint( $job['translation_id'] ?? 0 );
+		$artifact_translation_id = absint( $artifact_record['translation_id'] ?? 0 );
+		$quality_translation_id = absint( $quality['translation_id'] ?? 0 );
+		if ( $artifact_translation_id > 0 ) {
+			return $translation_id === $job_translation_id
+				&& $translation_id === $artifact_translation_id
+				&& $translation_id === $quality_translation_id
+				&& $translation_id === $resolved_translation_id;
+		}
+		if ( $quality_translation_id > 0 ) {
+			return false;
+		}
+		if ( 'published' === (string) ( $job['status'] ?? '' ) ) {
+			return $translation_id > 0
+				&& $translation_id === $job_translation_id
+				&& $translation_id === $resolved_translation_id;
+		}
+		return ! $require_applied_surface
+			&& 0 === $translation_id
+			&& 0 === $job_translation_id
+			&& 0 === $resolved_translation_id;
 	}
 
 	/** Validate one complete immutable Job, Artifact, Quality and Evidence authority chain. */
@@ -2316,6 +2658,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$generation = self::translation_job_submission_generation( $job );
 		$manifest = (array) ( $artifact_record['surface_manifest'] ?? array() );
 		$source = get_post( absint( $job['source_id'] ?? 0 ) );
+		$resolved_translation_id = self::translation_job_resolve_publication_translation_id( $job, $artifact_record );
 		$artifact_reconstructed = self::translation_job_revision(
 			array(
 				'job_id' => (string) ( $job['job_id'] ?? '' ),
@@ -2349,7 +2692,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'quality_priming_revision_stale' => '' !== $current_quality_priming && hash_equals( $current_quality_priming, (string) ( $quality['priming_revision'] ?? '' ) ),
 			'quality_job_binding_mismatch' => (string) ( $job['job_id'] ?? '' ) === (string) ( $quality['job_id'] ?? '' ) && $artifact_revision === (string) ( $quality['artifact_revision'] ?? '' ) && (string) ( $job['publication_surface_contract_revision'] ?? '' ) === (string) ( $quality['publication_surface_contract_revision'] ?? '' ),
 			'quality_surface_binding_mismatch' => (string) ( $artifact_record['surface_revision'] ?? '' ) === (string) ( $quality['surface_revision'] ?? '' ) && (string) ( $job['content_revision'] ?? '' ) === (string) ( $quality['content_revision'] ?? '' ),
-			'translation_identity_mismatch' => $translation_id === absint( $job['translation_id'] ?? 0 ) && $translation_id === absint( $artifact_record['translation_id'] ?? 0 ) && $translation_id === absint( $quality['translation_id'] ?? 0 ),
+			'translation_identity_mismatch' => self::translation_job_translation_identity_authorized( $job, $artifact_record, $quality, $translation_id, $require_applied_surface, $resolved_translation_id ),
 			'quality_decision_not_pass' => 'pass' === (string) ( $quality['decision'] ?? '' ),
 			'submission_generation_mismatch' => $generation === absint( $artifact_record['submission_generation'] ?? 0 ) && $generation === absint( $quality['submission_generation'] ?? 0 ),
 			'quality_principal_mismatch' => ! empty( $artifact_record['writer_principal']['principal_id'] ) && ! empty( $quality['reviewer_principal']['principal_id'] ) && (string) ( $artifact_record['writer_principal']['principal_id'] ?? '' ) !== (string) ( $quality['reviewer_principal']['principal_id'] ?? '' ),

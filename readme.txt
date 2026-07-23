@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.666
+Stable tag: 0.1.667
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -95,6 +95,13 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.667 =
+* Bind Source Rewrite Quality to a short-lived exact-artifact theme preview and four desktop/mobile render receipts without exposing claim tokens or mutating public content.
+* Give Translation Quality the same claim-bound staged theme preview, including a non-mutating canonical theme shell for translations that do not yet have a WordPress post.
+* Bind each preview and immutable receipt to the exact resolved theme host; relation changes and altered Quality bytes fail closed.
+* Return stale or preflight-rejected approvals to one bounded correction generation with the exact failure context.
+* Strengthen semantic and rendered-information-architecture attestations, first-publication guarding, live reader-copy verification, and canonical link/route identity handling.
 
 = 0.1.666 =
 * Add an immutable Source Rewrite Artifact and independent Quality lifecycle with exact publication and separate live verification.

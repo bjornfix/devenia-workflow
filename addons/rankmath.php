@@ -43,6 +43,13 @@ final class Devenia_Workflow_Translation_RankMath_Adapter {
 		add_filter( 'rank_math/opengraph/twitter/description', array( __CLASS__, 'filter_author_archive_seo_description' ), 20 );
 		add_filter( 'rank_math/json_ld', array( __CLASS__, 'filter_translated_posts_page_json_ld' ), 99, 2 );
 		add_filter( 'rank_math/json_ld', array( __CLASS__, 'filter_author_archive_json_ld' ), 100, 2 );
+		add_filter( 'rank_math/frontend/title', array( 'Devenia_Workflow', 'filter_translation_job_preview_seo_title' ), 100 );
+		add_filter( 'rank_math/opengraph/facebook/title', array( 'Devenia_Workflow', 'filter_translation_job_preview_seo_title' ), 100 );
+		add_filter( 'rank_math/opengraph/twitter/title', array( 'Devenia_Workflow', 'filter_translation_job_preview_seo_title' ), 100 );
+		add_filter( 'rank_math/frontend/description', array( 'Devenia_Workflow', 'filter_translation_job_preview_seo_description' ), 100 );
+		add_filter( 'rank_math/opengraph/facebook/description', array( 'Devenia_Workflow', 'filter_translation_job_preview_seo_description' ), 100 );
+		add_filter( 'rank_math/opengraph/twitter/description', array( 'Devenia_Workflow', 'filter_translation_job_preview_seo_description' ), 100 );
+		add_filter( 'rank_math/frontend/canonical', array( 'Devenia_Workflow', 'filter_translation_job_preview_canonical' ), 100 );
 		add_action( 'devenia_workflow_translation_flush_sitemap_cache', array( __CLASS__, 'flush_sitemap_cache' ) );
 		add_filter( 'devenia_workflow_translation_title_template_option_name', array( __CLASS__, 'title_template_option_name' ), 10, 2 );
 		add_filter( 'devenia_workflow_translation_sync_seo_meta', array( __CLASS__, 'sync_seo_meta' ), 10, 4 );

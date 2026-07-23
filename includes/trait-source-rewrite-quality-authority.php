@@ -118,13 +118,49 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 
 	/** @return array<string,mixed> */
 	private static function source_rewrite_quality_schema(): array {
+		$kinds = self::source_rewrite_quality_evidence_fields();
 		$properties = array(
 			'job_id' => array( 'type' => 'string' ), 'run_id' => array( 'type' => 'string' ), 'claim_token' => array( 'type' => 'string' ), 'priming_revision' => array( 'type' => 'string' ),
 			'artifact_revision' => array( 'type' => 'string' ), 'decision' => array( 'type' => 'string', 'enum' => array( 'pass', 'revise' ) ),
 			'reviewed_sections' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ), 'findings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+			'reviewer_attestations' => array(
+				'type' => 'array',
+				'minItems' => count( $kinds ),
+				'items' => array(
+					'type' => 'object',
+					'required' => array( 'kind', 'passed', 'observation' ),
+					'properties' => array(
+						'kind' => array( 'type' => 'string', 'enum' => $kinds ),
+						'passed' => array( 'type' => 'boolean' ),
+						'observation' => array( 'type' => 'string', 'minLength' => 120 ),
+					),
+					'additionalProperties' => false,
+				),
+			),
+			'browser_receipts' => array(
+				'type' => 'array',
+				'minItems' => 4,
+				'maxItems' => 4,
+				'items' => array(
+					'type' => 'object',
+					'required' => array( 'artifact_revision', 'copy_revision', 'preview_url', 'viewport_scheme', 'viewport', 'color_scheme', 'response_digest', 'document_language', 'document_direction', 'layout_digest', 'screenshot_digest', 'checked_at' ),
+					'properties' => array(
+						'artifact_revision' => array( 'type' => 'string' ), 'copy_revision' => array( 'type' => 'string' ), 'preview_url' => array( 'type' => 'string', 'format' => 'uri' ),
+						'viewport_scheme' => array( 'type' => 'string', 'enum' => array( 'desktop', 'mobile' ) ),
+						'viewport' => array(
+							'type' => 'object', 'required' => array( 'width', 'height', 'device_scale_factor' ),
+							'properties' => array( 'width' => array( 'type' => 'integer' ), 'height' => array( 'type' => 'integer' ), 'device_scale_factor' => array( 'type' => 'integer' ) ),
+							'additionalProperties' => false,
+						),
+						'color_scheme' => array( 'type' => 'string', 'enum' => array( 'light', 'dark' ) ), 'response_digest' => array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' ),
+						'document_language' => array( 'type' => 'string' ), 'document_direction' => array( 'type' => 'string', 'enum' => array( 'ltr', 'rtl' ) ), 'layout_digest' => array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' ),
+						'screenshot_digest' => array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' ), 'checked_at' => array( 'type' => 'string', 'format' => 'date-time' ),
+					),
+					'additionalProperties' => false,
+				),
+			),
 		);
-		foreach ( self::source_rewrite_quality_evidence_fields() as $field ) { $properties[ $field ] = array( 'type' => 'string', 'minLength' => 120 ); }
-		return array( 'type' => 'object', 'required' => array_merge( array( 'job_id', 'run_id', 'claim_token', 'priming_revision', 'artifact_revision', 'decision' ), self::source_rewrite_quality_evidence_fields(), array( 'reviewed_sections', 'findings' ) ), 'properties' => $properties, 'additionalProperties' => false );
+		return array( 'type' => 'object', 'required' => array( 'job_id', 'run_id', 'claim_token', 'priming_revision', 'artifact_revision', 'decision', 'reviewer_attestations', 'reviewed_sections', 'findings', 'browser_receipts' ), 'properties' => $properties, 'additionalProperties' => false );
 	}
 
 	/** @return array<string,mixed> */
@@ -345,6 +381,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'baseline_publication_surface_revision' => (string) $job['baseline_publication_surface_revision'],
 			'quality_standard'     => self::source_rewrite_quality_standard(),
 			'role_priming'         => self::source_rewrite_role_priming( (string) $run['role'], $job, $source ),
+			'correction_context'   => is_array( $job['last_publish_failure'] ?? null ) ? $job['last_publish_failure'] : null,
 		);
 		if ( 'source_writer' === (string) $run['role'] ) {
 			$packet['source'] = $current;
@@ -363,6 +400,11 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			$packet['preservation_brief']    = $artifact['preservation_brief'];
 			$packet['writer_principal']      = $artifact['writer_principal'];
 			$packet['required_quality_evidence'] = self::source_rewrite_quality_evidence_fields();
+			$packet['proposed_design_validation'] = self::source_editorial_design_validation(
+				$source,
+				(string) ( $artifact['proposed']['content'] ?? '' )
+			);
+			$packet['rendered_preview'] = self::source_rewrite_preview_descriptor( $job, $run, $access['claim'], $artifact, $source );
 		}
 
 		return array( 'success' => true, 'packet' => $packet );
@@ -488,13 +530,31 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		if ( ! in_array( $decision, array( 'pass', 'revise' ), true ) ) {
 			return self::source_rewrite_error( 'quality_decision_invalid', 'Quality decision must be pass or revise.' );
 		}
-		$evidence = self::source_rewrite_validate_quality_evidence( $input );
+		$evidence = self::source_rewrite_validate_quality_evidence( $input, $decision );
 		if ( empty( $evidence['success'] ) ) {
 			return $evidence;
+		}
+		$browser_evidence = self::source_rewrite_validate_browser_receipts( $input['browser_receipts'] ?? array(), $job, $run, $claim, $artifact, $source );
+		if ( empty( $browser_evidence['success'] ) ) {
+			return $browser_evidence;
 		}
 		$baseline = self::source_rewrite_current_baseline( $job );
 		if ( empty( $baseline['current'] ) ) {
 			return self::source_rewrite_error( 'quality_baseline_stale', 'The canonical source changed before the Quality Decision.', array( 'baseline' => $baseline ) );
+		}
+		$proposed_design_validation = self::source_editorial_design_validation(
+			$source,
+			(string) ( $artifact['proposed']['content'] ?? '' )
+		);
+		if (
+			'pass' === $decision
+			&& ( empty( $proposed_design_validation['available'] ) || empty( $proposed_design_validation['passed'] ) )
+		) {
+			return self::source_rewrite_error(
+				'quality_proposed_design_gate_failed',
+				'A passing Source Rewrite Quality Decision requires the exact proposed page to pass the owning Source Content Design Gate.',
+				array( 'proposed_design_validation' => $proposed_design_validation )
+			);
 		}
 
 		$quality = array(
@@ -511,6 +571,12 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'writer_principal_id'  => (string) $writer['principal_id'],
 			'priming_revision'     => (string) $priming['priming_revision'],
 			'evidence'             => $evidence['evidence'],
+			'browser_receipts'     => $browser_evidence['receipts'],
+			'preview_identity'     => (string) $browser_evidence['preview_identity'],
+			'preview_url'          => (string) $browser_evidence['preview_url'],
+			'preview_host_id'      => (int) $browser_evidence['preview_host_id'],
+			'preview_host_scope'   => (string) $browser_evidence['preview_host_scope'],
+			'proposed_design_validation' => $proposed_design_validation,
 			'decided_at'           => gmdate( 'c' ),
 		);
 		$quality_revision = 'srq_' . substr( hash( 'sha256', wp_json_encode( $quality ) ?: '' ), 0, 48 );
@@ -574,6 +640,9 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			}
 			$authority = self::source_rewrite_authority_chain( $job );
 			if ( empty( $authority['success'] ) ) {
+				if ( in_array( (string) ( $authority['code'] ?? '' ), array( 'source_rewrite_priming_stale', 'source_rewrite_policy_stale' ), true ) ) {
+					return self::source_rewrite_transition_after_stale_authority( $job, $authority );
+				}
 				return $authority;
 			}
 			$artifact = $authority['artifact'];
@@ -581,9 +650,10 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			$proposed_surface = $artifact['proposed_copy_surface'];
 			$current_values = self::source_rewrite_source_values( $source );
 			$current_surface = self::source_rewrite_copy_surface( $current_values['title'], $current_values['excerpt'], $current_values['content'] );
-			$already_applied = hash_equals( (string) $proposed_surface['revision'], (string) $current_surface['revision'] )
+			$artifact_bytes_applied = hash_equals( (string) $proposed_surface['revision'], (string) $current_surface['revision'] )
 				&& hash_equals( (string) $artifact['proposed_content_hash'], hash( 'sha256', (string) $current_values['content'] ) );
-			if ( ! $already_applied && empty( self::source_rewrite_current_baseline( $job )['current'] ) ) {
+			$already_applied = $artifact_bytes_applied && 'publish' === (string) $source->post_status;
+			if ( ! $artifact_bytes_applied && empty( self::source_rewrite_current_baseline( $job )['current'] ) ) {
 				return self::source_rewrite_error( 'publication_baseline_stale', 'The canonical source changed after Quality approval and does not equal the approved artifact.' );
 			}
 
@@ -615,7 +685,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 						'devenia-workflow/source-rewrite-publish'
 					);
 					if ( is_wp_error( $preflight ) || true !== $preflight ) {
-						return self::source_rewrite_error( 'publication_preflight_rejected', 'The exact approved Source Rewrite Artifact failed a public-write preflight.', array( 'preflight' => $preflight ) );
+						return self::source_rewrite_transition_after_publish_preflight_failure( $job, $preflight );
 					}
 					$updated = wp_update_post(
 						array(
@@ -642,6 +712,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 				: array( 'revision' => '' );
 			if (
 				! $source instanceof WP_Post
+				|| 'publish' !== (string) $source->post_status
 				|| ! hash_equals( (string) $proposed_surface['revision'], (string) ( $applied_surface['revision'] ?? '' ) )
 				|| ! hash_equals( (string) $artifact['proposed_content_hash'], hash( 'sha256', (string) ( $applied_values['content'] ?? '' ) ) )
 			) {
@@ -688,6 +759,69 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		}
 	}
 
+	/**
+	 * Return an approved artifact to the bounded writer lifecycle when the owning
+	 * public-write Adapter finds a defect that Quality could not see in its packet.
+	 *
+	 * @param mixed $preflight Public-write preflight result.
+	 * @return array<string,mixed>
+	 */
+	private static function source_rewrite_transition_after_publish_preflight_failure( array $job, $preflight ): array {
+		$failure = array(
+			'code'       => 'publication_preflight_rejected',
+			'error_code' => is_wp_error( $preflight ) ? (string) $preflight->get_error_code() : 'invalid_preflight_result',
+			'error_data' => is_wp_error( $preflight ) ? $preflight->get_error_data() : null,
+		);
+		return self::source_rewrite_transition_to_correction( $job, $failure, $preflight );
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_transition_after_stale_authority( array $job, array $authority ): array {
+		$failure = array(
+			'code'       => 'publication_authority_stale',
+			'error_code' => sanitize_key( (string) ( $authority['code'] ?? 'source_rewrite_authority_stale' ) ),
+			'error_data' => $authority,
+		);
+		return self::source_rewrite_transition_to_correction( $job, $failure, $authority );
+	}
+
+	/**
+	 * One finite state transition for post-Quality failures discovered before mutation.
+	 *
+	 * @param mixed $public_failure Error returned to the coordinator.
+	 * @return array<string,mixed>
+	 */
+	private static function source_rewrite_transition_to_correction( array $job, array $failure, $public_failure ): array {
+		$generation = (int) ( $job['submission_generation'] ?? 0 );
+		$can_revise = $generation < self::SOURCE_REWRITE_MAX_SUBMISSION_GENERATIONS;
+		$next = $job;
+		$next['status'] = $can_revise ? 'changes_requested' : 'exhausted';
+		$next['active_run_id'] = '';
+		if ( $can_revise ) {
+			$next['submission_generation'] = $generation + 1;
+		}
+		$failure['failed_at'] = gmdate( 'c' );
+		$next['last_publish_failure'] = $failure;
+		$next['updated_at'] = gmdate( 'c' );
+
+		if ( ! self::atomic_replace_option_value( self::source_rewrite_job_key( (string) $job['job_id'] ), $job, $next ) ) {
+			return self::source_rewrite_error(
+				'publication_correction_transition_conflict',
+				'The approved artifact failed a current authority gate, but the Job changed before it could return to the bounded writer lifecycle.',
+				array( 'retryable' => true, 'failure' => $public_failure )
+			);
+		}
+
+		$code = (string) ( $failure['code'] ?? 'publication_authority_rejected' );
+		return self::source_rewrite_error(
+			$code,
+			$can_revise
+				? 'The exact approved artifact failed a current authority gate and returned to changes_requested for one fresh bounded correction.'
+				: 'The exact approved artifact failed a current authority gate and exhausted the bounded correction budget.',
+			array( 'failure' => $public_failure, 'job' => self::source_rewrite_public_job( $next ) )
+		);
+	}
+
 	/** @return array<string,mixed> */
 	private static function source_rewrite_verify_live( array $input ): array {
 		$job_id = self::source_rewrite_clean_id( (string) ( $input['job_id'] ?? '' ) );
@@ -707,8 +841,15 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		$artifact = $authority['artifact'];
 		$current = self::source_rewrite_source_values( $source );
 		$current_surface = self::source_rewrite_copy_surface( $current['title'], $current['excerpt'], $current['content'] );
+		$proposed = (array) ( $artifact['proposed'] ?? array() );
+		$verification_surface = self::source_rewrite_copy_surface(
+			(string) ( $proposed['title'] ?? '' ),
+			(string) ( $proposed['excerpt'] ?? '' ),
+			(string) ( $proposed['content'] ?? '' )
+		);
 		if (
 			! hash_equals( (string) $artifact['proposed_copy_surface']['revision'], (string) $current_surface['revision'] )
+			|| ! hash_equals( (string) $artifact['proposed_copy_surface']['revision'], (string) $verification_surface['revision'] )
 			|| ! hash_equals( (string) $artifact['proposed_content_hash'], hash( 'sha256', (string) $current['content'] ) )
 		) {
 			return self::source_rewrite_error( 'published_source_drifted', 'The stored source no longer equals the exact Quality-approved artifact.' );
@@ -723,15 +864,19 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			$response = self::fetch_frontend_cache_surface( $url, $timeout, $cache_surface );
 			$body = (string) ( $response['body'] ?? '' );
 			$decoded_body = html_entity_decode( $body, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-			$body_text = self::normalize_review_text( wp_strip_all_tags( $decoded_body ) );
+			$body_text = self::source_rewrite_reader_text( wp_strip_all_tags( $decoded_body ) );
 			$missing = array();
-			foreach ( (array) ( $artifact['proposed_copy_surface']['fragments'] ?? array() ) as $fragment ) {
+			foreach ( (array) ( $verification_surface['fragments'] ?? array() ) as $fragment ) {
 				$field = (string) ( $fragment['field'] ?? '' );
-				$text  = self::normalize_review_text( (string) ( $fragment['text'] ?? '' ) );
-				if ( '' === $text || 'excerpt' === $field ) {
+				$block = (string) ( $fragment['block'] ?? '' );
+				$is_action = str_starts_with( $field, 'action:' );
+				$text = $is_action
+					? self::normalize_review_text( (string) ( $fragment['text'] ?? '' ) )
+					: self::source_rewrite_reader_text( (string) ( $fragment['text'] ?? '' ) );
+				if ( '' === $text || empty( $fragment['atomic'] ) || 'excerpt' === $field || 'content:document' === $field || 'document' === $block ) {
 					continue;
 				}
-				$found = str_starts_with( $field, 'action:' )
+				$found = $is_action
 					? false !== strpos( $decoded_body, $text )
 					: false !== strpos( $body_text, $text );
 				if ( ! $found ) {
@@ -799,6 +944,16 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		return array( 'success' => true, 'passed' => true, 'job' => self::source_rewrite_public_job( $next ), 'verification' => $next['live_verification'], 'source_approval' => $evidence );
 	}
 
+	/**
+	 * Canonical reader text after WordPress applies its normal typography.
+	 *
+	 * Stored source and artifact hashes remain byte-exact. This projection is
+	 * used only for reader-facing copy receipts.
+	 */
+	private static function source_rewrite_reader_text( string $text ): string {
+		return self::normalize_review_text( wptexturize( $text ) );
+	}
+
 	/** @return array<string,mixed> */
 	private static function source_rewrite_status( array $input ): array {
 		$job_id = self::source_rewrite_clean_id( (string) ( $input['job_id'] ?? '' ) );
@@ -839,10 +994,19 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		unset( $unsanitized_postarr, $update );
 		$post_id = absint( $postarr['ID'] ?? $data['ID'] ?? 0 );
 		$current = $post_id ? get_post( $post_id ) : null;
-		if ( ! $current instanceof WP_Post || ! self::is_translatable_post_type( (string) $current->post_type ) || self::is_translation_post( $post_id ) ) {
+		$post_type = $current instanceof WP_Post
+			? (string) $current->post_type
+			: sanitize_key( (string) ( $data['post_type'] ?? $postarr['post_type'] ?? '' ) );
+		$target_status = sanitize_key( (string) ( $data['post_status'] ?? ( $current instanceof WP_Post ? $current->post_status : 'draft' ) ) );
+		if ( ! $current instanceof WP_Post ) {
+			if ( self::is_translatable_post_type( $post_type ) && 'publish' === $target_status ) {
+				$data['post_status'] = 'draft';
+			}
 			return $data;
 		}
-		$target_status = sanitize_key( (string) ( $data['post_status'] ?? $current->post_status ) );
+		if ( ! self::is_translatable_post_type( $post_type ) || self::is_translation_post( $post_id ) ) {
+			return $data;
+		}
 		if ( 'publish' !== $target_status && 'publish' !== (string) $current->post_status ) {
 			return $data;
 		}
@@ -854,7 +1018,11 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		$current_values = self::source_rewrite_source_values( $current );
 		$current_surface = self::source_rewrite_copy_surface( $current_values['title'], $current_values['excerpt'], $current_values['content'] );
 		$proposed_surface = self::source_rewrite_copy_surface( $proposed['title'], $proposed['excerpt'], $proposed['content'] );
-		if ( hash_equals( (string) $current_surface['revision'], (string) $proposed_surface['revision'] ) || self::source_rewrite_request_authorizes( $current, $proposed, $proposed_surface ) ) {
+		$is_first_publication = 'publish' === $target_status && 'publish' !== (string) $current->post_status;
+		if (
+			( ! $is_first_publication && hash_equals( (string) $current_surface['revision'], (string) $proposed_surface['revision'] ) )
+			|| self::source_rewrite_request_authorizes( $current, $proposed, $proposed_surface )
+		) {
 			return $data;
 		}
 		$data['post_title']   = (string) $current->post_title;
@@ -1045,6 +1213,15 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		if ( ! is_array( $artifact ) || ! is_array( $quality ) || 'pass' !== (string) ( $quality['decision'] ?? '' ) ) {
 			return self::source_rewrite_error( 'source_rewrite_authority_record_missing', 'The exact Artifact or passing Quality record is unavailable.' );
 		}
+		$quality_hash_input = $quality;
+		unset( $quality_hash_input['quality_revision'] );
+		$expected_quality_revision = 'srq_' . substr( hash( 'sha256', wp_json_encode( $quality_hash_input ) ?: '' ), 0, 48 );
+		if (
+			! hash_equals( $expected_quality_revision, (string) ( $quality['quality_revision'] ?? '' ) )
+			|| ! hash_equals( $expected_quality_revision, (string) ( $job['quality_revision'] ?? '' ) )
+		) {
+			return self::source_rewrite_error( 'source_rewrite_quality_revision_mismatch', 'The stored Source Rewrite Quality bytes no longer match their content-addressed revision.' );
+		}
 		$source = get_post( absint( $job['source_id'] ?? 0 ) );
 		if ( ! $source instanceof WP_Post ) {
 			return self::source_rewrite_error( 'source_not_found', 'Canonical source content is unavailable while validating Source Rewrite authority.' );
@@ -1058,6 +1235,21 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			|| ! hash_equals( $current_quality_priming, (string) ( $quality['priming_revision'] ?? '' ) )
 		) {
 			return self::source_rewrite_error( 'source_rewrite_priming_stale', 'The source-scoped writing or Quality policy changed after approval. A fresh artifact and Quality Decision are required.' );
+		}
+		$quality_evidence_validation = self::source_rewrite_validate_quality_evidence(
+			is_array( $quality['evidence'] ?? null ) ? $quality['evidence'] : array(),
+			(string) ( $quality['decision'] ?? '' )
+		);
+		if ( empty( $quality_evidence_validation['success'] ) ) {
+			return self::source_rewrite_error(
+				'source_rewrite_quality_evidence_invalid',
+				'The stored Source Rewrite Quality evidence no longer satisfies the current exact attestation contract.',
+				array( 'validation' => $quality_evidence_validation )
+			);
+		}
+		$stored_browser_validation = self::source_rewrite_validate_stored_browser_receipts( $quality, $artifact );
+		if ( empty( $stored_browser_validation['success'] ) ) {
+			return $stored_browser_validation;
 		}
 		if (
 			(string) ( $artifact['artifact_revision'] ?? '' ) !== (string) ( $quality['artifact_revision'] ?? '' )
@@ -1153,9 +1345,9 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 	/** @return array{revision:string,fragments:array<int,array<string,mixed>>} */
 	private static function source_rewrite_copy_surface( string $title, string $excerpt, string $content ): array {
 		$fragments = array(
-			array( 'field' => 'title', 'text' => self::normalize_review_text( $title ) ),
-			array( 'field' => 'excerpt', 'text' => self::normalize_review_text( $excerpt ) ),
-			array( 'field' => 'content:document', 'block' => 'document', 'heading' => false, 'unique_id' => '', 'text' => self::normalize_review_text( wp_strip_all_tags( $content ) ) ),
+			array( 'field' => 'title', 'text' => self::normalize_review_text( $title ), 'atomic' => true ),
+			array( 'field' => 'excerpt', 'text' => self::normalize_review_text( $excerpt ), 'atomic' => true ),
+			array( 'field' => 'content:document', 'block' => 'document', 'heading' => false, 'unique_id' => '', 'text' => self::normalize_review_text( wp_strip_all_tags( $content ) ), 'atomic' => false ),
 		);
 		foreach ( self::text_fragments_for_copy_quality( $content ) as $index => $fragment ) {
 			$fragments[] = array(
@@ -1164,6 +1356,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 				'heading'   => ! empty( $fragment['heading'] ),
 				'unique_id' => sanitize_text_field( (string) ( $fragment['unique_id'] ?? '' ) ),
 				'text'      => self::normalize_review_text( (string) ( $fragment['text'] ?? '' ) ),
+				'atomic'    => ! array_key_exists( 'atomic', $fragment ) || ! empty( $fragment['atomic'] ),
 			);
 		}
 		foreach ( self::source_rewrite_customer_action_fragments( $content ) as $index => $fragment ) {
@@ -1173,9 +1366,17 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 				'heading'   => false,
 				'unique_id' => '',
 				'text'      => (string) $fragment['value'],
+				'atomic'    => true,
 			);
 		}
-		return array( 'revision' => hash( 'sha256', wp_json_encode( $fragments ) ?: '' ), 'fragments' => $fragments );
+		$revision_fragments = array_map(
+			static function ( array $fragment ): array {
+				unset( $fragment['atomic'] );
+				return $fragment;
+			},
+			$fragments
+		);
+		return array( 'revision' => hash( 'sha256', wp_json_encode( $revision_fragments ) ?: '' ), 'fragments' => $fragments );
 	}
 
 	/** @return array<int,array{attribute:string,value:string}> */
@@ -1203,6 +1404,254 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'excerpt' => (string) $source->post_excerpt,
 			'content' => self::normalize_gutenberg_content_for_storage( (string) $source->post_content ),
 		);
+	}
+
+	/**
+	 * Render the immutable staged artifact through the canonical theme for one
+	 * active Quality claim. The capability contains no claim token and expires
+	 * at the same server-owned lease boundary.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function source_rewrite_preview_descriptor( array $job, array $run, array $claim, array $artifact, WP_Post $source ): array {
+		$expires = strtotime( (string) ( $claim['expires_at'] ?? '' ) );
+		$host_scope = 'canonical_source_theme_shell';
+		$host_identity = $host_scope . ':' . (int) $source->ID;
+		$token = self::staged_preview_capability_token( 'source', (string) $job['job_id'], (string) $run['run_id'], (string) $artifact['artifact_revision'], $expires, (string) ( $claim['token_hash'] ?? '' ), $host_identity );
+		$base_url = add_query_arg( 'post' === (string) $source->post_type ? 'p' : 'page_id', (string) $source->ID, home_url( '/' ) );
+		$url = add_query_arg( 'devenia_source_rewrite_preview', $token, $base_url );
+		return array(
+			'url' => esc_url_raw( $url ),
+			'preview_identity' => hash( 'sha256', $token ),
+			'artifact_revision' => (string) $artifact['artifact_revision'],
+			'copy_revision' => (string) ( $artifact['proposed_copy_surface']['revision'] ?? '' ),
+			'preview_host_id' => (int) $source->ID,
+			'preview_host_scope' => $host_scope,
+			'expires_at' => (string) ( $claim['expires_at'] ?? '' ),
+			'cache_policy' => 'private_no_store',
+			'indexing_policy' => 'noindex_nofollow_noarchive',
+			'viewports' => array(
+				'desktop' => array( 'width' => 1140, 'height' => 800, 'device_scale_factor' => 1 ),
+				'mobile' => array( 'width' => 390, 'height' => 844, 'device_scale_factor' => 1 ),
+			),
+		);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_preview_authority( string $token ): array {
+		$parts = self::staged_preview_capability_parts( $token, 'source' );
+		if ( empty( $parts ) ) {
+			return self::source_rewrite_error( 'source_rewrite_preview_invalid', 'The staged preview capability is malformed.' );
+		}
+		$job_id = (string) $parts['job_id'];
+		$run_id = (string) $parts['run_id'];
+		$artifact_revision = (string) $parts['artifact_revision'];
+		$expires = (int) $parts['expires'];
+		$job = get_option( self::source_rewrite_job_key( $job_id ) );
+		$run = get_option( self::source_rewrite_run_key( $run_id ) );
+		$claim = get_option( self::source_rewrite_claim_key( $job_id ) );
+		$artifact = get_option( self::source_rewrite_artifact_key( $artifact_revision ) );
+		$host_identity = 'canonical_source_theme_shell:' . absint( $job['source_id'] ?? 0 );
+		$expected_token = is_array( $claim ) ? self::staged_preview_capability_token( 'source', $job_id, $run_id, $artifact_revision, $expires, (string) ( $claim['token_hash'] ?? '' ), $host_identity ) : '';
+		if (
+			! is_array( $job ) || ! is_array( $run ) || ! is_array( $claim ) || ! is_array( $artifact )
+			|| 'quality_claimed' !== (string) ( $job['status'] ?? '' )
+			|| 'quality' !== (string) ( $run['role'] ?? '' ) || 'running' !== (string) ( $run['status'] ?? '' )
+			|| $run_id !== (string) ( $job['active_run_id'] ?? '' ) || $run_id !== (string) ( $claim['run_id'] ?? '' )
+			|| $artifact_revision !== (string) ( $job['artifact_revision'] ?? '' ) || $artifact_revision !== (string) ( $artifact['artifact_revision'] ?? '' )
+			|| $host_identity !== (string) ( $parts['host_identity'] ?? '' )
+			|| $expires <= time() || $expires !== strtotime( (string) ( $claim['expires_at'] ?? '' ) )
+			|| '' === $expected_token || ! hash_equals( $expected_token, (string) $parts['token'] )
+		) {
+			return self::source_rewrite_error( 'source_rewrite_preview_expired_or_denied', 'The staged preview capability is expired or no longer owns the active Quality claim.' );
+		}
+		return array( 'success' => true, 'job' => $job, 'run' => $run, 'claim' => $claim, 'artifact' => $artifact, 'preview_identity' => hash( 'sha256', (string) $parts['token'] ), 'preview_host_id' => absint( $job['source_id'] ?? 0 ), 'preview_host_scope' => 'canonical_source_theme_shell' );
+	}
+
+	private static function source_rewrite_preview_request_matches( array $authority, $query = null ): bool {
+		$query = is_object( $query ) ? $query : ( $GLOBALS['wp_query'] ?? null );
+		$page_id = is_object( $query ) && is_callable( array( $query, 'get' ) ) ? absint( $query->get( 'page_id' ) ) : 0;
+		$post_id = is_object( $query ) && is_callable( array( $query, 'get' ) ) ? absint( $query->get( 'p' ) ) : 0;
+		$expected_id = absint( $authority['job']['source_id'] ?? 0 );
+		return $expected_id > 0 && 1 === count( array_filter( array( $page_id, $post_id ) ) ) && $expected_id === max( $page_id, $post_id );
+	}
+
+	/** @param array<int,mixed> $posts @return array<int,mixed> */
+	public static function filter_source_rewrite_preview_posts( array $posts, $query ): array {
+		$token = (string) get_query_var( 'devenia_source_rewrite_preview' );
+		if ( '' === $token ) {
+			return $posts;
+		}
+		$authority = self::source_rewrite_preview_authority( $token );
+		if ( empty( $authority['success'] ) || ! self::source_rewrite_preview_request_matches( $authority, $query ) ) {
+			return $posts;
+		}
+		$source_id = absint( $authority['job']['source_id'] ?? 0 );
+		$proposed = (array) ( $authority['artifact']['proposed'] ?? array() );
+		$matched = false;
+		foreach ( $posts as $index => $post ) {
+			if ( $post instanceof WP_Post && $source_id === (int) $post->ID ) {
+				$preview = clone $post;
+				$preview->post_title = (string) ( $proposed['title'] ?? '' );
+				$preview->post_excerpt = (string) ( $proposed['excerpt'] ?? '' );
+				$preview->post_content = (string) ( $proposed['content'] ?? '' );
+				$posts[ $index ] = $preview;
+				$matched = true;
+			}
+		}
+		$query_source_id = is_object( $query ) && is_callable( array( $query, 'get' ) )
+			? max( absint( $query->get( 'page_id' ) ), absint( $query->get( 'p' ) ) )
+			: 0;
+		if ( ! $matched && $source_id === $query_source_id ) {
+			$source = get_post( $source_id );
+			if ( $source instanceof WP_Post ) {
+				$preview = clone $source;
+				$preview->post_title = (string) ( $proposed['title'] ?? '' );
+				$preview->post_excerpt = (string) ( $proposed['excerpt'] ?? '' );
+				$preview->post_content = (string) ( $proposed['content'] ?? '' );
+				$preview->post_status = 'publish';
+				$posts[] = $preview;
+				if ( is_object( $query ) ) {
+					$query->is_404 = false;
+					$query->is_singular = true;
+					$query->is_page = 'page' === (string) $source->post_type;
+					$query->is_single = 'post' === (string) $source->post_type;
+					$query->post_count = 1;
+					$query->found_posts = 1;
+				}
+			}
+		}
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true );
+		}
+		return $posts;
+	}
+
+	public static function apply_source_rewrite_preview_response_policy(): void {
+		$token = (string) get_query_var( 'devenia_source_rewrite_preview' );
+		if ( '' === $token ) {
+			return;
+		}
+		nocache_headers();
+		header( 'X-Robots-Tag: noindex, nofollow, noarchive', true );
+		header( 'Referrer-Policy: no-referrer', true );
+		$authority = self::source_rewrite_preview_authority( $token );
+		if ( empty( $authority['success'] ) || ! self::source_rewrite_preview_request_matches( $authority ) ) {
+			status_header( 404 );
+			global $wp_query;
+			if ( is_object( $wp_query ) && is_callable( array( $wp_query, 'set_404' ) ) ) {
+				$wp_query->set_404();
+			}
+		}
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_validate_browser_receipts( $raw, array $job, array $run, array $claim, array $artifact, $source ): array {
+		if ( ! $source instanceof WP_Post ) {
+			return self::source_rewrite_error( 'source_rewrite_preview_source_missing', 'The canonical source is unavailable for rendered Quality evidence.' );
+		}
+		$preview = self::source_rewrite_preview_descriptor( $job, $run, $claim, $artifact, $source );
+		$required = array( 'desktop:light', 'desktop:dark', 'mobile:light', 'mobile:dark' );
+		$seen = array();
+		$receipts = array();
+		$invalid = array();
+		foreach ( (array) $raw as $row ) {
+			if ( ! is_array( $row ) ) { continue; }
+			$viewport = sanitize_key( (string) ( $row['viewport_scheme'] ?? '' ) );
+			$scheme = sanitize_key( (string) ( $row['color_scheme'] ?? '' ) );
+			$key = $viewport . ':' . $scheme;
+			$dimensions = (array) ( $row['viewport'] ?? array() );
+			$expected_dimensions = (array) ( $preview['viewports'][ $viewport ] ?? array() );
+			$layout_digest = strtolower( sanitize_text_field( (string) ( $row['layout_digest'] ?? '' ) ) );
+			$screenshot_digest = strtolower( sanitize_text_field( (string) ( $row['screenshot_digest'] ?? '' ) ) );
+			$response_digest = strtolower( sanitize_text_field( (string) ( $row['response_digest'] ?? '' ) ) );
+			$document_language = strtolower( sanitize_text_field( (string) ( $row['document_language'] ?? '' ) ) );
+			$document_direction = sanitize_key( (string) ( $row['document_direction'] ?? '' ) );
+			$expected_language = strtolower( self::html_lang_for_language( self::source_language_code() ) );
+			$expected_direction = self::is_rtl_language( self::source_language_code() ) ? 'rtl' : 'ltr';
+			$reasons = array();
+			if ( ! in_array( $key, $required, true ) || isset( $seen[ $key ] ) ) { $reasons[] = 'viewport_or_scheme'; }
+			if ( (string) $artifact['artifact_revision'] !== (string) ( $row['artifact_revision'] ?? '' ) ) { $reasons[] = 'artifact_revision'; }
+			if ( (string) $preview['copy_revision'] !== (string) ( $row['copy_revision'] ?? '' ) ) { $reasons[] = 'copy_revision'; }
+			if ( (string) $preview['url'] !== esc_url_raw( (string) ( $row['preview_url'] ?? '' ) ) ) { $reasons[] = 'preview_url'; }
+			if ( $expected_dimensions !== array( 'width' => absint( $dimensions['width'] ?? 0 ), 'height' => absint( $dimensions['height'] ?? 0 ), 'device_scale_factor' => absint( $dimensions['device_scale_factor'] ?? 0 ) ) ) { $reasons[] = 'viewport_dimensions'; }
+			if ( ! preg_match( '/^[a-f0-9]{64}$/', $layout_digest ) ) { $reasons[] = 'layout_digest'; }
+			if ( ! preg_match( '/^[a-f0-9]{64}$/', $screenshot_digest ) ) { $reasons[] = 'screenshot_digest'; }
+			if ( ! preg_match( '/^[a-f0-9]{64}$/', $response_digest ) ) { $reasons[] = 'response_digest'; }
+			if ( '' === $expected_language || $expected_language !== $document_language ) { $reasons[] = 'document_language'; }
+			if ( $expected_direction !== $document_direction ) { $reasons[] = 'document_direction'; }
+			$checked_at = strtotime( (string) ( $row['checked_at'] ?? '' ) );
+			$claimed_at = strtotime( (string) ( $claim['claimed_at'] ?? '' ) );
+			if ( $checked_at <= 0 || $checked_at < $claimed_at || $checked_at > min( time() + 60, strtotime( (string) $preview['expires_at'] ) ) ) { $reasons[] = 'checked_at'; }
+			if ( $reasons ) { $invalid[ $key ] = $reasons; continue; }
+			$seen[ $key ] = true;
+			$receipts[] = array(
+				'artifact_revision' => (string) $artifact['artifact_revision'], 'copy_revision' => (string) $preview['copy_revision'],
+				'preview_identity' => (string) $preview['preview_identity'], 'preview_url' => (string) $preview['url'],
+				'preview_host_id' => (int) $preview['preview_host_id'], 'preview_host_scope' => (string) $preview['preview_host_scope'],
+				'viewport_scheme' => $viewport, 'viewport' => $expected_dimensions,
+				'color_scheme' => $scheme, 'response_digest' => $response_digest, 'document_language' => $document_language, 'document_direction' => $document_direction,
+				'layout_digest' => $layout_digest, 'screenshot_digest' => $screenshot_digest, 'checked_at' => sanitize_text_field( (string) $row['checked_at'] ),
+				'adapter' => 'fresh_quality_browser', 'policy_revision' => self::source_rewrite_policy_revision(), 'trust' => 'reviewer_attested_exact_staged_preview',
+			);
+		}
+		$missing = array_values( array_diff( $required, array_keys( $seen ) ) );
+		return $missing || $invalid
+			? self::source_rewrite_error( 'source_rewrite_browser_receipts_incomplete', 'Rendered Source Rewrite Quality requires four exact staged-preview receipts.', array( 'missing' => $missing, 'invalid' => $invalid ) )
+			: array(
+				'success' => true,
+				'receipts' => $receipts,
+				'preview_identity' => (string) $preview['preview_identity'],
+				'preview_url' => (string) $preview['url'],
+				'preview_host_id' => (int) $preview['preview_host_id'],
+				'preview_host_scope' => (string) $preview['preview_host_scope'],
+			);
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_validate_stored_browser_receipts( array $quality, array $artifact ): array {
+		$required = array( 'desktop:light', 'desktop:dark', 'mobile:light', 'mobile:dark' );
+		$seen = array();
+		$preview_identity = (string) ( $quality['preview_identity'] ?? '' );
+		$preview_url = esc_url_raw( (string) ( $quality['preview_url'] ?? '' ) );
+		$preview_host_id = absint( $quality['preview_host_id'] ?? 0 );
+		$preview_host_scope = sanitize_key( (string) ( $quality['preview_host_scope'] ?? '' ) );
+		$decided_at = strtotime( (string) ( $quality['decided_at'] ?? '' ) );
+		foreach ( (array) ( $quality['browser_receipts'] ?? array() ) as $receipt ) {
+			if ( ! is_array( $receipt ) ) { return self::source_rewrite_error( 'source_rewrite_browser_evidence_invalid', 'Stored rendered Quality evidence contains a malformed receipt.' ); }
+			$viewport = sanitize_key( (string) ( $receipt['viewport_scheme'] ?? '' ) );
+			$key = $viewport . ':' . sanitize_key( (string) ( $receipt['color_scheme'] ?? '' ) );
+			$expected_dimensions = 'desktop' === $viewport
+				? array( 'width' => 1140, 'height' => 800, 'device_scale_factor' => 1 )
+				: array( 'width' => 390, 'height' => 844, 'device_scale_factor' => 1 );
+			$dimensions = (array) ( $receipt['viewport'] ?? array() );
+			$checked_at = strtotime( (string) ( $receipt['checked_at'] ?? '' ) );
+			if (
+				! in_array( $key, $required, true ) || isset( $seen[ $key ] )
+				|| (string) ( $artifact['artifact_revision'] ?? '' ) !== (string) ( $receipt['artifact_revision'] ?? '' )
+				|| (string) ( $artifact['proposed_copy_surface']['revision'] ?? '' ) !== (string) ( $receipt['copy_revision'] ?? '' )
+				|| '' === $preview_identity || ! hash_equals( $preview_identity, (string) ( $receipt['preview_identity'] ?? '' ) )
+				|| '' === $preview_url || $preview_url !== esc_url_raw( (string) ( $receipt['preview_url'] ?? '' ) )
+				|| $preview_host_id < 1 || $preview_host_id !== absint( $receipt['preview_host_id'] ?? 0 )
+				|| '' === $preview_host_scope || $preview_host_scope !== sanitize_key( (string) ( $receipt['preview_host_scope'] ?? '' ) )
+				|| $expected_dimensions !== array( 'width' => absint( $dimensions['width'] ?? 0 ), 'height' => absint( $dimensions['height'] ?? 0 ), 'device_scale_factor' => absint( $dimensions['device_scale_factor'] ?? 0 ) )
+				|| ! preg_match( '/^[a-f0-9]{64}$/', (string) ( $receipt['layout_digest'] ?? '' ) )
+				|| ! preg_match( '/^[a-f0-9]{64}$/', (string) ( $receipt['screenshot_digest'] ?? '' ) )
+				|| ! preg_match( '/^[a-f0-9]{64}$/', (string) ( $receipt['response_digest'] ?? '' ) )
+				|| ( self::is_rtl_language( self::source_language_code() ) ? 'rtl' : 'ltr' ) !== (string) ( $receipt['document_direction'] ?? '' )
+				|| strtolower( self::html_lang_for_language( self::source_language_code() ) ) !== strtolower( (string) ( $receipt['document_language'] ?? '' ) )
+				|| 'fresh_quality_browser' !== (string) ( $receipt['adapter'] ?? '' )
+				|| self::source_rewrite_policy_revision() !== (string) ( $receipt['policy_revision'] ?? '' )
+				|| 'reviewer_attested_exact_staged_preview' !== (string) ( $receipt['trust'] ?? '' )
+				|| $checked_at <= 0 || $decided_at <= 0 || $checked_at > $decided_at + 60
+			) {
+				return self::source_rewrite_error( 'source_rewrite_browser_evidence_invalid', 'Stored rendered Quality evidence is incomplete or no longer bound to the exact staged artifact.' );
+			}
+			$seen[ $key ] = true;
+		}
+		return array_diff( $required, array_keys( $seen ) )
+			? self::source_rewrite_error( 'source_rewrite_browser_evidence_invalid', 'Stored rendered Quality evidence is missing a required viewport or color scheme.' )
+			: array( 'success' => true );
 	}
 
 	/** @return array<string,mixed> */
@@ -1235,29 +1684,61 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 	}
 
 	/** @return array<string,mixed> */
-	private static function source_rewrite_validate_quality_evidence( array $input ): array {
-		$text_fields = self::source_rewrite_quality_evidence_fields();
-		$evidence    = array();
+	private static function source_rewrite_validate_quality_evidence( array $input, string $decision ): array {
+		$required_kinds = self::source_rewrite_quality_evidence_fields();
+		$attestations   = array();
 		$errors      = array();
-		foreach ( $text_fields as $field ) {
-			$value = self::normalize_review_text( (string) ( $input[ $field ] ?? '' ) );
-			if ( strlen( $value ) < 120 || self::source_rewrite_generic_evidence( $value ) ) {
-				$errors[] = $field;
+		foreach ( (array) ( $input['reviewer_attestations'] ?? array() ) as $row ) {
+			if ( ! is_array( $row ) ) {
+				$errors[] = 'reviewer_attestations';
+				continue;
 			}
-			$evidence[ $field ] = sanitize_textarea_field( $value );
+			$kind = sanitize_key( (string) ( $row['kind'] ?? '' ) );
+			$observation = self::normalize_review_text( (string) ( $row['observation'] ?? '' ) );
+			if (
+				! in_array( $kind, $required_kinds, true )
+				|| isset( $attestations[ $kind ] )
+				|| strlen( $observation ) < 120
+				|| self::source_rewrite_generic_evidence( $observation )
+			) {
+				$errors[] = '' !== $kind ? $kind : 'reviewer_attestations';
+				continue;
+			}
+			$attestations[ $kind ] = array(
+				'kind'        => $kind,
+				'passed'      => ! empty( $row['passed'] ),
+				'observation' => sanitize_textarea_field( $observation ),
+			);
 		}
-		$evidence['reviewed_sections'] = self::source_rewrite_string_list( $input['reviewed_sections'] ?? array() );
-		$evidence['findings']          = self::source_rewrite_string_list( $input['findings'] ?? array() );
-		if ( count( $evidence['reviewed_sections'] ) < 4 ) {
+		if ( array_diff( $required_kinds, array_keys( $attestations ) ) || array_diff( array_keys( $attestations ), $required_kinds ) ) {
+			$errors[] = 'reviewer_attestations';
+		}
+		if ( 'pass' === $decision ) {
+			foreach ( $attestations as $attestation ) {
+				if ( empty( $attestation['passed'] ) ) {
+					return self::source_rewrite_error( 'quality_reviewer_attestation_failed', 'A passing Source Rewrite Quality Decision requires every mandatory semantic and information-architecture attestation to pass.', array( 'kind' => (string) $attestation['kind'] ) );
+				}
+			}
+		}
+		$reviewed_sections = self::source_rewrite_string_list( $input['reviewed_sections'] ?? array() );
+		$findings = self::source_rewrite_string_list( $input['findings'] ?? array() );
+		if ( count( $reviewed_sections ) < 4 ) {
 			$errors[] = 'reviewed_sections';
 		}
-		if ( count( $evidence['findings'] ) < 2 ) {
+		if ( count( $findings ) < 2 ) {
 			$errors[] = 'findings';
 		}
 		if ( $errors ) {
 			return self::source_rewrite_error( 'quality_evidence_incomplete', 'Source Rewrite Quality requires concrete whole-page semantic, emotional, literary, factual, product-depth, boundary, and action evidence.', array( 'fields' => array_values( array_unique( $errors ) ) ) );
 		}
-		return array( 'success' => true, 'evidence' => $evidence );
+		return array(
+			'success' => true,
+			'evidence' => array(
+				'reviewer_attestations' => $attestations,
+				'reviewed_sections' => $reviewed_sections,
+				'findings' => $findings,
+			),
+		);
 	}
 
 	/** @return array<int,string> */
@@ -1272,6 +1753,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'boundaries_assessment',
 			'next_action_assessment',
 			'natural_non_slop_assessment',
+			'rendered_information_architecture_assessment',
 		);
 	}
 
@@ -1289,6 +1771,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 				'Preserve factual product depth, proof, boundaries, use cases, and technical complexity without flattening them into generic marketing.',
 				'Apply literary craft through concrete language, human voice, rhythm, tension and release, memorable specificity, honest emotional connection, and freedom from cliché.',
 				'Apply the Ogilvy whole-page argument: buyer, problem, desired result, promise, proof, offer, and value-led next action.',
+				'Judge the rendered information architecture at desktop and mobile widths: design must clarify sequence, relationships, hierarchy, and action; emphasize selectively without nagging; and avoid both text walls and decorative card soup.',
 			),
 		);
 	}
@@ -1385,7 +1868,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 	private static function source_rewrite_job_id( int $source_id, string $baseline_revision ): string {
 		return 'srj_' . substr( hash( 'sha256', $source_id . '|' . $baseline_revision . '|' . self::source_rewrite_policy_revision() ), 0, 40 );
 	}
-	private static function source_rewrite_policy_revision(): string { return 'source-rewrite-quality-v3'; }
+	private static function source_rewrite_policy_revision(): string { return 'source-rewrite-quality-v4-rendered-preview'; }
 	private static function source_rewrite_job_key( string $job_id ): string { return 'devenia_workflow_source_rewrite_job_' . self::source_rewrite_clean_id( $job_id ); }
 	private static function source_rewrite_claim_key( string $job_id ): string { return 'devenia_workflow_source_rewrite_claim_' . self::source_rewrite_clean_id( $job_id ); }
 	private static function source_rewrite_run_key( string $run_id ): string { return 'devenia_workflow_source_rewrite_run_' . self::source_rewrite_clean_id( $run_id ); }
@@ -1407,6 +1890,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'status'                              => sanitize_key( (string) ( $job['status'] ?? '' ) ),
 			'artifact_revision'                   => (string) ( $job['artifact_revision'] ?? '' ),
 			'quality_revision'                    => (string) ( $job['quality_revision'] ?? '' ),
+			'last_publish_failure'                => is_array( $job['last_publish_failure'] ?? null ) ? $job['last_publish_failure'] : null,
 			'applied_source_hash'                 => (string) ( $job['applied_source_hash'] ?? '' ),
 			'applied_publication_surface_revision'=> (string) ( $job['applied_publication_surface_revision'] ?? '' ),
 			'applied_copy_revision'               => (string) ( $job['applied_copy_revision'] ?? '' ),

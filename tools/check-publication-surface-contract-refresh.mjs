@@ -21,8 +21,8 @@ const fingerprint = body("translation_job_publication_surface_contract_revision"
 assert.match(fingerprint, /TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA/);
 assert.match(fingerprint, /fragment_projection/);
 assert.doesNotMatch(fingerprint, /self::VERSION|OPTION_|get_option/);
-assert.match(jobSource, /TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v4-rtl-grid-gap-copy-quality-priming'/, "RTL jobs must bind both native grid-gap projection and acknowledged copy-quality priming");
-assert.match(jobSource, /TRANSLATION_JOB_LTR_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v2-copy-quality-priming'/, "LTR jobs must advance when acknowledged copy-quality priming becomes part of artifact authority");
+assert.match(jobSource, /TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v5-rtl-grid-gap-rendered-information-architecture-quality'/, "RTL jobs must bind native grid-gap projection and rendered information-architecture Quality");
+assert.match(jobSource, /TRANSLATION_JOB_LTR_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v3-rendered-information-architecture-quality'/, "LTR jobs must bind rendered information-architecture Quality");
 assert.match(fingerprint, /is_rtl_language\( \$language \)[\s\S]*TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA[\s\S]*TRANSLATION_JOB_LTR_PUBLICATION_SURFACE_CONTRACT_SCHEMA/, "only RTL jobs may advance to the target-design-signature contract");
 assert.match(body("translation_job_discover"), /translation_job_publication_surface_contract_revision\( \$source, \$language \)/);
 assert.match(body("translation_job_publication_surface_contract_state"), /translation_job_publication_surface_contract_revision\( \$source, \(string\) \( \$job\['target_language'\]/);

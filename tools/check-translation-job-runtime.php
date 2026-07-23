@@ -17,6 +17,8 @@ $new_page_route_translation_id = 0;
 $new_page_apply_source_id = 0;
 $new_page_apply_translation_id = 0;
 $legacy_new_page_apply_translation_id = 0;
+$first_publication_source_id = 0;
+$first_publication_translation_id = 0;
 $new_page_apply_parent_ids = array();
 $nested_route_parent_ids = array();
 $source_thumbnail_id = 0;
@@ -158,11 +160,13 @@ $quality_payload = static function ( array $claim, string $artifact_revision, st
 	$packet = (array) $packet_result['packet'];
 	foreach ( (array) ( $packet['evidence_contract']['server_receipt_ids'] ?? array() ) as $receipt_id ) { $option_keys[] = 'devenia_tj_quality_receipt_' . sanitize_key( (string) $receipt_id ); }
 	$surface_revision = (string) ( $packet['surface_revision'] ?? '' );
+	$preview = (array) ( $packet['rendered_preview'] ?? array() );
+	if ( empty( $preview['success'] ) || empty( $preview['url'] ) || empty( $preview['preview_identity'] ) ) { throw new RuntimeException( 'Quality packet omitted the exact staged translation preview capability.' ); }
 	$digest = str_repeat( 'a', 64 );
 	$browser = array();
 	foreach ( array( 'desktop' => array( 'width' => 1140, 'height' => 800, 'device_scale_factor' => 1 ), 'mobile' => array( 'width' => 390, 'height' => 844, 'device_scale_factor' => 1 ) ) as $viewport_scheme => $viewport ) {
 		foreach ( array( 'light', 'dark' ) as $color_scheme ) {
-			$browser[] = array( 'artifact_revision' => $artifact_revision, 'surface_revision' => $surface_revision, 'viewport_scheme' => $viewport_scheme, 'viewport' => $viewport, 'color_scheme' => $color_scheme, 'url' => home_url( '/runtime-quality-preview/' ), 'response_digest' => $digest, 'document_language' => 'nb-NO', 'document_direction' => 'ltr', 'layout_digest' => hash( 'sha256', $viewport_scheme . $color_scheme . 'layout' ), 'screenshot_digest' => hash( 'sha256', $viewport_scheme . $color_scheme . 'screenshot' ), 'checked_at' => gmdate( 'c' ), 'adapter' => 'runtime-fixture' );
+			$browser[] = array( 'artifact_revision' => $artifact_revision, 'surface_revision' => $surface_revision, 'viewport_scheme' => $viewport_scheme, 'viewport' => $viewport, 'color_scheme' => $color_scheme, 'url' => (string) $preview['url'], 'response_digest' => $digest, 'document_language' => 'nb-NO', 'document_direction' => 'ltr', 'layout_digest' => hash( 'sha256', $viewport_scheme . $color_scheme . 'layout' ), 'screenshot_digest' => hash( 'sha256', $viewport_scheme . $color_scheme . 'screenshot' ), 'checked_at' => gmdate( 'c' ), 'adapter' => 'runtime-fixture' );
 		}
 	}
 	return array(
@@ -173,6 +177,7 @@ $quality_payload = static function ( array $claim, string $artifact_revision, st
 		'reviewer_attestations' => array(
 			array( 'kind' => 'natural_language', 'passed' => true, 'observation' => 'Runtime reviewer inspected the complete localized wording and found concrete natural-language evidence.' ),
 			array( 'kind' => 'factual_accuracy', 'passed' => true, 'observation' => 'Runtime reviewer compared every fixture claim with the approved source and found factual alignment.' ),
+			array( 'kind' => 'rendered_information_architecture', 'passed' => true, 'observation' => 'Runtime reviewer inspected desktop and mobile hierarchy, sequence, emphasis, and reading rhythm without accepting text walls or decorative over-emphasis.' ),
 		),
 		'reviewer_observations' => $observations, 'browser_receipts' => $browser, 'corrections' => $corrections,
 		'usage' => array( 'input_tokens' => 700, 'cached_input_tokens' => 0, 'output_tokens' => 200, 'attempts' => 1, 'duration_ms' => 700, 'estimated_cost_microusd' => 50 ),
@@ -1839,6 +1844,8 @@ try {
 		throw new RuntimeException( 'Repeated same-second packet fetch did not pass the exact idempotent Run CAS: ' . wp_json_encode( $quality_packet_repeat ) );
 	}
 	$quality_contact_actions = $quality_packet['packet']['contact_actions'] ?? array();
+	$quality_reviewer_kinds = array_values( (array) ( $quality_packet['packet']['evidence_contract']['reviewer_attestations'] ?? array() ) );
+	$quality_example_kinds = array_values( array_map( static function ( $row ): string { return sanitize_key( (string) ( $row['kind'] ?? '' ) ); }, (array) ( $quality_packet['packet']['submission_contract']['payload_example']['reviewer_attestations'] ?? array() ) ) );
 	if (
 		empty( $quality_packet['success'] )
 		|| $links !== ( $quality_packet['packet']['links'] ?? array() )
@@ -1846,19 +1853,71 @@ try {
 		|| '<packet.role_priming.priming_revision>' !== (string) ( $quality_packet['packet']['submission_contract']['payload_example']['priming_revision'] ?? '' )
 		|| 'array' !== (string) ( $quality_packet['packet']['submission_contract']['input_schema']['properties']['corrections']['type'] ?? '' )
 		|| 'string' !== (string) ( $quality_packet['packet']['submission_contract']['input_schema']['properties']['corrections']['items']['type'] ?? '' )
+		|| array( 'natural_language', 'factual_accuracy', 'rendered_information_architecture' ) !== $quality_reviewer_kinds
+		|| $quality_reviewer_kinds !== $quality_example_kinds
+		|| empty( $quality_packet['packet']['rendered_preview']['success'] )
+		|| empty( $quality_packet['packet']['rendered_preview']['preview_identity'] )
+		|| $translation_id !== absint( $quality_packet['packet']['rendered_preview']['preview_host_id'] ?? 0 )
 		|| 'Source question' !== (string) ( $quality_contact_actions['source'][0]['subject'] ?? '' )
 		|| 'Spørsmål om testen' !== (string) ( $quality_contact_actions['translation'][0]['subject'] ?? '' )
 	) {
 		throw new RuntimeException( 'Quality packet did not preserve the authoritative link policy: ' . wp_json_encode( $quality_packet ) );
 	}
+	$foreign_preview_payload = $quality_payload( $quality_claim, $artifact_revision, 'pass', 'Runtime fixture proves that unrelated browser URLs cannot authorize an exact staged translation artifact.' );
+	$foreign_preview_payload['browser_receipts'][0]['url'] = home_url( '/unrelated-live-page/' );
+	$foreign_preview = $call( 'translation_job_submit_quality_decision', $foreign_preview_payload );
+	if ( ! empty( $foreign_preview['success'] ) || 'browser_receipts_incomplete' !== (string) ( $foreign_preview['code'] ?? '' ) ) {
+		throw new RuntimeException( 'Quality accepted browser evidence from outside the exact staged translation Preview Capability: ' . wp_json_encode( $foreign_preview ) );
+	}
+	$failed_information_architecture_payload = $quality_payload( $quality_claim, $artifact_revision, 'pass', 'Runtime fixture proves that a failed rendered information-architecture judgment cannot be published.' );
+	foreach ( $failed_information_architecture_payload['reviewer_attestations'] as &$reviewer_attestation ) {
+		if ( 'rendered_information_architecture' === (string) ( $reviewer_attestation['kind'] ?? '' ) ) {
+			$reviewer_attestation['passed'] = false;
+		}
+	}
+	unset( $reviewer_attestation );
+	$failed_information_architecture = $call( 'translation_job_submit_quality_decision', $failed_information_architecture_payload );
+	if ( ! empty( $failed_information_architecture['success'] ) || 'reviewer_attestation_failed' !== (string) ( $failed_information_architecture['code'] ?? '' ) ) {
+		throw new RuntimeException( 'A passing Quality Decision accepted a failed rendered information-architecture attestation: ' . wp_json_encode( $failed_information_architecture ) );
+	}
+	$malformed_revise_payload = $quality_payload( $quality_claim, $artifact_revision, 'revise', 'Runtime fixture proves that a negative decision cannot bypass exact staged-preview evidence.', array( 'Recapture the exact staged preview before deciding.' ) );
+	$malformed_revise_payload['browser_receipts'][0]['url'] = home_url( '/not-the-staged-preview/' );
+	$malformed_revise = $call( 'translation_job_submit_quality_decision', $malformed_revise_payload );
+	if ( ! empty( $malformed_revise['success'] ) || 'browser_receipts_incomplete' !== (string) ( $malformed_revise['code'] ?? '' ) ) {
+		throw new RuntimeException( 'A revise decision bypassed malformed exact-preview evidence: ' . wp_json_encode( $malformed_revise ) );
+	}
 	$quality_evidence = 'Runtime contract reviewed every required dimension and requests a deliberate revision.';
 	$quality_corrections = array( 'Runtime fixture intentionally stops before publication.' );
+	$failed_server_observation = static function ( $preempt, array $request, string $url ) {
+		unset( $request );
+		return false !== strpos( $url, 'devenia_quality_receipt=' )
+			? new WP_Error( 'runtime_server_quality_failure', 'Runtime fixture forces the real server receipt producer to retain a failed HTTP observation.' )
+			: $preempt;
+	};
+	add_filter( 'pre_http_request', $failed_server_observation, 10, 3 );
+	try {
+		$revise_payload = $quality_payload( $quality_claim, $artifact_revision, 'revise', $quality_evidence, $quality_corrections );
+	} finally {
+		remove_filter( 'pre_http_request', $failed_server_observation, 10 );
+	}
+	$failed_server_receipts = array_values( array_filter( array_map( 'get_option', array_map( static function ( string $receipt_id ): string { return 'devenia_tj_quality_receipt_' . sanitize_key( $receipt_id ); }, (array) $revise_payload['evidence_receipt_ids'] ) ), static function ( $receipt ): bool { return is_array( $receipt ) && empty( $receipt['passed'] ); } ) );
+	if ( empty( $failed_server_receipts ) ) {
+		throw new RuntimeException( 'The real server Quality receipt producer did not issue an authentic failed observation.' );
+	}
+	$revise_payload['reviewer_attestations'][0]['passed'] = false;
 	$quality = $call(
 		'translation_job_submit_quality_decision',
-		$quality_payload( $quality_claim, $artifact_revision, 'revise', $quality_evidence, $quality_corrections )
+		$revise_payload
 	);
 	$track_quality_result( $quality );
-	if ( empty( $quality['success'] ) || 'changes_requested' !== (string) ( $quality['job']['status'] ?? '' ) ) {
+	if (
+		empty( $quality['success'] )
+		|| 'changes_requested' !== (string) ( $quality['job']['status'] ?? '' )
+		|| empty( $quality['quality_decision']['evidence_revision'] )
+		|| 4 !== count( (array) ( $quality['quality_decision']['browser_receipts'] ?? array() ) )
+		|| ! isset( $quality['quality_decision']['reviewer_attestations']['natural_language'] )
+		|| ! empty( $quality['quality_decision']['reviewer_attestations']['natural_language']['passed'] )
+	) {
 		throw new RuntimeException( 'Idempotent orphaned Quality Decision recovery failed: ' . wp_json_encode( $quality ) );
 	}
 	$correction_claim = $call(
@@ -4150,6 +4209,98 @@ try {
 		throw new RuntimeException( 'Orphaned Run finalization failed: ' . wp_json_encode( $finalized_orphaned_run ) );
 	}
 
+	$first_publication_slug = 'runtime-first-publication-' . strtolower( wp_generate_password( 6, false, false ) );
+	$first_publication_source_id = wp_insert_post(
+		array(
+			'post_type' => 'page',
+			'post_status' => 'publish',
+			'post_title' => (string) get_post_field( 'post_title', $source_id ),
+			'post_excerpt' => (string) get_post_field( 'post_excerpt', $source_id ),
+			'post_content' => (string) get_post_field( 'post_content', $source_id ),
+			'post_name' => 'runtime-first-source-' . strtolower( wp_generate_password( 6, false, false ) ),
+		),
+		true
+	);
+	if ( is_wp_error( $first_publication_source_id ) || $first_publication_source_id < 1 ) {
+		throw new RuntimeException( 'Could not create the first-publication source lifecycle fixture.' );
+	}
+	update_post_meta( $first_publication_source_id, '_thumbnail_id', $source_thumbnail_id );
+	$first_source_review = $call(
+		'mark_source_content_integrity_reviewed',
+		array(
+			'source_id' => $first_publication_source_id,
+			'content_integrity_already_clean' => true,
+			'audit_notes' => 'Runtime fixture approves the complete source solely to prove the first-translation public lifecycle and immutable source-shell evidence.',
+			'public_url' => get_permalink( $first_publication_source_id ),
+			'no_rewrite_reason' => 'The duplicated runtime source is intentionally complete for the same bounded lifecycle contract and needs no editorial mutation.',
+			'reviewer_statement' => 'The runtime contract inspected the full source and accepts this hash-bound approval for the first-publication lifecycle proof.',
+			'reviewer' => 'translation-job-runtime',
+		)
+	);
+	if ( empty( $first_source_review['success'] ) ) { throw new RuntimeException( 'First-publication source approval failed: ' . wp_json_encode( $first_source_review ) ); }
+	$first_discover = $call( 'translation_job_discover', array( 'source_id' => $first_publication_source_id, 'language' => $language, 'observability_label' => 'runtime-first-publication' ) );
+	$first_job_id = (string) ( $first_discover['job']['job_id'] ?? '' );
+	if ( empty( $first_discover['success'] ) || '' === $first_job_id || 0 !== absint( $first_discover['job']['translation_id'] ?? 0 ) ) { throw new RuntimeException( 'First-publication discovery did not begin without a translation identity: ' . wp_json_encode( $first_discover ) ); }
+	$option_keys[] = 'devenia_workflow_translation_job_' . $first_job_id;
+	$option_keys[] = 'devenia_workflow_translation_job_claim_' . $first_job_id;
+	$first_writer_claim = $call( 'translation_job_claim', array( 'job_id' => $first_job_id, 'run_id' => 'runtime-first-writer-' . wp_generate_password( 8, false, false ), 'coordinator_id' => 'runtime-first-publication', 'role' => 'translator', 'ttl_seconds' => 600 ) );
+	if ( empty( $first_writer_claim['success'] ) ) { throw new RuntimeException( 'First-publication writer claim failed: ' . wp_json_encode( $first_writer_claim ) ); }
+	$option_keys[] = 'devenia_workflow_translation_run_' . (string) $first_writer_claim['run']['run_id'];
+	$first_artifact_payload = $artifact;
+	$first_artifact_payload['localized_slug'] = $first_publication_slug;
+	$first_artifact_payload['localized_path'] = trim( $language . '/' . $first_publication_slug, '/' );
+	$first_submit = $call(
+		'translation_job_submit_artifact',
+		array(
+			'job_id' => $first_job_id,
+			'run_id' => (string) $first_writer_claim['run']['run_id'],
+			'claim_token' => (string) $first_writer_claim['claim_token'],
+			'artifact' => $first_artifact_payload,
+			'usage' => array( 'input_tokens' => 1200, 'cached_input_tokens' => 0, 'output_tokens' => 500, 'attempts' => 1, 'duration_ms' => 1000, 'estimated_cost_microusd' => 100 ),
+		)
+	);
+	if ( empty( $first_submit['success'] ) || 0 !== absint( $first_submit['translation_id'] ?? 0 ) ) { throw new RuntimeException( 'First-publication artifact did not remain staged at identity zero: ' . wp_json_encode( $first_submit ) ); }
+	$first_artifact_revision = (string) $first_submit['artifact_revision'];
+	$option_keys[] = 'devenia_workflow_translation_artifact_' . $first_artifact_revision;
+	$first_quality_claim = $call( 'translation_job_claim', array( 'job_id' => $first_job_id, 'run_id' => 'runtime-first-quality-' . wp_generate_password( 8, false, false ), 'coordinator_id' => 'runtime-first-publication-q', 'role' => 'quality', 'ttl_seconds' => 600 ) );
+	if ( empty( $first_quality_claim['success'] ) ) { throw new RuntimeException( 'First-publication Quality claim failed: ' . wp_json_encode( $first_quality_claim ) ); }
+	$option_keys[] = 'devenia_workflow_translation_run_' . (string) $first_quality_claim['run']['run_id'];
+	$first_quality = $call( 'translation_job_submit_quality_decision', $quality_payload( $first_quality_claim, $first_artifact_revision, 'pass', 'Independent runtime Quality approved the exact source-shell preview before the first translation post existed.', array() ) );
+	$track_quality_result( $first_quality );
+	$first_artifact_record = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . $first_artifact_revision ) );
+	if ( empty( $first_quality['success'] ) || 0 !== absint( $first_artifact_record['translation_id'] ?? 0 ) || 0 !== absint( $first_quality['quality_decision']['translation_id'] ?? 0 ) ) { throw new RuntimeException( 'First-publication immutable artifact or Quality did not remain bound to identity zero: ' . wp_json_encode( $first_quality ) ); }
+	$first_page_link = static function ( string $url, int $post_id ) use ( $first_publication_source_id, $language, $first_publication_slug ): string {
+		return $first_publication_source_id === absint( get_post_meta( $post_id, '_devenia_translation_source_id', true ) ) && $language === (string) get_post_meta( $post_id, '_devenia_translation_language', true )
+			? home_url( '/' . trim( $language . '/' . $first_publication_slug, '/' ) . '/' )
+			: $url;
+	};
+	add_filter( 'page_link', $first_page_link, 20, 2 );
+	try {
+		$first_publish = $call( 'translation_job_publish', array( 'job_id' => $first_job_id, 'coordinator_id' => 'runtime-first-publication', 'sync_menu' => false ) );
+		$first_publication_translation_id = absint( $first_publish['translation']['id'] ?? $first_publish['job']['translation_id'] ?? 0 );
+		$first_verify = ! empty( $first_publish['success'] ) ? $call( 'translation_job_verify_live', array( 'job_id' => $first_job_id, 'timeout' => 3 ) ) : array();
+		$first_published_job = get_option( 'devenia_workflow_translation_job_' . $first_job_id );
+		$first_wrong_relation_job = $first_published_job;
+		$first_wrong_relation_job['translation_id'] = (int) $first_publication_source_id;
+		update_option( 'devenia_workflow_translation_job_' . $first_job_id, $first_wrong_relation_job, false );
+		$first_wrong_relation_verify = $call( 'translation_job_verify_live', array( 'job_id' => $first_job_id, 'timeout' => 3 ) );
+		update_option( 'devenia_workflow_translation_job_' . $first_job_id, $first_published_job, false );
+	} finally {
+		remove_filter( 'page_link', $first_page_link, 20 );
+	}
+	if (
+		empty( $first_publish['success'] )
+		|| $first_publication_translation_id < 1
+		|| $first_publication_translation_id !== absint( $first_published_job['translation_id'] ?? 0 )
+		|| 0 !== absint( $first_artifact_record['translation_id'] ?? 0 )
+		|| 0 !== absint( $first_quality['quality_decision']['translation_id'] ?? 0 )
+		|| empty( $first_verify['success'] )
+		|| ! empty( $first_wrong_relation_verify['success'] )
+		|| 'translation_identity_mismatch' !== (string) ( $first_wrong_relation_verify['authority_code'] ?? '' )
+	) {
+		throw new RuntimeException( 'First translation did not complete publish-to-verify with immutable zero-bound authority and wrong-relation rejection: ' . wp_json_encode( compact( 'first_publish', 'first_verify', 'first_wrong_relation_verify' ) ) );
+	}
+
 	$runtime_result = array(
 			'success' => true,
 			'job_status' => 'published_media_drift_failed_closed',
@@ -4227,6 +4378,8 @@ try {
 			'active_restore_transaction_claimed_commit_terminalized_without_restore_progress' => true,
 			'new_page_localized_path_established_before_surface_verification' => true,
 			'legacy_new_page_localized_path_derived_from_signed_route_inputs' => true,
+			'first_translation_publish_verify_preserved_zero_bound_authority' => true,
+			'first_translation_wrong_relation_rejected' => true,
 		);
 	}
 } catch ( Throwable $error ) {
@@ -4240,6 +4393,12 @@ try {
 	}
 	if ( $legacy_new_page_apply_translation_id > 0 ) {
 		wp_delete_post( $legacy_new_page_apply_translation_id, true );
+	}
+	if ( $first_publication_translation_id > 0 ) {
+		wp_delete_post( $first_publication_translation_id, true );
+	}
+	if ( $first_publication_source_id > 0 ) {
+		wp_delete_post( $first_publication_source_id, true );
 	}
 	foreach ( $new_page_apply_parent_ids as $new_page_apply_parent_id ) {
 		if ( $new_page_apply_parent_id > 0 ) {

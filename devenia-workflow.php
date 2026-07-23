@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.666
+ * Version: 0.1.667
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -29,6 +29,7 @@ require_once __DIR__ . '/includes/trait-quality-engine.php';
 require_once __DIR__ . '/includes/trait-presentation-adapter.php';
 require_once __DIR__ . '/includes/trait-source-editor-adapter.php';
 require_once __DIR__ . '/includes/trait-copy-quality-priming.php';
+require_once __DIR__ . '/includes/trait-staged-preview-capability.php';
 require_once __DIR__ . '/includes/trait-source-rewrite-quality-authority.php';
 require_once __DIR__ . '/includes/trait-workflow-mode.php';
 require_once __DIR__ . '/includes/trait-translation-read-models.php';
@@ -69,13 +70,14 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job_Quality_Authority;
 	use Devenia_Workflow_Source_Editor_Adapter;
 	use Devenia_Workflow_Copy_Quality_Priming;
+	use Devenia_Workflow_Staged_Preview_Capability;
 	use Devenia_Workflow_Source_Rewrite_Quality_Authority;
 	use Devenia_Workflow_Mode;
 	use Devenia_Workflow_Internal_Content_Link_Resolver;
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.666';
+	const VERSION = '0.1.667';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -240,10 +242,17 @@ final class Devenia_Workflow {
 	public static function init(): void {
 		add_filter( 'mcp_content_write_preflight', array( __CLASS__, 'validate_source_rewrite_quality_preflight' ), 20, 2 );
 		add_filter( 'locale', array( __CLASS__, 'filter_locale' ) );
+		add_filter( 'locale', array( __CLASS__, 'filter_translation_job_preview_locale' ), 100 );
 		add_filter( 'language_attributes', array( __CLASS__, 'filter_language_attributes' ) );
+		add_filter( 'language_attributes', array( __CLASS__, 'filter_translation_job_preview_language_attributes' ), 100 );
 		add_filter( 'devenia_workflow_translation_language_codes', array( __CLASS__, 'filter_runtime_language_codes' ) );
 		add_filter( 'devenia_workflow_translation_runtime_text', array( __CLASS__, 'filter_runtime_text_value' ), 10, 5 );
 		add_filter( 'query_vars', array( __CLASS__, 'register_translation_query_vars' ) );
+		add_filter( 'the_posts', array( __CLASS__, 'filter_source_rewrite_preview_posts' ), 20, 2 );
+		add_filter( 'the_posts', array( __CLASS__, 'filter_translation_job_preview_posts' ), 20, 2 );
+		add_filter( 'get_post_metadata', array( __CLASS__, 'filter_translation_job_preview_post_metadata' ), 100, 5 );
+		add_filter( 'get_the_terms', array( __CLASS__, 'filter_translation_job_preview_terms' ), 100, 3 );
+		add_filter( 'get_canonical_url', array( __CLASS__, 'filter_translation_job_preview_canonical_url' ), 100, 2 );
 		add_filter( 'devenia_site_presentation_author_archive_context', array( __CLASS__, 'filter_author_archive_context' ), 10, 2 );
 		add_filter( 'devenia_site_presentation_single_post_context', array( __CLASS__, 'filter_site_presentation_single_post_context' ), 10, 2 );
 		add_filter( 'document_title_parts', array( __CLASS__, 'filter_author_archive_document_title_parts' ), 20 );
@@ -263,8 +272,11 @@ final class Devenia_Workflow {
 		add_action( 'parse_request', array( __CLASS__, 'map_translated_post_request' ), 1 );
 		add_action( 'wp_head', array( __CLASS__, 'print_language_links' ), 6 );
 		add_action( 'wp', array( __CLASS__, 'switch_frontend_locale' ), 1 );
+		add_action( 'wp', array( __CLASS__, 'switch_translation_job_preview_locale' ), 0 );
 		add_action( 'wp', array( __CLASS__, 'suppress_broken_translated_discovery_links' ), 20 );
 		add_action( 'template_redirect', array( __CLASS__, 'redirect_translated_posts_page_first_page_query' ), 1 );
+		add_action( 'template_redirect', array( __CLASS__, 'apply_source_rewrite_preview_response_policy' ), 0 );
+		add_action( 'template_redirect', array( __CLASS__, 'apply_translation_job_preview_response_policy' ), 0 );
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_start_not_found_localization' ), 20 );
 		add_action( 'template_redirect', array( __CLASS__, 'redirect_localized_source_paths_with_language_prefix' ), 2 );
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_start_author_archive_url_localization' ), 98 );
@@ -548,6 +560,8 @@ final class Devenia_Workflow {
 		$vars[] = 'devenia_author_archive_author_id';
 		$vars[] = 'devenia_translated_term_language';
 		$vars[] = 'devenia_translated_term_id';
+		$vars[] = 'devenia_source_rewrite_preview';
+		$vars[] = 'devenia_translation_artifact_preview';
 		return array_values( array_unique( $vars ) );
 	}
 
@@ -17263,6 +17277,7 @@ final class Devenia_Workflow {
 			}
 
 			$map = array();
+			$ambiguous_variants = array();
 			foreach ( $by_source as $source_id => $translations ) {
 				$variants_for_source = $source_variants[ $source_id ] ?? array();
 				$source_url = (string) reset( $variants_for_source );
@@ -17283,7 +17298,7 @@ final class Devenia_Workflow {
 					$variants = array_merge( $variants, (array) ( $translation['variants'] ?? array() ) );
 				}
 				foreach ( $variants as $variant_url ) {
-					self::add_link_map_variants( $map, (string) $variant_url, (string) $target_url );
+					self::add_link_map_variants( $map, (string) $variant_url, (string) $target_url, $ambiguous_variants );
 				}
 			}
 
@@ -17308,7 +17323,7 @@ final class Devenia_Workflow {
 				continue;
 			}
 
-			$target_path     = self::normalized_url_path( (string) $url );
+			$target_path     = self::frontend_route_path_from_url( (string) $url );
 			$localized_path  = trim( (string) get_post_meta( $translation->ID, self::META_LOCALIZED_PATH, true ), '/' );
 			$variants        = array_filter( array( (string) $url, $target_path, $localized_path ) );
 			$by_source[ $source_id ][ $lang ] = array(
@@ -17321,6 +17336,7 @@ final class Devenia_Workflow {
 		}
 
 		$map = array();
+		$ambiguous_variants = array();
 		foreach ( $by_source as $source_id => $translations ) {
 			$source_url = get_permalink( (int) $source_id );
 			if ( 'publish' !== get_post_status( (int) $source_id ) ) {
@@ -17340,7 +17356,7 @@ final class Devenia_Workflow {
 				$variants = array_merge( $variants, (array) ( $translation['variants'] ?? array() ) );
 			}
 			foreach ( $variants as $variant_url ) {
-				self::add_link_map_variants( $map, (string) $variant_url, (string) $target_url );
+				self::add_link_map_variants( $map, (string) $variant_url, (string) $target_url, $ambiguous_variants );
 			}
 		}
 
@@ -17531,16 +17547,17 @@ final class Devenia_Workflow {
 	/**
 	 * Add absolute and path variants to a link map.
 	 *
-	 * @param array<string,string> $map Link map.
+	 * @param array<string,string> $map                Link map.
+	 * @param array<string,bool>   $ambiguous_variants Variants rejected after conflicting content identities.
 	 */
-	private static function add_link_map_variants( array &$map, string $from_url, string $to_url ): void {
+	private static function add_link_map_variants( array &$map, string $from_url, string $to_url, array &$ambiguous_variants ): void {
 		$from_path = self::normalized_url_path( $from_url );
 		$to_path   = self::normalized_url_path( $to_url );
 
 		if ( false !== strpos( $from_url, '?' ) ) {
 			foreach ( array( $from_url, trailingslashit( $from_url ), untrailingslashit( $from_url ) ) as $from ) {
 				if ( '' !== $from ) {
-					$map[ $from ] = $to_url;
+					self::add_link_map_variant( $map, $ambiguous_variants, $from, $to_url );
 				}
 			}
 			return;
@@ -17551,13 +17568,33 @@ final class Devenia_Workflow {
 				continue;
 			}
 
-			$map[ $from ] = $to_url;
+			self::add_link_map_variant( $map, $ambiguous_variants, $from, $to_url );
 			if ( '' !== $to_path ) {
-				$map[ $from ] = $to_url;
-				$map[ trailingslashit( $from ) ] = trailingslashit( $to_url );
-				$map[ untrailingslashit( $from ) ] = untrailingslashit( $to_url );
+				self::add_link_map_variant( $map, $ambiguous_variants, trailingslashit( $from ), trailingslashit( $to_url ) );
+				self::add_link_map_variant( $map, $ambiguous_variants, untrailingslashit( $from ), untrailingslashit( $to_url ) );
 			}
 		}
+	}
+
+	/**
+	 * Add one unambiguous content-identity variant to a localized link map.
+	 *
+	 * @param array<string,string> $map                Link map.
+	 * @param array<string,bool>   $ambiguous_variants Variants rejected after conflicting targets.
+	 */
+	private static function add_link_map_variant( array &$map, array &$ambiguous_variants, string $from, string $to ): void {
+		if ( '' === $from || isset( $ambiguous_variants[ $from ] ) ) {
+			return;
+		}
+		if (
+			isset( $map[ $from ] )
+			&& self::normalized_comparable_url( (string) $map[ $from ] ) !== self::normalized_comparable_url( $to )
+		) {
+			unset( $map[ $from ] );
+			$ambiguous_variants[ $from ] = true;
+			return;
+		}
+		$map[ $from ] = $to;
 	}
 
 	/**
@@ -17676,7 +17713,21 @@ final class Devenia_Workflow {
 			return '';
 		}
 
-		return '/' . trim( $path, '/' ) . '/';
+		$path = trim( $path, '/' );
+		return '' === $path ? '/' : '/' . $path . '/';
+	}
+
+	/**
+	 * Return only a public route path; WordPress query permalinks retain their
+	 * exact query identity and must never masquerade as the homepage route.
+	 */
+	private static function frontend_route_path_from_url( string $url ): string {
+		$parts = wp_parse_url( $url );
+		if ( ! is_array( $parts ) || self::wordpress_content_query_id_from_parts( $parts ) ) {
+			return '';
+		}
+
+		return self::normalized_url_path( $url );
 	}
 
 	/**
@@ -25756,6 +25807,7 @@ final class Devenia_Workflow {
 						'block'     => $name,
 						'unique_id' => isset( $attrs['uniqueId'] ) ? (string) $attrs['uniqueId'] : '',
 						'heading'   => self::is_heading_block( $name, $attrs ),
+						'atomic'    => empty( $block['innerBlocks'] ),
 					);
 				}
 			}
@@ -25770,6 +25822,7 @@ final class Devenia_Workflow {
 					'block'     => $name . ':' . (string) ( $attr_fragment['field'] ?? '' ),
 					'unique_id' => (string) ( $attr_fragment['row_id'] ?? '' ),
 					'heading'   => ! empty( $attr_fragment['heading'] ),
+					'atomic'    => true,
 				);
 			}
 
@@ -26769,7 +26822,8 @@ final class Devenia_Workflow {
 
 		$post_id      = self::frontend_surface_post_id( $post_id );
 		$request_path = self::current_request_path();
-		$key          = $post_id . '|' . md5( $request_path );
+		$preview_context = self::translation_job_active_preview_context();
+		$key          = $post_id . '|' . md5( $request_path ) . '|' . (string) ( $preview_context['preview_identity'] ?? '' );
 		if ( isset( $cache[ $key ] ) ) {
 			return $cache[ $key ];
 		}
@@ -26813,6 +26867,10 @@ final class Devenia_Workflow {
 			}
 		}
 
+		if ( ! empty( $preview_context['language'] ) && self::is_translation_language( (string) $preview_context['language'] ) ) {
+			$language = (string) $preview_context['language'];
+		}
+
 		$languages = self::languages();
 		$source_language = self::source_language_code();
 		$source_locale = isset( $languages[ $source_language ]['locale'] ) ? (string) $languages[ $source_language ]['locale'] : '';
@@ -26828,7 +26886,7 @@ final class Devenia_Workflow {
 				'locale'    => '' !== $locale ? $locale : 'en_GB',
 				'wordpress_locale' => '' !== $wordpress_locale ? $wordpress_locale : 'en_GB',
 				'direction' => $direction,
-				'source_id' => $post_id ? self::source_id_for_context( $post_id ) : 0,
+				'source_id' => ! empty( $preview_context['source_id'] ) ? (int) $preview_context['source_id'] : ( $post_id ? self::source_id_for_context( $post_id ) : 0 ),
 			);
 
 			return $cache[ $key ];

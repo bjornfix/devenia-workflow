@@ -4,6 +4,14 @@
  */
 
 define( 'ABSPATH', __DIR__ . '/' );
+define( 'ARRAY_A', 'ARRAY_A' );
+
+final class Translation_Index_Contract_WPDB {
+	public string $prefix = 'wp_';
+	public function prepare( string $query, ...$args ): array { return array( $query, $args ); }
+	public function get_row( $query, $output ) { unset( $query, $output ); return $GLOBALS['index_contract_lookup_row'] ?? null; }
+}
+$GLOBALS['wpdb'] = new Translation_Index_Contract_WPDB();
 
 function absint( $value ): int {
 	return abs( (int) $value );
@@ -17,6 +25,10 @@ function esc_url_raw( $value ): string {
 	return (string) $value;
 }
 
+function wp_parse_url( string $url ) {
+	return parse_url( $url );
+}
+
 function home_url( string $path = '' ): string {
 	return 'https://example.test' . $path;
 }
@@ -26,6 +38,7 @@ function get_permalink( int $post_id ): string {
 		12 => 'https://example.test/?page_id=12',
 		20 => 'https://example.test/nb/om-oss/tjenester/',
 		22 => 'https://example.test/nb/query-source/',
+		23 => 'https://example.test/nb/',
 	);
 	return $permalinks[ $post_id ] ?? 'https://example.test/post-' . $post_id . '/';
 }
@@ -50,9 +63,26 @@ final class Devenia_Workflow_Index_Read_Model_Contract {
 		return sanitize_key( $status );
 	}
 
+	private static function translation_index_available( bool $refresh = false ): bool { unset( $refresh ); return true; }
+	private static function translation_index_table(): string { return 'wp_devenia_translation_index'; }
+
 	private static function normalized_url_path( string $url ): string {
 		$path = (string) parse_url( $url, PHP_URL_PATH );
-		return trim( $path, '/' );
+		$path = trim( $path, '/' );
+		return '' === $path ? '/' : $path;
+	}
+
+	private static function wordpress_content_query_id_from_parts( array $parts ): int {
+		parse_str( (string) ( $parts['query'] ?? '' ), $query );
+		return absint( $query['page_id'] ?? $query['p'] ?? 0 );
+	}
+
+	private static function frontend_route_path_from_url( string $url ): string {
+		$parts = wp_parse_url( $url );
+		if ( ! is_array( $parts ) || self::wordpress_content_query_id_from_parts( $parts ) ) {
+			return '';
+		}
+		return self::normalized_url_path( $url );
 	}
 }
 
@@ -95,14 +125,30 @@ $raw_rows = array(
 		'translation_status' => 'published',
 		'post_status' => 'publish',
 	),
+	array(
+		'source_post_id' => 13,
+		'translation_post_id' => 23,
+		'language' => 'nb',
+		'localized_path' => 'nb',
+		'source_path' => '/',
+		'target_path' => 'nb',
+		'target_url' => 'https://example.test/nb/',
+		'translation_status' => 'published',
+		'post_status' => 'publish',
+	),
 );
 
 $normalized = invoke_index_read_model_method( 'normalize_translation_index_rows', array( $raw_rows, array( 'publish' ) ) );
 $GLOBALS['index_contract_route'] = array();
 $frontend = invoke_index_read_model_method( 'frontend_rows_from_index_rows', array( $normalized ) );
 $failures = array();
+$GLOBALS['index_contract_lookup_row'] = $raw_rows[3];
+$root_lookup = invoke_index_read_model_method( 'translation_frontend_row_for_language_source_path', array( 'nb', '/', array( 'publish' ) ) );
+if ( '/' !== (string) ( $root_lookup['source_path'] ?? '' ) || 23 !== (int) ( $root_lookup['id'] ?? 0 ) ) {
+	$failures[] = 'explicit root source identity could not be resolved through the source-path read Interface';
+}
 
-if ( 2 !== count( $normalized ) || 20 !== (int) ( $normalized[0]['id'] ?? 0 ) || 22 !== (int) ( $normalized[1]['id'] ?? 0 ) ) {
+if ( 3 !== count( $normalized ) || 20 !== (int) ( $normalized[0]['id'] ?? 0 ) || 22 !== (int) ( $normalized[1]['id'] ?? 0 ) || '/' !== (string) ( $normalized[2]['source_path'] ?? '' ) ) {
 	$failures[] = 'publish status filtering or row identity changed';
 }
 
@@ -118,7 +164,7 @@ if ( 'nb/om-oss' !== ( $contract_row['target_path'] ?? '' ) || empty( $contract_
 if ( 'nb/om-oss/tjenester' !== ( $contract_row['observed_target_path'] ?? '' ) ) {
 	$failures[] = 'observed drift route was not retained as separate evidence';
 }
-if ( 2 !== count( $frontend ) ) {
+if ( 3 !== count( $frontend ) ) {
 	$failures[] = 'frontend row count changed';
 } else {
 	$row = $frontend[0];
@@ -143,6 +189,10 @@ if ( 2 !== count( $frontend ) ) {
 	$query_row = $frontend[1] ?? array();
 	if ( 'https://example.test/?page_id=12' !== ( $query_row['source_url'] ?? '' ) || '' !== ( $query_row['source_path'] ?? '' ) ) {
 		$failures[] = 'query-ID source URL was collapsed into unrelated root-path authority';
+	}
+	$root_row = $frontend[2] ?? array();
+	if ( 'https://example.test/' !== ( $root_row['source_url'] ?? '' ) || '/' !== ( $root_row['source_path'] ?? '' ) ) {
+		$failures[] = 'explicit root source identity was stripped before frontend projection';
 	}
 }
 

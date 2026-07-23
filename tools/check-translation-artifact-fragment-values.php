@@ -23,6 +23,15 @@ function wp_strip_all_tags( string $value ): string {
 	return strip_tags( $value );
 }
 
+function apply_filters( string $hook, $value, ...$args ) {
+	unset( $hook, $args );
+	return $value;
+}
+
+function sanitize_key( $value ): string {
+	return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $value ) ) ?? '';
+}
+
 require_once dirname( __DIR__ ) . '/includes/trait-translation-job.php';
 
 final class Devenia_Workflow_Translation_Artifact_Fragment_Value_Contract {

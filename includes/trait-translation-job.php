@@ -20,8 +20,8 @@ trait Devenia_Workflow_Translation_Job {
 	}
 	const TRANSLATION_JOB_MAX_RUNS_PER_ROLE = 6;
 	const TRANSLATION_JOB_MAX_SUBMISSION_GENERATIONS = 3;
-	const TRANSLATION_JOB_LTR_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v2-copy-quality-priming';
-	const TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v4-rtl-grid-gap-copy-quality-priming';
+	const TRANSLATION_JOB_LTR_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v3-rendered-information-architecture-quality';
+	const TRANSLATION_JOB_PUBLICATION_SURFACE_CONTRACT_SCHEMA = 'publication-surface-contract-v5-rtl-grid-gap-rendered-information-architecture-quality';
 	const TRANSLATION_JOB_SURFACE_REFRESH_PUBLISH_FAILURE_CODES = array(
 		'staged_surface_drifted',
 		'staged_surface_drifted_before_locked_write',
@@ -199,6 +199,7 @@ trait Devenia_Workflow_Translation_Job {
 	}
 
 	private static function translation_job_quality_schema(): array {
+		$reviewer_kinds = self::translation_job_required_reviewer_attestation_kinds();
 		return array(
 			'type' => 'object',
 			'required' => array( 'job_id', 'run_id', 'claim_token', 'priming_revision', 'artifact_revision', 'surface_revision', 'decision', 'evidence_receipt_ids', 'reviewer_attestations', 'reviewer_observations', 'browser_receipts', 'usage' ),
@@ -213,12 +214,12 @@ trait Devenia_Workflow_Translation_Job {
 				'evidence_receipt_ids' => array( 'type' => 'array', 'minItems' => 6, 'items' => array( 'type' => 'string' ) ),
 				'reviewer_attestations' => array(
 					'type' => 'array',
-					'minItems' => 2,
+					'minItems' => count( $reviewer_kinds ),
 					'items' => array(
 						'type' => 'object',
 						'required' => array( 'kind', 'passed', 'observation' ),
 						'properties' => array(
-							'kind' => array( 'type' => 'string', 'enum' => array( 'natural_language', 'factual_accuracy' ) ),
+							'kind' => array( 'type' => 'string', 'enum' => $reviewer_kinds ),
 							'passed' => array( 'type' => 'boolean' ),
 							'observation' => array( 'type' => 'string', 'minLength' => 40 ),
 							'fragment_keys' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
@@ -266,6 +267,11 @@ trait Devenia_Workflow_Translation_Job {
 			),
 			'additionalProperties' => false,
 		);
+	}
+
+	/** One authority for the human judgments required from every Quality Run. */
+	private static function translation_job_required_reviewer_attestation_kinds(): array {
+		return array( 'natural_language', 'factual_accuracy', 'rendered_information_architecture' );
 	}
 
 	private static function translation_job_publish_schema(): array {
@@ -318,6 +324,18 @@ trait Devenia_Workflow_Translation_Job {
 		$translation_id = absint( $job['translation_id'] ?? 0 );
 		if ( $translation_id < 1 ) {
 			return array( 'success' => false, 'code' => 'translation_missing', 'message' => 'The published Translation Job has no translation.' );
+		}
+		$authority = self::translation_job_validate_published_authority( $job, $translation_id, true );
+		if ( empty( $authority['success'] ) ) {
+			return array(
+				'success'        => false,
+				'passed'         => false,
+				'code'           => 'published_authority_invalid',
+				'authority_code' => sanitize_key( (string) ( $authority['code'] ?? '' ) ),
+				'job'            => self::translation_job_public_job( $job ),
+				'needs_retry'    => false,
+				'message'        => 'Live verification requires the exact published Job, Artifact, Quality, Evidence and applied-surface authority chain.',
+			);
 		}
 		$timeout = max( 2, min( 30, absint( $input['timeout'] ?? 5 ) ) );
 		$live = self::verify_live_translation(
@@ -972,6 +990,9 @@ trait Devenia_Workflow_Translation_Job {
 			return array( 'success' => false, 'code' => 'staged_surface_drifted', 'message' => 'The public translation surface changed after artifact submission.' );
 		}
 		$evidence_receipts = self::translation_job_quality_evidence_receipts( $job, $artifact_record, $input, $reviewer_principal, $decision );
+		if ( empty( $evidence_receipts['success'] ) ) {
+			return $evidence_receipts;
+		}
 		$qa = array(
 			'success' => ! empty( $artifact_record['staged_validation']['passed'] ),
 			'passed' => ! empty( $artifact_record['staged_validation']['passed'] ),
@@ -980,7 +1001,7 @@ trait Devenia_Workflow_Translation_Job {
 			'adapter' => 'staged_artifact_validation',
 		);
 		$publication_experience = self::publication_experience_readiness_for_post( $source, self::source_language_code(), 'source_for_staged_translation' );
-		if ( 'pass' === $decision && ( empty( $evidence_receipts['success'] ) || empty( $qa['passed'] ) || empty( $publication_experience['passed'] ) ) ) {
+		if ( 'pass' === $decision && ( empty( $qa['passed'] ) || empty( $publication_experience['passed'] ) ) ) {
 			return array( 'success' => false, 'code' => 'quality_pass_rejected', 'message' => 'A passing Quality Decision requires server-bound evidence receipts, staged deterministic QA, and source publication experience to pass.', 'evidence_receipts' => $evidence_receipts, 'qa' => $qa, 'publication_experience' => $publication_experience );
 		}
 		$evidence_record = ! empty( $evidence_receipts['record'] ) && is_array( $evidence_receipts['record'] ) ? $evidence_receipts['record'] : array();
@@ -1337,6 +1358,9 @@ trait Devenia_Workflow_Translation_Job {
 		$server_receipts = is_array( $artifact )
 			? self::translation_job_server_quality_receipts( $job, $artifact, (array) ( $run['principal'] ?? array() ) )
 			: array( 'success' => false, 'code' => 'artifact_record_missing' );
+		$rendered_preview = is_array( $artifact )
+			? self::translation_job_preview_descriptor( $job, $run, $artifact )
+			: array( 'success' => false, 'code' => 'artifact_record_missing' );
 		return array(
 			'contract_version' => 5,
 			'subagent_separation_contract' => self::translation_job_subagent_separation_contract(),
@@ -1352,6 +1376,7 @@ trait Devenia_Workflow_Translation_Job {
 			),
 			'artifact' => is_array( $artifact ) ? self::translation_job_bounded_artifact_view( $artifact ) : array(),
 			'surface_revision' => (string) ( $artifact['surface_revision'] ?? '' ),
+			'rendered_preview' => $rendered_preview,
 			'writer_principal' => is_array( $artifact['writer_principal'] ?? null ) ? $artifact['writer_principal'] : array(),
 			'links' => self::translation_job_link_policy( $source, (string) $job['target_language'] ),
 			'contact_actions' => array(
@@ -1367,9 +1392,9 @@ trait Devenia_Workflow_Translation_Job {
 				'server_receipt_error' => empty( $server_receipts['success'] ) ? $server_receipts : null,
 				'server_receipt_ids' => array_values( (array) ( $server_receipts['receipt_ids'] ?? array() ) ),
 				'server_receipts' => array_values( (array) ( $server_receipts['receipts'] ?? array() ) ),
-				'reviewer_attestations' => array( 'natural_language', 'factual_accuracy' ),
+				'reviewer_attestations' => self::translation_job_required_reviewer_attestation_kinds(),
 				'browser_receipts' => array( 'desktop:light', 'desktop:dark', 'mobile:light', 'mobile:dark' ),
-				'trust_model' => 'Workflow computes deterministic receipts. Natural-language and visual judgment remain explicit attestations from this fresh authenticated Quality Run.',
+				'trust_model' => 'Workflow computes deterministic receipts. Natural-language and factual judgment remain explicit attestations. Rendered information-architecture judgment requires four browser receipts from this packet\'s exact claim-bound staged preview.',
 			),
 			'submission_contract' => self::translation_job_submission_contract( 'quality' ),
 		);
@@ -1532,7 +1557,7 @@ trait Devenia_Workflow_Translation_Job {
 					'surface_revision' => '<packet.surface_revision>',
 					'decision' => 'pass|revise|reject',
 					'evidence_receipt_ids' => array( '<packet.evidence_contract.server_receipt_ids>' ),
-					'reviewer_attestations' => array( array( 'kind' => 'natural_language', 'passed' => true, 'observation' => '<concrete language evidence>' ), array( 'kind' => 'factual_accuracy', 'passed' => true, 'observation' => '<concrete fact evidence>' ) ),
+					'reviewer_attestations' => array( array( 'kind' => 'natural_language', 'passed' => true, 'observation' => '<concrete language evidence>' ), array( 'kind' => 'factual_accuracy', 'passed' => true, 'observation' => '<concrete fact evidence>' ), array( 'kind' => 'rendered_information_architecture', 'passed' => true, 'observation' => '<concrete desktop and mobile information-architecture evidence>' ) ),
 					'reviewer_observations' => '<concrete review summary>',
 					'browser_receipts' => array( '<four policy-bound browser receipt objects>' ),
 					'corrections' => array( '<required correction; omit array when empty>' ),

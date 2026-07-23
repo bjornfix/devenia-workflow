@@ -17,6 +17,20 @@ rules, translation provenance, and translation read models. Translation
 specific Interfaces retain `Translation` in their functional names while using
 the shared `Devenia_Workflow` product namespace.
 
+## Rendered Information Architecture Quality
+
+The independent judgment inside every customer-facing source and Translation
+Quality Run that decides whether native page structure helps the reader
+understand sequence, relationships, hierarchy, emphasis, and action at desktop
+and mobile widths. Design is functional and should recede: important material is
+emphasized selectively without nagging, while secondary detail remains calmly
+available. The Interface requires concrete revision-bound reviewer evidence and
+fails closed on both exhausting text walls and decorative repetition in which
+every point shouts. It never selects cards, columns, or another layout by item
+count, page identity, URL, language, or product name; the writer chooses the
+quietest native structure that serves the actual content, and Quality judges the
+rendered result independently.
+
 ## Bounded Artifact View
 
 The bounded read Interface through which translator correction Runs and
@@ -29,6 +43,22 @@ internal because its generated Gutenberg document and normalized presentation
 fragments duplicate the external work content without adding authority. Packet
 size is measured after this projection against the existing Run budget; the
 budget is not raised to compensate for internal serialization details.
+
+## Staged Preview Capability
+
+The short-lived, claim-bound Interface through which an independent Source or
+Translation Quality Run renders one exact immutable staged artifact through the
+site's canonical theme before publication. Its URL contains a scoped HMAC
+capability rather than a claim token, expires with the active Quality lease,
+and cannot mutate public content. Existing translations use their own theme
+shell; a translation with no WordPress post yet uses the canonical source post
+only as a non-mutating theme host while the Adapter projects the staged target
+content, locale, document language, and direction. Four desktop/mobile,
+light/dark Browser Render Receipts bind the artifact, complete surface,
+capability identity, exact host scope and post identity, viewport, language,
+direction, and claim time. The immutable evidence record retains the exact
+short-lived capability URL and digest but never the claim token; it re-resolves
+the current host and revalidates its own content address before public mutation.
 
 ## Translation Index Readiness
 
@@ -447,11 +477,27 @@ purpose, audience, facts, emphasis, prohibited claims, review questions, and
 contrasts as runtime data; Workflow contains no site-specific product copy,
 page IDs, or domains. Runs acknowledge the
 exact priming revision; uncertainty fails closed instead of becoming an invented
-rule. The Source Rewrite Publish Adapter alone receives request-local authority
+rule. Every Source Rewrite Quality packet includes the owning Site Presentation
+Adapter's deterministic validation of the exact proposed Gutenberg tree, and a
+passing decision is rejected when that validation is unavailable or fails. If a
+later public-write preflight still rejects an already approved artifact, the
+publish Adapter returns the Job to one fresh bounded correction generation (or
+marks it exhausted at the finite limit) instead of leaving an unpublishable
+`ready_to_publish` dead end. The Source Rewrite Publish Adapter alone receives request-local authority
 to cross both the neutral content-write preflight and final WordPress save seam.
 It consumes the prefixed `mcp_expose_validate_content_write_policy()` Interface
 owned by MCP Expose Abilities; Workflow never dispatches the owner's raw hook
 and fails closed when that Interface is unavailable.
+For rendered judgment, a Quality claim also receives one short-lived,
+unguessable Preview Capability URL. The URL renders the exact immutable Artifact
+through the canonical source's normal WordPress theme without mutating the
+public source, is bound to the active Quality Run and claim expiry, and becomes
+invalid when that claim terminates. It is noindex and no-store. A passing
+Quality Decision requires policy-sized desktop and mobile Browser Render
+Receipts whose artifact, copy revision, Preview Capability identity, viewport,
+layout digest, and screenshot digest all match that exact staged surface. The
+claim token is never placed in the URL, and no predictable public preview route
+exists.
 After exact storage and cache invalidation, a separate live verifier must find
 the approved reader-facing copy on origin and canonical surfaces before the new
 source hash becomes translation authority.

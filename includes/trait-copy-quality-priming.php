@@ -29,6 +29,8 @@ trait Devenia_Workflow_Copy_Quality_Priming {
 				'Emotion is not decoration. It comes from a recognizable stake, precise observation, credible consequence, and earned relief.',
 				'Long copy is justified when it carries useful proof. Short copy is justified when nothing necessary has been removed. Length itself proves nothing.',
 				'The whole page must form one intentional argument. A collection of individually polished cards can still be slop.',
+				'Design is not decoration. It helps the reader understand sequence, relationships, hierarchy, and action; it emphasizes what matters without nagging and keeps secondary detail calmly available.',
+				'Never choose cards, columns, or emphasis mechanically by item count. Choose the quietest native structure that serves the content, and reject both an exhausting text wall and a decorative card grid that makes every point shout.',
 			),
 			'ogilvy_examples'  => array(
 				array(
@@ -60,6 +62,32 @@ trait Devenia_Workflow_Copy_Quality_Priming {
 				'reject'           => 'Powerful tools that streamline work and help your business grow.',
 				'accept_direction' => 'A finished-looking result can still hide the one omission that changes the decision. Show the reader which concrete check exposes it before it causes harm.',
 				'why'              => 'The rejected line could advertise almost anything. The stronger direction names the threat, creates tension, identifies the actual mechanism, and makes the promised relief credible.',
+			),
+			'information_architecture_examples' => array(
+				array(
+					'situation' => 'dense sequential process',
+					'reject' => 'One uninterrupted numbered list whose explanations run the full desktop width and make every step visually equal.',
+					'accept_direction' => 'Keep the sequence explicit, but group each step into a calm native two-column desktop rhythm that collapses to one ordered column on mobile. Preserve causal order and give the decisive boundary more room only when the content earns it.',
+					'why' => 'The reader can scan the route, then slow down where the decision changes. The structure serves sequence instead of merely reducing vertical length.',
+				),
+				array(
+					'situation' => 'proof hierarchy',
+					'reject' => 'Six equally raised cards for one governing claim, two decisive facts, and three supporting details.',
+					'accept_direction' => 'Lead with the governing claim, place the two decisive facts beside or immediately beneath it, and keep the supporting evidence in a quieter list or disclosure.',
+					'why' => 'Evidence has rank. Giving every item equal visual weight hides which facts should change the buyer decision.',
+				),
+				array(
+					'situation' => 'secondary technical detail',
+					'reject' => 'A long requirements inventory inserted between the promise and its proof, forcing every reader through implementation detail.',
+					'accept_direction' => 'Keep the requirement summary visible, then use a native disclosure or compact table for exact versions, dependencies, and ownership details.',
+					'why' => 'The facts remain available and inspectable without breaking the commercial argument for readers who do not need every implementation detail yet.',
+				),
+				array(
+					'situation' => 'short content',
+					'reject' => 'Turning three short, related sentences into three cards only to make the section look designed.',
+					'accept_direction' => 'Leave the content as a heading and a concise paragraph or list when that is the clearest native structure.',
+					'why' => 'A short idea does not become clearer by acquiring more containers. Restraint is part of finished design.',
+				),
 			),
 			'anti_imitation_rule' => 'Do not imitate the era, syntax, luxury tone, or surface wording of the examples. Transfer the underlying discipline: researched facts, story appeal, usefulness, specificity, and a complete reason to act.',
 			'sources' => array(
@@ -113,7 +141,9 @@ trait Devenia_Workflow_Copy_Quality_Priming {
 				'Reconstruct the intended buyer, tension, result, promise, proof, product complexity, boundaries, emotional movement, and next action independently.',
 				'Test every important claim against a concrete fact or mechanism and every section against the whole-page purpose.',
 				'Read the proposed page aloud for human voice, cadence, cliché, repeated template shapes, and sentences that merely sound like marketing.',
+				'Inspect the complete rendered page at desktop and mobile widths. Judge whether structure and rhythm make the content easier to understand, whether emphasis is selective and useful, and whether the design recedes instead of calling attention to itself.',
 				'Reject the page if it is fluent but interchangeable, if it removes necessary complexity, if the feeling is unearned, or if the next action has no value for the buyer.',
+				'Reject structurally valid pages whose information architecture still produces a text wall, false hierarchy, monotonous repetition, or decorative card soup. Consider at least one quieter native alternative before deciding.',
 			);
 			$shared['role_contract'] = 'You are the independent Quality reviewer. Do not repair or rewrite the artifact. Decide pass or revise against the taught standard and cite exact page evidence for the decision.';
 		} elseif ( 'translator' === $role ) {
@@ -122,6 +152,7 @@ trait Devenia_Workflow_Copy_Quality_Priming {
 				'State privately who the buyer is, what is at stake, what relief the page earns, and which concrete product facts make the promise credible.',
 				'Do not translate mechanically. Recreate the same meaning, tension, usefulness, specificity, cadence, and value of the next action in natural target-language copy.',
 				'Preserve every fact, capability, boundary, link intent, and deliberate complexity. Never improve the page by inventing or omitting.',
+				'Review the inherited design at desktop and mobile widths after translation. Preserve the source layout tree, but return the artifact for revision if target-language expansion makes hierarchy, scanning, or emphasis fail.',
 				'Read the complete translation aloud. Reject calques, source-language rhythm, generic marketing filler, and wording that could belong to another product.',
 			);
 			$shared['role_contract'] = 'You are the translator. Produce one complete target-language artifact faithful to both factual meaning and emotional purpose. You do not approve your own work.';
@@ -131,6 +162,7 @@ trait Devenia_Workflow_Copy_Quality_Priming {
 				'State privately in one sentence who the buyer is, what is at stake, what changes after success, and why this product can credibly cause that change.',
 				'Choose the central tension and the specific mechanism that resolves it. Make every section advance that same argument.',
 				'Preserve difficult product depth, boundaries, and proof. Compression that removes the reason to believe is failure.',
+				'Choose native information architecture for the actual content, not from a template or item count. At desktop and mobile widths, the design must clarify sequence and importance without turning every point into a card or visual demand.',
 				'Read the finished page aloud. Remove template rhythm, abstract noun chains, filler, false grandeur, and any sentence that could belong to another product.',
 			);
 			$shared['role_contract'] = 'You are the source writer. Create one complete, purposeful artifact. You do not approve your own work and you do not write to satisfy evidence-field lengths.';
