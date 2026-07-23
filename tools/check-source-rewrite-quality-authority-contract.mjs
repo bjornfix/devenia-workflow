@@ -77,7 +77,9 @@ assert.match(authority, /source_rewrite_validate_browser_receipts[\s\S]*desktop:
 assert.match(authority, /source_rewrite_validate_browser_receipts[\s\S]*response_digest[\s\S]*document_language[\s\S]*document_direction/);
 assert.match(authority, /source_rewrite_preview_request_matches[\s\S]*page_id[\s\S]*post_id[\s\S]*expected_id/);
 assert.match(authority, /browser_receipts[\s\S]*preview_identity/);
-assert.match(authority, /DONOTCACHEPAGE[\s\S]*X-Robots-Tag: noindex, nofollow, noarchive[\s\S]*Referrer-Policy: no-referrer/);
+assert.match(previewCapability, /staged_preview_prevent_page_cache[\s\S]*DONOTCACHEPAGE[\s\S]*WordPress\.NamingConventions\.PrefixAllGlobals\.NonPrefixedConstantFound/);
+assert.match(authority, /staged_preview_prevent_page_cache[\s\S]*X-Robots-Tag: noindex, nofollow, noarchive[\s\S]*Referrer-Policy: no-referrer/);
+assert.doesNotMatch(authority, /define\(\s*'DONOTCACHEPAGE'/);
 assert.doesNotMatch(authority, /add_query_arg\([^;]*claim_token/);
 
 assert.match(translation, /translation_job_translation_packet[\s\S]*role_priming'\s*=>\s*self::translation_job_role_priming\( 'translator'/);

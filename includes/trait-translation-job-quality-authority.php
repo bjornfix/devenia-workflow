@@ -1169,7 +1169,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				if ( is_object( $query ) ) { $query->is_404 = false; $query->is_singular = true; $query->is_page = 'page' === (string) $host->post_type; $query->is_single = 'post' === (string) $host->post_type; $query->post_count = 1; $query->found_posts = 1; }
 			}
 		}
-		if ( ! defined( 'DONOTCACHEPAGE' ) ) { define( 'DONOTCACHEPAGE', true ); }
+		self::staged_preview_prevent_page_cache();
 		return $posts;
 	}
 

@@ -1521,9 +1521,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 				}
 			}
 		}
-		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
-			define( 'DONOTCACHEPAGE', true );
-		}
+		self::staged_preview_prevent_page_cache();
 		return $posts;
 	}
 

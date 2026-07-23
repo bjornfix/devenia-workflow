@@ -10,6 +10,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 trait Devenia_Workflow_Staged_Preview_Capability {
+	/** Keep an authorized staged preview out of ecosystem page caches. */
+	private static function staged_preview_prevent_page_cache(): void {
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- Established page-cache interoperability constant; this plugin only sets it for an authorized staged preview request.
+		}
+	}
+
 	private static function staged_preview_clean_id( string $value ): string {
 		return substr( sanitize_key( $value ), 0, 96 );
 	}
