@@ -1191,6 +1191,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 
 	/** Return the validated request-local target context for one staged preview. */
 	private static function translation_job_active_preview_context(): array {
+		global $wp_query;
+		if ( ! $wp_query instanceof WP_Query ) { return array(); }
 		$token = (string) get_query_var( 'devenia_translation_artifact_preview' );
 		$authority = '' !== $token ? self::translation_job_preview_authority( $token ) : array();
 		if ( empty( $authority['success'] ) || ! self::translation_job_preview_request_matches( $authority ) ) { return array(); }

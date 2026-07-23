@@ -12,6 +12,13 @@ if [[ -z "$wp_path" || ! -d "$wp_path" ]]; then
 	exit 2
 fi
 
+preview_lifecycle_result="$("$php_bin" "$plugin_root/tools/check-translation-preview-context-lifecycle-runtime.php")"
+printf '%s\n' "$preview_lifecycle_result"
+if [[ "$preview_lifecycle_result" != 'Translation Preview Context lifecycle runtime passed.' ]]; then
+	printf '%s\n' 'Translation Preview Context lifecycle runtime did not return the exact success proof.' >&2
+	exit 1
+fi
+
 route_result="$("$php_bin" "$plugin_root/tools/check-new-page-localized-path-contract.php")"
 printf '%s\n' "$route_result"
 if [[ "$route_result" != 'New-page localized-path contract passed.' ]]; then
