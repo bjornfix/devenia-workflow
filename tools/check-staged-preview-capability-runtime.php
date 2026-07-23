@@ -20,9 +20,15 @@ function status_header( int $code ): void { $GLOBALS['staged_preview_status_head
 
 final class Staged_Preview_Query_Runtime {
 	public bool $is_404 = false;
+	/** @var array<string,int> */
+	private array $vars;
+	/** @param array<string,int> $vars */
+	public function __construct( array $vars = array() ) { $this->vars = $vars; }
+	public function get( string $key ): int { return (int) ( $this->vars[ $key ] ?? 0 ); }
 	public function set_404(): void { $this->is_404 = true; }
 }
 $GLOBALS['wp_query'] = new Staged_Preview_Query_Runtime();
+$GLOBALS['wp'] = (object) array( 'query_vars' => array( 'page_id' => 15001 ) );
 
 require_once dirname( __DIR__ ) . '/includes/trait-staged-preview-capability.php';
 
@@ -41,6 +47,10 @@ final class Devenia_Workflow_Staged_Preview_Capability_Runtime_Test {
 	public static function apply_response_policy( bool $authorized ): void {
 		self::staged_preview_apply_response_policy( $authorized );
 	}
+
+	public static function request_matches( int $expected_id, $query = null ): bool {
+		return self::staged_preview_request_matches_id( $expected_id, $query );
+	}
 }
 
 $source_host = 'canonical_source_theme_shell:15001';
@@ -54,6 +64,14 @@ if (
 	|| $source_host !== (string) ( $parts['host_identity'] ?? '' )
 ) {
 	throw new RuntimeException( 'A staged-preview capability did not bind the resolved preview host identity.' );
+}
+
+if (
+	! Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001 )
+	|| ! Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime( array( 'p' => 15001 ) ) )
+	|| Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime( array( 'page_id' => 15001, 'p' => 15001 ) ) )
+) {
+	throw new RuntimeException( 'Staged-preview request identity did not preserve the parsed request query-ID route or fail closed on conflicts.' );
 }
 
 Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::apply_response_policy( false );

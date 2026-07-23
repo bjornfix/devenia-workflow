@@ -342,7 +342,7 @@ requireMatch(/\$missing\s*\|\|\s*\$invalid[\s\S]*browser_receipts_incomplete/, "
 requireMatch(/filter_translation_job_preview_posts[\s\S]*canonical_source_theme_shell|preview_host_scope[\s\S]*canonical_source_theme_shell/, "New translations must use the canonical source theme shell without a public mutation");
 requireMatch(/translation_job_validate_stored_browser_receipts[\s\S]*preview_identity[\s\S]*reviewer_attested_exact_staged_preview/, "Publication must revalidate immutable exact-preview browser evidence");
 requireMatch(/filter_translation_job_preview_post_metadata[\s\S]*array_key_exists[\s\S]*return array\( \$metadata\[ \$meta_key \] \)/, "Translation Preview Metadata Adapter must return one outer metadata-value list so WordPress can safely unwrap associative staged values for single reads");
-requireMatch(/translation_job_preview_request_matches[\s\S]*page_id[\s\S]*post_id[\s\S]*expected_id/, "Translation preview capability must be bound to its exact request host");
+requireMatch(/translation_job_preview_request_matches[\s\S]*staged_preview_request_matches_id/, "Translation preview capability must delegate exact request-host identity to the shared request Adapter");
 if (!/add_action\(\s*'template_redirect',\s*array\(\s*__CLASS__,\s*'apply_translation_job_preview_response_policy'\s*\),\s*0\s*\)/.test(mainSource)) {
 	failures.push("Translation Preview Response Policy must run before WordPress canonical redirect priority 10");
 }

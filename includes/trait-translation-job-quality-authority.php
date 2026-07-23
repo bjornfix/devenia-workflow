@@ -1141,11 +1141,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	}
 
 	private static function translation_job_preview_request_matches( array $authority, $query = null ): bool {
-		$query = is_object( $query ) ? $query : ( $GLOBALS['wp_query'] ?? null );
-		$page_id = is_object( $query ) && is_callable( array( $query, 'get' ) ) ? absint( $query->get( 'page_id' ) ) : 0;
-		$post_id = is_object( $query ) && is_callable( array( $query, 'get' ) ) ? absint( $query->get( 'p' ) ) : 0;
 		$expected_id = absint( $authority['preview_host_id'] ?? 0 );
-		return $expected_id > 0 && 1 === count( array_filter( array( $page_id, $post_id ) ) ) && $expected_id === max( $page_id, $post_id );
+		return self::staged_preview_request_matches_id( $expected_id, $query );
 	}
 
 	/** @param array<int,mixed> $posts @return array<int,mixed> */

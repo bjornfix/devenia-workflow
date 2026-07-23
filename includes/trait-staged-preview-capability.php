@@ -10,6 +10,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 trait Devenia_Workflow_Staged_Preview_Capability {
+	/** Match the exact query-ID route before WordPress canonicalizes it. */
+	private static function staged_preview_request_matches_id( int $expected_id, $query = null ): bool {
+		if ( is_object( $query ) && is_callable( array( $query, 'get' ) ) ) {
+			$page_id = absint( $query->get( 'page_id' ) );
+			$post_id = absint( $query->get( 'p' ) );
+		} else {
+			$request_query = is_object( $GLOBALS['wp'] ?? null ) && is_array( $GLOBALS['wp']->query_vars ?? null ) ? $GLOBALS['wp']->query_vars : array();
+			$page_id = absint( $request_query['page_id'] ?? 0 );
+			$post_id = absint( $request_query['p'] ?? 0 );
+		}
+		return $expected_id > 0 && 1 === count( array_filter( array( $page_id, $post_id ) ) ) && $expected_id === max( $page_id, $post_id );
+	}
+
 	/** Apply the fail-closed response boundary for one resolved staged-preview request. */
 	private static function staged_preview_apply_response_policy( bool $authorized ): void {
 		if ( ! $authorized ) {
