@@ -98,7 +98,7 @@ Uninstall removes plugin-owned options and custom workflow tables. It does not d
 
 = 0.1.680 =
 * Let native design-only source changes reach exact-artifact independent rendered Quality while rejecting unchanged artifacts.
-* Restore claim-bound Translation previews for the lifecycle's actual `quality_pending` state while rejecting every malformed cross-record binding.
+* Restore claim-bound Translation previews for the lifecycle's actual `quality_pending` state while rejecting malformed, cross-Job, wrong-generation, wrong-contract, and expired bindings.
 
 = 0.1.679 =
 * Verify equivalent homepage URLs and reversible Cloudflare-protected mailto actions without weakening exact live action checks.
