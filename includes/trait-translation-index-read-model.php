@@ -186,7 +186,7 @@ trait Devenia_Workflow_Translation_Index_Read_Model {
 		$source_url = $source_id ? (string) get_permalink( $source_id ) : '';
 		$target_url = (string) get_permalink( $translation_id );
 		$target_url = $target_url ?: '';
-		$source_path = $source_url ? self::frontend_route_path_from_url( $source_url ) : '';
+		$source_path = $source_url ? self::normalized_url_path( $source_url ) : '';
 		$target_path = $target_url ? self::frontend_route_path_from_url( $target_url ) : '';
 		$localized_path = self::localized_path_for_post( $translation_id, $language );
 

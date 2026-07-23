@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.671
+**Stable tag:** 0.1.670
 
 **License:** GPLv2 or later
 
@@ -152,10 +152,6 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
-
-### 0.1.671
-
-- Preserves WordPress query-permalink source identity in the Translation Index instead of collapsing it into homepage authority.
 
 ### 0.1.670
 
