@@ -266,6 +266,7 @@ try {
 	$existing_claim = array_merge( $claim, array( 'job_id' => $existing_job_id, 'run_id' => $existing_run_id ) );
 	$existing_artifact = $call_private( 'translation_job_unpack_artifact_record', array( $artifact ) );
 	$existing_artifact['job_id'] = $existing_job_id; $existing_artifact['artifact_revision'] = $existing_artifact_revision; $existing_artifact['translation_id'] = (int) $existing_translation_id;
+	$existing_artifact['surface_manifest']['job_id'] = $existing_job_id;
 	$existing_artifact = $call_private( 'translation_job_pack_artifact_record', array( $existing_artifact ) );
 	$existing_keys = array( 'devenia_workflow_translation_job_' . $existing_job_id, 'devenia_workflow_translation_run_' . $existing_run_id, 'devenia_workflow_translation_job_claim_' . $existing_job_id, 'devenia_workflow_translation_artifact_' . $existing_artifact_revision );
 	$option_keys = array_merge( $option_keys, $existing_keys );
