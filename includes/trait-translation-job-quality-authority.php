@@ -1140,9 +1140,9 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		}
 	}
 
-	private static function translation_job_preview_request_matches( array $authority, $query = null ): bool {
+	private static function translation_job_preview_request_matches( array $authority, $query = null, ?array $resolved_posts = null ): bool {
 		$expected_id = absint( $authority['preview_host_id'] ?? 0 );
-		return self::staged_preview_request_matches_id( $expected_id, $query );
+		return self::staged_preview_request_matches_id( $expected_id, $query, $resolved_posts );
 	}
 
 	/** @param array<int,mixed> $posts @return array<int,mixed> */
@@ -1150,7 +1150,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$token = (string) get_query_var( 'devenia_translation_artifact_preview' );
 		if ( '' === $token ) { return $posts; }
 		$authority = self::translation_job_preview_authority( $token );
-		if ( empty( $authority['success'] ) || ! self::translation_job_preview_request_matches( $authority, $query ) ) { return $posts; }
+		if ( empty( $authority['success'] ) || ! self::translation_job_preview_request_matches( $authority, $query, $posts ) ) { return $posts; }
 		$artifact = $authority['artifact'];
 		$source_id = absint( $authority['job']['source_id'] ?? 0 );
 		$host_id = absint( $authority['preview_host_id'] ?? 0 );
@@ -1164,8 +1164,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				$posts[ $index ] = $preview; $matched = true;
 			}
 		}
-		$query_host_id = is_object( $query ) && is_callable( array( $query, 'get' ) ) ? max( absint( $query->get( 'page_id' ) ), absint( $query->get( 'p' ) ) ) : 0;
-		if ( ! $matched && $host_id === $query_host_id ) {
+		if ( ! $matched ) {
 			$host = get_post( $host_id );
 			if ( $host instanceof WP_Post ) {
 				$preview = clone $host; $preview->post_title = (string) ( $content['title'] ?? '' ); $preview->post_excerpt = (string) ( $content['excerpt'] ?? '' ); $preview->post_content = (string) ( $content['gutenberg'] ?? '' ); $preview->post_status = 'publish';

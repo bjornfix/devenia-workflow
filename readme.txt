@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.673
+Stable tag: 0.1.674
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -95,6 +95,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.674 =
+* Project staged bytes only when the normalized main query and its original query-ID request resolve to the same exact WordPress object.
 
 = 0.1.673 =
 * Bind staged-preview response policy to the original query-ID request before WordPress normalizes the main query for canonical redirects.

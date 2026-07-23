@@ -1490,9 +1490,9 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		return array( 'success' => true, 'job' => $job, 'run' => $run, 'claim' => $claim, 'artifact' => $artifact, 'preview_identity' => hash( 'sha256', (string) $parts['token'] ), 'preview_host_id' => absint( $job['source_id'] ?? 0 ), 'preview_host_scope' => 'canonical_source_theme_shell' );
 	}
 
-	private static function source_rewrite_preview_request_matches( array $authority, $query = null ): bool {
+	private static function source_rewrite_preview_request_matches( array $authority, $query = null, ?array $resolved_posts = null ): bool {
 		$expected_id = absint( $authority['job']['source_id'] ?? 0 );
-		return self::staged_preview_request_matches_id( $expected_id, $query );
+		return self::staged_preview_request_matches_id( $expected_id, $query, $resolved_posts );
 	}
 
 	/** @param array<int,mixed> $posts @return array<int,mixed> */
@@ -1502,7 +1502,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			return $posts;
 		}
 		$authority = self::source_rewrite_preview_authority( $token );
-		if ( empty( $authority['success'] ) || ! self::source_rewrite_preview_request_matches( $authority, $query ) ) {
+		if ( empty( $authority['success'] ) || ! self::source_rewrite_preview_request_matches( $authority, $query, $posts ) ) {
 			return $posts;
 		}
 		$source_id = absint( $authority['job']['source_id'] ?? 0 );
@@ -1518,10 +1518,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 				$matched = true;
 			}
 		}
-		$query_source_id = is_object( $query ) && is_callable( array( $query, 'get' ) )
-			? max( absint( $query->get( 'page_id' ) ), absint( $query->get( 'p' ) ) )
-			: 0;
-		if ( ! $matched && $source_id === $query_source_id ) {
+		if ( ! $matched ) {
 			$source = get_post( $source_id );
 			if ( $source instanceof WP_Post ) {
 				$preview = clone $source;

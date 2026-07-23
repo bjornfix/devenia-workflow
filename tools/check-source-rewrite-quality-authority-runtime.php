@@ -564,6 +564,8 @@ $preview_posts = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test:
 $foreign_host_posts = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::preview_posts( array( $source ), new Source_Rewrite_Preview_Query( 99999 ) );
 $source->post_status = 'draft';
 $draft_preview_posts = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::preview_posts( array(), new Source_Rewrite_Preview_Query( 41811 ) );
+$GLOBALS['wp'] = (object) array( 'query_vars' => array( 'page_id' => 41811 ) );
+$normalized_draft_preview_posts = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::preview_posts( array(), new Source_Rewrite_Preview_Query( 0 ) );
 $source->post_status = 'publish';
 if (
 	empty( $quality_preview['preview_identity'] )
@@ -573,6 +575,7 @@ if (
 	|| $slop_content !== (string) $preview_posts[0]->post_content
 	|| $source->post_content !== (string) ( $foreign_host_posts[0]->post_content ?? '' )
 	|| ! isset( $draft_preview_posts[0] ) || ! $draft_preview_posts[0] instanceof WP_Post || $slop_content !== (string) $draft_preview_posts[0]->post_content
+	|| ! isset( $normalized_draft_preview_posts[0] ) || ! $normalized_draft_preview_posts[0] instanceof WP_Post || $slop_content !== (string) $normalized_draft_preview_posts[0]->post_content
 	|| $slop_content === (string) $source->post_content
 ) {
 	throw new RuntimeException( 'The Quality claim did not receive an unguessable, non-mutating preview of the exact staged artifact.' );

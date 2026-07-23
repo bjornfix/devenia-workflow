@@ -11,16 +11,35 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 trait Devenia_Workflow_Staged_Preview_Capability {
 	/** Match the exact query-ID route before WordPress canonicalizes it. */
-	private static function staged_preview_request_matches_id( int $expected_id, $query = null ): bool {
+	private static function staged_preview_request_matches_id( int $expected_id, $query = null, ?array $resolved_posts = null ): bool {
 		if ( is_object( $query ) && is_callable( array( $query, 'get' ) ) ) {
 			$page_id = absint( $query->get( 'page_id' ) );
 			$post_id = absint( $query->get( 'p' ) );
+			if ( 0 === $page_id && 0 === $post_id ) {
+				$request_query = is_object( $GLOBALS['wp'] ?? null ) && is_array( $GLOBALS['wp']->query_vars ?? null ) ? $GLOBALS['wp']->query_vars : array();
+				$page_id = absint( $request_query['page_id'] ?? 0 );
+				$post_id = absint( $request_query['p'] ?? 0 );
+			}
 		} else {
 			$request_query = is_object( $GLOBALS['wp'] ?? null ) && is_array( $GLOBALS['wp']->query_vars ?? null ) ? $GLOBALS['wp']->query_vars : array();
 			$page_id = absint( $request_query['page_id'] ?? 0 );
 			$post_id = absint( $request_query['p'] ?? 0 );
 		}
-		return $expected_id > 0 && 1 === count( array_filter( array( $page_id, $post_id ) ) ) && $expected_id === max( $page_id, $post_id );
+		if ( $expected_id < 1 || 1 !== count( array_filter( array( $page_id, $post_id ) ) ) || $expected_id !== max( $page_id, $post_id ) ) {
+			return false;
+		}
+		if ( null === $resolved_posts ) {
+			return true;
+		}
+		$resolved_ids = array_values(
+			array_unique(
+				array_map(
+					static function ( WP_Post $post ): int { return (int) $post->ID; },
+					array_filter( $resolved_posts, static function ( $post ): bool { return $post instanceof WP_Post; } )
+				)
+			)
+		);
+		return empty( $resolved_ids ) || ( 1 === count( $resolved_ids ) && $expected_id === $resolved_ids[0] );
 	}
 
 	/** Apply the fail-closed response boundary for one resolved staged-preview request. */

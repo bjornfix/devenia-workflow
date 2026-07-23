@@ -20,6 +20,8 @@ $existing_translation_id = 0;
 $option_keys = array();
 $query = $GLOBALS['wp_query'] ?? null;
 $previous_preview = $query instanceof WP_Query ? $query->get( 'devenia_translation_artifact_preview' ) : null;
+$request = $GLOBALS['wp'] ?? null;
+$previous_request_query_vars = is_object( $request ) && is_array( $request->query_vars ?? null ) ? $request->query_vars : null;
 $preview_query_entries = 0;
 $count_preview_query_entries = static function ( array $posts ) use ( &$preview_query_entries ): array {
 	++$preview_query_entries;
@@ -114,6 +116,9 @@ try {
 	$language = Devenia_Workflow::frontend_language();
 	$entries_before_preview_projection = $preview_query_entries;
 	$preview_posts = Devenia_Workflow::filter_translation_job_preview_posts( array( get_post( $source_id ) ), $query );
+	$normalized_query = new WP_Query();
+	if ( is_object( $request ) ) { $request->query_vars = array( 'p' => (int) $source_id, 'devenia_translation_artifact_preview' => $token ); }
+	$normalized_empty_preview_posts = Devenia_Workflow::filter_translation_job_preview_posts( array(), $normalized_query );
 	$preview_projection_query_entries = $preview_query_entries - $entries_before_preview_projection;
 	$foreign_query = new WP_Query(); $foreign_query->set( 'p', (int) $source_id + 999 );
 	$foreign_posts = Devenia_Workflow::filter_translation_job_preview_posts( array( get_post( $source_id ) ), $foreign_query );
@@ -132,6 +137,7 @@ try {
 		|| 1 !== count( $preview_posts )
 		|| $preview_projection_query_entries > 1
 		|| $target_content !== (string) ( $preview_posts[0]->post_content ?? '' )
+		|| $target_content !== (string) ( $normalized_empty_preview_posts[0]->post_content ?? '' )
 		|| $source_content !== (string) ( $foreign_posts[0]->post_content ?? '' )
 		|| 'nb' !== (string) ( $presentation['language'] ?? '' )
 		|| 'Iscenesatt SEO-tittel' !== $preview_seo_title
@@ -211,4 +217,5 @@ try {
 	if ( $source_id > 0 ) { wp_delete_post( $source_id, true ); }
 	if ( $existing_translation_id > 0 ) { wp_delete_post( $existing_translation_id, true ); }
 	if ( $query instanceof WP_Query ) { $query->set( 'devenia_translation_artifact_preview', $previous_preview ); }
+	if ( is_object( $request ) && is_array( $previous_request_query_vars ) ) { $request->query_vars = $previous_request_query_vars; }
 }

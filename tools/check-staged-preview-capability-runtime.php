@@ -18,6 +18,11 @@ function remove_action( string $hook, $callback, int $priority = 10 ): bool {
 }
 function status_header( int $code ): void { $GLOBALS['staged_preview_status_headers'][] = $code; }
 
+final class WP_Post {
+	public int $ID;
+	public function __construct( int $id ) { $this->ID = $id; }
+}
+
 final class Staged_Preview_Query_Runtime {
 	public bool $is_404 = false;
 	/** @var array<string,int> */
@@ -48,8 +53,8 @@ final class Devenia_Workflow_Staged_Preview_Capability_Runtime_Test {
 		self::staged_preview_apply_response_policy( $authorized );
 	}
 
-	public static function request_matches( int $expected_id, $query = null ): bool {
-		return self::staged_preview_request_matches_id( $expected_id, $query );
+	public static function request_matches( int $expected_id, $query = null, ?array $resolved_posts = null ): bool {
+		return self::staged_preview_request_matches_id( $expected_id, $query, $resolved_posts );
 	}
 }
 
@@ -69,6 +74,10 @@ if (
 if (
 	! Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001 )
 	|| ! Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime( array( 'p' => 15001 ) ) )
+	|| ! Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime(), array( new WP_Post( 15001 ) ) )
+	|| ! Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime(), array() )
+	|| Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime(), array( new WP_Post( 999 ) ) )
+	|| Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime(), array( new WP_Post( 15001 ), new WP_Post( 999 ) ) )
 	|| Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime( array( 'page_id' => 15001, 'p' => 15001 ) ) )
 ) {
 	throw new RuntimeException( 'Staged-preview request identity did not preserve the parsed request query-ID route or fail closed on conflicts.' );
