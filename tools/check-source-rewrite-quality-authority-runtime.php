@@ -41,6 +41,29 @@ final class WP_Error {
 	public function get_error_data() { return $this->data; }
 }
 
+final class WP_HTML_Tag_Processor {
+	/** @var array<int,string> */
+	private array $tags = array();
+	private int $index = -1;
+
+	public function __construct( string $html ) {
+		$html = preg_replace( '/<!--.*?-->|<(script|style)\b[^>]*>.*?<\/\1>/isu', '', $html ) ?? $html;
+		preg_match_all( '/<[a-z][^>]*>/isu', $html, $matches );
+		$this->tags = array_values( (array) ( $matches[0] ?? array() ) );
+	}
+
+	public function next_tag(): bool {
+		$this->index++;
+		return isset( $this->tags[ $this->index ] );
+	}
+
+	public function get_attribute( string $name ) {
+		$tag = $this->tags[ $this->index ] ?? '';
+		$pattern = '/\b' . preg_quote( $name, '/' ) . '\s*=\s*(["\'])(.*?)\1/isu';
+		return preg_match( $pattern, $tag, $match ) ? (string) ( $match[2] ?? '' ) : null;
+	}
+}
+
 final class Source_Rewrite_Preview_Query {
 	private int $source_id;
 	public bool $is_404 = true;
@@ -92,6 +115,9 @@ function get_option( string $key ) { return $GLOBALS['srq_options'][ $key ] ?? f
 function update_option( string $key, $value, bool $autoload = false ): bool { unset( $autoload ); $GLOBALS['srq_options'][ $key ] = $value; return true; }
 function is_wp_error( $value ): bool { return $value instanceof WP_Error; }
 function esc_url_raw( $value ): string { return trim( (string) $value ); }
+function wp_parse_url( string $url, int $component = -1 ) { return parse_url( $url, $component ); }
+function trailingslashit( string $value ): string { return rtrim( $value, '/' ) . '/'; }
+function untrailingslashit( string $value ): string { return rtrim( $value, '/' ); }
 function get_permalink( $post ): string { $post_id = $post instanceof WP_Post ? $post->ID : (int) $post; return 'https://example.test/plugins/source-' . $post_id . '/'; }
 function home_url( string $path = '/' ): string { return 'https://example.test' . $path; }
 function get_post_meta( int $post_id, string $key, bool $single = false ) { unset( $single ); return $GLOBALS['srq_meta'][ $post_id ][ $key ] ?? ''; }
@@ -159,11 +185,13 @@ function wp_update_post( array $data, bool $wp_error = false ) {
 }
 
 require_once dirname( __DIR__ ) . '/includes/trait-copy-quality-priming.php';
+require_once dirname( __DIR__ ) . '/includes/trait-reader-surface-equivalence.php';
 require_once dirname( __DIR__ ) . '/includes/trait-staged-preview-capability.php';
 require_once dirname( __DIR__ ) . '/includes/trait-source-rewrite-quality-authority.php';
 
 final class Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test {
 	use Devenia_Workflow_Copy_Quality_Priming;
+	use Devenia_Workflow_Reader_Surface_Equivalence;
 	use Devenia_Workflow_Staged_Preview_Capability;
 	use Devenia_Workflow_Source_Rewrite_Quality_Authority;
 	public const META_SOURCE_CONTENT_INTEGRITY_REVIEW_HASH = '_devenia_translation_source_content_integrity_review_hash';
@@ -235,7 +263,26 @@ final class Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test {
 		if ( 'missing_word' === $GLOBALS['srq_reader_mutation'] ) {
 			$rendered = str_replace( 'mechanism can make relief', 'mechanism can make', $rendered );
 		} elseif ( 'wrong_action' === $GLOBALS['srq_reader_mutation'] ) {
-			$rendered = str_replace( 'https://example.test/start/', 'https://example.test/wrong/', $rendered );
+			$rendered = str_replace( 'mailto:contact@example.test?subject=Workflow%20setup', 'mailto:wrong@example.test?subject=Workflow%20setup', $rendered );
+		} elseif ( 'cloudflare_email_protection' === $GLOBALS['srq_reader_mutation'] ) {
+			$rendered = str_replace(
+				'mailto:contact@example.test?subject=Workflow%20setup',
+				'/cdn-cgi/l/email-protection#92f1fdfce6f3f1e6d2f7eaf3ffe2fef7bce6f7e1e6ade1e7f0f8f7f1e6afc5fde0f9f4fefde5b7a0a2e1f7e6e7e2',
+				$rendered
+			);
+		} elseif ( 'cloudflare_wrong_email_protection' === $GLOBALS['srq_reader_mutation'] ) {
+			$rendered = str_replace(
+				'mailto:contact@example.test?subject=Workflow%20setup',
+				'/cdn-cgi/l/email-protection#92f7e4fbfed2f7eaf3ffe2fef7bce6f7e1e6adfcf7eae6affff3fbfee6fda8f1fdfce6f3f1e6d2f7eaf3ffe2fef7bce6f7e1e6ade1e7f0f8f7f1e6afc5fde0f9f4fefde5b7a0a2e1f7e6e7e2',
+				$rendered
+			);
+		} elseif ( 'root_without_slash' === $GLOBALS['srq_reader_mutation'] ) {
+			$rendered = str_replace( 'href="https://example.test/"', 'href="https://example.test"', $rendered );
+		} elseif ( 'non_root_added_slash' === $GLOBALS['srq_reader_mutation'] ) {
+			$rendered = str_replace( 'href="https://example.test/exact-resource"', 'href="https://example.test/exact-resource/"', $rendered );
+		} elseif ( 'script_only_action' === $GLOBALS['srq_reader_mutation'] ) {
+			$rendered = str_replace( 'href="https://example.test/exact-resource"', 'href="https://example.test/wrong-resource"', $rendered );
+			$rendered .= '<script>const removedAction = \'href="https://example.test/exact-resource"\';</script>';
 		}
 		return array( 'success' => true, 'status_code' => 200, 'final_url' => get_permalink( 41811 ), 'body' => '<html lang="en"><body><h1>' . $post->post_title . '</h1>' . $rendered . '</body></html>' );
 	}
@@ -661,7 +708,7 @@ $writer2 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::claim
 $writer2_packet = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::fetch(
 	array( 'job_id' => $job_id, 'run_id' => 'sr_writer_2', 'claim_token' => $writer2['claim_token'] ?? '' )
 );
-$strong_content = source_fixture( 'proof' ) . "\n<!-- wp:paragraph --><p>A writer's judgment protects the site's promise because AI can't approve the plugin's own work.</p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p>The words must make the risk felt before the mechanism can make relief believable.</p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"https://example.test/start/\">See whether Workflow fits.</a></p><!-- /wp:paragraph -->";
+$strong_content = source_fixture( 'proof' ) . "\n<!-- wp:paragraph --><p>A writer's judgment protects the site's promise because AI can't approve the plugin's own work.</p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p>The words must make the risk felt before the mechanism can make relief believable.</p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"https://example.test/start/\">See whether Workflow fits.</a></p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"mailto:contact@example.test?subject=Workflow%20setup\">Ask about the smallest useful workflow.</a></p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"https://example.test/\">Return home.</a></p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"https://example.test/exact-resource\">Open the exact resource.</a></p><!-- /wp:paragraph -->";
 $strong_artifact = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::submit_artifact(
 	array(
 		'job_id'             => $job_id,
@@ -827,6 +874,31 @@ if ( $source->post_content !== $strong_content_g3 ) {
 }
 
 $verified = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+$GLOBALS['srq_reader_mutation'] = 'cloudflare_email_protection';
+$cloudflare_protected_action = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if ( empty( $cloudflare_protected_action['success'] ) ) {
+	throw new RuntimeException( 'A reversible Cloudflare Email Protection href no longer proved the exact approved mailto action.' );
+}
+$GLOBALS['srq_reader_mutation'] = 'cloudflare_wrong_email_protection';
+$cloudflare_wrong_action = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if ( ! empty( $cloudflare_wrong_action['success'] ) || 'source_rewrite_live_verification_failed' !== (string) ( $cloudflare_wrong_action['code'] ?? '' ) ) {
+	throw new RuntimeException( 'A Cloudflare-protected wrong mailto destination passed through an approved action hidden in its query.' );
+}
+$GLOBALS['srq_reader_mutation'] = 'root_without_slash';
+$root_without_slash = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if ( empty( $root_without_slash['success'] ) ) {
+	throw new RuntimeException( 'The live Source Rewrite verifier rejected equivalent homepage actions with and without the root slash.' );
+}
+$GLOBALS['srq_reader_mutation'] = 'non_root_added_slash';
+$non_root_added_slash = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if ( ! empty( $non_root_added_slash['success'] ) || 'source_rewrite_live_verification_failed' !== (string) ( $non_root_added_slash['code'] ?? '' ) ) {
+	throw new RuntimeException( 'A non-root customer-action destination changed by a trailing slash passed exact verification.' );
+}
+$GLOBALS['srq_reader_mutation'] = 'script_only_action';
+$script_only_action = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if ( ! empty( $script_only_action['success'] ) || 'source_rewrite_live_verification_failed' !== (string) ( $script_only_action['code'] ?? '' ) ) {
+	throw new RuntimeException( 'Action-like text inside a script satisfied a missing real customer-action attribute.' );
+}
 $GLOBALS['srq_reader_mutation'] = 'missing_word';
 $missing_word = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
 if ( ! empty( $missing_word['success'] ) || 'source_rewrite_live_verification_failed' !== (string) ( $missing_word['code'] ?? '' ) ) {

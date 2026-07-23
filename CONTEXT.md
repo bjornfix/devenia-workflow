@@ -60,6 +60,16 @@ direction, and claim time. The immutable evidence record retains the exact
 short-lived capability URL and digest but never the claim token; it re-resolves
 the current host and revalidates its own content address before public mutation.
 
+## Reader Surface Equivalence
+
+The normalization inside live verification that compares an approved customer
+action or internal route with its reader-facing representation. Its Interface
+preserves exact semantic authority while accepting only reversible transport or
+frontend-infrastructure representations, such as a root URL with or without its
+slash and Cloudflare Email Protection's valid XOR encoding of the same mailto
+action. It never skips an action, guesses a destination, or treats visibly
+similar text as proof of an approved href.
+
 ## Translation Index Readiness
 
 The deep Module that makes the derived Translation Index safe to consume and

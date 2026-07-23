@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.678
+ * Version: 0.1.679
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -26,6 +26,7 @@ require_once __DIR__ . '/includes/trait-wordpress-storage-adapter.php';
 require_once __DIR__ . '/includes/trait-atomic-option-store.php';
 require_once __DIR__ . '/includes/trait-execution-identity.php';
 require_once __DIR__ . '/includes/trait-quality-engine.php';
+require_once __DIR__ . '/includes/trait-reader-surface-equivalence.php';
 require_once __DIR__ . '/includes/trait-presentation-adapter.php';
 require_once __DIR__ . '/includes/trait-source-editor-adapter.php';
 require_once __DIR__ . '/includes/trait-copy-quality-priming.php';
@@ -61,6 +62,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Execution_Identity;
 	use Devenia_Workflow_Translation_Provenance;
 	use Devenia_Workflow_Quality_Engine;
+	use Devenia_Workflow_Reader_Surface_Equivalence;
 	use Devenia_Workflow_Translation_Frontend_Read_Model;
 	use Devenia_Workflow_Canonical_SEO_Surface;
 	use Devenia_Workflow_Social_Sharing_Runtime_Presentation_Control;
@@ -77,7 +79,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.678';
+	const VERSION = '0.1.679';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -13534,24 +13536,6 @@ final class Devenia_Workflow {
 	}
 
 	/**
-	 * Decode Cloudflare email-protection payloads so public integrity checks can inspect CTA text.
-	 */
-	private static function decode_cloudflare_email_protection_text( string $encoded ): string {
-		$encoded = preg_replace( '/[^a-f0-9]/i', '', $encoded ) ?? '';
-		if ( strlen( $encoded ) < 4 || 0 !== strlen( $encoded ) % 2 ) {
-			return '';
-		}
-
-		$key = hexdec( substr( $encoded, 0, 2 ) );
-		$out = '';
-		for ( $i = 2; $i < strlen( $encoded ); $i += 2 ) {
-			$out .= chr( hexdec( substr( $encoded, $i, 2 ) ) ^ $key );
-		}
-
-		return trim( rawurldecode( html_entity_decode( $out, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
-	}
-
-	/**
 	 * Visible text projection for frontend integrity checks.
 	 */
 	private static function frontend_visible_text_for_integrity( string $html ): string {
@@ -17683,39 +17667,6 @@ final class Devenia_Workflow {
 		}
 
 		return 0;
-	}
-
-	/**
-	 * Normalize URLs for equality checks while preserving query and fragment.
-	 */
-	private static function normalized_comparable_url( string $url ): string {
-		if ( '' === $url ) {
-			return '';
-		}
-
-		$path = self::normalized_url_path( $url );
-		if ( '' === $path ) {
-			return untrailingslashit( $url );
-		}
-
-		$parts    = wp_parse_url( $url );
-		$query    = is_array( $parts ) && isset( $parts['query'] ) ? '?' . $parts['query'] : '';
-		$fragment = is_array( $parts ) && isset( $parts['fragment'] ) ? '#' . $parts['fragment'] : '';
-
-		return trailingslashit( $path ) . $query . $fragment;
-	}
-
-	/**
-	 * Normalize URL/path to a root-relative path with a leading slash.
-	 */
-	public static function normalized_url_path( string $url ): string {
-		$path = wp_parse_url( $url, PHP_URL_PATH );
-		if ( ! is_string( $path ) || '' === $path ) {
-			return '';
-		}
-
-		$path = trim( $path, '/' );
-		return '' === $path ? '/' : '/' . $path . '/';
 	}
 
 	/**

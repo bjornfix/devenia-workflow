@@ -886,20 +886,22 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			$response = self::fetch_frontend_cache_surface( $url, $timeout, $cache_surface );
 			$body = (string) ( $response['body'] ?? '' );
 			$decoded_body = html_entity_decode( $body, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+			$reader_actions = self::reader_surface_action_values( $decoded_body );
 			$body_text = self::source_rewrite_reader_text( wp_strip_all_tags( $decoded_body ) );
 			$missing = array();
 			foreach ( (array) ( $verification_surface['fragments'] ?? array() ) as $fragment ) {
 				$field = (string) ( $fragment['field'] ?? '' );
 				$block = (string) ( $fragment['block'] ?? '' );
 				$is_action = str_starts_with( $field, 'action:' );
+				$attribute = $is_action && str_starts_with( $block, 'document:' ) ? substr( $block, strlen( 'document:' ) ) : '';
 				$text = $is_action
-					? self::normalize_review_text( (string) ( $fragment['text'] ?? '' ) )
+					? self::reader_surface_action_identity( $attribute, (string) ( $fragment['text'] ?? '' ) )
 					: self::source_rewrite_reader_text( (string) ( $fragment['text'] ?? '' ) );
 				if ( '' === $text || empty( $fragment['atomic'] ) || 'excerpt' === $field || 'content:document' === $field || 'document' === $block ) {
 					continue;
 				}
 				$found = $is_action
-					? false !== strpos( $decoded_body, $text )
+					? in_array( $text, (array) ( $reader_actions[ $attribute ] ?? array() ), true )
 					: false !== strpos( $body_text, $text );
 				if ( ! $found ) {
 					$missing[] = $field;

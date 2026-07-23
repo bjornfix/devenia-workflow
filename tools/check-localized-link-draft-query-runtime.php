@@ -23,6 +23,9 @@ $failure = null;
 
 try {
 	$baseline_map = (array) $call( 'localized_link_expected_target_map', 'en', true );
+	if ( $call( 'normalized_comparable_url', home_url( '/' ) ) !== $call( 'normalized_comparable_url', untrailingslashit( home_url( '/' ) ) ) ) {
+		throw new RuntimeException( 'Equivalent homepage URLs with and without the root slash no longer share one comparison identity.' );
+	}
 	$baseline_homepage_target = $call( 'localized_internal_link_target', home_url( '/' ), $baseline_map );
 	$sources = array();
 	$targets = array();
