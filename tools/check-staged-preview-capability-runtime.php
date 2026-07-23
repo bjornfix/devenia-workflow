@@ -86,13 +86,14 @@ if (
 
 Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::apply_response_policy( false );
 if (
-	array() !== $GLOBALS['staged_preview_removed_actions']
+	array( array( 'template_redirect', 'redirect_canonical', 10 ) ) !== $GLOBALS['staged_preview_removed_actions']
 	|| array( 404 ) !== $GLOBALS['staged_preview_status_headers']
 	|| ! $GLOBALS['wp_query']->is_404
 ) {
-	throw new RuntimeException( 'A denied staged preview did not fail closed while preserving WordPress canonical redirects.' );
+	throw new RuntimeException( 'A denied staged preview did not remain a non-canonical 404 inside the private preview namespace.' );
 }
 
+$GLOBALS['staged_preview_removed_actions'] = array();
 $GLOBALS['staged_preview_status_headers'] = array();
 $GLOBALS['wp_query']->is_404 = false;
 Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::apply_response_policy( true );

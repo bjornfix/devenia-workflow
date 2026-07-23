@@ -81,7 +81,7 @@ assert.match(previewCapability, /staged_preview_query_token[\s\S]*\$query->get\(
 assert.match(authority, /filter_source_rewrite_preview_posts[\s\S]*staged_preview_query_token\( \$query, 'devenia_source_rewrite_preview' \)/);
 assert.match(authority, /browser_receipts[\s\S]*preview_identity/);
 assert.match(previewCapability, /staged_preview_prevent_page_cache[\s\S]*DONOTCACHEPAGE[\s\S]*WordPress\.NamingConventions\.PrefixAllGlobals\.NonPrefixedConstantFound/);
-assert.match(previewCapability, /staged_preview_apply_response_policy[\s\S]*! \$authorized[\s\S]*status_header\( 404 \)[\s\S]*return;[\s\S]*remove_action\(\s*'template_redirect',\s*'redirect_canonical',\s*10\s*\)/);
+assert.match(previewCapability, /staged_preview_apply_response_policy[\s\S]*staged_preview_prevent_page_cache[\s\S]*remove_action\(\s*'template_redirect',\s*'redirect_canonical',\s*10\s*\)[\s\S]*! \$authorized[\s\S]*status_header\( 404 \)/);
 assert.match(authority, /staged_preview_prevent_page_cache[\s\S]*X-Robots-Tag: noindex, nofollow, noarchive[\s\S]*Referrer-Policy: no-referrer/);
 assert.match(authority, /apply_source_rewrite_preview_response_policy[\s\S]*staged_preview_apply_response_policy\( ! empty\( \$authority\['success'\] \) && self::source_rewrite_preview_request_matches\( \$authority \) \)/);
 assert.doesNotMatch(authority, /define\(\s*'DONOTCACHEPAGE'/);

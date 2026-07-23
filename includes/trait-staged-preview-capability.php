@@ -50,6 +50,8 @@ trait Devenia_Workflow_Staged_Preview_Capability {
 
 	/** Apply the fail-closed response boundary for one resolved staged-preview request. */
 	private static function staged_preview_apply_response_policy( bool $authorized ): void {
+		self::staged_preview_prevent_page_cache();
+		remove_action( 'template_redirect', 'redirect_canonical', 10 );
 		if ( ! $authorized ) {
 			status_header( 404 );
 			global $wp_query;
@@ -58,9 +60,6 @@ trait Devenia_Workflow_Staged_Preview_Capability {
 			}
 			return;
 		}
-
-		self::staged_preview_prevent_page_cache();
-		remove_action( 'template_redirect', 'redirect_canonical', 10 );
 	}
 
 	/** Keep an authorized staged preview out of ecosystem page caches. */

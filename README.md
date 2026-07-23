@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.676
+**Stable tag:** 0.1.677
 
 **License:** GPLv2 or later
 
@@ -152,6 +152,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.677
+
+- Keeps invalid or expired preview capabilities on a non-canonical, non-cacheable 404 instead of forwarding their token through a redirect.
 
 ### 0.1.676
 
