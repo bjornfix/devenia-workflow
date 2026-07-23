@@ -1226,7 +1226,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			self::META_FEATURED_IMAGE_ALT => (string) ( $media['featured_image_alt'] ?? '' ), '_thumbnail_id' => absint( $media['featured_image']['attachment_id'] ?? 0 ),
 		);
 		if ( ! array_key_exists( $meta_key, $metadata ) ) { return $value; }
-		return $single ? $metadata[ $meta_key ] : array( $metadata[ $meta_key ] );
+		return array( $metadata[ $meta_key ] );
 	}
 
 	/** Project staged logical taxonomy labels for theme readers. */

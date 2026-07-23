@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.669
+**Stable tag:** 0.1.670
 
 **License:** GPLv2 or later
 
@@ -152,6 +152,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.670
+
+- Returns staged associative metadata through WordPress' native outer value-list contract, eliminating preview warnings while preserving exact route and presentation values.
 
 ### 0.1.669
 

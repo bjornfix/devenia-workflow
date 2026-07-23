@@ -26,6 +26,14 @@ $count_preview_query_entries = static function ( array $posts ) use ( &$preview_
 	return $posts;
 };
 add_filter( 'the_posts', $count_preview_query_entries, 1, 2 );
+$previous_error_handler = set_error_handler(
+	static function ( int $severity, string $message, string $file, int $line ): bool {
+		if ( 0 !== ( $severity & ( E_WARNING | E_NOTICE | E_USER_WARNING | E_USER_NOTICE ) ) ) {
+			throw new RuntimeException( $message . ' at ' . $file . ':' . $line );
+		}
+		return false;
+	}
+);
 
 try {
 	$source_content = '<!-- wp:paragraph --><p>Canonical source copy must remain unchanged.</p><!-- /wp:paragraph -->';
@@ -197,6 +205,7 @@ try {
 		)
 	);
 } finally {
+	restore_error_handler();
 	remove_filter( 'the_posts', $count_preview_query_entries, 1 );
 	foreach ( $option_keys as $option_key ) { delete_option( $option_key ); }
 	if ( $source_id > 0 ) { wp_delete_post( $source_id, true ); }
