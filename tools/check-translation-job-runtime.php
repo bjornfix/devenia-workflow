@@ -60,6 +60,7 @@ $publish_claim_probe_run_id = '';
 $publish_claim_probe = null;
 $runtime_error = null;
 $runtime_result = null;
+$cleanup_errors = array();
 $cache_adapter = static function ( $default_result, array $urls, array $context ) use ( &$cache_invalidation_calls, &$call, &$publish_claim_probe_enabled, &$publish_claim_probe_job_id, &$publish_claim_probe_run_id, &$publish_claim_probe ): array {
 	$cache_invalidation_calls[] = array( 'default' => $default_result, 'urls' => $urls, 'context' => $context );
 	if (
@@ -95,6 +96,33 @@ $call = static function ( string $method, ...$arguments ) {
 	$reflection = new ReflectionMethod( Devenia_Workflow::class, $method );
 	$reflection->setAccessible( true );
 	return $reflection->invokeArgs( null, $arguments );
+};
+$delete_owned_fixture_post = static function ( int $post_id, bool $attachment = false ) use ( $call, &$cleanup_errors ): void {
+	if ( $post_id <= 0 ) {
+		return;
+	}
+	$deleted = null;
+	$call(
+		'with_direct_save_storage_guardrails_suspended',
+		$post_id,
+		static function () use ( &$deleted, $post_id, $attachment ): void {
+			if ( $attachment ) {
+				$deleted = wp_delete_attachment( $post_id, true );
+				return;
+			}
+			$deleted = wp_delete_post( $post_id, true );
+		}
+	);
+	if ( ! $deleted instanceof WP_Post || null !== get_post( $post_id ) ) {
+		$cleanup_errors[] = 'Fixture cleanup could not delete its exact owned post ' . $post_id . '.';
+		return;
+	}
+	global $wpdb;
+	$table = (string) $call( 'translation_index_table' );
+	$index_rows = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE source_post_id = %d OR translation_post_id = %d", $post_id, $post_id ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact fixture-owned index residue assertion.
+	if ( 0 !== $index_rows ) {
+		$cleanup_errors[] = 'Fixture cleanup left Translation Index rows for owned post ' . $post_id . '.';
+	}
 };
 $raw_option_records = static function ( array $option_names ): array {
 	global $wpdb;
@@ -136,6 +164,9 @@ $raw_nav_menu_inventory = static function (): array {
 	global $wpdb;
 	return (array) $wpdb->get_results( $wpdb->prepare( "SELECT t.term_id, tt.term_taxonomy_id FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id WHERE tt.taxonomy = %s ORDER BY t.term_id ASC, tt.term_taxonomy_id ASC", 'nav_menu' ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact raw inventory detects an orphan staged menu outside the known authority IDs.
 };
+global $wpdb;
+$runtime_posts_before = array_map( 'intval', $wpdb->get_col( "SELECT ID FROM {$wpdb->posts} ORDER BY ID ASC" ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact dev fixture inventory baseline.
+$runtime_menu_inventory_before = $raw_nav_menu_inventory();
 $workflow_reflection = new ReflectionClass( Devenia_Workflow::class );
 $runtime_meta_status_key = (string) $workflow_reflection->getConstant( 'META_STATUS' );
 $track_quality_result = static function ( array $result ) use ( &$option_keys ): void {
@@ -244,14 +275,17 @@ try {
 			'post_status' => 'draft',
 			'post_title' => 'Translation Job source fixture',
 			'post_excerpt' => 'A useful source excerpt.',
-			'post_content' => '<!-- wp:paragraph --><p><strong>Useful source</strong><br>Read <a href="' . esc_url( $linked_source_url ) . '">the linked source</a>, then <a href="mailto:hello@example.com?subject=Source%20question&amp;body=Hello%20from%20the%20source">contact us</a> for a concrete next step.</p><!-- /wp:paragraph -->'
+			'post_content' => '<!-- wp:generateblocks/container {"uniqueId":"runtime-surface-band","isDynamic":true,"blockVersion":4,"className":"dv-surface--brand"} -->'
+				. '<!-- wp:generateblocks/container {"uniqueId":"runtime-surface-inner","isDynamic":true,"blockVersion":4,"sizing":{"maxWidth":"1140px"},"spacing":{"paddingRight":"24px","paddingLeft":"24px","paddingRightTablet":"24px","paddingLeftTablet":"24px","paddingRightMobile":"24px","paddingLeftMobile":"24px","marginRight":"auto","marginLeft":"auto"},"className":"dv-surface__content"} -->'
+				. '<!-- wp:paragraph --><p><strong>Useful source</strong><br>Read <a href="' . esc_url( $linked_source_url ) . '">the linked source</a>, then <a href="mailto:hello@example.com?subject=Source%20question&amp;body=Hello%20from%20the%20source">contact us</a> for a concrete next step.</p><!-- /wp:paragraph -->'
 				. '<!-- wp:generateblocks/query {"uniqueId":"runtime-query","tagName":"section","query":{"post_type":["page"]}} --><section>'
 				. '<!-- wp:generateblocks/looper {"uniqueId":"runtime-loop","tagName":"div"} --><div>'
 				. '<!-- wp:generateblocks/loop-item {"uniqueId":"runtime-item","tagName":"div"} --><div>'
 				. '<!-- wp:generateblocks/text {"uniqueId":"runtime-dynamic-link","tagName":"a","htmlAttributes":{"href":"{{post_permalink}}","aria-label":"View {{post_title}} plugin details","data-devenia-card-action":"plugin-details"}} -->'
 				. '<a class="gb-text" href="{{post_permalink}}" aria-label="View {{post_title}} plugin details" data-devenia-card-action="plugin-details">View plugin →</a>'
 				. '<!-- /wp:generateblocks/text --></div><!-- /wp:generateblocks/loop-item -->'
-				. '</div><!-- /wp:generateblocks/looper --></section><!-- /wp:generateblocks/query -->',
+				. '</div><!-- /wp:generateblocks/looper --></section><!-- /wp:generateblocks/query -->'
+				. '<!-- /wp:generateblocks/container --><!-- /wp:generateblocks/container -->',
 		),
 		true
 	);
@@ -290,10 +324,21 @@ try {
 	$localized_link_source_insert = wp_insert_post(
 		array(
 			'post_type' => 'page',
-			'post_status' => 'publish',
+			'post_status' => 'draft',
 			'post_title' => 'Translation Job published link source fixture',
 			'post_content' => '<!-- wp:paragraph --><p>A published source with one exact localized destination.</p><!-- /wp:paragraph -->',
 			'post_name' => 'runtime-link-source-' . strtolower( wp_generate_password( 6, false, false ) ),
+		),
+		true
+	);
+	$localized_link_target_slug = 'runtime-link-target-' . strtolower( wp_generate_password( 6, false, false ) );
+	$localized_link_target_insert = wp_insert_post(
+		array(
+			'post_type' => 'page',
+			'post_status' => 'draft',
+			'post_title' => 'Translation Job published link target fixture',
+			'post_content' => '<!-- wp:paragraph --><p>The exact published localized destination.</p><!-- /wp:paragraph -->',
+			'post_name' => $localized_link_target_slug,
 		),
 		true
 	);
@@ -301,17 +346,6 @@ try {
 		throw new RuntimeException( 'Could not create the published localized-link source fixture.' );
 	}
 	$localized_link_source_id = (int) $localized_link_source_insert;
-	$localized_link_target_slug = 'runtime-link-target-' . strtolower( wp_generate_password( 6, false, false ) );
-	$localized_link_target_insert = wp_insert_post(
-		array(
-			'post_type' => 'page',
-			'post_status' => 'publish',
-			'post_title' => 'Translation Job published link target fixture',
-			'post_content' => '<!-- wp:paragraph --><p>The exact published localized destination.</p><!-- /wp:paragraph -->',
-			'post_name' => $localized_link_target_slug,
-		),
-		true
-	);
 	if ( is_wp_error( $localized_link_target_insert ) || $localized_link_target_insert < 1 ) {
 		throw new RuntimeException( 'Could not create the published localized-link target fixture.' );
 	}
@@ -320,7 +354,16 @@ try {
 	update_post_meta( $localized_link_target_id, '_devenia_translation_language', $language );
 	update_post_meta( $localized_link_target_id, '_devenia_translation_status', 'published' );
 	update_post_meta( $localized_link_target_id, '_devenia_translation_localized_path', trim( $language . '/' . $localized_link_target_slug, '/' ) );
+	// Fixture-only storage Adapter: establish the published reader state without
+	// invoking the unrelated Source Rewrite publication authority under test elsewhere.
+	global $wpdb;
+	$published_source = $wpdb->update( $wpdb->posts, array( 'post_status' => 'publish' ), array( 'ID' => $localized_link_source_id ), array( '%s' ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact dev-only reader-state fixture.
+	$published_target = $wpdb->update( $wpdb->posts, array( 'post_status' => 'publish' ), array( 'ID' => $localized_link_target_id ), array( '%s' ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact dev-only reader-state fixture.
+	clean_post_cache( $localized_link_source_id );
 	clean_post_cache( $localized_link_target_id );
+	if ( false === $published_source || false === $published_target || 'publish' !== get_post_status( $localized_link_source_id ) || 'publish' !== get_post_status( $localized_link_target_id ) ) {
+		throw new RuntimeException( 'Localized-link fixture Adapter did not establish exact published reader identities.' );
+	}
 	if ( ! $call( 'sync_translation_index_row', $localized_link_target_id ) ) {
 		throw new RuntimeException( 'Could not index the published localized-link target fixture.' );
 	}
@@ -350,12 +393,21 @@ try {
 			}
 		}
 	}
+	$runtime_pretty_page_link_ids = array();
+	$runtime_pretty_page_link = static function ( string $url, int $post_id ) use ( &$runtime_pretty_page_link_ids ): string {
+		if ( ! in_array( $post_id, $runtime_pretty_page_link_ids, true ) ) {
+			return $url;
+		}
+		$page_uri = trim( (string) get_page_uri( $post_id ), '/' );
+		return '' !== $page_uri ? home_url( '/' . $page_uri . '/' ) : $url;
+	};
+	add_filter( 'page_link', $runtime_pretty_page_link, 999, 2 );
 	// Hierarchical translations can legitimately have nested localized routes.
 	// Prove the parity resolver accepts an observed/stored WordPress hierarchy
 	// without knowing a language code, route base, site, or post identity.
 	$nested_route_slug = 'runtime-nested-route-' . strtolower( wp_generate_password( 6, false, false ) );
-	$nested_root_id = wp_insert_post( array( 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Runtime nested root', 'post_name' => 'runtime-root-' . strtolower( wp_generate_password( 6, false, false ) ) ), true );
-	$nested_parent_id = ! is_wp_error( $nested_root_id ) ? wp_insert_post( array( 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Runtime nested archive', 'post_name' => 'runtime-archive', 'post_parent' => (int) $nested_root_id ), true ) : $nested_root_id;
+	$nested_root_id = wp_insert_post( array( 'post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Runtime nested root', 'post_name' => 'runtime-root-' . strtolower( wp_generate_password( 6, false, false ) ) ), true );
+	$nested_parent_id = ! is_wp_error( $nested_root_id ) ? wp_insert_post( array( 'post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Runtime nested archive', 'post_name' => 'runtime-archive', 'post_parent' => (int) $nested_root_id ), true ) : $nested_root_id;
 	if ( is_wp_error( $nested_root_id ) || is_wp_error( $nested_parent_id ) || $nested_root_id < 1 || $nested_parent_id < 1 ) {
 		throw new RuntimeException( 'Could not create the nested route parent hierarchy.' );
 	}
@@ -363,7 +415,7 @@ try {
 	$nested_route_translation_id = wp_insert_post(
 		array(
 			'post_type' => 'page',
-			'post_status' => 'publish',
+			'post_status' => 'draft',
 			'post_title' => 'Runtime nested translation route',
 			'post_content' => '<!-- wp:paragraph --><p>Nested route fixture.</p><!-- /wp:paragraph -->',
 			'post_name' => $nested_route_slug,
@@ -374,11 +426,12 @@ try {
 	if ( is_wp_error( $nested_route_translation_id ) || $nested_route_translation_id < 1 ) {
 		throw new RuntimeException( 'Could not create the nested route translation fixture.' );
 	}
+	array_push( $runtime_pretty_page_link_ids, (int) $nested_root_id, (int) $nested_parent_id, (int) $nested_route_translation_id );
 	update_post_meta( $nested_route_translation_id, '_devenia_translation_language', $language );
 	$nested_route_path = trim( (string) get_page_uri( $nested_route_translation_id ), '/' );
-	$nested_route_url = (string) get_permalink( $nested_route_translation_id );
 	update_post_meta( $nested_route_translation_id, '_devenia_translation_localized_path', $nested_route_path );
 	delete_post_meta( $nested_route_translation_id, '_devenia_translation_canonical_route_v1' );
+	$nested_route_url = (string) get_permalink( $nested_route_translation_id );
 	$nested_route_resolution = $call( 'effective_translation_canonical_route', get_post( $nested_route_translation_id ), $language );
 	if (
 		empty( $nested_route_resolution['success'] )
@@ -388,10 +441,10 @@ try {
 	) {
 		throw new RuntimeException( 'A legitimate observed nested WordPress route did not pass canonical parity: ' . wp_json_encode( $nested_route_resolution ) );
 	}
-	wp_delete_post( $nested_route_translation_id, true );
+	$delete_owned_fixture_post( $nested_route_translation_id );
 	$nested_route_translation_id = 0;
 	foreach ( $nested_route_parent_ids as $nested_route_parent_id ) {
-		wp_delete_post( $nested_route_parent_id, true );
+		$delete_owned_fixture_post( $nested_route_parent_id );
 	}
 	$nested_route_parent_ids = array();
 	// A new page publication must persist the exact staged route before the
@@ -410,6 +463,7 @@ try {
 	if ( is_wp_error( $new_page_route_translation_id ) || $new_page_route_translation_id < 1 ) {
 		throw new RuntimeException( 'Could not create the new-page route fixture.' );
 	}
+	$runtime_pretty_page_link_ids[] = (int) $new_page_route_translation_id;
 	$new_page_expected_path = trim( $language . '/' . $new_page_route_slug, '/' );
 	$new_page_mismatch_result = $call( 'establish_page_localized_path_after_save', (int) $new_page_route_translation_id, $language, $new_page_expected_path . '-wrong' );
 	if (
@@ -426,7 +480,7 @@ try {
 	) {
 		throw new RuntimeException( 'A new page translation did not establish its exact staged localized route before surface verification: ' . wp_json_encode( $new_page_path_result ) );
 	}
-	wp_delete_post( $new_page_route_translation_id, true );
+	$delete_owned_fixture_post( $new_page_route_translation_id );
 	$new_page_route_translation_id = 0;
 	$call( 'localized_internal_link_map', $language, true );
 	$call( 'localized_link_expected_target_map', $language, true );
@@ -654,6 +708,28 @@ try {
 	// The approval is bound to the complete public Source Publication Surface.
 	// Establish the final public post state before recording that immutable evidence.
 	wp_update_post( array( 'ID' => $source_id, 'post_status' => 'publish' ) );
+	$published_main_source = $wpdb->update( $wpdb->posts, array( 'post_status' => 'publish' ), array( 'ID' => $source_id ), array( '%s' ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact dev-only source reader-state fixture.
+	clean_post_cache( $source_id );
+	if ( false === $published_main_source || 'publish' !== get_post_status( $source_id ) ) {
+		throw new RuntimeException( 'Main source fixture Adapter did not establish the exact published reader state.' );
+	}
+	$source_design_review = $call(
+		'mark_source_design_reviewed',
+		array(
+			'source_id' => $source_id,
+			'design_already_suitable' => true,
+			'public_url' => get_permalink( $source_id ),
+			'contract_notes' => 'Runtime fixture isolates Translation Job authority from the separately tested Site Presentation design contract and records the exact current source hash.',
+			'desktop_render_notes' => 'Runtime fixture treats the bounded Gutenberg source as the deliberate desktop test surface for link, route, and publication behavior only.',
+			'mobile_render_notes' => 'Runtime fixture treats the same bounded Gutenberg source as the deliberate mobile test surface without asserting production visual quality.',
+			'no_rewrite_reason' => 'Changing the fixture layout would add unrelated presentation behavior and weaken the exact Translation Job runtime oracle.',
+			'reviewer_statement' => 'The runtime fixture explicitly accepts responsibility for isolating design policy while preserving the exact hash-bound source under test.',
+			'reviewer' => 'translation-job-runtime',
+		)
+	);
+	if ( empty( $source_design_review['success'] ) ) {
+		throw new RuntimeException( 'Source design fixture review failed: ' . wp_json_encode( $source_design_review ) );
+	}
 	$source_review = $call(
 		'mark_source_content_integrity_reviewed',
 		array(
@@ -948,7 +1024,7 @@ try {
 			'post_status' => 'publish',
 			'post_title' => 'Runtime pre-existing translation',
 			'post_excerpt' => 'Runtime baseline before the staged artifact.',
-			'post_content' => '<!-- wp:paragraph --><p>Runtime public baseline.</p><!-- /wp:paragraph -->',
+			'post_content' => (string) get_post_field( 'post_content', $source_id ),
 			'post_name' => $runtime_localized_slug,
 		),
 		true
@@ -956,6 +1032,7 @@ try {
 	if ( is_wp_error( $translation_id ) || $translation_id < 1 ) {
 		throw new RuntimeException( 'Could not create the pre-existing public translation fixture.' );
 	}
+	$runtime_pretty_page_link_ids[] = (int) $translation_id;
 	$runtime_translation_ids_by_language[ $language ] = (int) $translation_id;
 	update_post_meta( $translation_id, '_devenia_translation_source_id', $source_id );
 	update_post_meta( $translation_id, '_devenia_translation_language', $language );
@@ -964,6 +1041,11 @@ try {
 	update_post_meta( $translation_id, 'rank_math_focus_keyword', 'stale-runtime-focus-keyword' );
 	$runtime_localized_path = trim( $language . '/' . $runtime_localized_slug, '/' );
 	update_post_meta( $translation_id, '_devenia_translation_localized_path', $runtime_localized_path );
+	$published_existing_translation = $wpdb->update( $wpdb->posts, array( 'post_status' => 'publish' ), array( 'ID' => (int) $translation_id ), array( '%s' ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact dev-only existing-translation reader-state fixture.
+	clean_post_cache( (int) $translation_id );
+	if ( false === $published_existing_translation || 'publish' !== get_post_status( (int) $translation_id ) ) {
+		throw new RuntimeException( 'Existing-translation fixture Adapter did not establish the exact published reader state.' );
+	}
 	$runtime_translation_url = home_url( '/' . $runtime_localized_path . '/' );
 	delete_post_meta( $translation_id, '_devenia_translation_canonical_route_v1' );
 	clean_post_cache( $translation_id );
@@ -1101,6 +1183,7 @@ try {
 	if ( is_wp_error( $new_page_apply_source_id ) || $new_page_apply_source_id < 1 ) {
 		throw new RuntimeException( 'Could not create the new-page staged-apply source fixture.' );
 	}
+	$runtime_pretty_page_link_ids[] = (int) $new_page_apply_source_id;
 	$new_page_apply_parent_segment = 'runtime-sideforelder-' . strtolower( wp_generate_password( 6, false, false ) );
 	$new_page_apply_slug = 'runtime-ny-side-' . strtolower( wp_generate_password( 6, false, false ) );
 	$new_page_apply_parent_id = wp_insert_post(
@@ -1115,6 +1198,7 @@ try {
 	if ( is_wp_error( $new_page_apply_parent_id ) || $new_page_apply_parent_id < 1 ) {
 		throw new RuntimeException( 'Could not create the new-page localized parent fixture.' );
 	}
+	$runtime_pretty_page_link_ids[] = (int) $new_page_apply_parent_id;
 	$new_page_apply_parent_ids[] = (int) $new_page_apply_parent_id;
 	update_post_meta( $new_page_apply_parent_id, '_devenia_translation_language', $language );
 	$new_page_apply_artifact = $artifact;
@@ -1173,7 +1257,7 @@ try {
 	) {
 		throw new RuntimeException( 'A new nested page with omitted artifact path did not derive, apply, persist, and verify one exact staged route: ' . wp_json_encode( array( 'stage' => $new_page_apply_stage, 'apply' => $new_page_apply_result ) ) );
 	}
-	wp_delete_post( $new_page_apply_translation_id, true );
+	$delete_owned_fixture_post( $new_page_apply_translation_id );
 	$new_page_apply_translation_id = 0;
 	// Artifacts staged before 0.1.661 signed the resolved parent and slug but
 	// retained an empty localized_path. Publication must derive the one possible
@@ -1214,16 +1298,17 @@ try {
 	) {
 		throw new RuntimeException( 'A pre-0.1.661 new-page artifact with an empty staged path did not derive, apply, persist, and verify the route bound by its signed parent and slug: ' . wp_json_encode( array( 'stage' => $legacy_new_page_apply_stage, 'apply' => $legacy_new_page_apply_result, 'expected_path' => $legacy_new_page_expected_path ) ) );
 	}
-	wp_delete_post( $legacy_new_page_apply_translation_id, true );
+	$delete_owned_fixture_post( $legacy_new_page_apply_translation_id );
 	$legacy_new_page_apply_translation_id = 0;
 	foreach ( $new_page_apply_parent_ids as $new_page_apply_parent_id ) {
-		wp_delete_post( $new_page_apply_parent_id, true );
+		$delete_owned_fixture_post( $new_page_apply_parent_id );
 	}
 	$new_page_apply_parent_ids = array();
-	wp_delete_post( $new_page_apply_source_id, true );
+	$delete_owned_fixture_post( $new_page_apply_source_id );
 	$new_page_apply_source_id = 0;
 	$route_scope_only = 'new-page-route' === (string) getenv( 'DEVENIA_WORKFLOW_RUNTIME_SCOPE' );
 	if ( $route_scope_only ) {
+		remove_filter( 'page_link', $runtime_pretty_page_link, 999 );
 		$runtime_result = array(
 			'success' => true,
 			'new_page_localized_path_established_before_surface_verification' => true,
@@ -1351,6 +1436,7 @@ try {
 	) {
 		throw new RuntimeException( 'Observed/stored route mismatch changed Job, Run, claim, artifact authority, or public state: ' . wp_json_encode( $route_mismatch_submit ) );
 	}
+	remove_filter( 'page_link', $runtime_pretty_page_link, 999 );
 
 	$runtime_page_link = static function ( string $url, int $post_id ) use ( &$runtime_translation_ids_by_language, &$runtime_header_translation_ids_by_language, &$runtime_header_blog_translation_ids_by_language ): string {
 		$runtime_language = array_search( $post_id, $runtime_translation_ids_by_language, true );
@@ -1590,6 +1676,21 @@ try {
 			throw new RuntimeException( 'Could not index the complete-set runtime blog translation for ' . $runtime_header_language . '.' );
 		}
 	}
+	$runtime_header_publish_ids = array_merge(
+		array( $runtime_header_source_id, $runtime_header_blog_source_id ),
+		array_values( $runtime_header_translation_ids_by_language ),
+		array_values( $runtime_header_blog_translation_ids_by_language )
+	);
+	foreach ( $runtime_header_publish_ids as $runtime_header_publish_id ) {
+		$published_fixture = $wpdb->update( $wpdb->posts, array( 'post_status' => 'publish' ), array( 'ID' => (int) $runtime_header_publish_id ), array( '%s' ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact dev-only Public Header reader-state fixture.
+		clean_post_cache( (int) $runtime_header_publish_id );
+		if ( false === $published_fixture || 'publish' !== get_post_status( (int) $runtime_header_publish_id ) ) {
+			throw new RuntimeException( 'Public Header fixture Adapter did not establish one exact published reader identity.' );
+		}
+		if ( in_array( (int) $runtime_header_publish_id, array_merge( array_values( $runtime_header_translation_ids_by_language ), array_values( $runtime_header_blog_translation_ids_by_language ) ), true ) ) {
+			$call( 'sync_translation_index_row', (int) $runtime_header_publish_id );
+		}
+	}
 	update_option( 'devenia_workflow_localized_menu_identities', array(), false );
 	delete_option( 'devenia_workflow_public_header_enrollment' );
 	$source_language_code = $call( 'source_language_code' );
@@ -1648,16 +1749,25 @@ try {
 			$runtime_header_surfaces[ untrailingslashit( $runtime_header_url ) ] = array_merge( $runtime_header_surface_profile, $runtime_header_surface );
 		}
 	}
-	$runtime_http_surface = static function ( $preempt, array $args, string $url ) use ( &$translation_id, $source_id, $language, $source_language_code, $runtime_source_url, &$runtime_translation_url, $runtime_html_lang, $runtime_header_surfaces, $runtime_header_surface_profiles ) {
+	$first_publication_source_id = 0;
+	$first_publication_translation_id = 0;
+	$runtime_http_surface = static function ( $preempt, array $args, string $url ) use ( &$translation_id, &$first_publication_source_id, &$first_publication_translation_id, $source_id, $language, $source_language_code, $runtime_source_url, &$runtime_translation_url, $runtime_html_lang, $runtime_header_surfaces, $runtime_header_surface_profiles ) {
 		$request_url = untrailingslashit( strtok( $url, '?' ) ?: '' );
 		if ( $translation_id > 0 ) { $runtime_translation_url = (string) get_permalink( $translation_id ); }
 		$is_translation = $translation_id > 0 && $request_url === untrailingslashit( $runtime_translation_url );
 		$is_source = $request_url === untrailingslashit( $runtime_source_url );
+		$is_first_publication_source = $first_publication_source_id > 0 && $request_url === untrailingslashit( (string) get_permalink( $first_publication_source_id ) );
+		$is_first_publication_translation = $first_publication_translation_id > 0 && $request_url === untrailingslashit( (string) get_permalink( $first_publication_translation_id ) );
+		$is_first_publication_quality = $first_publication_source_id > 0 && false !== strpos( $url, 'devenia_quality_receipt=' );
 		$surface = $runtime_header_surfaces[ $request_url ] ?? null;
 		if ( $is_translation ) {
 			$surface = array_merge( (array) ( $runtime_header_surface_profiles[ $language ] ?? array() ), array( 'url' => $runtime_translation_url, 'language' => $language, 'html_lang' => $runtime_html_lang, 'surface_id' => $translation_id ) );
 		} elseif ( $is_source ) {
 			$surface = array_merge( (array) ( $runtime_header_surface_profiles[ $source_language_code ] ?? array() ), array( 'url' => $runtime_source_url, 'language' => $source_language_code, 'surface_id' => $source_id ) );
+		} elseif ( $is_first_publication_source || $is_first_publication_quality ) {
+			$surface = array_merge( (array) ( $runtime_header_surface_profiles[ $source_language_code ] ?? array() ), array( 'url' => (string) get_permalink( $first_publication_source_id ), 'language' => $source_language_code, 'surface_id' => $first_publication_source_id ) );
+		} elseif ( $is_first_publication_translation ) {
+			$surface = array_merge( (array) ( $runtime_header_surface_profiles[ $language ] ?? array() ), array( 'url' => (string) get_permalink( $first_publication_translation_id ), 'language' => $language, 'html_lang' => $runtime_html_lang, 'surface_id' => $first_publication_translation_id ) );
 		}
 		if ( ! is_array( $surface ) ) {
 			return $preempt;
@@ -2318,14 +2428,21 @@ try {
 	$surface_race_start_count = 0;
 	$surface_race_triggered = false;
 	$surface_race_filter = null;
-	$surface_race_filter = static function ( string $query ) use ( &$surface_race_start_count, &$surface_race_triggered, &$surface_race_filter, $translation_id, $drift_title ): string {
+	$surface_race_filter = static function ( string $query ) use ( &$surface_race_start_count, &$surface_race_triggered, &$surface_race_filter, $translation_id, $drift_title, $call ): string {
 		if ( 'START TRANSACTION' !== strtoupper( trim( $query ) ) ) {
 			return $query;
 		}
 		++$surface_race_start_count;
 		if ( 2 === $surface_race_start_count ) {
 			remove_filter( 'query', $surface_race_filter, PHP_INT_MAX );
-			$updated = wp_update_post( array( 'ID' => $translation_id, 'post_title' => $drift_title ), true );
+			$updated = 0;
+			$call(
+				'with_direct_save_storage_guardrails_suspended',
+				$translation_id,
+				static function () use ( &$updated, $translation_id, $drift_title ): void {
+					$updated = wp_update_post( wp_slash( array( 'ID' => $translation_id, 'post_title' => $drift_title ) ), true );
+				}
+			);
 			$surface_race_triggered = ! is_wp_error( $updated ) && $translation_id === absint( $updated );
 		}
 		return $query;
@@ -2546,7 +2663,17 @@ try {
 		'Runtime prepared a complete Quality Decision against generation two before the public baseline drifted.',
 		array()
 	);
-	wp_update_post( array( 'ID' => $translation_id, 'post_excerpt' => 'Runtime second public drift before Quality submission.' ) );
+	$quality_drift_update = 0;
+	$call(
+		'with_direct_save_storage_guardrails_suspended',
+		$translation_id,
+		static function () use ( &$quality_drift_update, $translation_id ): void {
+			$quality_drift_update = wp_update_post( wp_slash( array( 'ID' => $translation_id, 'post_excerpt' => 'Runtime second public drift before Quality submission.' ) ), true );
+		}
+	);
+	if ( is_wp_error( $quality_drift_update ) || $translation_id !== absint( $quality_drift_update ) ) {
+		throw new RuntimeException( 'Quality drift fixture could not update its exact owned translation.' );
+	}
 	$quality_drift_submission = $call( 'translation_job_submit_quality_decision', $quality_drift_payload );
 	$generation_three_job = get_option( $attempt_limit_job_key );
 	if (
@@ -2893,7 +3020,14 @@ try {
 			$actual = $call( 'translation_job_commit_recovery_transaction' );
 			if ( empty( $actual['success'] ) || ! array_key_exists( 'committed', $actual ) || true !== $actual['committed'] ) { throw new RuntimeException( 'Foreign publication caller fixture could not establish its real COMMIT.' ); }
 			$foreign_excerpt = 'Foreign caller-owned surface ' . $foreign_publish_mode . ' ' . wp_generate_uuid4();
-			$updated = wp_update_post( array( 'ID' => $committed_translation_id, 'post_excerpt' => $foreign_excerpt ), true );
+			$updated = 0;
+			$call(
+				'with_direct_save_storage_guardrails_suspended',
+				$committed_translation_id,
+				static function () use ( &$updated, $committed_translation_id, $foreign_excerpt ): void {
+					$updated = wp_update_post( wp_slash( array( 'ID' => $committed_translation_id, 'post_excerpt' => $foreign_excerpt ) ), true );
+				}
+			);
 			if ( is_wp_error( $updated ) || $committed_translation_id !== absint( $updated ) ) { throw new RuntimeException( 'Foreign publication caller fixture could not write the concurrent surface.' ); }
 			clean_post_cache( $committed_translation_id );
 			$foreign_revision = (string) $call( 'translation_job_rollback_cas_revision', $committed_translation_id, (array) ( $foreign_fixture_snapshot['term_scope'] ?? array() ), (array) ( $foreign_fixture_snapshot['identity_scope'] ?? array() ) );
@@ -2951,7 +3085,14 @@ try {
 			if ( empty( $actual['success'] ) || ! array_key_exists( 'committed', $actual ) || true !== $actual['committed'] ) { throw new RuntimeException( 'Restore commit fixture could not establish a real COMMIT for ' . $restore_commit_mode . '.' ); }
 			if ( ! empty( $restore_expectation['foreign'] ) ) {
 				$foreign_excerpt = 'Foreign restore surface ' . $restore_commit_mode . ' ' . wp_generate_uuid4();
-				$updated = wp_update_post( array( 'ID' => $restored_translation_id, 'post_excerpt' => $foreign_excerpt ), true );
+				$updated = 0;
+				$call(
+					'with_direct_save_storage_guardrails_suspended',
+					$restored_translation_id,
+					static function () use ( &$updated, $restored_translation_id, $foreign_excerpt ): void {
+						$updated = wp_update_post( wp_slash( array( 'ID' => $restored_translation_id, 'post_excerpt' => $foreign_excerpt ) ), true );
+					}
+				);
 				if ( is_wp_error( $updated ) || $restored_translation_id !== absint( $updated ) ) { throw new RuntimeException( 'Restore commit fixture could not write its foreign surface.' ); }
 				clean_post_cache( $restored_translation_id );
 				$restore_foreign_revision = (string) $call( 'translation_job_rollback_cas_revision', $restored_translation_id, (array) ( $snapshot['term_scope'] ?? array() ), (array) ( $snapshot['identity_scope'] ?? array() ) );
@@ -3058,7 +3199,14 @@ try {
 	$active_restore_original_post = get_post( $translation_id );
 	$active_restore_original_surface = maybe_serialize( array( 'post' => $active_restore_original_post instanceof WP_Post ? $active_restore_original_post->to_array() : null, 'meta' => get_post_meta( $translation_id ) ) );
 	$active_restore_drift_excerpt = 'Runtime active restore receipt drift ' . wp_generate_uuid4();
-	$active_restore_drift_update = wp_update_post( array( 'ID' => $translation_id, 'post_excerpt' => $active_restore_drift_excerpt ), true );
+	$active_restore_drift_update = 0;
+	$call(
+		'with_direct_save_storage_guardrails_suspended',
+		$translation_id,
+		static function () use ( &$active_restore_drift_update, $translation_id, $active_restore_drift_excerpt ): void {
+			$active_restore_drift_update = wp_update_post( wp_slash( array( 'ID' => $translation_id, 'post_excerpt' => $active_restore_drift_excerpt ) ), true );
+		}
+	);
 	if ( is_wp_error( $active_restore_drift_update ) || $translation_id !== absint( $active_restore_drift_update ) ) { throw new RuntimeException( 'Active restore receipt fixture could not create its controlled pre-restore drift.' ); }
 	clean_post_cache( $translation_id );
 	$active_restore_drift_post = get_post( $translation_id );
@@ -4224,6 +4372,19 @@ try {
 	if ( is_wp_error( $first_publication_source_id ) || $first_publication_source_id < 1 ) {
 		throw new RuntimeException( 'Could not create the first-publication source lifecycle fixture.' );
 	}
+	if ( 'publish' !== (string) get_post_status( $first_publication_source_id ) ) {
+		$first_publication_published = $wpdb->update(
+			$wpdb->posts,
+			array( 'post_status' => 'publish' ),
+			array( 'ID' => $first_publication_source_id ),
+			array( '%s' ),
+			array( '%d' )
+		);
+		clean_post_cache( $first_publication_source_id );
+		if ( false === $first_publication_published || 'publish' !== (string) get_post_status( $first_publication_source_id ) ) {
+			throw new RuntimeException( 'Could not establish the exact published first-publication source baseline.' );
+		}
+	}
 	update_post_meta( $first_publication_source_id, '_thumbnail_id', $source_thumbnail_id );
 	$first_source_review = $call(
 		'mark_source_content_integrity_reviewed',
@@ -4246,9 +4407,18 @@ try {
 	$first_writer_claim = $call( 'translation_job_claim', array( 'job_id' => $first_job_id, 'run_id' => 'runtime-first-writer-' . wp_generate_password( 8, false, false ), 'coordinator_id' => 'runtime-first-publication', 'role' => 'translator', 'ttl_seconds' => 600 ) );
 	if ( empty( $first_writer_claim['success'] ) ) { throw new RuntimeException( 'First-publication writer claim failed: ' . wp_json_encode( $first_writer_claim ) ); }
 	$option_keys[] = 'devenia_workflow_translation_run_' . (string) $first_writer_claim['run']['run_id'];
+	$first_writer_packet = $call(
+		'translation_job_fetch_packet',
+		array(
+			'job_id' => $first_job_id,
+			'run_id' => (string) $first_writer_claim['run']['run_id'],
+			'claim_token' => (string) $first_writer_claim['claim_token'],
+		)
+	);
+	if ( empty( $first_writer_packet['success'] ) ) { throw new RuntimeException( 'First-publication writer packet fetch failed: ' . wp_json_encode( $first_writer_packet ) ); }
 	$first_artifact_payload = $artifact;
 	$first_artifact_payload['localized_slug'] = $first_publication_slug;
-	$first_artifact_payload['localized_path'] = trim( $language . '/' . $first_publication_slug, '/' );
+	unset( $first_artifact_payload['localized_path'] );
 	$first_submit = $call(
 		'translation_job_submit_artifact',
 		array(
@@ -4262,16 +4432,37 @@ try {
 	if ( empty( $first_submit['success'] ) || 0 !== absint( $first_submit['translation_id'] ?? 0 ) ) { throw new RuntimeException( 'First-publication artifact did not remain staged at identity zero: ' . wp_json_encode( $first_submit ) ); }
 	$first_artifact_revision = (string) $first_submit['artifact_revision'];
 	$option_keys[] = 'devenia_workflow_translation_artifact_' . $first_artifact_revision;
+	$first_artifact_record = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . $first_artifact_revision ) );
+	$first_staged_route = (array) ( $first_artifact_record['surface_manifest']['route'] ?? array() );
+	$first_staged_path = trim( (string) ( $first_staged_route['localized_path'] ?? '' ), '/' );
+	if ( absint( $first_staged_route['localized_parent_id'] ?? 0 ) < 1 || count( array_filter( explode( '/', $first_staged_path ) ) ) < 3 ) {
+		throw new RuntimeException( 'First-publication lifecycle did not stage an exact nested WordPress parent route: ' . wp_json_encode( $first_staged_route ) );
+	}
+	$first_http_evidence = $call( 'translation_job_http_live_dom_evidence', (string) get_permalink( $first_publication_source_id ), $source_language_code );
+	$first_staged_dom = do_blocks( (string) ( $first_artifact_record['surface_manifest']['content']['gutenberg'] ?? '' ) );
+	if ( empty( $first_http_evidence['success'] ) || '' === trim( wp_strip_all_tags( $first_staged_dom ) ) || false !== stripos( $first_staged_dom, '<!-- wp:' ) ) {
+		throw new RuntimeException( 'First-publication source-shell evidence fixture is not renderable: ' . wp_json_encode( array( 'http' => $first_http_evidence, 'staged_dom_bytes' => strlen( $first_staged_dom ), 'staged_dom_text_bytes' => strlen( trim( wp_strip_all_tags( $first_staged_dom ) ) ), 'has_unrendered_blocks' => false !== stripos( $first_staged_dom, '<!-- wp:' ) ) ) );
+	}
 	$first_quality_claim = $call( 'translation_job_claim', array( 'job_id' => $first_job_id, 'run_id' => 'runtime-first-quality-' . wp_generate_password( 8, false, false ), 'coordinator_id' => 'runtime-first-publication-q', 'role' => 'quality', 'ttl_seconds' => 600 ) );
 	if ( empty( $first_quality_claim['success'] ) ) { throw new RuntimeException( 'First-publication Quality claim failed: ' . wp_json_encode( $first_quality_claim ) ); }
 	$option_keys[] = 'devenia_workflow_translation_run_' . (string) $first_quality_claim['run']['run_id'];
-	$first_quality = $call( 'translation_job_submit_quality_decision', $quality_payload( $first_quality_claim, $first_artifact_revision, 'pass', 'Independent runtime Quality approved the exact source-shell preview before the first translation post existed.', array() ) );
+	$first_quality_payload = $quality_payload( $first_quality_claim, $first_artifact_revision, 'pass', 'Independent runtime Quality approved the exact source-shell preview before the first translation post existed.', array() );
+	$first_quality = $call( 'translation_job_submit_quality_decision', $first_quality_payload );
 	$track_quality_result( $first_quality );
-	$first_artifact_record = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . $first_artifact_revision ) );
-	if ( empty( $first_quality['success'] ) || 0 !== absint( $first_artifact_record['translation_id'] ?? 0 ) || 0 !== absint( $first_quality['quality_decision']['translation_id'] ?? 0 ) ) { throw new RuntimeException( 'First-publication immutable artifact or Quality did not remain bound to identity zero: ' . wp_json_encode( $first_quality ) ); }
-	$first_page_link = static function ( string $url, int $post_id ) use ( $first_publication_source_id, $language, $first_publication_slug ): string {
-		return $first_publication_source_id === absint( get_post_meta( $post_id, '_devenia_translation_source_id', true ) ) && $language === (string) get_post_meta( $post_id, '_devenia_translation_language', true )
-			? home_url( '/' . trim( $language . '/' . $first_publication_slug, '/' ) . '/' )
+	$first_quality_revision = (string) ( $first_quality['quality_decision']['quality_revision'] ?? '' );
+	$first_artifact_after_quality = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . $first_artifact_revision ) );
+	$first_stored_quality = get_option( 'devenia_workflow_translation_quality_' . $first_quality_revision );
+	if ( empty( $first_quality['success'] ) || ! is_array( $first_artifact_after_quality ) || ! is_array( $first_stored_quality ) || 0 !== absint( $first_artifact_after_quality['translation_id'] ?? 0 ) || 0 !== absint( $first_stored_quality['translation_id'] ?? 0 ) ) {
+		$first_quality_receipts = array_map(
+			static function ( string $receipt_id ) { return get_option( 'devenia_tj_quality_receipt_' . sanitize_key( $receipt_id ) ); },
+			(array) ( $first_quality_payload['evidence_receipt_ids'] ?? array() )
+		);
+		throw new RuntimeException( 'First-publication immutable artifact or Quality did not remain bound to identity zero: ' . wp_json_encode( array( 'result' => $first_quality, 'receipts' => $first_quality_receipts ) ) );
+	}
+	$first_page_link = static function ( string $url, int $post_id ) use ( $first_publication_source_id, $language ): string {
+		$localized_path = trim( (string) get_post_meta( $post_id, '_devenia_translation_localized_path', true ), '/' );
+		return $first_publication_source_id === absint( get_post_meta( $post_id, '_devenia_translation_source_id', true ) ) && $language === (string) get_post_meta( $post_id, '_devenia_translation_language', true ) && '' !== $localized_path
+			? home_url( '/' . $localized_path . '/' )
 			: $url;
 	};
 	add_filter( 'page_link', $first_page_link, 20, 2 );
@@ -4280,6 +4471,8 @@ try {
 		$first_publication_translation_id = absint( $first_publish['translation']['id'] ?? $first_publish['job']['translation_id'] ?? 0 );
 		$first_verify = ! empty( $first_publish['success'] ) ? $call( 'translation_job_verify_live', array( 'job_id' => $first_job_id, 'timeout' => 3 ) ) : array();
 		$first_published_job = get_option( 'devenia_workflow_translation_job_' . $first_job_id );
+		$first_artifact_after_publish = $call( 'translation_job_unpack_artifact_record', get_option( 'devenia_workflow_translation_artifact_' . $first_artifact_revision ) );
+		$first_quality_after_publish = get_option( 'devenia_workflow_translation_quality_' . $first_quality_revision );
 		$first_wrong_relation_job = $first_published_job;
 		$first_wrong_relation_job['translation_id'] = (int) $first_publication_source_id;
 		update_option( 'devenia_workflow_translation_job_' . $first_job_id, $first_wrong_relation_job, false );
@@ -4292,13 +4485,18 @@ try {
 		empty( $first_publish['success'] )
 		|| $first_publication_translation_id < 1
 		|| $first_publication_translation_id !== absint( $first_published_job['translation_id'] ?? 0 )
-		|| 0 !== absint( $first_artifact_record['translation_id'] ?? 0 )
-		|| 0 !== absint( $first_quality['quality_decision']['translation_id'] ?? 0 )
+		|| ! is_array( $first_artifact_after_publish )
+		|| ! is_array( $first_quality_after_publish )
+		|| 0 !== absint( $first_artifact_after_publish['translation_id'] ?? 0 )
+		|| 0 !== absint( $first_quality_after_publish['translation_id'] ?? 0 )
+		|| $first_staged_path !== trim( (string) get_post_meta( $first_publication_translation_id, '_devenia_translation_localized_path', true ), '/' )
 		|| empty( $first_verify['success'] )
 		|| ! empty( $first_wrong_relation_verify['success'] )
 		|| 'translation_identity_mismatch' !== (string) ( $first_wrong_relation_verify['authority_code'] ?? '' )
 	) {
-		throw new RuntimeException( 'First translation did not complete publish-to-verify with immutable zero-bound authority and wrong-relation rejection: ' . wp_json_encode( compact( 'first_publish', 'first_verify', 'first_wrong_relation_verify' ) ) );
+		$first_verify_diagnostic = $first_verify;
+		unset( $first_verify_diagnostic['translation'], $first_verify_diagnostic['job'] );
+		throw new RuntimeException( 'First translation did not complete publish-to-verify with immutable zero-bound authority and wrong-relation rejection: ' . wp_json_encode( array( 'publish_success' => ! empty( $first_publish['success'] ), 'published_translation_id' => $first_publication_translation_id, 'verify' => $first_verify_diagnostic, 'wrong_relation_code' => (string) ( $first_wrong_relation_verify['authority_code'] ?? '' ) ) ) );
 	}
 
 	$runtime_result = array(
@@ -4386,27 +4584,27 @@ try {
 	$runtime_error = $error;
 } finally {
 	if ( $new_page_route_translation_id > 0 ) {
-		wp_delete_post( $new_page_route_translation_id, true );
+		$delete_owned_fixture_post( $new_page_route_translation_id );
 	}
 	if ( $new_page_apply_translation_id > 0 ) {
-		wp_delete_post( $new_page_apply_translation_id, true );
+		$delete_owned_fixture_post( $new_page_apply_translation_id );
 	}
 	if ( $legacy_new_page_apply_translation_id > 0 ) {
-		wp_delete_post( $legacy_new_page_apply_translation_id, true );
+		$delete_owned_fixture_post( $legacy_new_page_apply_translation_id );
 	}
 	if ( $first_publication_translation_id > 0 ) {
-		wp_delete_post( $first_publication_translation_id, true );
+		$delete_owned_fixture_post( $first_publication_translation_id );
 	}
 	if ( $first_publication_source_id > 0 ) {
-		wp_delete_post( $first_publication_source_id, true );
+		$delete_owned_fixture_post( $first_publication_source_id );
 	}
 	foreach ( $new_page_apply_parent_ids as $new_page_apply_parent_id ) {
 		if ( $new_page_apply_parent_id > 0 ) {
-			wp_delete_post( $new_page_apply_parent_id, true );
+			$delete_owned_fixture_post( $new_page_apply_parent_id );
 		}
 	}
 	if ( $new_page_apply_source_id > 0 ) {
-		wp_delete_post( $new_page_apply_source_id, true );
+		$delete_owned_fixture_post( $new_page_apply_source_id );
 	}
 	if ( $runtime_batch_http ) {
 		remove_filter( 'devenia_workflow_frontend_cache_batch_adapter_result', $runtime_batch_http, 10 );
@@ -4466,54 +4664,59 @@ try {
 	}
 	foreach ( array_unique( array_values( $runtime_header_translation_ids_by_language ) ) as $runtime_header_translation_id ) {
 		if ( $runtime_header_translation_id > 0 ) {
-			wp_delete_post( $runtime_header_translation_id, true );
+			$delete_owned_fixture_post( $runtime_header_translation_id );
 		}
 	}
 	foreach ( array_unique( array_values( $runtime_header_blog_translation_ids_by_language ) ) as $runtime_header_blog_translation_id ) {
 		if ( $runtime_header_blog_translation_id > 0 ) {
-			wp_delete_post( $runtime_header_blog_translation_id, true );
+			$delete_owned_fixture_post( $runtime_header_blog_translation_id );
 		}
 	}
 	if ( $runtime_header_source_id > 0 ) {
-		wp_delete_post( $runtime_header_source_id, true );
+		$delete_owned_fixture_post( $runtime_header_source_id );
 	}
 	if ( $runtime_header_blog_source_id > 0 ) {
-		wp_delete_post( $runtime_header_blog_source_id, true );
+		$delete_owned_fixture_post( $runtime_header_blog_source_id );
 	}
 	if ( $translation_id > 0 ) {
-		wp_delete_post( $translation_id, true );
+		$delete_owned_fixture_post( $translation_id );
 	}
 	if ( $nested_route_translation_id > 0 ) {
-		wp_delete_post( $nested_route_translation_id, true );
+		$delete_owned_fixture_post( $nested_route_translation_id );
 	}
 	foreach ( $nested_route_parent_ids as $nested_route_parent_id ) {
 		if ( $nested_route_parent_id > 0 ) {
-			wp_delete_post( $nested_route_parent_id, true );
+			$delete_owned_fixture_post( $nested_route_parent_id );
 		}
 	}
 	if ( $source_id > 0 ) {
-		wp_delete_post( $source_id, true );
+		$delete_owned_fixture_post( $source_id );
 	}
 	if ( $linked_source_id > 0 ) {
-		wp_delete_post( $linked_source_id, true );
+		$delete_owned_fixture_post( $linked_source_id );
 	}
 	if ( $localized_link_target_id > 0 ) {
-		wp_delete_post( $localized_link_target_id, true );
+		$delete_owned_fixture_post( $localized_link_target_id );
 	}
 	if ( $localized_link_source_id > 0 ) {
-		wp_delete_post( $localized_link_source_id, true );
+		$delete_owned_fixture_post( $localized_link_source_id );
 	}
 	if ( $source_thumbnail_id > 0 ) {
-		wp_delete_attachment( $source_thumbnail_id, true );
+		$delete_owned_fixture_post( $source_thumbnail_id, true );
 	}
 	if ( $replacement_thumbnail_id > 0 ) {
-		wp_delete_attachment( $replacement_thumbnail_id, true );
+		$delete_owned_fixture_post( $replacement_thumbnail_id, true );
 	}
 	foreach ( array( $source_thumbnail_file, $replacement_thumbnail_file ) as $fixture_file ) {
-		if ( is_string( $fixture_file ) && '' !== $fixture_file && file_exists( $fixture_file ) ) { unlink( $fixture_file ); } // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Ephemeral runtime fixture cleanup.
+		if ( is_string( $fixture_file ) && '' !== $fixture_file && file_exists( $fixture_file ) ) {
+			unlink( $fixture_file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Ephemeral runtime fixture cleanup.
+			clearstatcache( true, $fixture_file );
+			if ( file_exists( $fixture_file ) ) { $cleanup_errors[] = 'Fixture cleanup left owned media file ' . $fixture_file . '.'; }
+		}
 	}
 	foreach ( array_unique( $option_keys ) as $option_key ) {
 		delete_option( $option_key );
+		if ( false !== get_option( $option_key ) ) { $cleanup_errors[] = 'Fixture cleanup left owned option ' . $option_key . '.'; }
 	}
 	foreach (
 		array(
@@ -4529,6 +4732,20 @@ try {
 			update_option( $inventory_option_key, $inventory_option_before, false );
 		}
 	}
+	$runtime_posts_after = array_map( 'intval', $wpdb->get_col( "SELECT ID FROM {$wpdb->posts} ORDER BY ID ASC" ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact dev fixture inventory assertion.
+	if ( $runtime_posts_before !== $runtime_posts_after ) {
+		$cleanup_errors[] = 'Fixture cleanup did not restore the exact WordPress post inventory.';
+	}
+	if ( $runtime_menu_inventory_before !== $raw_nav_menu_inventory() ) {
+		$cleanup_errors[] = 'Fixture cleanup did not restore the exact navigation-menu inventory.';
+	}
+}
+
+if ( ! empty( $cleanup_errors ) ) {
+	$cleanup_failure = new RuntimeException( implode( ' ', array_values( array_unique( $cleanup_errors ) ) ) );
+	$runtime_error = $runtime_error instanceof Throwable
+		? new RuntimeException( $runtime_error->getMessage() . ' Cleanup: ' . $cleanup_failure->getMessage(), 0, $runtime_error )
+		: $cleanup_failure;
 }
 
 if ( $runtime_error instanceof Throwable ) {
