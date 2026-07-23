@@ -22,6 +22,8 @@ $target_ids = array();
 $failure = null;
 
 try {
+	$baseline_map = (array) $call( 'localized_link_expected_target_map', 'en', true );
+	$baseline_homepage_target = $call( 'localized_internal_link_target', home_url( '/' ), $baseline_map );
 	$sources = array();
 	$targets = array();
 	$shared_localized_path = 'nb/runtime-link-collision-' . $token;
@@ -76,8 +78,8 @@ try {
 
 	$map = (array) $call( 'localized_link_expected_target_map', 'en', true );
 	$homepage_target = $call( 'localized_internal_link_target', home_url( '/' ), $map );
-	if ( null !== $homepage_target ) {
-		throw new RuntimeException( 'A draft query permalink aliased the public homepage to ' . (string) $homepage_target . '.' );
+	if ( $call( 'normalized_comparable_url', (string) $homepage_target ) !== $call( 'normalized_comparable_url', (string) $baseline_homepage_target ) ) {
+		throw new RuntimeException( 'A draft query permalink changed the authoritative public-homepage mapping.' );
 	}
 
 	foreach ( $targets as $index => $target ) {
