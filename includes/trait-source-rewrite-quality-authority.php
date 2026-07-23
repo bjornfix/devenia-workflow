@@ -740,6 +740,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			if (
 				! $source instanceof WP_Post
 				|| 'publish' !== (string) $source->post_status
+				|| ! hash_equals( self::source_rewrite_proposed_source_hash( $proposed ), self::source_hash( $source ) )
 				|| ! hash_equals( (string) $proposed_surface['revision'], (string) ( $applied_surface['revision'] ?? '' ) )
 				|| ! hash_equals( (string) $artifact['proposed_content_hash'], hash( 'sha256', (string) ( $applied_values['content'] ?? '' ) ) )
 			) {
@@ -867,15 +868,19 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		}
 		$artifact = $authority['artifact'];
 		$current = self::source_rewrite_source_values( $source );
+		$current_source_hash = self::source_hash( $source );
 		$current_surface = self::source_rewrite_copy_surface( $current['title'], $current['excerpt'], $current['content'] );
 		$proposed = (array) ( $artifact['proposed'] ?? array() );
+		$proposed_source_hash = self::source_rewrite_proposed_source_hash( $proposed );
 		$verification_surface = self::source_rewrite_copy_surface(
 			(string) ( $proposed['title'] ?? '' ),
 			(string) ( $proposed['excerpt'] ?? '' ),
 			(string) ( $proposed['content'] ?? '' )
 		);
 		if (
-			! hash_equals( (string) $artifact['proposed_copy_surface']['revision'], (string) $current_surface['revision'] )
+			! hash_equals( (string) ( $job['applied_source_hash'] ?? '' ), $current_source_hash )
+			|| ! hash_equals( $proposed_source_hash, $current_source_hash )
+			|| ! hash_equals( (string) $artifact['proposed_copy_surface']['revision'], (string) $current_surface['revision'] )
 			|| ! hash_equals( (string) $artifact['proposed_copy_surface']['revision'], (string) $verification_surface['revision'] )
 			|| ! hash_equals( (string) $artifact['proposed_content_hash'], hash( 'sha256', (string) $current['content'] ) )
 		) {
@@ -892,22 +897,37 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			$body = (string) ( $response['body'] ?? '' );
 			$decoded_body = html_entity_decode( $body, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 			$reader_actions = self::reader_surface_action_values( $decoded_body );
+			$template_fields = self::reader_surface_template_field_values( $decoded_body );
 			$body_text = self::source_rewrite_reader_text( wp_strip_all_tags( $decoded_body ) );
 			$missing = array();
 			foreach ( (array) ( $verification_surface['fragments'] ?? array() ) as $fragment ) {
 				$field = (string) ( $fragment['field'] ?? '' );
 				$block = (string) ( $fragment['block'] ?? '' );
 				$is_action = str_starts_with( $field, 'action:' );
+				$is_template_field = in_array( $field, array( 'title', 'excerpt' ), true );
 				$attribute = $is_action && str_starts_with( $block, 'document:' ) ? substr( $block, strlen( 'document:' ) ) : '';
 				$text = $is_action
 					? self::reader_surface_action_identity( $attribute, (string) ( $fragment['text'] ?? '' ) )
 					: self::source_rewrite_reader_text( (string) ( $fragment['text'] ?? '' ) );
-				if ( '' === $text || empty( $fragment['atomic'] ) || 'excerpt' === $field || 'content:document' === $field || 'document' === $block ) {
+				if ( empty( $fragment['atomic'] ) || 'content:document' === $field || 'document' === $block ) {
 					continue;
 				}
-				$found = $is_action
+				$template_values = $is_template_field ? (array) ( $template_fields[ $field ] ?? array() ) : array();
+				// A content-owned template has no semantic field host, so stored
+				// bytes remain authoritative without inventing a body requirement.
+				// When a theme or dynamic block does expose a field host, every
+				// rendered value must equal the exact approved reader text.
+				if ( $is_template_field && empty( $template_values ) ) {
+					continue;
+				}
+				if ( ! $is_template_field && '' === $text ) {
+					continue;
+				}
+				$found = $is_template_field
+					? empty( array_diff( $template_values, array( $text ) ) )
+					: ( $is_action
 					? in_array( $text, (array) ( $reader_actions[ $attribute ] ?? array() ), true )
-					: false !== strpos( $body_text, $text );
+					: false !== strpos( $body_text, $text ) );
 				if ( ! $found ) {
 					$missing[] = $field;
 				}
@@ -1432,6 +1452,15 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'title'   => (string) $source->post_title,
 			'excerpt' => (string) $source->post_excerpt,
 			'content' => self::normalize_gutenberg_content_for_storage( (string) $source->post_content ),
+		);
+	}
+
+	/** @param array<string,mixed> $proposed */
+	private static function source_rewrite_proposed_source_hash( array $proposed ): string {
+		return self::source_hash_from_values(
+			(string) ( $proposed['title'] ?? '' ),
+			(string) ( $proposed['excerpt'] ?? '' ),
+			self::normalize_gutenberg_content_for_storage( (string) ( $proposed['content'] ?? '' ) )
 		);
 	}
 

@@ -226,6 +226,8 @@ final class Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test {
 	public static function transition_preflight( array $job, $preflight ): array { return self::source_rewrite_transition_after_publish_preflight_failure( $job, $preflight ); }
 	/** @param array<int,mixed> $posts @return array<int,mixed> */
 	public static function preview_posts( array $posts, $query = null ): array { return self::filter_source_rewrite_preview_posts( $posts, $query ); }
+	/** @return array{title:array<int,string>,excerpt:array<int,string>} */
+	public static function template_fields( string $html ): array { return self::reader_surface_template_field_values( $html ); }
 
 	private static function is_translation_post( int $post_id ): bool { return 99 === $post_id; }
 	private static function is_translatable_post_type( string $post_type ): bool { return in_array( $post_type, array( 'page', 'post' ), true ); }
@@ -260,20 +262,26 @@ final class Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test {
 			$post->post_content
 		);
 		$rendered = preg_replace( '/<\/h2>/', '</h2><aside>Runtime reader chrome.</aside>', $rendered, 1 ) ?? $rendered;
-		if ( 'missing_word' === $GLOBALS['srq_reader_mutation'] ) {
+		if ( 'template_current_fields' === $GLOBALS['srq_reader_mutation'] ) {
+			$rendered = '<h1 class="entry-title" itemprop="headline">' . $post->post_title . '</h1><div class="entry-summary">' . $post->post_excerpt . '</div>' . $rendered;
+		} elseif ( 'template_stale_title' === $GLOBALS['srq_reader_mutation'] ) {
+			$rendered = '<h1 class="entry-title" itemprop="headline">Stale cached title</h1>' . $rendered;
+		} elseif ( 'template_stale_excerpt' === $GLOBALS['srq_reader_mutation'] ) {
+			$rendered = '<div class="entry-summary">Stale cached excerpt.</div>' . $rendered;
+		} elseif ( 'missing_word' === $GLOBALS['srq_reader_mutation'] ) {
 			$rendered = str_replace( 'mechanism can make relief', 'mechanism can make', $rendered );
 		} elseif ( 'wrong_action' === $GLOBALS['srq_reader_mutation'] ) {
-			$rendered = str_replace( 'mailto:contact@example.test?subject=Workflow%20setup', 'mailto:wrong@example.test?subject=Workflow%20setup', $rendered );
+			$rendered = str_replace( 'mailto:contact@example.test?subject=Workflow%20setup&amp;body=Hi', 'mailto:wrong@example.test?subject=Workflow%20setup&amp;body=Hi', $rendered );
 		} elseif ( 'cloudflare_email_protection' === $GLOBALS['srq_reader_mutation'] ) {
 			$rendered = str_replace(
-				'mailto:contact@example.test?subject=Workflow%20setup',
-				'/cdn-cgi/l/email-protection#92f1fdfce6f3f1e6d2f7eaf3ffe2fef7bce6f7e1e6ade1e7f0f8f7f1e6afc5fde0f9f4fefde5b7a0a2e1f7e6e7e2',
+				'mailto:contact@example.test?subject=Workflow%20setup&amp;body=Hi',
+				'/cdn-cgi/l/email-protection#92f1fdfce6f3f1e6d2f7eaf3ffe2fef7bce6f7e1e6ade1e7f0f8f7f1e6afc5fde0f9f4fefde5b7a0a2e1f7e6e7e2b4f3ffe2a9f0fdf6ebafdafb',
 				$rendered
 			);
 		} elseif ( 'cloudflare_wrong_email_protection' === $GLOBALS['srq_reader_mutation'] ) {
 			$rendered = str_replace(
-				'mailto:contact@example.test?subject=Workflow%20setup',
-				'/cdn-cgi/l/email-protection#92f7e4fbfed2f7eaf3ffe2fef7bce6f7e1e6adfcf7eae6affff3fbfee6fda8f1fdfce6f3f1e6d2f7eaf3ffe2fef7bce6f7e1e6ade1e7f0f8f7f1e6afc5fde0f9f4fefde5b7a0a2e1f7e6e7e2',
+				'mailto:contact@example.test?subject=Workflow%20setup&amp;body=Hi',
+				'/cdn-cgi/l/email-protection#92e5e0fdfcf5d2f7eaf3ffe2fef7bce6f7e1e6ade1e7f0f8f7f1e6afc5fde0f9f4fefde5b7a0a2e1f7e6e7e2b4f3ffe2a9f0fdf6ebafdafb',
 				$rendered
 			);
 		} elseif ( 'root_without_slash' === $GLOBALS['srq_reader_mutation'] ) {
@@ -284,7 +292,7 @@ final class Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test {
 			$rendered = str_replace( 'href="https://example.test/exact-resource"', 'href="https://example.test/wrong-resource"', $rendered );
 			$rendered .= '<script>const removedAction = \'href="https://example.test/exact-resource"\';</script>';
 		}
-		return array( 'success' => true, 'status_code' => 200, 'final_url' => get_permalink( 41811 ), 'body' => '<html lang="en"><body><h1>' . $post->post_title . '</h1>' . $rendered . '</body></html>' );
+		return array( 'success' => true, 'status_code' => 200, 'final_url' => get_permalink( 41811 ), 'body' => '<html lang="en"><head><title>Independent SEO title</title></head><body>' . $rendered . '</body></html>' );
 	}
 
 	/** @return array<int,array<string,mixed>> */
@@ -315,7 +323,10 @@ final class Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test {
 	}
 
 	private static function source_hash( WP_Post $post ): string {
-		return hash( 'sha256', $post->post_title . "\n" . $post->post_excerpt . "\n" . self::normalize_gutenberg_content_for_storage( $post->post_content ) );
+		return self::source_hash_from_values( $post->post_title, $post->post_excerpt, self::normalize_gutenberg_content_for_storage( $post->post_content ) );
+	}
+	private static function source_hash_from_values( string $title, string $excerpt, string $content ): string {
+		return hash( 'sha256', $title . "\n" . $excerpt . "\n" . $content );
 	}
 	private static function source_publication_surface_revision( WP_Post $post ): string {
 		return hash( 'sha256', 'surface:' . self::source_hash( $post ) );
@@ -335,6 +346,35 @@ final class Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test {
 		unset( $GLOBALS['srq_options'][ $key ] );
 		return true;
 	}
+}
+
+$empty_template_fields = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::template_fields( '<h1 class="entry-title"></h1><div class="entry-summary"></div>' );
+if ( array( '' ) !== $empty_template_fields['title'] || array( '' ) !== $empty_template_fields['excerpt'] ) {
+	throw new RuntimeException( 'Semantic empty template hosts were confused with fields the template does not render.' );
+}
+$hidden_template_fields = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::template_fields( '<h1 class="entry-title" hidden>Hidden title</h1><section hidden><div class="entry-summary">Hidden excerpt.</div></section>' );
+if ( array() !== $hidden_template_fields['title'] || array() !== $hidden_template_fields['excerpt'] ) {
+	throw new RuntimeException( 'Native hidden semantic hosts satisfied a reader-visible template field contract.' );
+}
+$nested_hidden_template_fields = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::template_fields( '<div hidden><div>Decorative wrapper</div><h1 class="entry-title">Hidden title</h1></div><section hidden><section>Decorative wrapper</section><div class="entry-summary">Hidden excerpt.</div></section>' );
+if ( array() !== $nested_hidden_template_fields['title'] || array() !== $nested_hidden_template_fields['excerpt'] ) {
+	throw new RuntimeException( 'Same-tag nesting escaped native hidden ancestry in the reader-visible template field contract.' );
+}
+$hidden_descendant_template_fields = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::template_fields( '<h1 class="entry-title">Exact title<span hidden>Hidden text</span></h1><div class="entry-summary">Exact excerpt.<script>Hidden script</script></div>' );
+if ( array( 'Exact title' ) !== $hidden_descendant_template_fields['title'] || array( 'Exact excerpt.' ) !== $hidden_descendant_template_fields['excerpt'] ) {
+	throw new RuntimeException( 'Hidden descendant text contaminated a visible semantic template field value.' );
+}
+$quoted_delimiter_template_fields = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::template_fields( '<h1 class="entry-title" data-note="1 > 0">Exact title</h1>' );
+if ( array( 'Exact title' ) !== $quoted_delimiter_template_fields['title'] ) {
+	throw new RuntimeException( 'A valid quoted attribute delimiter broke semantic template field traversal.' );
+}
+$void_template_fields = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::template_fields( '<meta itemprop="headline" content="Metadata title"><link itemprop="headline" href="/"><input itemprop="headline" value="Metadata title"><span itemprop="headline">Visible title</span>' );
+if ( array( 'Visible title' ) !== $void_template_fields['title'] ) {
+	throw new RuntimeException( 'Metadata-only void elements became reader-visible semantic title hosts.' );
+}
+$core_excerpt_fields = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::template_fields( '<div class="wp-block-post-excerpt"><p class="wp-block-post-excerpt__excerpt">Exact approved excerpt.</p><p class="wp-block-post-excerpt__more-text"><a href="/next/">Read more</a></p></div>' );
+if ( array( 'Exact approved excerpt.' ) !== $core_excerpt_fields['excerpt'] ) {
+	throw new RuntimeException( 'WordPress core Post Excerpt sibling UI text contaminated the excerpt field value.' );
 }
 
 function source_fixture( string $body_word ): string {
@@ -763,7 +803,7 @@ $writer2 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::claim
 $writer2_packet = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::fetch(
 	array( 'job_id' => $job_id, 'run_id' => 'sr_writer_2', 'claim_token' => $writer2['claim_token'] ?? '' )
 );
-$strong_content = source_fixture( 'proof' ) . "\n<!-- wp:paragraph --><p>A writer's judgment protects the site's promise because AI can't approve the plugin's own work.</p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p>The words must make the risk felt before the mechanism can make relief believable.</p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"https://example.test/start/\">See whether Workflow fits.</a></p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"mailto:contact@example.test?subject=Workflow%20setup\">Ask about the smallest useful workflow.</a></p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"https://example.test/\">Return home.</a></p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"https://example.test/exact-resource\">Open the exact resource.</a></p><!-- /wp:paragraph -->";
+$strong_content = source_fixture( 'proof' ) . "\n<!-- wp:paragraph --><p>A writer's judgment protects the site's promise because AI can't approve the plugin's own work.</p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p>The words must make the risk felt before the mechanism can make relief believable.</p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"https://example.test/start/\">See whether Workflow fits.</a></p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"mailto:contact@example.test?subject=Workflow%20setup&amp;body=Hi\">Ask about the smallest useful workflow.</a></p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"https://example.test/\">Return home.</a></p><!-- /wp:paragraph -->\n<!-- wp:paragraph --><p><a href=\"https://example.test/exact-resource\">Open the exact resource.</a></p><!-- /wp:paragraph -->";
 $strong_artifact = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::submit_artifact(
 	array(
 		'job_id'             => $job_id,
@@ -928,7 +968,39 @@ if ( $source->post_content !== $strong_content_g3 ) {
 	throw new RuntimeException( 'The WordPress save seam allowed an unapproved customer-action destination.' );
 }
 
+$approved_title = $source->post_title;
+$source->post_title = str_replace( 'AI can', 'AI  can', $approved_title );
+$title_byte_drift = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if ( ! empty( $title_byte_drift['success'] ) || 'published_source_drifted' !== (string) ( $title_byte_drift['code'] ?? '' ) ) {
+	throw new RuntimeException( 'Whitespace-only stored post_title drift passed the exact approved artifact boundary.' );
+}
+$source->post_title = $approved_title;
+
+$approved_excerpt = $source->post_excerpt;
+$source->post_excerpt = str_replace( 'Keep AI speed', 'Keep  AI speed', $approved_excerpt );
+$excerpt_byte_drift = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if ( ! empty( $excerpt_byte_drift['success'] ) || 'published_source_drifted' !== (string) ( $excerpt_byte_drift['code'] ?? '' ) ) {
+	throw new RuntimeException( 'Whitespace-only stored post_excerpt drift passed the exact approved artifact boundary.' );
+}
+$source->post_excerpt = $approved_excerpt;
+
 $verified = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+$GLOBALS['srq_reader_mutation'] = 'template_current_fields';
+$template_current_fields = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if ( empty( $template_current_fields['success'] ) ) {
+	throw new RuntimeException( 'A template-rendered exact title and excerpt did not satisfy Reader Surface Equivalence.' );
+}
+$GLOBALS['srq_reader_mutation'] = 'template_stale_title';
+$template_stale_title = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if ( ! empty( $template_stale_title['success'] ) || 'source_rewrite_live_verification_failed' !== (string) ( $template_stale_title['code'] ?? '' ) ) {
+	throw new RuntimeException( 'A stale template-rendered post_title passed the origin/canonical reader boundary.' );
+}
+$GLOBALS['srq_reader_mutation'] = 'template_stale_excerpt';
+$template_stale_excerpt = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if ( ! empty( $template_stale_excerpt['success'] ) || 'source_rewrite_live_verification_failed' !== (string) ( $template_stale_excerpt['code'] ?? '' ) ) {
+	throw new RuntimeException( 'A stale template-rendered post_excerpt passed the origin/canonical reader boundary.' );
+}
+$GLOBALS['srq_reader_mutation'] = '';
 $GLOBALS['srq_reader_mutation'] = 'cloudflare_email_protection';
 $cloudflare_protected_action = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
 if ( empty( $cloudflare_protected_action['success'] ) ) {
