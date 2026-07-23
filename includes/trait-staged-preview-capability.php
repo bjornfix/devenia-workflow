@@ -10,6 +10,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 trait Devenia_Workflow_Staged_Preview_Capability {
+	/** Read a preview capability from the exact query invoking the projection filter. */
+	private static function staged_preview_query_token( $query, string $query_var ): string {
+		return is_object( $query ) && is_callable( array( $query, 'get' ) ) ? (string) $query->get( $query_var ) : '';
+	}
+
 	/** Match the exact query-ID route before WordPress canonicalizes it. */
 	private static function staged_preview_request_matches_id( int $expected_id, $query = null, ?array $resolved_posts = null ): bool {
 		if ( is_object( $query ) && is_callable( array( $query, 'get' ) ) ) {

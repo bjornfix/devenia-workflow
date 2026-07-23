@@ -117,6 +117,7 @@ try {
 	$entries_before_preview_projection = $preview_query_entries;
 	$preview_posts = Devenia_Workflow::filter_translation_job_preview_posts( array( get_post( $source_id ) ), $query );
 	$normalized_query = new WP_Query();
+	$normalized_query->set( 'devenia_translation_artifact_preview', $token );
 	if ( is_object( $request ) ) { $request->query_vars = array( 'p' => (int) $source_id, 'devenia_translation_artifact_preview' => $token ); }
 	$normalized_empty_preview_posts = Devenia_Workflow::filter_translation_job_preview_posts( array(), $normalized_query );
 	$preview_projection_query_entries = $preview_query_entries - $entries_before_preview_projection;

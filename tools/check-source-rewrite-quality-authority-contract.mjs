@@ -77,6 +77,8 @@ assert.match(authority, /source_rewrite_validate_browser_receipts[\s\S]*desktop:
 assert.match(authority, /source_rewrite_validate_browser_receipts[\s\S]*response_digest[\s\S]*document_language[\s\S]*document_direction/);
 assert.match(authority, /source_rewrite_preview_request_matches[\s\S]*staged_preview_request_matches_id/);
 assert.match(previewCapability, /staged_preview_request_matches_id[\s\S]*\$GLOBALS\['wp'\][\s\S]*query_vars[\s\S]*page_id[\s\S]*post_id[\s\S]*expected_id/);
+assert.match(previewCapability, /staged_preview_query_token[\s\S]*\$query->get\( \$query_var \)/);
+assert.match(authority, /filter_source_rewrite_preview_posts[\s\S]*staged_preview_query_token\( \$query, 'devenia_source_rewrite_preview' \)/);
 assert.match(authority, /browser_receipts[\s\S]*preview_identity/);
 assert.match(previewCapability, /staged_preview_prevent_page_cache[\s\S]*DONOTCACHEPAGE[\s\S]*WordPress\.NamingConventions\.PrefixAllGlobals\.NonPrefixedConstantFound/);
 assert.match(previewCapability, /staged_preview_apply_response_policy[\s\S]*! \$authorized[\s\S]*status_header\( 404 \)[\s\S]*return;[\s\S]*remove_action\(\s*'template_redirect',\s*'redirect_canonical',\s*10\s*\)/);

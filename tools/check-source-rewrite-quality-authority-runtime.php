@@ -50,7 +50,10 @@ final class Source_Rewrite_Preview_Query {
 	public int $post_count = 0;
 	public int $found_posts = 0;
 	public function __construct( int $source_id ) { $this->source_id = $source_id; }
-	public function get( string $key ) { return 'page_id' === $key ? $this->source_id : 0; }
+	public function get( string $key ) {
+		if ( 'devenia_source_rewrite_preview' === $key ) { return $GLOBALS['srq_query_vars'][ $key ] ?? ''; }
+		return 'page_id' === $key ? $this->source_id : 0;
+	}
 }
 
 $GLOBALS['srq_posts']   = array();
