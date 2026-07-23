@@ -13,7 +13,7 @@ trait Devenia_Workflow_Staged_Preview_Capability {
 	/** Read a preview namespace from the original parsed request when available. */
 	private static function staged_preview_request_token( string $query_var ): string {
 		if ( isset( $_GET[ $query_var ] ) && is_scalar( $_GET[ $query_var ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only capability input; cryptographic authority validation follows before any projection.
-			return (string) wp_unslash( $_GET[ $query_var ] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- The signed token must remain byte-exact and is validated by the capability authority.
+			return (string) wp_unslash( $_GET[ $query_var ] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended,WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Read-only signed capability input must remain byte-exact; cryptographic authority validation follows before any projection.
 		}
 		$request_query = is_object( $GLOBALS['wp'] ?? null ) && is_array( $GLOBALS['wp']->query_vars ?? null ) ? $GLOBALS['wp']->query_vars : array();
 		return array_key_exists( $query_var, $request_query )
