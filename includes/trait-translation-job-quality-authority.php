@@ -1147,6 +1147,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 
 	/** @param array<int,mixed> $posts @return array<int,mixed> */
 	public static function filter_translation_job_preview_posts( array $posts, $query ): array {
+		if ( ! self::staged_preview_query_owns_namespace( $query, 'devenia_translation_artifact_preview' ) ) { return $posts; }
 		$token = self::staged_preview_query_token( $query, 'devenia_translation_artifact_preview' );
 		if ( '' === $token ) { return $posts; }
 		$authority = self::translation_job_preview_authority( $token );

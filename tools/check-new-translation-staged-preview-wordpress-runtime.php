@@ -60,7 +60,10 @@ try {
 	$claimed_at = gmdate( 'c', time() - 5 );
 	$expires = time() + 600;
 	$claim_hash = hash( 'sha256', 'runtime-preview-claim-' . $suffix );
-	$target_content = '<!-- wp:paragraph --><p>Dette er den eksakte, iscenesatte oversettelsen.</p><!-- /wp:paragraph -->';
+	$target_css_id = 'translation-preview-' . $suffix;
+	$target_content = '<!-- wp:generateblocks/container {"uniqueId":"' . $target_css_id . '","isDynamic":true,"blockVersion":4,"sizing":{"maxWidth":"1140px"},"spacing":{"paddingLeft":"24px","paddingRight":"24px"}} -->'
+		. '<!-- wp:paragraph --><p>Dette er den eksakte, iscenesatte oversettelsen.</p><!-- /wp:paragraph -->'
+		. '<!-- /wp:generateblocks/container -->';
 
 	$job = array(
 		'job_id' => $job_id,
@@ -106,20 +109,40 @@ try {
 	update_option( $option_keys[3], $artifact, false );
 
 	$token = (string) $call_private( 'staged_preview_capability_token', array( 'translation', $job_id, $run_id, $artifact_revision, $expires, $claim_hash, 'canonical_source_theme_shell:' . (int) $source_id ) );
+	$registry_before_http = get_option( 'generateblocks_dynamic_css_posts', null );
+	$time_before_http = get_option( 'generateblocks_dynamic_css_time', null );
+	$meta_before_http = get_post_meta( $source_id, '_generateblocks_dynamic_css_version', true );
+	$css_path = function_exists( 'mcp_abilities_generatepress_generateblocks_css_path' ) ? mcp_abilities_generatepress_generateblocks_css_path( $source_id ) : '';
+	$css_before_http = is_string( $css_path ) && file_exists( $css_path ) ? array( hash_file( 'sha256', $css_path ), filemtime( $css_path ) ) : array();
+	$preview_url = add_query_arg( array( 'p' => (int) $source_id, 'devenia_translation_artifact_preview' => $token ), home_url( '/' ) );
+	$http_response = wp_remote_get( $preview_url, array( 'timeout' => 20, 'redirection' => 0, 'headers' => array( 'User-Agent' => 'Devenia-Workflow-Translation-Preview-Runtime/1.0' ) ) );
+	$http_body = is_wp_error( $http_response ) ? '' : (string) wp_remote_retrieve_body( $http_response );
+	preg_match_all( '/<style\b[^>]*>(.*?)<\/style>/is', $http_body, $http_styles );
+	$http_inline_css = html_entity_decode( implode( "\n", (array) ( $http_styles[1] ?? array() ) ), ENT_QUOTES, 'UTF-8' );
+	$translation_http_css = ! is_wp_error( $http_response )
+		&& 200 === (int) wp_remote_retrieve_response_code( $http_response )
+		&& false !== strpos( $http_body, 'Dette er den eksakte, iscenesatte oversettelsen.' )
+		&& false !== strpos( $http_inline_css, $target_css_id )
+		&& ! preg_match( '/<link\b[^>]+href=["\'][^"\']*\/generateblocks\/style-[0-9]+\.css/i', $http_body )
+		&& $registry_before_http === get_option( 'generateblocks_dynamic_css_posts', null )
+		&& $time_before_http === get_option( 'generateblocks_dynamic_css_time', null )
+		&& $meta_before_http === get_post_meta( $source_id, '_generateblocks_dynamic_css_version', true )
+		&& $css_before_http === ( is_string( $css_path ) && file_exists( $css_path ) ? array( hash_file( 'sha256', $css_path ), filemtime( $css_path ) ) : array() );
 	if ( ! $query instanceof WP_Query ) {
 		$query = new WP_Query();
 		$GLOBALS['wp_query'] = $query;
 	}
 	$query->set( 'devenia_translation_artifact_preview', $token );
 	$query->set( 'p', (int) $source_id );
+	if ( is_object( $request ) ) { $request->query_vars = array( 'p' => (int) $source_id, 'devenia_translation_artifact_preview' => $token ); }
 
 	$language = Devenia_Workflow::frontend_language();
 	$entries_before_preview_projection = $preview_query_entries;
 	$preview_posts = Devenia_Workflow::filter_translation_job_preview_posts( array( get_post( $source_id ) ), $query );
 	$normalized_query = new WP_Query();
 	$normalized_query->set( 'devenia_translation_artifact_preview', $token );
-	if ( is_object( $request ) ) { $request->query_vars = array( 'p' => (int) $source_id, 'devenia_translation_artifact_preview' => $token ); }
 	$normalized_empty_preview_posts = Devenia_Workflow::filter_translation_job_preview_posts( array(), $normalized_query );
+	$generateblocks_request_content = apply_filters( 'mcp_abilities_generatepress_generateblocks_request_content', null );
 	$preview_projection_query_entries = $preview_query_entries - $entries_before_preview_projection;
 	$foreign_query = new WP_Query(); $foreign_query->set( 'p', (int) $source_id + 999 );
 	$foreign_posts = Devenia_Workflow::filter_translation_job_preview_posts( array( get_post( $source_id ) ), $foreign_query );
@@ -139,6 +162,8 @@ try {
 		|| $preview_projection_query_entries > 1
 		|| $target_content !== (string) ( $preview_posts[0]->post_content ?? '' )
 		|| $target_content !== (string) ( $normalized_empty_preview_posts[0]->post_content ?? '' )
+		|| $target_content !== $generateblocks_request_content
+		|| ! $translation_http_css
 		|| $source_content !== (string) ( $foreign_posts[0]->post_content ?? '' )
 		|| 'nb' !== (string) ( $presentation['language'] ?? '' )
 		|| 'Iscenesatt SEO-tittel' !== $preview_seo_title
@@ -148,11 +173,25 @@ try {
 		|| $source_content !== (string) $stored_source->post_content
 		|| 'draft' !== (string) $stored_source->post_status
 	) {
-		throw new RuntimeException( 'The first-translation preview did not preserve target runtime context and zero source mutation.' );
+		throw new RuntimeException(
+			'The first-translation preview did not preserve target runtime context and zero source mutation: '
+			. wp_json_encode(
+				array(
+					'language' => $language,
+					'preview_posts' => count( $preview_posts ),
+					'projection_entries' => $preview_projection_query_entries,
+					'request_content_matches' => $target_content === $generateblocks_request_content,
+					'request_content_type' => gettype( $generateblocks_request_content ),
+					'presentation_language' => (string) ( $presentation['language'] ?? '' ),
+				)
+			)
+		);
 	}
 	$query->set( 'p', (int) $source_id + 999 );
+	if ( is_object( $request ) ) { $request->query_vars['p'] = (int) $source_id + 999; }
 	if (
 		'en' !== Devenia_Workflow::frontend_language()
+		|| null !== apply_filters( 'mcp_abilities_generatepress_generateblocks_request_content', null )
 		|| 'Old SEO title' !== Devenia_Workflow::filter_translation_job_preview_seo_title( 'Old SEO title' )
 		|| home_url( '/source/' ) !== Devenia_Workflow::filter_translation_job_preview_canonical( home_url( '/source/' ) )
 		|| null !== Devenia_Workflow::filter_translation_job_preview_post_metadata( null, (int) $source_id, '_devenia_translation_language', true )
@@ -160,6 +199,7 @@ try {
 		throw new RuntimeException( 'A valid preview capability leaked target context onto the wrong request host.' );
 	}
 	$query->set( 'p', (int) $source_id );
+	if ( is_object( $request ) ) { $request->query_vars['p'] = (int) $source_id; }
 
 	$existing_translation_id = wp_insert_post(
 		array( 'post_type' => 'post', 'post_status' => 'draft', 'post_title' => 'Old translation', 'post_content' => 'Old stored translation content.' ),
@@ -175,6 +215,7 @@ try {
 	update_option( $option_keys[0], $relation_job, false );
 	update_option( $option_keys[3], $relation_artifact, false );
 	$query->set( 'p', (int) $existing_translation_id );
+	if ( is_object( $request ) ) { $request->query_vars['p'] = (int) $existing_translation_id; }
 	$stale_source_host_posts = Devenia_Workflow::filter_translation_job_preview_posts( array( get_post( $existing_translation_id ) ), $query );
 	if ( 'Old stored translation content.' !== (string) ( $stale_source_host_posts[0]->post_content ?? '' ) ) {
 		throw new RuntimeException( 'A source-shell capability remained valid after relation discovery changed the resolved preview host.' );
@@ -182,6 +223,7 @@ try {
 	update_option( $option_keys[0], $job, false );
 	update_option( $option_keys[3], $artifact, false );
 	$query->set( 'p', (int) $source_id );
+	if ( is_object( $request ) ) { $request->query_vars['p'] = (int) $source_id; }
 	$existing_job_id = $job_id . '_existing'; $existing_run_id = $run_id . '_existing'; $existing_artifact_revision = $artifact_revision . '_existing';
 	$existing_job = array_merge( $job, array( 'job_id' => $existing_job_id, 'artifact_revision' => $existing_artifact_revision, 'active_run_id' => $existing_run_id, 'translation_id' => (int) $existing_translation_id ) );
 	$existing_run = array_merge( $run, array( 'job_id' => $existing_job_id, 'run_id' => $existing_run_id ) );
@@ -194,6 +236,7 @@ try {
 	update_option( $existing_keys[0], $existing_job, false ); update_option( $existing_keys[1], $existing_run, false ); update_option( $existing_keys[2], $existing_claim, false ); update_option( $existing_keys[3], $existing_artifact, false );
 	$existing_token = (string) $call_private( 'staged_preview_capability_token', array( 'translation', $existing_job_id, $existing_run_id, $existing_artifact_revision, $expires, $claim_hash, 'existing_translation:' . (int) $existing_translation_id ) );
 	$query->set( 'devenia_translation_artifact_preview', $existing_token ); $query->set( 'p', (int) $existing_translation_id );
+	if ( is_object( $request ) ) { $request->query_vars = array( 'p' => (int) $existing_translation_id, 'devenia_translation_artifact_preview' => $existing_token ); }
 	$existing_preview_posts = Devenia_Workflow::filter_translation_job_preview_posts( array( get_post( $existing_translation_id ) ), $query );
 	$stored_translation = get_post( $existing_translation_id );
 	if ( 'nb' !== Devenia_Workflow::frontend_language() || $target_content !== (string) ( $existing_preview_posts[0]->post_content ?? '' ) || 'Old stored translation content.' !== (string) $stored_translation->post_content ) {
@@ -209,6 +252,7 @@ try {
 			'zero_source_mutation' => true,
 			'existing_translation_preview' => true,
 			'host_relation_change_denied' => true,
+			'translation_http_native_css' => true,
 		)
 	);
 } finally {

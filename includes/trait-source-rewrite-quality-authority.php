@@ -1497,6 +1497,9 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 
 	/** @param array<int,mixed> $posts @return array<int,mixed> */
 	public static function filter_source_rewrite_preview_posts( array $posts, $query ): array {
+		if ( ! self::staged_preview_query_owns_namespace( $query, 'devenia_source_rewrite_preview' ) ) {
+			return $posts;
+		}
 		$token = self::staged_preview_query_token( $query, 'devenia_source_rewrite_preview' );
 		if ( '' === $token ) {
 			return $posts;

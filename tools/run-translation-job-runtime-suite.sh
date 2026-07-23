@@ -40,7 +40,7 @@ preview_result="$("$wp_cli_bin" eval-file \
 printf '%s\n' "$preview_result"
 RESULT="$preview_result" "$php_bin" -r '
 	$result = json_decode((string) getenv("RESULT"), true);
-	$required = ["success", "target_runtime_language", "localized_presentation_context", "exact_staged_content", "zero_source_mutation", "existing_translation_preview", "host_relation_change_denied"];
+	$required = ["success", "target_runtime_language", "localized_presentation_context", "exact_staged_content", "zero_source_mutation", "existing_translation_preview", "host_relation_change_denied", "translation_http_native_css"];
 	foreach ($required as $key) {
 		if (!is_array($result) || true !== ($result[$key] ?? null)) {
 			fwrite(STDERR, "Staged preview runtime missing exact proof: {$key}\n");

@@ -10,9 +10,65 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 trait Devenia_Workflow_Staged_Preview_Capability {
+	/** Read a preview namespace from the original parsed request when available. */
+	private static function staged_preview_request_token( string $query_var ): string {
+		if ( isset( $_GET[ $query_var ] ) && is_scalar( $_GET[ $query_var ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only capability input; cryptographic authority validation follows before any projection.
+			return (string) wp_unslash( $_GET[ $query_var ] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- The signed token must remain byte-exact and is validated by the capability authority.
+		}
+		$request_query = is_object( $GLOBALS['wp'] ?? null ) && is_array( $GLOBALS['wp']->query_vars ?? null ) ? $GLOBALS['wp']->query_vars : array();
+		return array_key_exists( $query_var, $request_query )
+			? (string) $request_query[ $query_var ]
+			: (string) get_query_var( $query_var );
+	}
+
+	/**
+	 * Supply exact staged content to the reusable GenerateBlocks request Adapter.
+	 *
+	 * Workflow retains capability authority; GP-MCP owns native CSS generation.
+	 * A pre-existing value belongs to another caller and is never overwritten.
+	 *
+	 * @param mixed $content Existing request-local authority or the null sentinel.
+	 * @return mixed
+	 */
+	public static function filter_staged_preview_generateblocks_request_content( $content ) {
+		if ( null !== $content ) {
+			return $content;
+		}
+
+		$source_token      = self::staged_preview_request_token( 'devenia_source_rewrite_preview' );
+		$translation_token = self::staged_preview_request_token( 'devenia_translation_artifact_preview' );
+		if ( ( '' !== $source_token ) === ( '' !== $translation_token ) ) {
+			return null;
+		}
+
+		if ( '' !== $source_token ) {
+			$authority = self::source_rewrite_preview_authority( $source_token );
+			if ( ! empty( $authority['success'] ) && self::source_rewrite_preview_request_matches( $authority ) ) {
+				return (string) ( $authority['artifact']['proposed']['content'] ?? '' );
+			}
+			return null;
+		}
+
+		$authority = self::translation_job_preview_authority( $translation_token );
+		if ( ! empty( $authority['success'] ) && self::translation_job_preview_request_matches( $authority ) ) {
+			return (string) ( $authority['artifact']['surface_manifest']['content']['gutenberg'] ?? '' );
+		}
+
+		return null;
+	}
+
 	/** Read a preview capability from the exact query invoking the projection filter. */
 	private static function staged_preview_query_token( $query, string $query_var ): string {
 		return is_object( $query ) && is_callable( array( $query, 'get' ) ) ? (string) $query->get( $query_var ) : '';
+	}
+
+	/** Require one and only one preview namespace on the exact projection query. */
+	private static function staged_preview_query_owns_namespace( $query, string $expected_query_var ): bool {
+		$source_token = self::staged_preview_query_token( $query, 'devenia_source_rewrite_preview' );
+		$translation_token = self::staged_preview_query_token( $query, 'devenia_translation_artifact_preview' );
+		return 'devenia_source_rewrite_preview' === $expected_query_var
+			? '' !== $source_token && '' === $translation_token
+			: 'devenia_translation_artifact_preview' === $expected_query_var && '' !== $translation_token && '' === $source_token;
 	}
 
 	/** Match the exact query-ID route before WordPress canonicalizes it. */
