@@ -74,11 +74,12 @@ if (
 if (
 	! Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001 )
 	|| ! Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime( array( 'p' => 15001 ) ) )
+	|| ! Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime( array( 'page_id' => 15001, 'p' => 15001 ) ) )
 	|| ! Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime(), array( new WP_Post( 15001 ) ) )
 	|| ! Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime(), array() )
 	|| Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime(), array( new WP_Post( 999 ) ) )
 	|| Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime(), array( new WP_Post( 15001 ), new WP_Post( 999 ) ) )
-	|| Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime( array( 'page_id' => 15001, 'p' => 15001 ) ) )
+	|| Devenia_Workflow_Staged_Preview_Capability_Runtime_Test::request_matches( 15001, new Staged_Preview_Query_Runtime( array( 'page_id' => 15001, 'p' => 999 ) ) )
 ) {
 	throw new RuntimeException( 'Staged-preview request identity did not preserve the parsed request query-ID route or fail closed on conflicts.' );
 }

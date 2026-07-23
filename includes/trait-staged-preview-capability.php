@@ -30,7 +30,8 @@ trait Devenia_Workflow_Staged_Preview_Capability {
 			$page_id = absint( $request_query['page_id'] ?? 0 );
 			$post_id = absint( $request_query['p'] ?? 0 );
 		}
-		if ( $expected_id < 1 || 1 !== count( array_filter( array( $page_id, $post_id ) ) ) || $expected_id !== max( $page_id, $post_id ) ) {
+		$request_ids = array_values( array_unique( array_filter( array( $page_id, $post_id ) ) ) );
+		if ( $expected_id < 1 || 1 !== count( $request_ids ) || $expected_id !== $request_ids[0] ) {
 			return false;
 		}
 		if ( null === $resolved_posts ) {
