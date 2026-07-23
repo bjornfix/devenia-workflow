@@ -41,6 +41,9 @@ const claim = functionBody("translation_job_claim", "translation_job_fetch_packe
 const verifyLive = functionBody("translation_job_verify_live", "translation_job_status_schema");
 const evidenceReceipts = functionBody("translation_job_quality_evidence_receipts", "translation_job_browser_receipt");
 const browserReceipt = functionBody("translation_job_browser_receipt", "translation_job_apply_staged_artifact");
+const previewPostsStart = source.indexOf("public static function filter_translation_job_preview_posts");
+const previewPostsEnd = source.indexOf("public static function apply_translation_job_preview_response_policy", previewPostsStart + 1);
+const previewPosts = previewPostsStart >= 0 && previewPostsEnd > previewPostsStart ? source.slice(previewPostsStart, previewPostsEnd) : "";
 const resolvePublicationTranslation = functionBody("translation_job_resolve_publication_translation_id", "translation_job_apply_staged_artifact");
 const applyStaged = functionBody("translation_job_apply_staged_artifact", "translation_job_verify_applied_surface");
 const verifyApplied = functionBody("translation_job_verify_applied_surface", "translation_job_expected_taxonomy_surface");
@@ -312,6 +315,10 @@ requireMatch(/translation_job_preview_host[\s\S]*preview_host_id[\s\S]*preview_h
 requireMatch(/translation_job_preview_bound_host[\s\S]*artifact_record\['translation_id'\][\s\S]*canonical_source_theme_shell/, "Translation Preview Adapter must preserve the approved pre-publication host after a first translation is created");
 requireMatch(/translation_job_preview_host[\s\S]*translation_job_preview_bound_host[\s\S]*translation_job_resolve_publication_translation_id[\s\S]*translation_preview_host_relation_changed/, "Active preview issuance must fail when relation discovery changes the artifact-bound host");
 requireMatch(/translation_job_preview_authority[\s\S]*translation_job_preview_host[\s\S]*\$host_identity[\s\S]*staged_preview_capability_token/, "Translation preview authority must recompute the current host identity before accepting a capability");
+requireMatch(/translation_job_preview_authority[\s\S]*static \$resolving[\s\S]*translation_preview_authority_reentrant[\s\S]*try[\s\S]*finally[\s\S]*\$resolving\s*=\s*false/, "Translation Preview Authority must fail closed and release its request-local guard when WordPress query filters re-enter authority resolution");
+if (!previewPosts || !/preview_host_id/.test(previewPosts) || /translation_job_resolve_publication_translation_id/.test(previewPosts)) {
+	failures.push("Translation Preview Adapter must consume the host identity already validated by Preview Authority instead of recursively resolving the relation again");
+}
 requireMatch(/translation_job_browser_receipt[\s\S]*'url'[\s\S]*preview_host_id[\s\S]*preview_host_scope[\s\S]*translation-rendered-quality-v1/, "Immutable Translation browser receipts must retain URL, host identity, and policy identity");
 requireMatch(/translation_job_validate_stored_browser_receipts[\s\S]*translation_job_preview_host[\s\S]*preview_url[\s\S]*preview_host_id[\s\S]*preview_host_scope/, "Publication must re-resolve and validate the exact staged-preview URL and host identity");
 requireMatch(/translation_job_validate_stored_browser_receipts[\s\S]*'published'[\s\S]*translation_job_preview_bound_host[\s\S]*translation_job_preview_host/, "Post-publication verification must retain the approved pre-publication host while ready-to-publish authority still checks current relations");

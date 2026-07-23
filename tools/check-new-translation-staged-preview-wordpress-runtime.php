@@ -20,6 +20,12 @@ $existing_translation_id = 0;
 $option_keys = array();
 $query = $GLOBALS['wp_query'] ?? null;
 $previous_preview = $query instanceof WP_Query ? $query->get( 'devenia_translation_artifact_preview' ) : null;
+$preview_query_entries = 0;
+$count_preview_query_entries = static function ( array $posts ) use ( &$preview_query_entries ): array {
+	++$preview_query_entries;
+	return $posts;
+};
+add_filter( 'the_posts', $count_preview_query_entries, 1, 2 );
 
 try {
 	$source_content = '<!-- wp:paragraph --><p>Canonical source copy must remain unchanged.</p><!-- /wp:paragraph -->';
@@ -98,7 +104,9 @@ try {
 	$query->set( 'p', (int) $source_id );
 
 	$language = Devenia_Workflow::frontend_language();
+	$entries_before_preview_projection = $preview_query_entries;
 	$preview_posts = Devenia_Workflow::filter_translation_job_preview_posts( array( get_post( $source_id ) ), $query );
+	$preview_projection_query_entries = $preview_query_entries - $entries_before_preview_projection;
 	$foreign_query = new WP_Query(); $foreign_query->set( 'p', (int) $source_id + 999 );
 	$foreign_posts = Devenia_Workflow::filter_translation_job_preview_posts( array( get_post( $source_id ) ), $foreign_query );
 	$presentation = Devenia_Workflow::filter_site_presentation_single_post_context( array(), get_post( $source_id ) );
@@ -114,6 +122,7 @@ try {
 	if (
 		'nb' !== $language
 		|| 1 !== count( $preview_posts )
+		|| $preview_projection_query_entries > 1
 		|| $target_content !== (string) ( $preview_posts[0]->post_content ?? '' )
 		|| $source_content !== (string) ( $foreign_posts[0]->post_content ?? '' )
 		|| 'nb' !== (string) ( $presentation['language'] ?? '' )
@@ -188,6 +197,7 @@ try {
 		)
 	);
 } finally {
+	remove_filter( 'the_posts', $count_preview_query_entries, 1 );
 	foreach ( $option_keys as $option_key ) { delete_option( $option_key ); }
 	if ( $source_id > 0 ) { wp_delete_post( $source_id, true ); }
 	if ( $existing_translation_id > 0 ) { wp_delete_post( $existing_translation_id, true ); }

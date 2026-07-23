@@ -1110,25 +1110,34 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 
 	/** @return array<string,mixed> */
 	private static function translation_job_preview_authority( string $token ): array {
-		$parts = self::staged_preview_capability_parts( $token, 'translation' );
-		if ( empty( $parts ) ) { return array( 'success' => false, 'code' => 'translation_preview_invalid' ); }
-		$job = self::translation_job_get_job( (string) $parts['job_id'] );
-		$run = get_option( self::translation_job_run_key( (string) $parts['run_id'] ) );
-		$claim = get_option( self::translation_job_claim_key( (string) $parts['job_id'] ) );
-		$artifact = self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( (string) $parts['artifact_revision'] ) ) );
-		$preview_host = is_array( $job ) && is_array( $artifact ) ? self::translation_job_preview_host( $job, $artifact ) : array();
-		$host_identity = ! empty( $preview_host['success'] ) ? (string) $preview_host['host_identity'] : '';
-		$expected = is_array( $claim ) && '' !== $host_identity ? self::staged_preview_capability_token( 'translation', (string) $parts['job_id'], (string) $parts['run_id'], (string) $parts['artifact_revision'], (int) $parts['expires'], (string) ( $claim['token_hash'] ?? '' ), $host_identity ) : '';
-		if (
-			! is_array( $job ) || ! is_array( $run ) || ! is_array( $claim ) || ! is_array( $artifact )
-			|| 'quality_claimed' !== (string) ( $job['status'] ?? '' ) || 'quality' !== (string) ( $run['role'] ?? '' ) || 'running' !== (string) ( $run['status'] ?? '' )
-			|| (string) $parts['run_id'] !== (string) ( $job['active_run_id'] ?? '' ) || (string) $parts['run_id'] !== (string) ( $claim['run_id'] ?? '' )
-			|| (string) $parts['artifact_revision'] !== (string) ( $job['artifact_revision'] ?? '' ) || (string) $parts['artifact_revision'] !== (string) ( $artifact['artifact_revision'] ?? '' )
-			|| $host_identity !== (string) ( $parts['host_identity'] ?? '' )
-			|| (int) $parts['expires'] <= time() || (int) $parts['expires'] !== strtotime( (string) ( $claim['expires_at'] ?? '' ) )
-			|| '' === $expected || ! hash_equals( $expected, (string) $parts['token'] )
-		) { return array( 'success' => false, 'code' => 'translation_preview_expired_or_denied' ); }
-		return array( 'success' => true, 'job' => $job, 'run' => $run, 'claim' => $claim, 'artifact' => $artifact, 'preview_identity' => hash( 'sha256', (string) $parts['token'] ), 'preview_host_id' => (int) $preview_host['preview_host_id'], 'preview_host_scope' => (string) $preview_host['preview_host_scope'] );
+		static $resolving = false;
+		if ( $resolving ) {
+			return array( 'success' => false, 'code' => 'translation_preview_authority_reentrant' );
+		}
+		$resolving = true;
+		try {
+			$parts = self::staged_preview_capability_parts( $token, 'translation' );
+			if ( empty( $parts ) ) { return array( 'success' => false, 'code' => 'translation_preview_invalid' ); }
+			$job = self::translation_job_get_job( (string) $parts['job_id'] );
+			$run = get_option( self::translation_job_run_key( (string) $parts['run_id'] ) );
+			$claim = get_option( self::translation_job_claim_key( (string) $parts['job_id'] ) );
+			$artifact = self::translation_job_unpack_artifact_record( get_option( self::translation_job_artifact_key( (string) $parts['artifact_revision'] ) ) );
+			$preview_host = is_array( $job ) && is_array( $artifact ) ? self::translation_job_preview_host( $job, $artifact ) : array();
+			$host_identity = ! empty( $preview_host['success'] ) ? (string) $preview_host['host_identity'] : '';
+			$expected = is_array( $claim ) && '' !== $host_identity ? self::staged_preview_capability_token( 'translation', (string) $parts['job_id'], (string) $parts['run_id'], (string) $parts['artifact_revision'], (int) $parts['expires'], (string) ( $claim['token_hash'] ?? '' ), $host_identity ) : '';
+			if (
+				! is_array( $job ) || ! is_array( $run ) || ! is_array( $claim ) || ! is_array( $artifact )
+				|| 'quality_claimed' !== (string) ( $job['status'] ?? '' ) || 'quality' !== (string) ( $run['role'] ?? '' ) || 'running' !== (string) ( $run['status'] ?? '' )
+				|| (string) $parts['run_id'] !== (string) ( $job['active_run_id'] ?? '' ) || (string) $parts['run_id'] !== (string) ( $claim['run_id'] ?? '' )
+				|| (string) $parts['artifact_revision'] !== (string) ( $job['artifact_revision'] ?? '' ) || (string) $parts['artifact_revision'] !== (string) ( $artifact['artifact_revision'] ?? '' )
+				|| $host_identity !== (string) ( $parts['host_identity'] ?? '' )
+				|| (int) $parts['expires'] <= time() || (int) $parts['expires'] !== strtotime( (string) ( $claim['expires_at'] ?? '' ) )
+				|| '' === $expected || ! hash_equals( $expected, (string) $parts['token'] )
+			) { return array( 'success' => false, 'code' => 'translation_preview_expired_or_denied' ); }
+			return array( 'success' => true, 'job' => $job, 'run' => $run, 'claim' => $claim, 'artifact' => $artifact, 'preview_identity' => hash( 'sha256', (string) $parts['token'] ), 'preview_host_id' => (int) $preview_host['preview_host_id'], 'preview_host_scope' => (string) $preview_host['preview_host_scope'] );
+		} finally {
+			$resolving = false;
+		}
 	}
 
 	private static function translation_job_preview_request_matches( array $authority, $query = null ): bool {
@@ -1146,9 +1155,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 		$authority = self::translation_job_preview_authority( $token );
 		if ( empty( $authority['success'] ) || ! self::translation_job_preview_request_matches( $authority, $query ) ) { return $posts; }
 		$artifact = $authority['artifact'];
-		$translation_id = self::translation_job_resolve_publication_translation_id( $authority['job'], $artifact );
 		$source_id = absint( $authority['job']['source_id'] ?? 0 );
-		$host_id = $translation_id > 0 ? $translation_id : $source_id;
+		$host_id = absint( $authority['preview_host_id'] ?? 0 );
 		$content = (array) ( $artifact['surface_manifest']['content'] ?? array() );
 		$route = (array) ( $artifact['surface_manifest']['route'] ?? array() );
 		$matched = false;

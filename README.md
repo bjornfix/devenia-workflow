@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.668
+**Stable tag:** 0.1.669
 
 **License:** GPLv2 or later
 
@@ -152,6 +152,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.669
+
+- Makes Translation Preview Authority fail closed on WordPress query re-entry and requires the Preview Adapter to consume its validated host receipt instead of resolving the relation again.
 
 ### 0.1.668
 
