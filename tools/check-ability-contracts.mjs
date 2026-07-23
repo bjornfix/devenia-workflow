@@ -17,6 +17,12 @@ const required = [
 ];
 
 const failures = required.filter((name) => !source.includes(`'${name}' => array(`));
+if (!generateBlocksAdapter.includes("mcp_abilities_generatepress_generateblocks_request_content") || !generateBlocksAdapter.includes("filter_staged_preview_request_content")) {
+  failures.push("GenerateBlocks staged-preview request-content hook must be owned by the optional Adapter");
+}
+if (runtime.includes("mcp_abilities_generatepress_generateblocks_request_content") || runtime.includes("filter_staged_preview_generateblocks_request_content")) {
+  failures.push("Workflow core must expose only the vendor-neutral staged-preview request-content Interface");
+}
 if (!source.includes("trait Devenia_Workflow_Ability_Catalogue") || !source.includes("private static function ability_catalogue(): array")) {
   failures.push("ability catalogue seam");
 }

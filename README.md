@@ -9,11 +9,13 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.679
+**Stable tag:** 0.1.680
 
 **License:** GPLv2 or later
 
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html
+
+**Tags:** translations, multilingual, ai, workflow, hreflang
 
 ## What It Does
 
@@ -34,7 +36,8 @@ The normal path is:
 5. let an MCP-capable worker discover and process bounded Translation Jobs
 6. review validation and quality evidence
 7. publish approved WordPress content
-8. use Exhaustion Proof to see what remains
+8. verify the exact published reader surface live
+9. use Exhaustion Proof to see what remains
 
 The operator describes the outcome and reviews evidence. The workflow keeps source revisions, routes, jobs, validation, and publication state consistent.
 
@@ -113,6 +116,7 @@ The plugin remains active if the Abilities API is unavailable, but workflow abil
 5. Build Source Inventory with `devenia-workflow/rebuild-source-inventory`.
 6. Inspect `devenia-workflow/translation-exhaustion-proof`.
 7. Process work through the bounded Translation Job abilities.
+8. Complete every publication with `devenia-workflow/translation-job-verify-live`.
 
 ## Core Workflow Interfaces
 
@@ -128,6 +132,7 @@ The plugin remains active if the Abilities API is unavailable, but workflow abil
 - `devenia-workflow/translation-job-submit-artifact`
 - `devenia-workflow/translation-job-submit-quality-decision`
 - `devenia-workflow/translation-job-publish`
+- `devenia-workflow/translation-job-verify-live`
 - `devenia-workflow/translation-job-status`
 - `devenia-workflow/source-rewrite-discover`
 - `devenia-workflow/source-rewrite-claim`
@@ -152,6 +157,11 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.680
+
+- Lets native design-only source changes reach the same exact-artifact, independent rendered Quality gate while still rejecting unchanged artifacts.
+- Restores claim-bound Translation previews for the lifecycle's actual `quality_pending` state while requiring exact Job, Run, Claim, Artifact, generation, and publication-contract bindings.
 
 ### 0.1.679
 

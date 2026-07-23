@@ -322,6 +322,8 @@ requireMatch(/translation_job_preview_host[\s\S]*preview_host_id[\s\S]*preview_h
 requireMatch(/translation_job_preview_bound_host[\s\S]*artifact_record\['translation_id'\][\s\S]*canonical_source_theme_shell/, "Translation Preview Adapter must preserve the approved pre-publication host after a first translation is created");
 requireMatch(/translation_job_preview_host[\s\S]*translation_job_preview_bound_host[\s\S]*translation_job_resolve_publication_translation_id[\s\S]*translation_preview_host_relation_changed/, "Active preview issuance must fail when relation discovery changes the artifact-bound host");
 requireMatch(/translation_job_preview_authority[\s\S]*translation_job_preview_host[\s\S]*\$host_identity[\s\S]*staged_preview_capability_token/, "Translation preview authority must recompute the current host identity before accepting a capability");
+requireMatch(/translation_job_preview_authority[\s\S]*'quality_pending'\s*!==\s*\(string\)\s*\(\s*\$job\['status'\]/, "Translation preview authority must accept the lifecycle's actual active Quality status");
+requireMatch(/translation_job_preview_authority[\s\S]*translation_job_preview_records_bound/, "Translation preview authority must fail closed unless Job, Run, Claim, Artifact, generation, and contract records are exactly bound");
 requireMatch(/translation_job_preview_authority[\s\S]*static \$resolving[\s\S]*translation_preview_authority_reentrant[\s\S]*try[\s\S]*finally[\s\S]*\$resolving\s*=\s*false/, "Translation Preview Authority must fail closed and release its request-local guard when WordPress query filters re-enter authority resolution");
 if (!previewPosts || !/preview_host_id/.test(previewPosts) || /translation_job_resolve_publication_translation_id/.test(previewPosts)) {
 	failures.push("Translation Preview Adapter must consume the host identity already validated by Preview Authority instead of recursively resolving the relation again");
@@ -336,6 +338,9 @@ if (!verifyLive || !/translation_job_validate_published_authority\(\s*\$job,\s*\
 }
 if (!/check-translation-job-runtime\.php[\s\S]*first_translation_publish_verify_preserved_zero_bound_authority[\s\S]*first_translation_wrong_relation_rejected/.test(firstTranslationPublicationRunner)) {
 	failures.push("the full first-translation public publish-to-verify lifecycle must be an explicit dev runtime gate");
+}
+if (!/cross_job_run[\s\S]*wrong_active_run[\s\S]*wrong_claim_role[\s\S]*cross_job_artifact[\s\S]*wrong_run_generation[\s\S]*missing_run_generation[\s\S]*wrong_claim_contract[\s\S]*expired_claim/.test(newTranslationPreviewRuntime)) {
+	failures.push("Translation staged-preview runtime must reject malformed cross-record bindings, wrong active runs, stale generations/contracts, and expired claims");
 }
 requireMatch(/translation_job_browser_receipt[\s\S]*expected_language[\s\S]*expected_direction[\s\S]*checked_at/, "Browser receipts must bind target document identity and active claim time");
 requireMatch(/\$missing\s*\|\|\s*\$invalid[\s\S]*browser_receipts_incomplete/, "Browser receipt validation must fail closed when any submitted receipt is invalid");

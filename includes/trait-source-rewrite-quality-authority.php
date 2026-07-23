@@ -467,8 +467,13 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		$current_values   = self::source_rewrite_source_values( $source );
 		$current_surface  = self::source_rewrite_copy_surface( $current_values['title'], $current_values['excerpt'], $current_values['content'] );
 		$proposed_surface = self::source_rewrite_copy_surface( $proposed['title'], $proposed['excerpt'], $proposed['content'] );
-		if ( hash_equals( (string) $current_surface['revision'], (string) $proposed_surface['revision'] ) ) {
-			return self::source_rewrite_error( 'artifact_copy_unchanged', 'A Source Rewrite Artifact requires a changed customer-facing copy surface.' );
+		$current_artifact_values = array(
+			'title'   => sanitize_text_field( $current_values['title'] ),
+			'excerpt' => sanitize_textarea_field( $current_values['excerpt'] ),
+			'content' => $current_values['content'],
+		);
+		if ( $current_artifact_values === $proposed ) {
+			return self::source_rewrite_error( 'artifact_unchanged', 'A Source Rewrite Artifact requires a changed reader-facing source surface.' );
 		}
 
 		$record = array(

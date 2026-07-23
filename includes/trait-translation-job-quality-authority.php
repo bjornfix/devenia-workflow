@@ -1089,7 +1089,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 	private static function translation_job_preview_descriptor( array $job, array $run, array $artifact_record ): array {
 		$claim = get_option( self::translation_job_claim_key( (string) ( $job['job_id'] ?? '' ) ) );
 		$preview_host = self::translation_job_preview_host( $job, $artifact_record );
-		if ( ! is_array( $claim ) || empty( $preview_host['success'] ) || 'quality' !== (string) ( $run['role'] ?? '' ) ) {
+		if ( ! is_array( $claim ) || empty( $preview_host['success'] ) || ! self::translation_job_preview_records_bound( $job, $run, $claim, $artifact_record ) ) {
 			return array( 'success' => false, 'code' => 'translation_preview_authority_missing' );
 		}
 		$host = $preview_host['host'];
@@ -1106,6 +1106,50 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			'indexing_policy' => 'noindex_nofollow_noarchive',
 			'viewports' => array( 'desktop' => array( 'width' => 1140, 'height' => 800, 'device_scale_factor' => 1 ), 'mobile' => array( 'width' => 390, 'height' => 844, 'device_scale_factor' => 1 ) ),
 		);
+	}
+
+	/** Require one exact Job/Run/Claim/Artifact generation before preview issuance or use. */
+	private static function translation_job_preview_records_bound( array $job, array $run, array $claim, array $artifact ): bool {
+		$job_id = (string) ( $job['job_id'] ?? '' );
+		$run_id = (string) ( $run['run_id'] ?? '' );
+		$artifact_revision = (string) ( $artifact['artifact_revision'] ?? '' );
+		$generation = self::translation_job_submission_generation( $job );
+		$run_generation = absint( $run['submission_generation'] ?? 0 );
+		$claim_generation = absint( $claim['submission_generation'] ?? 0 );
+		$artifact_generation = absint( $artifact['submission_generation'] ?? 0 );
+		$contract_revision = (string) ( $job['publication_surface_contract_revision'] ?? '' );
+		$source_revision = (string) ( $job['source_revision'] ?? '' );
+		$language = sanitize_key( (string) ( $job['target_language'] ?? '' ) );
+		$manifest = is_array( $artifact['surface_manifest'] ?? null ) ? $artifact['surface_manifest'] : array();
+
+		return '' !== $job_id
+			&& '' !== $run_id
+			&& '' !== $artifact_revision
+			&& '' !== $contract_revision
+			&& '' !== $source_revision
+			&& '' !== $language
+			&& $job_id === (string) ( $run['job_id'] ?? '' )
+			&& $job_id === (string) ( $claim['job_id'] ?? '' )
+			&& $job_id === (string) ( $artifact['job_id'] ?? '' )
+			&& $run_id === (string) ( $job['active_run_id'] ?? '' )
+			&& $run_id === (string) ( $claim['run_id'] ?? '' )
+			&& 'quality' === (string) ( $run['role'] ?? '' )
+			&& 'quality' === (string) ( $claim['role'] ?? '' )
+			&& $artifact_revision === (string) ( $job['artifact_revision'] ?? '' )
+			&& $run_generation > 0
+			&& $generation === $run_generation
+			&& $claim_generation > 0
+			&& $generation === $claim_generation
+			&& $artifact_generation > 0
+			&& $generation === $artifact_generation
+			&& hash_equals( $contract_revision, (string) ( $run['publication_surface_contract_revision'] ?? '' ) )
+			&& hash_equals( $contract_revision, (string) ( $claim['publication_surface_contract_revision'] ?? '' ) )
+			&& hash_equals( $contract_revision, (string) ( $artifact['publication_surface_contract_revision'] ?? '' ) )
+			&& hash_equals( $contract_revision, (string) ( $manifest['publication_surface_contract_revision'] ?? '' ) )
+			&& hash_equals( $source_revision, (string) ( $artifact['source_revision'] ?? '' ) )
+			&& hash_equals( $source_revision, (string) ( $manifest['source_revision'] ?? '' ) )
+			&& $job_id === (string) ( $manifest['job_id'] ?? '' )
+			&& $language === sanitize_key( (string) ( $manifest['language'] ?? '' ) );
 	}
 
 	/** @return array<string,mixed> */
@@ -1127,7 +1171,8 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$expected = is_array( $claim ) && '' !== $host_identity ? self::staged_preview_capability_token( 'translation', (string) $parts['job_id'], (string) $parts['run_id'], (string) $parts['artifact_revision'], (int) $parts['expires'], (string) ( $claim['token_hash'] ?? '' ), $host_identity ) : '';
 			if (
 				! is_array( $job ) || ! is_array( $run ) || ! is_array( $claim ) || ! is_array( $artifact )
-				|| 'quality_claimed' !== (string) ( $job['status'] ?? '' ) || 'quality' !== (string) ( $run['role'] ?? '' ) || 'running' !== (string) ( $run['status'] ?? '' )
+				|| ! self::translation_job_preview_records_bound( $job, $run, $claim, $artifact )
+				|| 'quality_pending' !== (string) ( $job['status'] ?? '' ) || 'quality' !== (string) ( $run['role'] ?? '' ) || 'running' !== (string) ( $run['status'] ?? '' )
 				|| (string) $parts['run_id'] !== (string) ( $job['active_run_id'] ?? '' ) || (string) $parts['run_id'] !== (string) ( $claim['run_id'] ?? '' )
 				|| (string) $parts['artifact_revision'] !== (string) ( $job['artifact_revision'] ?? '' ) || (string) $parts['artifact_revision'] !== (string) ( $artifact['artifact_revision'] ?? '' )
 				|| $host_identity !== (string) ( $parts['host_identity'] ?? '' )

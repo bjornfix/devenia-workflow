@@ -464,7 +464,7 @@ The Workflow Module that makes the canonical `devenia_source_content_design_vali
 
 ## Source Rewrite Quality Authority
 
-The deep Module that keeps customer-facing source copy changes away from the
+The deep Module that keeps customer-facing source-surface changes away from the
 public reader surface until one immutable Staged Source Rewrite Artifact has a
 Quality Decision from a fresh Run Principal distinct from its writer. Its
 Interface binds the complete old and proposed copy surfaces, source publication
@@ -475,6 +475,12 @@ commercial argument: buyer, problem, desired result, credible proof, offer,
 boundaries, next action, the emotional connection created by the words, and the
 purpose that makes every section worth reading. Publication accepts no caller
 boolean or replacement content; it applies only the exact approved artifact.
+The Artifact Interface accepts native structural or presentation changes even
+when their extracted visible words are unchanged, because rendered information
+architecture is part of the reader surface. It still rejects a byte-identical
+title, excerpt, and normalized Gutenberg tree. This keeps design-only repairs
+inside the same independent rendered Quality authority instead of forcing a
+meaningless copy edit or an unreviewed direct write.
 Every fresh source-writer, translator, and Quality Run receives a role-specific
 Copy Quality Priming packet before it acts. The public plugin teaches the
 transferable mechanisms behind concrete Ogilvy campaigns, contrasts generic

@@ -74,17 +74,22 @@ try {
 		'artifact_revision' => $artifact_revision,
 		'active_run_id' => $run_id,
 		'submission_generation' => 1,
-		'status' => 'quality_claimed',
+		'status' => 'quality_pending',
 	);
-	$run = array( 'job_id' => $job_id, 'run_id' => $run_id, 'role' => 'quality', 'status' => 'running' );
-	$claim = array( 'job_id' => $job_id, 'run_id' => $run_id, 'role' => 'quality', 'token_hash' => $claim_hash, 'claimed_at' => $claimed_at, 'expires_at' => gmdate( 'c', $expires ) );
+	$run = array( 'job_id' => $job_id, 'run_id' => $run_id, 'role' => 'quality', 'status' => 'running', 'submission_generation' => 1, 'publication_surface_contract_revision' => 'runtime-preview-contract' );
+	$claim = array( 'job_id' => $job_id, 'run_id' => $run_id, 'role' => 'quality', 'submission_generation' => 1, 'publication_surface_contract_revision' => 'runtime-preview-contract', 'token_hash' => $claim_hash, 'claimed_at' => $claimed_at, 'expires_at' => gmdate( 'c', $expires ) );
 	$artifact = array(
 		'artifact_revision' => $artifact_revision,
 		'surface_revision' => $surface_revision,
 		'job_id' => $job_id,
 		'translation_id' => 0,
+		'source_revision' => 'source-preview-runtime',
+		'submission_generation' => 1,
 		'publication_surface_contract_revision' => 'runtime-preview-contract',
 		'surface_manifest' => array(
+			'job_id' => $job_id,
+			'source_revision' => 'source-preview-runtime',
+			'publication_surface_contract_revision' => 'runtime-preview-contract',
 			'language' => 'nb',
 			'content' => array( 'title' => 'Iscenesatt tittel', 'excerpt' => 'Iscenesatt ingress', 'gutenberg' => $target_content ),
 			'seo' => array( 'title' => 'Iscenesatt SEO-tittel', 'description' => 'Iscenesatt SEO-beskrivelse', 'focus_keyword' => 'iscenesatt' ),
@@ -109,6 +114,37 @@ try {
 	update_option( $option_keys[3], $artifact, false );
 
 	$token = (string) $call_private( 'staged_preview_capability_token', array( 'translation', $job_id, $run_id, $artifact_revision, $expires, $claim_hash, 'canonical_source_theme_shell:' . (int) $source_id ) );
+	$valid_authority = $call_private( 'translation_job_preview_authority', array( $token ) );
+	if ( empty( $valid_authority['success'] ) ) {
+		throw new RuntimeException( 'The complete claim-bound Translation preview fixture was not authorized.' );
+	}
+	$binding_mutations = array(
+		'cross_job_run' => array( 1, 'job_id', 'tj_foreign' ),
+		'wrong_active_run' => array( 0, 'active_run_id', 'tjr_foreign' ),
+		'wrong_claim_role' => array( 2, 'role', 'translator' ),
+		'cross_job_artifact' => array( 3, 'job_id', 'tj_foreign' ),
+		'wrong_run_generation' => array( 1, 'submission_generation', 2 ),
+		'missing_run_generation' => array( 1, 'submission_generation', null, true ),
+		'wrong_claim_contract' => array( 2, 'publication_surface_contract_revision', 'foreign-contract' ),
+		'expired_claim' => array( 2, 'expires_at', gmdate( 'c', time() - 30 ) ),
+	);
+	foreach ( $binding_mutations as $case => $mutation ) {
+		$option_index = (int) $mutation[0];
+		$original = get_option( $option_keys[ $option_index ] );
+		$record = 3 === $option_index ? $call_private( 'translation_job_unpack_artifact_record', array( $original ) ) : $original;
+		if ( ! empty( $mutation[3] ) ) {
+			unset( $record[ (string) $mutation[1] ] );
+		} else {
+			$record[ (string) $mutation[1] ] = $mutation[2];
+		}
+		$stored_mutation = 3 === $option_index ? $call_private( 'translation_job_pack_artifact_record', array( $record ) ) : $record;
+		update_option( $option_keys[ $option_index ], $stored_mutation, false );
+		$denied = $call_private( 'translation_job_preview_authority', array( $token ) );
+		update_option( $option_keys[ $option_index ], $original, false );
+		if ( ! empty( $denied['success'] ) ) {
+			throw new RuntimeException( 'Translation Preview Capability accepted malformed stored binding: ' . $case );
+		}
+	}
 	$registry_before_http = get_option( 'generateblocks_dynamic_css_posts', null );
 	$time_before_http = get_option( 'generateblocks_dynamic_css_time', null );
 	$meta_before_http = get_post_meta( $source_id, '_generateblocks_dynamic_css_version', true );

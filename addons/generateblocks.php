@@ -14,6 +14,7 @@ final class Devenia_Workflow_GenerateBlocks_Adapter {
 	 * Register optional GenerateBlocks content and QA adapters.
 	 */
 	public static function register(): void {
+		add_filter( 'mcp_abilities_generatepress_generateblocks_request_content', array( 'Devenia_Workflow', 'filter_staged_preview_request_content' ), 10 );
 		add_filter( 'devenia_workflow_copy_quality_text_block_names', array( __CLASS__, 'add_copy_quality_text_blocks' ) );
 		add_filter( 'devenia_workflow_semantic_text_unit_block_names', array( __CLASS__, 'add_semantic_text_unit_blocks' ) );
 		add_filter( 'devenia_workflow_semantic_button_block_names', array( __CLASS__, 'add_button_blocks' ) );

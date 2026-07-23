@@ -428,6 +428,54 @@ $bounded_source = new WP_Post(
 	)
 );
 $GLOBALS['srq_posts'][41812] = $bounded_source;
+$design_only_source = new WP_Post(
+	array(
+		'ID'           => 41814,
+		'post_title'   => 'Design-only <b>source</b> rewrite fixture',
+		'post_excerpt' => 'The reader surface may improve without changing its words.',
+		'post_content' => '<!-- wp:group {"layout":{"type":"constrained"}} --><div class="wp-block-group"><!-- wp:paragraph --><p>The exact visible copy stays unchanged.</p><!-- /wp:paragraph --></div><!-- /wp:group -->',
+	)
+);
+$GLOBALS['srq_posts'][41814] = $design_only_source;
+
+$design_discovered = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::discover( array( 'source_id' => 41814 ) );
+$design_job_id = (string) ( $design_discovered['job']['job_id'] ?? '' );
+$design_writer = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::claim(
+	array( 'job_id' => $design_job_id, 'run_id' => 'sr_design_writer', 'coordinator_id' => 'coordinator_design', 'role' => 'source_writer' )
+);
+$design_packet = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::fetch(
+	array( 'job_id' => $design_job_id, 'run_id' => 'sr_design_writer', 'claim_token' => $design_writer['claim_token'] ?? '' )
+);
+$identical_design_artifact = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::submit_artifact(
+	array(
+		'job_id'             => $design_job_id,
+		'run_id'             => 'sr_design_writer',
+		'claim_token'        => $design_writer['claim_token'] ?? '',
+		'proposed_title'     => $design_only_source->post_title,
+		'proposed_excerpt'   => $design_only_source->post_excerpt,
+		'proposed_content'   => $design_only_source->post_content,
+		'preservation_brief' => preservation_brief(),
+		'priming_revision'   => (string) ( $design_packet['packet']['role_priming']['priming_revision'] ?? '' ),
+	)
+);
+if ( ! empty( $identical_design_artifact['success'] ) ) {
+	throw new RuntimeException( 'A byte-identical Source Rewrite Artifact was accepted as a reader-surface change.' );
+}
+$design_only_artifact = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::submit_artifact(
+	array(
+		'job_id'             => $design_job_id,
+		'run_id'             => 'sr_design_writer',
+		'claim_token'        => $design_writer['claim_token'] ?? '',
+		'proposed_title'     => $design_only_source->post_title,
+		'proposed_excerpt'   => $design_only_source->post_excerpt,
+		'proposed_content'   => str_replace( '"constrained"', '"flex","justifyContent":"center"', $design_only_source->post_content ),
+		'preservation_brief' => preservation_brief(),
+		'priming_revision'   => (string) ( $design_packet['packet']['role_priming']['priming_revision'] ?? '' ),
+	)
+);
+if ( empty( $design_only_artifact['success'] ) || 'quality_pending' !== (string) ( $design_only_artifact['job']['status'] ?? '' ) ) {
+	throw new RuntimeException( 'A native design-only Source Rewrite could not reach independent Quality: ' . wp_json_encode( $design_only_artifact ) );
+}
 $new_public_source = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::save_guard(
 	array( 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Unreviewed', 'post_content' => '<p>Unreviewed public source.</p>' ),
 	array( 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Unreviewed', 'post_content' => '<p>Unreviewed public source.</p>' )
@@ -543,6 +591,14 @@ if ( (string) ( $writer_packet['packet']['source']['content'] ?? '' ) !== $sourc
 	throw new RuntimeException( 'The writer packet did not expose the complete source.' );
 }
 $writer_priming = $writer_packet['packet']['role_priming'] ?? array();
+$writer_policy_contexts = array_values(
+	array_filter(
+		$GLOBALS['srq_policy_contexts'],
+		static function ( array $context ): bool {
+			return 41811 === (int) ( $context['source_id'] ?? 0 ) && 'source_writer' === (string) ( $context['role'] ?? '' );
+		}
+	)
+);
 if (
 	'source_writer' !== (string) ( $writer_priming['role'] ?? '' )
 	|| empty( $writer_priming['priming_revision'] )
@@ -552,8 +608,7 @@ if (
 	|| false === strpos( wp_json_encode( $writer_priming ), 'Ogilvy on Advertising' )
 	|| false === strpos( wp_json_encode( $writer_priming ), 'An unchecked draft can look finished' )
 	|| false !== strpos( wp_json_encode( $writer_priming ), 'Devenia Workflow binds' )
-	|| 41811 !== (int) ( $GLOBALS['srq_policy_contexts'][0]['source_id'] ?? 0 )
-	|| 'source_writer' !== (string) ( $GLOBALS['srq_policy_contexts'][0]['role'] ?? '' )
+	|| empty( $writer_policy_contexts )
 ) {
 	throw new RuntimeException( 'The fresh source writer did not receive vendor-neutral craft priming plus source-scoped Adapter policy.' );
 }

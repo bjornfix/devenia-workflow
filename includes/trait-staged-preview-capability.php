@@ -22,15 +22,16 @@ trait Devenia_Workflow_Staged_Preview_Capability {
 	}
 
 	/**
-	 * Supply exact staged content to the reusable GenerateBlocks request Adapter.
+	 * Supply exact staged content to a reusable request-content Adapter.
 	 *
-	 * Workflow retains capability authority; GP-MCP owns native CSS generation.
+	 * Workflow retains capability authority; the consuming Adapter owns native
+	 * presentation generation.
 	 * A pre-existing value belongs to another caller and is never overwritten.
 	 *
 	 * @param mixed $content Existing request-local authority or the null sentinel.
 	 * @return mixed
 	 */
-	public static function filter_staged_preview_generateblocks_request_content( $content ) {
+	public static function filter_staged_preview_request_content( $content ) {
 		if ( null !== $content ) {
 			return $content;
 		}
