@@ -549,6 +549,21 @@ After exact storage and cache invalidation, a separate live verifier must find
 the approved reader-facing copy on origin and canonical surfaces before the new
 source hash becomes translation authority.
 
+Published Artifact Requality is a narrow Interface of this same Module. It
+accepts only the exact current Job, Artifact, prior Quality revision, applied
+source hash, and applied publication-surface revision of a live-verified
+publication. It changes no page bytes: it preserves the prior decision as
+immutable history, clears derived source approval, and returns the same
+Artifact to `quality_pending` behind the shared Quality Single-Flight Gate. A
+passing replacement decision reconciles the already-applied bytes through the
+normal publish and live-verification seams. A `revise` decision opens a fresh
+bounded correction generation whose baseline is the exact applied Artifact,
+not the Job's obsolete pre-publication baseline.
+Discovery and requality serialize their latest-Job ownership changes through
+one short-lived source-scoped transition lease. Requality remains in a
+non-claimable transition state until latest ownership is revalidated and stale
+approval is removed, so a concurrent discovery cannot create two active owners.
+
 ## Source Publication Surface
 
 The deep Module that gives Source Inventory, Translation Jobs, Staged

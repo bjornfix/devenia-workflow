@@ -25,6 +25,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'source-rewrite-fetch-packet' => array( 'Fetch Source Rewrite Packet', 'Returns the complete source/artifact plus role-specific Ogilvy and literary-craft priming for the active Run.', 'source_rewrite_claim_access_schema', 'source_rewrite_fetch_packet', true, true ),
 			'source-rewrite-submit-artifact' => array( 'Submit Source Rewrite Artifact', 'Stores one complete immutable source rewrite and its whole-page preservation brief.', 'source_rewrite_artifact_schema', 'source_rewrite_submit_artifact', false, false ),
 			'source-rewrite-submit-quality-decision' => array( 'Submit Source Rewrite Quality Decision', 'Stores an independent semantic and literary Quality Decision against the exact staged source artifact.', 'source_rewrite_quality_schema', 'source_rewrite_submit_quality_decision', false, false ),
+			'source-rewrite-reopen-quality' => array( 'Reopen Published Source Rewrite Quality', 'Reopens only the exact currently applied and live-verified artifact for one replacement independent Quality Decision.', 'source_rewrite_reopen_quality_schema', 'source_rewrite_reopen_quality', false, false ),
 			'source-rewrite-publish' => array( 'Publish Approved Source Rewrite', 'Applies only the exact independently approved artifact and leaves live verification as a separate required step.', 'source_rewrite_publish_schema', 'source_rewrite_publish', false, false ),
 			'source-rewrite-verify-live' => array( 'Verify Live Source Rewrite', 'Verifies exact reader-facing copy on origin and canonical cache surfaces, then activates hash-bound source approval.', 'source_rewrite_verify_live_schema', 'source_rewrite_verify_live', false, true ),
 			'source-rewrite-status' => array( 'Inspect Source Rewrite Status', 'Returns the authoritative Job, Run, Artifact, Quality, publication, and live-verification state.', 'source_rewrite_status_schema', 'source_rewrite_status', true, true ),
@@ -52,6 +53,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'source_rewrite_fetch_packet' => 'source_rewrite_fetch_packet',
 			'source_rewrite_submit_artifact' => 'source_rewrite_submit_artifact',
 			'source_rewrite_submit_quality_decision' => 'source_rewrite_submit_quality_decision',
+			'source_rewrite_reopen_quality' => 'source_rewrite_reopen_quality',
 			'source_rewrite_publish' => 'source_rewrite_publish',
 			'source_rewrite_verify_live' => 'source_rewrite_verify_live',
 			'source_rewrite_status' => 'source_rewrite_status',
@@ -166,6 +168,22 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 	/** @return array<string,mixed> */
 	private static function source_rewrite_publish_schema(): array { return array( 'type' => 'object', 'required' => array( 'job_id' ), 'properties' => array( 'job_id' => array( 'type' => 'string' ) ), 'additionalProperties' => false ); }
 	/** @return array<string,mixed> */
+	private static function source_rewrite_reopen_quality_schema(): array {
+		return array(
+			'type' => 'object',
+			'required' => array( 'job_id', 'artifact_revision', 'quality_revision', 'applied_source_hash', 'applied_publication_surface_revision', 'reason' ),
+			'properties' => array(
+				'job_id' => array( 'type' => 'string' ),
+				'artifact_revision' => array( 'type' => 'string' ),
+				'quality_revision' => array( 'type' => 'string' ),
+				'applied_source_hash' => array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' ),
+				'applied_publication_surface_revision' => array( 'type' => 'string' ),
+				'reason' => array( 'type' => 'string', 'minLength' => 24, 'maxLength' => 500 ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+	/** @return array<string,mixed> */
 	private static function source_rewrite_verify_live_schema(): array { return array( 'type' => 'object', 'required' => array( 'job_id' ), 'properties' => array( 'job_id' => array( 'type' => 'string' ), 'timeout' => array( 'type' => 'integer', 'minimum' => 2, 'maximum' => 30, 'default' => 5 ) ), 'additionalProperties' => false ); }
 	/** @return array<string,mixed> */
 	private static function source_rewrite_status_schema(): array { return array( 'type' => 'object', 'properties' => array( 'job_id' => array( 'type' => 'string' ), 'source_id' => array( 'type' => 'integer', 'minimum' => 1 ) ), 'additionalProperties' => false ); }
@@ -177,10 +195,26 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		if ( ! $source instanceof WP_Post || ! self::is_translatable_post_type( (string) $source->post_type ) || self::is_translation_post( $source_id ) ) {
 			return self::source_rewrite_error( 'source_not_found', 'Canonical source content not found.' );
 		}
+		$lease = self::source_rewrite_acquire_source_transition_lease( $source_id, 'discover', '' );
+		if ( empty( $lease['success'] ) ) {
+			return $lease;
+		}
+		try {
+			return self::source_rewrite_discover_locked( $source );
+		} finally {
+			self::source_rewrite_release_source_transition_lease( $lease );
+		}
+	}
 
+	/** @return array<string,mixed> */
+	private static function source_rewrite_discover_locked( WP_Post $source ): array {
+		$source_id = (int) $source->ID;
 		$baseline_revision = self::source_publication_surface_revision( $source );
 		$latest_job_id     = self::source_rewrite_clean_id( (string) get_option( self::source_rewrite_latest_key( $source_id ), '' ) );
 		$latest            = '' !== $latest_job_id ? get_option( self::source_rewrite_job_key( $latest_job_id ) ) : null;
+		if ( is_array( $latest ) && ! empty( $latest['quality_recheck'] ) && ! in_array( (string) ( $latest['status'] ?? '' ), array( 'published', 'cancelled', 'exhausted' ), true ) && ! empty( self::source_rewrite_current_baseline( $latest )['current'] ) ) {
+			return array( 'success' => true, 'created' => false, 'job' => self::source_rewrite_public_job( $latest ) );
+		}
 		$existing          = is_array( $latest )
 			&& $source_id === absint( $latest['source_id'] ?? 0 )
 			&& $baseline_revision === (string) ( $latest['baseline_publication_surface_revision'] ?? '' )
@@ -220,6 +254,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'retry_cycle'                         => $retry_cycle,
 			'supersedes_job_id'                    => $supersedes_job_id,
 			'submission_generation'               => 1,
+			'review_cycle'                         => 0,
 			'status'                              => 'queued',
 			'artifact_revision'                   => '',
 			'quality_revision'                    => '',
@@ -239,6 +274,159 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		update_option( self::source_rewrite_latest_key( $source_id ), $job_id, false );
 
 		return array( 'success' => true, 'created' => true, 'job' => self::source_rewrite_public_job( $job ) );
+	}
+
+	/**
+	 * Invalidate only the active Quality authority for the exact artifact that is
+	 * already applied and live-verified. Page bytes and immutable history remain.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function source_rewrite_reopen_quality( array $input ): array {
+		$job_id = self::source_rewrite_clean_id( (string) ( $input['job_id'] ?? '' ) );
+		$artifact_revision = self::source_rewrite_clean_id( (string) ( $input['artifact_revision'] ?? '' ) );
+		$quality_revision = self::source_rewrite_clean_id( (string) ( $input['quality_revision'] ?? '' ) );
+		$applied_source_hash = strtolower( trim( (string) ( $input['applied_source_hash'] ?? '' ) ) );
+		$applied_surface_revision = trim( (string) ( $input['applied_publication_surface_revision'] ?? '' ) );
+		$reason = sanitize_textarea_field( (string) ( $input['reason'] ?? '' ) );
+		if ( '' === $job_id || '' === $artifact_revision || '' === $quality_revision || 1 !== preg_match( '/^[a-f0-9]{64}$/', $applied_source_hash ) || '' === $applied_surface_revision || strlen( $reason ) < 24 || strlen( $reason ) > 500 ) {
+			return self::source_rewrite_error( 'requality_input_invalid', 'Exact published Job, Artifact, Quality, applied hashes, and a substantive reason are required.' );
+		}
+
+		$job_key = self::source_rewrite_job_key( $job_id );
+		$job = get_option( $job_key );
+		if ( ! is_array( $job ) ) {
+			return self::source_rewrite_error( 'job_not_found', 'Source Rewrite Job not found.' );
+		}
+		$lease = self::source_rewrite_acquire_source_transition_lease( absint( $job['source_id'] ?? 0 ), 'reopen_quality', $job_id );
+		if ( empty( $lease['success'] ) ) {
+			return $lease;
+		}
+		try {
+			return self::source_rewrite_reopen_quality_locked( $job, $artifact_revision, $quality_revision, $applied_source_hash, $applied_surface_revision, $reason );
+		} finally {
+			self::source_rewrite_release_source_transition_lease( $lease );
+		}
+	}
+
+	/** @return array<string,mixed> */
+	private static function source_rewrite_reopen_quality_locked( array $job, string $artifact_revision, string $quality_revision, string $applied_source_hash, string $applied_surface_revision, string $reason ): array {
+		$job_id = (string) $job['job_id'];
+		$job_key = self::source_rewrite_job_key( $job_id );
+		$latest_key = self::source_rewrite_latest_key( absint( $job['source_id'] ?? 0 ) );
+		if ( ! hash_equals( $job_id, self::source_rewrite_clean_id( (string) get_option( $latest_key, '' ) ) ) ) {
+			return self::source_rewrite_error( 'requality_job_not_latest', 'Only the latest authoritative Source Rewrite Job may be reopened for Quality.' );
+		}
+		$marker = is_array( $job['quality_recheck'] ?? null ) ? $job['quality_recheck'] : array();
+		$bindings_match = hash_equals( $artifact_revision, (string) ( $job['artifact_revision'] ?? '' ) )
+			&& hash_equals( $applied_source_hash, (string) ( $job['applied_source_hash'] ?? '' ) )
+			&& hash_equals( $applied_surface_revision, (string) ( $job['applied_publication_surface_revision'] ?? '' ) );
+		$active_recheck_matches = $bindings_match && hash_equals( $quality_revision, (string) ( $marker['prior_quality_revision'] ?? '' ) );
+		if ( $active_recheck_matches && ( '' !== (string) ( $job['active_run_id'] ?? '' ) || is_array( get_option( self::source_rewrite_claim_key( $job_id ) ) ) ) ) {
+			return self::source_rewrite_error( 'requality_claim_active', 'The reopened artifact already has an active Quality claim.' );
+		}
+		if ( 'requality_reopening' === (string) ( $job['status'] ?? '' ) && $active_recheck_matches ) {
+			$source = get_post( absint( $job['source_id'] ?? 0 ) );
+			if ( ! $source instanceof WP_Post || ! self::source_rewrite_clear_source_approval( (int) $source->ID ) ) {
+				return self::source_rewrite_error( 'requality_approval_clear_failed', 'The non-claimable reopen transition could not remove stale source approval metadata.', array( 'severity' => 'critical', 'job' => self::source_rewrite_public_job( $job ) ) );
+			}
+			$pending = $job;
+			$pending['status'] = 'quality_pending';
+			$pending['updated_at'] = gmdate( 'c' );
+			if ( ! self::atomic_replace_option_value( $job_key, $job, $pending ) ) {
+				return self::source_rewrite_error( 'requality_activation_conflict', 'The exact non-claimable reopen transition changed before Quality activation.', array( 'severity' => 'critical' ) );
+			}
+			return array( 'success' => true, 'reopened' => true, 'job' => self::source_rewrite_public_job( $pending ) );
+		}
+		if ( 'quality_pending' === (string) ( $job['status'] ?? '' ) && $active_recheck_matches ) {
+			$source = get_post( absint( $job['source_id'] ?? 0 ) );
+			if ( ! $source instanceof WP_Post || ! self::source_rewrite_clear_source_approval( (int) $source->ID ) ) {
+				return self::source_rewrite_error( 'requality_approval_clear_failed', 'The Job is pending requality, but stale source approval metadata could not be removed.', array( 'severity' => 'critical', 'job' => self::source_rewrite_public_job( $job ) ) );
+			}
+			return array( 'success' => true, 'reopened' => false, 'job' => self::source_rewrite_public_job( $job ) );
+		}
+		if ( 'published' !== (string) ( $job['status'] ?? '' ) || true !== ( $job['live_verification_passed'] ?? null ) ) {
+			return self::source_rewrite_error( 'job_not_requality_ready', 'Only a live-verified published Source Rewrite Job can be reopened for Quality.', array( 'job' => self::source_rewrite_public_job( $job ) ) );
+		}
+		if ( '' !== (string) ( $job['active_run_id'] ?? '' ) || is_array( get_option( self::source_rewrite_claim_key( $job_id ) ) ) ) {
+			return self::source_rewrite_error( 'requality_claim_active', 'The published Source Rewrite Job has an active claim.' );
+		}
+		if ( ! $bindings_match || ! hash_equals( $quality_revision, (string) ( $job['quality_revision'] ?? '' ) ) ) {
+			return self::source_rewrite_error( 'requality_binding_mismatch', 'The requested revisions do not equal the exact current published authority.' );
+		}
+		$authority = self::source_rewrite_authority_chain( $job, true );
+		if ( empty( $authority['success'] ) ) {
+			return $authority;
+		}
+		$source = get_post( absint( $job['source_id'] ?? 0 ) );
+		$artifact = $authority['artifact'];
+		$applied = self::source_rewrite_applied_artifact_matches( $job, $artifact, $source );
+		if ( empty( $applied['success'] ) ) {
+			return self::source_rewrite_error( 'published_artifact_drifted', 'The live source no longer equals the exact published artifact; Quality cannot be reopened.', array( 'applied' => $applied ) );
+		}
+
+		$reopened_at = gmdate( 'c' );
+		$history = is_array( $job['quality_recheck_history'] ?? null ) ? $job['quality_recheck_history'] : array();
+		$history[] = array(
+			'artifact_revision' => $artifact_revision,
+			'prior_quality_revision' => $quality_revision,
+			'applied_source_hash' => $applied_source_hash,
+			'applied_publication_surface_revision' => $applied_surface_revision,
+			'reason' => $reason,
+			'prior_submission_generation' => (int) ( $job['submission_generation'] ?? 1 ),
+			'reopened_at' => $reopened_at,
+		);
+		$next = $job;
+		$next['status'] = 'requality_reopening';
+		$next['quality_revision'] = '';
+		$next['active_run_id'] = '';
+		$next['live_verification_passed'] = null;
+		$next['quality_recheck_history'] = $history;
+		$next['review_cycle'] = (int) ( $job['review_cycle'] ?? 0 ) + 1;
+		$next['quality_recheck'] = array(
+			'artifact_revision' => $artifact_revision,
+			'prior_quality_revision' => $quality_revision,
+			'anchor_source_hash' => $applied_source_hash,
+			'anchor_publication_surface_revision' => $applied_surface_revision,
+			'anchor_copy_revision' => (string) ( $job['applied_copy_revision'] ?? '' ),
+			'correction_generation' => 0,
+			'reason' => $reason,
+			'reopened_at' => $reopened_at,
+		);
+		$next['updated_at'] = $reopened_at;
+		if ( ! self::atomic_replace_option_value( $job_key, $job, $next ) ) {
+			return self::source_rewrite_error( 'requality_transition_conflict', 'The published Job changed before Quality could be reopened.' );
+		}
+		if ( ! hash_equals( $job_id, self::source_rewrite_clean_id( (string) get_option( $latest_key, '' ) ) ) ) {
+			if ( ! self::atomic_replace_option_value( $job_key, $next, $job ) ) {
+				return self::source_rewrite_error( 'requality_latest_race_rollback_failed', 'The latest Job changed during reopen and the pending transition could not be rolled back.', array( 'severity' => 'critical' ) );
+			}
+			return self::source_rewrite_error( 'requality_job_not_latest', 'The latest authoritative Job changed during reopen; no approval was invalidated.' );
+		}
+		if ( ! self::source_rewrite_clear_source_approval( (int) $source->ID ) ) {
+			return self::source_rewrite_error( 'requality_approval_clear_failed', 'Quality was invalidated, but stale source approval metadata could not be removed.', array( 'severity' => 'critical', 'job' => self::source_rewrite_public_job( $next ) ) );
+		}
+		$pending = $next;
+		$pending['status'] = 'quality_pending';
+		$pending['updated_at'] = gmdate( 'c' );
+		if ( ! self::atomic_replace_option_value( $job_key, $next, $pending ) ) {
+			$current = get_option( $job_key );
+			if ( ! is_array( $current ) || 'quality_pending' !== (string) ( $current['status'] ?? '' ) || ! hash_equals( $quality_revision, (string) ( $current['quality_recheck']['prior_quality_revision'] ?? '' ) ) ) {
+				return self::source_rewrite_error( 'requality_activation_conflict', 'Source approval was cleared, but the non-claimable reopen transition could not activate Quality.', array( 'severity' => 'critical' ) );
+			}
+			$pending = $current;
+		}
+		return array( 'success' => true, 'reopened' => true, 'job' => self::source_rewrite_public_job( $pending ) );
+	}
+
+	/** Remove and verify every derived source-approval field. */
+	private static function source_rewrite_clear_source_approval( int $source_id ): bool {
+		$cleared = true;
+		foreach ( array( self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_HASH, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWED_AT, self::META_SOURCE_CONTENT_INTEGRITY_REVIEWER, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_NOTE, self::META_SOURCE_CONTENT_INTEGRITY_REVIEW_EVIDENCE ) as $meta_key ) {
+			delete_post_meta( $source_id, $meta_key );
+			$cleared = $cleared && '' === get_post_meta( $source_id, $meta_key, true );
+		}
+		return $cleared;
 	}
 
 	/** @return array<string,mixed> */
@@ -268,10 +456,11 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		if ( (int) ( $job['submission_generation'] ?? 0 ) > self::SOURCE_REWRITE_MAX_SUBMISSION_GENERATIONS ) {
 			return self::source_rewrite_error( 'submission_generation_exhausted', 'The finite Source Rewrite submission-generation budget is exhausted.', array( 'job' => self::source_rewrite_public_job( $job ) ) );
 		}
+		$review_cycle = (int) ( $job['review_cycle'] ?? 0 );
 		$role_runs = array_filter(
 			(array) ( $job['run_ids'] ?? array() ),
-			static function ( $row ) use ( $role ): bool {
-				return is_array( $row ) && $role === (string) ( $row['role'] ?? '' );
+			static function ( $row ) use ( $role, $review_cycle ): bool {
+				return is_array( $row ) && $role === (string) ( $row['role'] ?? '' ) && $review_cycle === (int) ( $row['review_cycle'] ?? 0 );
 			}
 		);
 		if ( count( $role_runs ) >= self::SOURCE_REWRITE_MAX_RUNS_PER_ROLE ) {
@@ -300,6 +489,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'artifact_revision'     => 'quality' === $role ? (string) ( $job['artifact_revision'] ?? '' ) : '',
 			'previous_status'       => (string) $job['status'],
 			'submission_generation' => (int) $job['submission_generation'],
+			'review_cycle'          => $review_cycle,
 			'token_hash'            => hash( 'sha256', $token ),
 			'claimed_at'            => gmdate( 'c', $now ),
 			'expires_at'            => gmdate( 'c', $now + $ttl ),
@@ -334,6 +524,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'principal'             => $principal,
 			'status'                => 'running',
 			'submission_generation' => (int) $job['submission_generation'],
+			'review_cycle'          => $review_cycle,
 			'started_at'             => gmdate( 'c', $now ),
 		);
 		if ( ! self::atomic_create_option( self::source_rewrite_run_key( $run_id ), $run ) ) {
@@ -344,7 +535,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		$next          = $job;
 		$next['status'] = 'source_writer' === $role ? 'writer_claimed' : 'quality_claimed';
 		$next['active_run_id'] = $run_id;
-		$next['run_ids'][] = array( 'run_id' => $run_id, 'role' => $role, 'submission_generation' => (int) $job['submission_generation'] );
+		$next['run_ids'][] = array( 'run_id' => $run_id, 'role' => $role, 'submission_generation' => (int) $job['submission_generation'], 'review_cycle' => $review_cycle );
 		$next['updated_at'] = gmdate( 'c' );
 		if ( ! self::atomic_replace_option_value( $key, $job, $next ) ) {
 			self::atomic_delete_option_value( self::source_rewrite_run_key( $run_id ), $run );
@@ -490,6 +681,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'job_id'               => (string) $job['job_id'],
 			'source_id'            => (int) $job['source_id'],
 			'submission_generation'=> (int) $job['submission_generation'],
+			'review_cycle'         => (int) ( $job['review_cycle'] ?? 0 ),
 			'baseline_source_hash' => (string) $job['baseline_source_hash'],
 			'baseline_publication_surface_revision' => (string) $job['baseline_publication_surface_revision'],
 			'current_copy_surface' => $current_surface,
@@ -599,6 +791,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'source_id'            => (int) $job['source_id'],
 			'artifact_revision'    => $artifact_revision,
 			'submission_generation'=> (int) $job['submission_generation'],
+			'review_cycle'         => (int) ( $job['review_cycle'] ?? 0 ),
 			'baseline_source_hash' => (string) $job['baseline_source_hash'],
 			'baseline_publication_surface_revision' => (string) $job['baseline_publication_surface_revision'],
 			'decision'             => $decision,
@@ -624,12 +817,20 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		}
 
 		$next = $job;
-		$can_revise = (int) $job['submission_generation'] < self::SOURCE_REWRITE_MAX_SUBMISSION_GENERATIONS;
+		$recheck = is_array( $job['quality_recheck'] ?? null ) ? $job['quality_recheck'] : array();
+		$can_revise = ! empty( $recheck )
+			? (int) ( $recheck['correction_generation'] ?? 0 ) < self::SOURCE_REWRITE_MAX_SUBMISSION_GENERATIONS
+			: (int) $job['submission_generation'] < self::SOURCE_REWRITE_MAX_SUBMISSION_GENERATIONS;
 		$next['status']           = 'pass' === $decision ? 'ready_to_publish' : ( $can_revise ? 'changes_requested' : 'exhausted' );
 		$next['quality_revision'] = $quality_revision;
 		$next['active_run_id']    = '';
 		if ( 'revise' === $decision && $can_revise ) {
-			$next['submission_generation'] = (int) $job['submission_generation'] + 1;
+			if ( ! empty( $recheck ) ) {
+				$next['quality_recheck']['correction_generation'] = (int) ( $recheck['correction_generation'] ?? 0 ) + 1;
+				$next['submission_generation'] = (int) $next['quality_recheck']['correction_generation'];
+			} else {
+				$next['submission_generation'] = (int) $job['submission_generation'] + 1;
+			}
 		}
 		$next['updated_at'] = gmdate( 'c' );
 		if ( ! self::atomic_replace_option_value( self::source_rewrite_job_key( (string) $job['job_id'] ), $job, $next ) ) {
@@ -772,6 +973,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			$next['purge_urls']                 = $purge_urls;
 			$next['cache_invalidation']         = is_array( $invalidation ) ? $invalidation : array( 'success' => false, 'code' => 'cache_invalidation_adapter_missing' );
 			$next['updated_at']                 = gmdate( 'c' );
+			unset( $next['quality_recheck'] );
 			if ( $next !== $job && ! self::atomic_replace_option_value( $job_key, $job, $next ) ) {
 				$current_job = get_option( $job_key );
 				if ( ! is_array( $current_job ) || 'published' !== (string) ( $current_job['status'] ?? '' ) || ! hash_equals( (string) $next['applied_copy_revision'], (string) ( $current_job['applied_copy_revision'] ?? '' ) ) ) {
@@ -1161,6 +1363,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			return self::source_rewrite_error( 'claim_access_denied', 'The Source Rewrite claim token, Run, or lease is invalid.' );
 		}
 		$generation = (int) ( $job['submission_generation'] ?? 0 );
+		$review_cycle = (int) ( $job['review_cycle'] ?? 0 );
 		if (
 			(string) ( $job['job_id'] ?? '' ) !== (string) ( $claim['job_id'] ?? '' )
 			|| (string) ( $job['job_id'] ?? '' ) !== (string) ( $run['job_id'] ?? '' )
@@ -1169,8 +1372,10 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			|| 'running' !== (string) ( $run['status'] ?? '' )
 			|| $generation !== (int) ( $claim['submission_generation'] ?? -1 )
 			|| $generation !== (int) ( $run['submission_generation'] ?? -1 )
+			|| $review_cycle !== (int) ( $claim['review_cycle'] ?? 0 )
+			|| $review_cycle !== (int) ( $run['review_cycle'] ?? 0 )
 		) {
-			return self::source_rewrite_error( 'claim_record_binding_mismatch', 'The Source Rewrite Job, Claim, and Run records do not share one active role and submission generation.' );
+			return self::source_rewrite_error( 'claim_record_binding_mismatch', 'The Source Rewrite Job, Claim, and Run records do not share one active role, review cycle, and submission generation.' );
 		}
 		if ( '' !== $required_role && $required_role !== (string) ( $run['role'] ?? '' ) ) {
 			return self::source_rewrite_error( 'claim_role_mismatch', 'The active Source Rewrite Run has the wrong role for this operation.' );
@@ -1262,14 +1467,64 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		$current_surface = self::source_publication_surface_revision( $source );
 		$current = hash_equals( (string) ( $job['baseline_source_hash'] ?? '' ), $current_hash )
 			&& hash_equals( (string) ( $job['baseline_publication_surface_revision'] ?? '' ), $current_surface );
-		return array( 'current' => $current, 'source_hash' => $current_hash, 'publication_surface_revision' => $current_surface );
+		$authority = 'original_baseline';
+		$recheck = is_array( $job['quality_recheck'] ?? null ) ? $job['quality_recheck'] : array();
+		if ( ! $current && ! empty( $recheck ) ) {
+			$artifact = get_option( self::source_rewrite_artifact_key( (string) ( $recheck['artifact_revision'] ?? '' ) ) );
+			$applied = is_array( $artifact ) ? self::source_rewrite_applied_artifact_matches( $job, $artifact, $source, $recheck ) : array( 'success' => false );
+			$current = ! empty( $applied['success'] );
+			$authority = $current ? 'published_artifact_requality' : 'published_artifact_requality_drifted';
+		}
+		return array( 'current' => $current, 'authority' => $authority, 'source_hash' => $current_hash, 'publication_surface_revision' => $current_surface );
+	}
+
+	/**
+	 * Verify that WordPress still stores the exact bytes selected by the applied
+	 * Artifact receipt. An optional recheck marker supplies immutable anchors.
+	 *
+	 * @param mixed $source Canonical source post.
+	 * @param array<string,mixed> $anchors Optional active requality anchors.
+	 * @return array<string,mixed>
+	 */
+	private static function source_rewrite_applied_artifact_matches( array $job, array $artifact, $source, array $anchors = array() ): array {
+		if ( ! $source instanceof WP_Post || 'publish' !== (string) $source->post_status ) {
+			return array( 'success' => false, 'reason' => 'source_not_published' );
+		}
+		$values = self::source_rewrite_source_values( $source );
+		$surface = self::source_rewrite_copy_surface( $values['title'], $values['excerpt'], $values['content'] );
+		$proposed = is_array( $artifact['proposed'] ?? null ) ? $artifact['proposed'] : array();
+		$expected_source_hash = (string) ( $anchors['anchor_source_hash'] ?? $job['applied_source_hash'] ?? '' );
+		$expected_publication_surface = (string) ( $anchors['anchor_publication_surface_revision'] ?? $job['applied_publication_surface_revision'] ?? '' );
+		$expected_copy_revision = (string) ( $anchors['anchor_copy_revision'] ?? $job['applied_copy_revision'] ?? '' );
+		$expected_artifact_revision = (string) ( $anchors['artifact_revision'] ?? $job['artifact_revision'] ?? '' );
+		$matches = '' !== $expected_source_hash
+			&& '' !== $expected_publication_surface
+			&& '' !== $expected_copy_revision
+			&& hash_equals( $expected_artifact_revision, (string) ( $artifact['artifact_revision'] ?? '' ) )
+			&& hash_equals( $expected_source_hash, self::source_hash( $source ) )
+			&& hash_equals( $expected_publication_surface, self::source_publication_surface_revision( $source ) )
+			&& hash_equals( $expected_copy_revision, (string) $surface['revision'] )
+			&& hash_equals( self::source_rewrite_proposed_source_hash( $proposed ), self::source_hash( $source ) )
+			&& hash_equals( (string) ( $artifact['proposed_copy_surface']['revision'] ?? '' ), (string) $surface['revision'] )
+			&& hash_equals( (string) ( $artifact['proposed_content_hash'] ?? '' ), hash( 'sha256', (string) $values['content'] ) );
+		return array(
+			'success' => $matches,
+			'source_hash' => self::source_hash( $source ),
+			'publication_surface_revision' => self::source_publication_surface_revision( $source ),
+			'copy_revision' => (string) $surface['revision'],
+		);
 	}
 
 	/** @return array<string,mixed> */
 	private static function source_rewrite_pending_for_source( WP_Post $source ): array {
-		$job_id = self::source_rewrite_job_id( (int) $source->ID, self::source_publication_surface_revision( $source ) );
+		$job_id = self::source_rewrite_clean_id( (string) get_option( self::source_rewrite_latest_key( (int) $source->ID ), '' ) );
+		if ( '' === $job_id ) {
+			$job_id = self::source_rewrite_job_id( (int) $source->ID, self::source_publication_surface_revision( $source ) );
+		}
 		$job = get_option( self::source_rewrite_job_key( $job_id ) );
-		$pending = is_array( $job ) && ! in_array( (string) ( $job['status'] ?? '' ), array( 'published', 'cancelled' ), true );
+		$pending = is_array( $job )
+			&& (int) $source->ID === absint( $job['source_id'] ?? 0 )
+			&& ! in_array( (string) ( $job['status'] ?? '' ), array( 'published', 'cancelled' ), true );
 		return array(
 			'pending' => $pending,
 			'job_id'  => $pending ? $job_id : '',
@@ -1342,6 +1597,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			|| (string) ( $quality['baseline_publication_surface_revision'] ?? '' ) !== (string) ( $job['baseline_publication_surface_revision'] ?? '' )
 			|| (int) ( $artifact['submission_generation'] ?? 0 ) !== (int) ( $quality['submission_generation'] ?? -1 )
 			|| (int) ( $artifact['submission_generation'] ?? 0 ) !== (int) ( $job['submission_generation'] ?? -1 )
+			|| (int) ( $quality['review_cycle'] ?? 0 ) !== (int) ( $job['review_cycle'] ?? 0 )
 		) {
 			return self::source_rewrite_error( 'source_rewrite_authority_binding_mismatch', 'Artifact, Quality, policy, or generation bindings do not match.' );
 		}
@@ -1377,6 +1633,35 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 	}
 
 	private static function source_rewrite_release_publish_lease( array $lease ): void {
+		if ( ! empty( $lease['key'] ) && is_array( $lease['lease'] ?? null ) ) {
+			self::atomic_delete_option_value( (string) $lease['key'], $lease['lease'] );
+		}
+	}
+
+	/** Serialize latest-Job ownership transitions for one canonical source. */
+	private static function source_rewrite_acquire_source_transition_lease( int $source_id, string $operation, string $job_id ): array {
+		$key = self::source_rewrite_source_transition_lease_key( $source_id );
+		$now = time();
+		$lease = array(
+			'source_id' => $source_id,
+			'operation' => sanitize_key( $operation ),
+			'job_id' => self::source_rewrite_clean_id( $job_id ),
+			'lease_id' => hash( 'sha256', wp_generate_password( 48, false, false ) . '|' . $source_id . '|' . $operation . '|' . $now ),
+			'acquired_at' => gmdate( 'c', $now ),
+			'expires_at' => gmdate( 'c', $now + 120 ),
+		);
+		if ( self::atomic_create_option( $key, $lease ) ) {
+			return array( 'success' => true, 'key' => $key, 'lease' => $lease );
+		}
+		$existing = get_option( $key );
+		if ( is_array( $existing ) && strtotime( (string) ( $existing['expires_at'] ?? '' ) ) <= $now && self::atomic_replace_option_value( $key, $existing, $lease ) ) {
+			return array( 'success' => true, 'key' => $key, 'lease' => $lease, 'recovered' => true );
+		}
+		return self::source_rewrite_error( 'source_rewrite_transition_active', 'Another exact source ownership transition is active.', array( 'source_id' => $source_id, 'retryable' => true ) );
+	}
+
+	/** Release only the exact source-transition owner. */
+	private static function source_rewrite_release_source_transition_lease( array $lease ): void {
 		if ( ! empty( $lease['key'] ) && is_array( $lease['lease'] ?? null ) ) {
 			self::atomic_delete_option_value( (string) $lease['key'], $lease['lease'] );
 		}
@@ -1917,6 +2202,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			array(
 				(string) $job['job_id'],
 				(string) $job['submission_generation'],
+				(string) ( $job['review_cycle'] ?? 0 ),
 				self::source_rewrite_policy_revision(),
 				(string) $claim['run_id'],
 				(string) $claim['role'],
@@ -1935,6 +2221,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'claim_digest'      => (string) $claim['token_hash'],
 			'issued_at'         => (string) $claim['claimed_at'],
 			'expires_at'        => (string) $claim['expires_at'],
+			'review_cycle'      => (int) ( $job['review_cycle'] ?? 0 ),
 		);
 	}
 
@@ -1952,6 +2239,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 	private static function source_rewrite_artifact_key( string $revision ): string { return 'devenia_workflow_source_rewrite_artifact_' . self::source_rewrite_clean_id( $revision ); }
 	private static function source_rewrite_quality_key( string $revision ): string { return 'devenia_workflow_source_rewrite_quality_' . self::source_rewrite_clean_id( $revision ); }
 	private static function source_rewrite_publish_lease_key( string $job_id ): string { return 'devenia_workflow_source_rewrite_publish_lease_' . self::source_rewrite_clean_id( $job_id ); }
+	private static function source_rewrite_source_transition_lease_key( int $source_id ): string { return 'devenia_workflow_source_rewrite_source_transition_lease_' . absint( $source_id ); }
 	private static function source_rewrite_latest_key( int $source_id ): string { return 'devenia_workflow_source_rewrite_latest_' . absint( $source_id ); }
 	private static function source_rewrite_clean_id( string $value ): string { return substr( sanitize_key( $value ), 0, 96 ); }
 
@@ -1966,6 +2254,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'retry_cycle'                         => max( 1, absint( $job['retry_cycle'] ?? 1 ) ),
 			'supersedes_job_id'                    => (string) ( $job['supersedes_job_id'] ?? '' ),
 			'submission_generation'               => absint( $job['submission_generation'] ?? 1 ),
+			'review_cycle'                         => absint( $job['review_cycle'] ?? 0 ),
 			'status'                              => sanitize_key( (string) ( $job['status'] ?? '' ) ),
 			'artifact_revision'                   => (string) ( $job['artifact_revision'] ?? '' ),
 			'quality_revision'                    => (string) ( $job['quality_revision'] ?? '' ),
@@ -1975,6 +2264,8 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'applied_copy_revision'               => (string) ( $job['applied_copy_revision'] ?? '' ),
 			'published_at'                        => (string) ( $job['published_at'] ?? '' ),
 			'live_verification_passed'            => array_key_exists( 'live_verification_passed', $job ) ? $job['live_verification_passed'] : null,
+			'quality_recheck'                     => is_array( $job['quality_recheck'] ?? null ) ? $job['quality_recheck'] : null,
+			'quality_recheck_history'             => is_array( $job['quality_recheck_history'] ?? null ) ? $job['quality_recheck_history'] : array(),
 			'verified_at'                         => (string) ( $job['verified_at'] ?? '' ),
 			'active_run_id'                       => (string) ( $job['active_run_id'] ?? '' ),
 			'run_ids'                             => is_array( $job['run_ids'] ?? null ) ? $job['run_ids'] : array(),

@@ -105,6 +105,24 @@ The Gate proves single-flight execution, not fresh Codex topology. The
 orchestrator must still terminate one Quality subagent after its single outcome
 and spawn a fresh one for the next artifact.
 
+### Published Artifact Requality
+
+Source Rewrite may invalidate the active Quality authority for an already
+published Artifact only through an exact compare-and-swap Interface bound to
+the current Job, Artifact revision, prior Quality revision, applied source
+hash, and applied publication-surface revision. The Interface first proves
+that WordPress still stores the exact applied Artifact. It then preserves the
+prior decision in immutable history, clears derived source approval, and
+returns that same Artifact to `quality_pending` without mutating public bytes.
+Replacement Quality still acquires the shared single-flight lease. A rejection
+may enter a fresh bounded correction cycle anchored to the applied Artifact;
+passing work must still traverse normal publication reconciliation and live
+verification before source approval is restored.
+Discovery and requality share a source-scoped transition lease while reading or
+changing the latest-Job pointer. Requality first enters a non-claimable
+transition state and cannot expose `quality_pending` until latest ownership is
+revalidated and derived approval has been cleared.
+
 ### Server-Owned Quality Evidence
 
 Caller booleans and narrative evidence may supply Reviewer Attestations from a

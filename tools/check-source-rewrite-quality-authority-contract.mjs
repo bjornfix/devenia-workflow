@@ -23,6 +23,7 @@ const lifecycle = [
   "fetch-packet",
   "submit-artifact",
   "submit-quality-decision",
+  "reopen-quality",
   "publish",
   "verify-live",
   "status",
@@ -44,6 +45,14 @@ assert.match(plugin, /wp_insert_post_data[\s\S]*guard_unapproved_source_rewrite_
 assert.doesNotMatch(plugin, /Source_Rebuild_Loss_Guard|source-rebuild-loss-guard/);
 
 assert.match(authority, /source_rewrite_publish_authority[\s\S]*source_rewrite_request_authorizes/);
+assert.match(authority, /source_rewrite_reopen_quality[\s\S]*published_artifact_drifted/);
+assert.match(authority, /quality_recheck_history[\s\S]*prior_quality_revision/);
+assert.match(authority, /published_artifact_requality/);
+assert.match(authority, /review_cycle[\s\S]*SOURCE_REWRITE_MAX_RUNS_PER_ROLE/);
+assert.match(authority, /requality_job_not_latest[\s\S]*requality_latest_race_rollback_failed/);
+assert.match(authority, /requality_reopening[\s\S]*requality_activation_conflict/);
+assert.match(authority, /source_rewrite_discover[\s\S]*source_rewrite_acquire_source_transition_lease/);
+assert.match(authority, /source_rewrite_reopen_quality[\s\S]*source_rewrite_acquire_source_transition_lease/);
 assert.match(authority, /source_rewrite_publish[\s\S]*mcp_expose_validate_content_write_policy\([\s\S]*wp_update_post/);
 assert.doesNotMatch(authority, /apply_filters\(\s*['"]mcp_content_write_preflight['"]/);
 assert.match(authority, /source_rewrite_verify_live[\s\S]*origin[\s\S]*canonical[\s\S]*source_rewrite_quality_passed/);

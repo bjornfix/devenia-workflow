@@ -212,6 +212,8 @@ final class Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test {
 	public static function submit_artifact( array $input ): array { return self::source_rewrite_submit_artifact( $input ); }
 	/** @param array<string,mixed> $input @return array<string,mixed> */
 	public static function decide( array $input ): array { return self::source_rewrite_submit_quality_decision( $input ); }
+	/** @param array<string,mixed> $input @return array<string,mixed> */
+	public static function reopen_quality( array $input ): array { return self::source_rewrite_reopen_quality( $input ); }
 	/** @param mixed $result @param array<string,mixed> $context */
 	public static function preflight( $result, array $context ) { return self::validate_source_rewrite_quality_preflight( $result, $context ); }
 	/** @param array<string,mixed> $data @param array<string,mixed> $postarr @param array<string,mixed> $unsanitized */
@@ -222,6 +224,8 @@ final class Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test {
 	public static function verify( array $input ): array { return self::source_rewrite_verify_live( $input ); }
 	/** @param array<string,mixed> $input @return array<string,mixed> */
 	public static function status( array $input ): array { return self::source_rewrite_status( $input ); }
+	/** @return array<string,mixed> */
+	public static function pending( WP_Post $source ): array { return self::source_rewrite_pending_for_source( $source ); }
 	/** @param array<string,mixed> $job @return array<string,mixed> */
 	public static function authority_chain( array $job ): array { return self::source_rewrite_authority_chain( $job ); }
 	/** @param array<string,mixed> $job @param mixed $preflight @return array<string,mixed> */
@@ -1067,6 +1071,179 @@ if (
 	|| empty( $GLOBALS['srq_meta'][41811]['_devenia_translation_source_content_integrity_review_evidence']['source_rewrite_quality_passed'] )
 ) {
 	throw new RuntimeException( 'Separate live verification did not preserve the discovery-time policy snapshot and complete hash-bound source approval with source-addressable status.' );
+}
+
+$published_status = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::status( array( 'job_id' => $job_id ) );
+$reopen_input = array(
+	'job_id'                              => $job_id,
+	'artifact_revision'                   => (string) ( $published_status['job']['artifact_revision'] ?? '' ),
+	'quality_revision'                    => (string) ( $published_status['job']['quality_revision'] ?? '' ),
+	'applied_source_hash'                 => (string) ( $published_status['job']['applied_source_hash'] ?? '' ),
+	'applied_publication_surface_revision'=> (string) ( $published_status['job']['applied_publication_surface_revision'] ?? '' ),
+	'reason'                              => 'Repeat independent Quality because the prior browser-mode evidence was invalid.',
+);
+$approved_content = $source->post_content;
+$source_lease_key = 'devenia_workflow_source_rewrite_source_transition_lease_41811';
+$GLOBALS['srq_options'][ $source_lease_key ] = array( 'expires_at' => gmdate( 'c', time() + 120 ), 'lease_id' => 'concurrent-owner' );
+$leased_reopen = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::reopen_quality( $reopen_input );
+$leased_discover = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::discover( array( 'source_id' => 41811 ) );
+if ( 'source_rewrite_transition_active' !== (string) ( $leased_reopen['code'] ?? '' ) || 'source_rewrite_transition_active' !== (string) ( $leased_discover['code'] ?? '' ) ) {
+	throw new RuntimeException( 'Discover and requality did not serialize through one source ownership lease.' );
+}
+unset( $GLOBALS['srq_options'][ $source_lease_key ] );
+$latest_key = 'devenia_workflow_source_rewrite_latest_41811';
+$GLOBALS['srq_options'][ $latest_key ] = 'srj_newer_owner';
+$not_latest_reopen = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::reopen_quality( $reopen_input );
+if ( ! empty( $not_latest_reopen['success'] ) || 'requality_job_not_latest' !== (string) ( $not_latest_reopen['code'] ?? '' ) ) {
+	throw new RuntimeException( 'A non-latest published Job could invalidate current source approval.' );
+}
+$GLOBALS['srq_options'][ $latest_key ] = $job_id;
+$source->post_content .= ' Drift after live verification.';
+$drifted_reopen = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::reopen_quality( $reopen_input );
+if ( ! empty( $drifted_reopen['success'] ) || 'published_artifact_drifted' !== (string) ( $drifted_reopen['code'] ?? '' ) ) {
+	throw new RuntimeException( 'Published byte drift did not fail closed before reopening Quality.' );
+}
+$source->post_content = $approved_content;
+
+$reopened = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::reopen_quality( $reopen_input );
+if (
+	empty( $reopened['success'] )
+	|| true !== (bool) ( $reopened['reopened'] ?? false )
+	|| 'quality_pending' !== (string) ( $reopened['job']['status'] ?? '' )
+	|| '' !== (string) ( $reopened['job']['quality_revision'] ?? '' )
+	|| (string) $reopen_input['quality_revision'] !== (string) ( $reopened['job']['quality_recheck']['prior_quality_revision'] ?? '' )
+	|| 1 !== count( (array) ( $reopened['job']['quality_recheck_history'] ?? array() ) )
+	|| array() !== (array) ( $GLOBALS['srq_meta'][41811] ?? array() )
+	|| empty( Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::pending( $source )['pending'] )
+) {
+	throw new RuntimeException( 'Exact published artifact did not reopen with old authority preserved only as immutable history.' );
+}
+$reopened_again = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::reopen_quality( $reopen_input );
+if ( empty( $reopened_again['success'] ) || false !== (bool) ( $reopened_again['reopened'] ?? true ) ) {
+	throw new RuntimeException( 'Retrying the exact requality request was not idempotent.' );
+}
+
+$quality4 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::claim(
+	array( 'job_id' => $job_id, 'run_id' => 'sr_quality_4', 'coordinator_id' => 'coordinator_4_q', 'role' => 'quality' )
+);
+$quality4_packet = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::fetch(
+	array( 'job_id' => $job_id, 'run_id' => 'sr_quality_4', 'claim_token' => $quality4['claim_token'] ?? '' )
+);
+$reopen_while_claimed = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::reopen_quality( $reopen_input );
+if ( ! empty( $reopen_while_claimed['success'] ) || 'requality_claim_active' !== (string) ( $reopen_while_claimed['code'] ?? '' ) ) {
+	throw new RuntimeException( 'An active requality claim did not block a duplicate reopen request.' );
+}
+$passed_q4 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::decide(
+	array_merge(
+		array(
+			'job_id'            => $job_id,
+			'run_id'            => 'sr_quality_4',
+			'claim_token'       => $quality4['claim_token'] ?? '',
+			'artifact_revision' => (string) $reopen_input['artifact_revision'],
+			'priming_revision'  => (string) ( $quality4_packet['packet']['role_priming']['priming_revision'] ?? '' ),
+		),
+		quality_evidence( 'pass', 'The exact already-applied artifact passes a fresh independent Quality review with replacement evidence.', (array) ( $quality4_packet['packet']['rendered_preview'] ?? array() ) )
+	)
+);
+if ( empty( $passed_q4['success'] ) || 'ready_to_publish' !== (string) ( $passed_q4['job']['status'] ?? '' ) ) {
+	throw new RuntimeException( 'Fresh Quality could not approve the exact reopened artifact.' );
+}
+$republished = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::publish( array( 'job_id' => $job_id ) );
+$reverified = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if (
+	empty( $republished['success'] )
+	|| empty( $reverified['success'] )
+	|| $approved_content !== $source->post_content
+	|| ! empty( $reverified['job']['quality_recheck'] )
+) {
+	throw new RuntimeException( 'Fresh Quality did not reconcile and verify the exact already-applied artifact without changing page bytes.' );
+}
+
+$second_published_status = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::status( array( 'job_id' => $job_id ) );
+$second_reopen_input = array(
+	'job_id'                              => $job_id,
+	'artifact_revision'                   => (string) ( $second_published_status['job']['artifact_revision'] ?? '' ),
+	'quality_revision'                    => (string) ( $second_published_status['job']['quality_revision'] ?? '' ),
+	'applied_source_hash'                 => (string) ( $second_published_status['job']['applied_source_hash'] ?? '' ),
+	'applied_publication_surface_revision'=> (string) ( $second_published_status['job']['applied_publication_surface_revision'] ?? '' ),
+	'reason'                              => 'Exercise the correction path after a fresh independent Quality rejection.',
+);
+$second_reopen = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::reopen_quality( $second_reopen_input );
+$quality5 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::claim(
+	array( 'job_id' => $job_id, 'run_id' => 'sr_quality_5', 'coordinator_id' => 'coordinator_5_q', 'role' => 'quality' )
+);
+$quality5_packet = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::fetch(
+	array( 'job_id' => $job_id, 'run_id' => 'sr_quality_5', 'claim_token' => $quality5['claim_token'] ?? '' )
+);
+$revised_q5 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::decide(
+	array_merge(
+		array(
+			'job_id' => $job_id, 'run_id' => 'sr_quality_5', 'claim_token' => $quality5['claim_token'] ?? '',
+			'artifact_revision' => (string) $second_reopen_input['artifact_revision'],
+			'priming_revision' => (string) ( $quality5_packet['packet']['role_priming']['priming_revision'] ?? '' ),
+		),
+		quality_evidence( 'revise', 'Fresh rendered inspection found a concrete comprehension defect that requires a bounded writer correction.', (array) ( $quality5_packet['packet']['rendered_preview'] ?? array() ) )
+	)
+);
+if ( empty( $second_reopen['success'] ) || empty( $revised_q5['success'] ) || 'changes_requested' !== (string) ( $revised_q5['job']['status'] ?? '' ) ) {
+	throw new RuntimeException( 'A fresh requality rejection did not open the bounded correction path.' );
+}
+$writer4 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::claim(
+	array( 'job_id' => $job_id, 'run_id' => 'sr_writer_4', 'coordinator_id' => 'coordinator_4', 'role' => 'source_writer' )
+);
+$writer4_packet = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::fetch(
+	array( 'job_id' => $job_id, 'run_id' => 'sr_writer_4', 'claim_token' => $writer4['claim_token'] ?? '' )
+);
+$corrected_content = $approved_content . "\n<!-- wp:paragraph --><p>The requality correction remains bound to the currently published artifact anchor.</p><!-- /wp:paragraph -->";
+$artifact4 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::submit_artifact(
+	array(
+		'job_id' => $job_id, 'run_id' => 'sr_writer_4', 'claim_token' => $writer4['claim_token'] ?? '',
+		'proposed_title' => $source->post_title, 'proposed_excerpt' => $source->post_excerpt, 'proposed_content' => $corrected_content,
+		'preservation_brief' => preservation_brief(),
+		'priming_revision' => (string) ( $writer4_packet['packet']['role_priming']['priming_revision'] ?? '' ),
+	)
+);
+if ( empty( $artifact4['success'] ) ) {
+	throw new RuntimeException( 'A writer could not correct a rejected requality artifact against its exact applied anchor.' );
+}
+$quality6 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::claim(
+	array( 'job_id' => $job_id, 'run_id' => 'sr_quality_6', 'coordinator_id' => 'coordinator_6_q', 'role' => 'quality' )
+);
+$quality6_packet = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::fetch(
+	array( 'job_id' => $job_id, 'run_id' => 'sr_quality_6', 'claim_token' => $quality6['claim_token'] ?? '' )
+);
+$passed_q6 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::decide(
+	array_merge(
+		array(
+			'job_id' => $job_id, 'run_id' => 'sr_quality_6', 'claim_token' => $quality6['claim_token'] ?? '',
+			'artifact_revision' => (string) ( $artifact4['artifact_revision'] ?? '' ),
+			'priming_revision' => (string) ( $quality6_packet['packet']['role_priming']['priming_revision'] ?? '' ),
+		),
+		quality_evidence( 'pass', 'The bounded correction resolves the observed comprehension defect while preserving the exact approved product contract.', (array) ( $quality6_packet['packet']['rendered_preview'] ?? array() ) )
+	)
+);
+$published_q6 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::publish( array( 'job_id' => $job_id ) );
+$verified_q6 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::verify( array( 'job_id' => $job_id, 'timeout' => 5 ) );
+if ( empty( $passed_q6['success'] ) || empty( $published_q6['success'] ) || empty( $verified_q6['success'] ) || $corrected_content !== $source->post_content ) {
+	throw new RuntimeException( 'A corrected requality artifact did not complete fresh Quality, publication, and live verification.' );
+}
+
+$third_status = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::status( array( 'job_id' => $job_id ) );
+$third_reopen = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::reopen_quality(
+	array(
+		'job_id' => $job_id,
+		'artifact_revision' => (string) ( $third_status['job']['artifact_revision'] ?? '' ),
+		'quality_revision' => (string) ( $third_status['job']['quality_revision'] ?? '' ),
+		'applied_source_hash' => (string) ( $third_status['job']['applied_source_hash'] ?? '' ),
+		'applied_publication_surface_revision' => (string) ( $third_status['job']['applied_publication_surface_revision'] ?? '' ),
+		'reason' => 'Prove a new requality review cycle has its own bounded Run budget.',
+	)
+);
+$quality7 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::claim(
+	array( 'job_id' => $job_id, 'run_id' => 'sr_quality_7', 'coordinator_id' => 'coordinator_7_q', 'role' => 'quality' )
+);
+if ( empty( $third_reopen['success'] ) || empty( $quality7['success'] ) || 3 !== (int) ( $quality7['claim']['review_cycle'] ?? 0 ) ) {
+	throw new RuntimeException( 'Historical Quality Runs exhausted a fresh requality cycle.' );
 }
 
 fwrite( STDOUT, "Workflow Source Rewrite Quality Authority runtime passed.\n" );

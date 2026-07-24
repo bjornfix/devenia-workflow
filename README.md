@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.685
+**Stable tag:** 0.1.686
 
 **License:** GPLv2 or later
 
@@ -140,6 +140,7 @@ The plugin remains active if the Abilities API is unavailable, but workflow abil
 - `devenia-workflow/source-rewrite-fetch-packet`
 - `devenia-workflow/source-rewrite-submit-artifact`
 - `devenia-workflow/source-rewrite-submit-quality-decision`
+- `devenia-workflow/source-rewrite-reopen-quality`
 - `devenia-workflow/source-rewrite-publish`
 - `devenia-workflow/source-rewrite-verify-live`
 - `devenia-workflow/source-rewrite-status`
@@ -170,6 +171,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.686
+
+- Reopens only an exact, currently applied, live-verified Source Rewrite Artifact for replacement independent Quality, preserving immutable prior evidence while clearing its active approval and leaving page bytes unchanged.
 
 ### 0.1.685
 
