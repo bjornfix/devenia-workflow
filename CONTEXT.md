@@ -132,6 +132,13 @@ surface CAS and translation payload are read again: `published` is boolean only
 for a verified restored or forward reader surface and is null when the database
 surface is restored/forward but cache or reader verification is incomplete.
 Foreign, empty, or indistinguishable receipts remain null and diagnostic.
+The WordPress Page Hierarchy Adapter also owns first-language bootstrap. The
+configured static front-page source is the only Translation Job allowed to
+create a target-language root without a translated parent; its immutable slug
+and path both equal the configured language prefix. Every other translated page
+must resolve an already-published translated front page as its language root
+before staging. Deleting this rule would again let synthetic `/prefix/slug/`
+evidence pass while WordPress exposes the new page at `/slug/` on a fresh site.
 All mutation Modules share one strict Recovery COMMIT Receipt Interface.
 `committed` must be an explicitly present `true`, `false`, or `null`; absence is
 malformed rather than unknown. A malformed Adapter receipt closes only an

@@ -1317,6 +1317,8 @@ trait Devenia_Workflow_Translation_Job {
 				'route_locked'   => 'publish' === $existing_translation->post_status,
 			);
 		}
+		$is_language_root = self::is_front_page_source( $source );
+		$requires_language_root_bootstrap = $is_language_root && ( empty( $existing_route ) || empty( $existing_route['route_locked'] ) );
 		$packet = array(
 			'contract_version' => 5,
 			'subagent_separation_contract' => self::translation_job_subagent_separation_contract(),
@@ -1332,7 +1334,21 @@ trait Devenia_Workflow_Translation_Job {
 				'publication_surface' => self::source_publication_surface_manifest( $source ),
 			),
 			'fragments' => $fragments,
-			'route' => array( 'language_prefix' => self::language_prefix( $language ), 'source_slug' => (string) $source->post_name, 'source_parent_id' => (int) $source->post_parent, 'existing' => $existing_route, 'policy' => $existing_route && ! empty( $existing_route['route_locked'] ) ? 'Preserve the established canonical route exactly. Ordinary translation work cannot migrate a published URL.' : 'Create one localized route for this new translation; publication establishes its Canonical Route Contract.' ),
+			'route' => array(
+				'language_prefix' => self::language_prefix( $language ),
+				'source_slug' => (string) $source->post_name,
+				'source_parent_id' => (int) $source->post_parent,
+				'language_root' => $is_language_root,
+				'language_root_bootstrap' => $requires_language_root_bootstrap,
+				'required_localized_slug' => $requires_language_root_bootstrap ? self::language_prefix( $language ) : '',
+				'required_localized_path' => $requires_language_root_bootstrap ? self::language_prefix( $language ) : '',
+				'existing' => $existing_route,
+				'policy' => $existing_route && ! empty( $existing_route['route_locked'] )
+					? 'Preserve the established canonical route exactly. Ordinary translation work cannot migrate a published URL.'
+					: ( $is_language_root
+						? 'Create the first language root with the exact required localized slug and path from this packet.'
+						: 'Create one localized route for this new translation; publication establishes its Canonical Route Contract.' ),
+			),
 			'taxonomy' => self::post_taxonomy_payload( $source ),
 			'links' => self::translation_job_link_policy( $source, $language ),
 			'language_profile' => self::translation_job_language_profile( (int) $source->ID, $language ),

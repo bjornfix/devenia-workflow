@@ -51,6 +51,14 @@ public surface. The same parity and exact staged route are checked again under
 the publication row lock before the first write, closing the staging-to-apply
 race without treating a route change as ordinary translation authority.
 
+On a fresh installation, the configured static front-page source is the sole
+bootstrap authority for a new language root. Its first Translation Job must use
+the configured language prefix as both the root page slug and localized path,
+creating `/prefix/` as ordinary WordPress page hierarchy. Other pages fail
+before mutation until that translated front page exists, then resolve beneath
+it. This special case establishes a missing route; it never alters an existing
+Canonical Route Contract.
+
 ## Consequences
 
 Improving a title, translation, keyword, or wording cannot change a published

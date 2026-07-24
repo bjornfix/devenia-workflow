@@ -713,13 +713,14 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 			$translation_id = self::find_translation_id( (int) $source->ID, $language, self::translation_workflow_post_statuses( false ) );
 		}
 		$existing = $translation_id ? get_post( $translation_id ) : null;
-		$canonical_route_resolution = $existing instanceof WP_Post
+		$route_locked = $existing instanceof WP_Post && 'publish' === (string) $existing->post_status;
+		$canonical_route_resolution = $route_locked
 			? self::effective_translation_canonical_route( $existing, $language )
 			: array( 'success' => true, 'route' => array() );
 		if ( empty( $canonical_route_resolution['success'] ) ) {
 			return $canonical_route_resolution;
 		}
-		$route = $existing instanceof WP_Post
+		$route = $route_locked
 			? array(
 				'translation_id' => (int) $existing->ID,
 				'post_name'      => (string) $existing->post_name,
@@ -728,13 +729,13 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'canonical_route'=> (array) $canonical_route_resolution['route'],
 			)
 			: array(
-				'translation_id'       => 0,
+				'translation_id'       => $existing instanceof WP_Post ? (int) $existing->ID : 0,
 				'localized_slug'       => sanitize_title( (string) ( $artifact['localized_slug'] ?? '' ) ),
 				'localized_path'       => trim( sanitize_text_field( (string) ( $artifact['localized_path'] ?? '' ) ), '/' ),
 				'localized_parent_id'  => 0,
 				'localized_parent_path'=> trim( sanitize_text_field( (string) ( $artifact['localized_parent_path'] ?? '' ) ), '/' ),
 			);
-		if ( ! $existing instanceof WP_Post ) {
+		if ( ! $route_locked ) {
 			$raw_slug = (string) ( $artifact['localized_slug'] ?? '' );
 			$slug = sanitize_title( $raw_slug );
 			if ( '' === $slug ) { return array( 'success' => false, 'code' => 'staged_localized_slug_required', 'message' => 'A new staged translation requires a localized slug.' ); }
@@ -748,7 +749,9 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				if ( empty( $parent_result['success'] ) ) { return $parent_result; }
 				$parent_id = absint( $parent_result['parent_id'] ?? 0 );
 				$parent_path = (string) ( $parent_result['parent_path'] ?? $parent_path );
-				$expected_path = self::expected_localized_path_for_new_page( $parent_id, $slug, $language );
+				$root_route_issue = self::translation_language_root_route_issue( $source, $language, $parent_id, $slug );
+				if ( $root_route_issue ) { return $root_route_issue; }
+				$expected_path = self::expected_localized_path_for_new_page( $parent_id, $slug, $language, (int) $source->ID );
 				$raw_requested_path = trim( (string) ( $artifact['localized_path'] ?? '' ) );
 				$requested_path = self::normalize_stored_localized_route_path( $raw_requested_path );
 				if ( '' !== $raw_requested_path && '' === $requested_path ) {
@@ -761,7 +764,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				$route['localized_parent_path'] = $parent_path;
 				$route['localized_path'] = $expected_path;
 			}
-			if ( self::translation_slug_conflicts( $slug, (string) $source->post_type, $parent_id, 0 ) ) { return array( 'success' => false, 'code' => 'staged_localized_slug_collision', 'message' => 'The staged localized route collides with existing content.' ); }
+			if ( self::translation_slug_conflicts( $slug, (string) $source->post_type, $parent_id, $existing instanceof WP_Post ? (int) $existing->ID : 0 ) ) { return array( 'success' => false, 'code' => 'staged_localized_slug_collision', 'message' => 'The staged localized route collides with existing content.' ); }
 		}
 
 		$seo_surface = (array) self::wordpress_utf8mb3_safe_storage_value( self::canonical_seo_surface_for_translation_job( $artifact, $title, $excerpt, $content ) );
@@ -1662,7 +1665,7 @@ trait Devenia_Workflow_Translation_Job_Quality_Authority {
 				'mutation_started' => false,
 			);
 		}
-		if ( $translation_id ) {
+		if ( $translation_id && 'publish' === (string) get_post_status( $translation_id ) ) {
 			$locked_post = get_post( $translation_id );
 			$locked_route_resolution = $locked_post instanceof WP_Post
 				? self::effective_translation_canonical_route( $locked_post, (string) $job['target_language'] )

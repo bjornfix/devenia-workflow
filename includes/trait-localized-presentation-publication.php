@@ -67,7 +67,11 @@ trait Devenia_Workflow_Localized_Presentation_Publication {
 			return array( 'success' => false, 'code' => 'legacy_staged_page_parent_missing', 'message' => 'The legacy staged page route names a parent path without a signed parent identity.', 'mutation_started' => false, 'signed_parent_path' => $parent_path );
 		}
 
-		$derived_path = self::expected_localized_path_for_new_page( $parent_id, $slug, $language );
+		$root_route_issue = self::translation_language_root_route_issue( $source, $language, $parent_id, $slug );
+		if ( $root_route_issue ) {
+			return array_merge( $root_route_issue, array( 'mutation_started' => false ) );
+		}
+		$derived_path = self::expected_localized_path_for_new_page( $parent_id, $slug, $language, (int) $source->ID );
 		if ( '' === $derived_path ) {
 			return array( 'success' => false, 'code' => 'legacy_staged_page_path_unresolvable', 'message' => 'The legacy staged page route could not be derived from its signed parent and slug.', 'mutation_started' => false );
 		}

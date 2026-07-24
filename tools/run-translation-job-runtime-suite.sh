@@ -33,6 +33,16 @@ if [[ "$route_result" != 'New-page localized-path contract passed.' ]]; then
 	exit 1
 fi
 
+language_root_result="$("$wp_cli_bin" eval-file \
+	"$plugin_root/tools/check-language-root-bootstrap-wordpress-runtime.php" \
+	--path="$wp_path" \
+	--skip-themes)"
+printf '%s\n' "$language_root_result"
+if [[ "$language_root_result" != 'PASS: first translated language-root bootstrap contract' ]]; then
+	printf '%s\n' 'First translated language-root bootstrap did not return the exact success proof.' >&2
+	exit 1
+fi
+
 preview_result="$("$wp_cli_bin" eval-file \
 	"$plugin_root/tools/check-new-translation-staged-preview-wordpress-runtime.php" \
 	--path="$wp_path" \

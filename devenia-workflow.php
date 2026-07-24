@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.683
+ * Version: 0.1.684
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -79,7 +79,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.683';
+	const VERSION = '0.1.684';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -11150,11 +11150,13 @@ final class Devenia_Workflow {
 				? ''
 				: ( isset( $input['localized_parent_path'] ) ? self::normalize_localized_parent_path( (string) $input['localized_parent_path'], $language ) : '' );
 		}
-		if ( 'page' === $target_post_type ) {
+		if ( 'page' === $target_post_type && ! $published_route_locked ) {
 			$parent_result = self::translation_job_resolve_localized_parent( $source, $language, $parent_id, $localized_parent_path, $allow_source_slug_in_url, $source_slug_reason );
 			if ( empty( $parent_result['success'] ) ) { return $parent_result; }
 			$parent_id = absint( $parent_result['parent_id'] ?? 0 );
 			$localized_parent_path = (string) ( $parent_result['parent_path'] ?? $localized_parent_path );
+			$root_route_issue = self::translation_language_root_route_issue( $source, $language, $parent_id, $slug );
+			if ( $root_route_issue ) { return $root_route_issue; }
 		}
 
 		$source_design = array();
@@ -12022,6 +12024,27 @@ final class Devenia_Workflow {
 	private static function translation_job_resolve_localized_parent( WP_Post $source, string $language, int $requested_parent_id, string $requested_parent_path, bool $allow_source_slug = false, string $source_slug_reason = '' ): array {
 		if ( 'page' !== (string) $source->post_type ) { return array( 'success' => true, 'parent_id' => 0, 'parent_path' => '' ); }
 		$parent_path = self::normalize_localized_parent_path( $requested_parent_path, $language );
+		if ( self::is_front_page_source( $source ) ) {
+			if ( $requested_parent_id || '' !== $parent_path ) {
+				return array(
+					'success' => false,
+					'code' => 'localized_language_root_parent_invalid',
+					'message' => 'The translated front page is the language root and cannot have a localized parent.',
+					'language' => sanitize_key( $language ),
+				);
+			}
+			return array( 'success' => true, 'parent_id' => 0, 'parent_path' => '', 'language_root' => true );
+		}
+		$language_root_id = self::language_root_page_id( $language );
+		if ( ! $language_root_id ) {
+			return array(
+				'success' => false,
+				'code' => 'localized_language_root_missing',
+				'message' => 'The published translated language root is missing. Translate and publish the configured front page for this language before dependent pages.',
+				'language' => sanitize_key( $language ),
+				'source_front_page_id' => absint( get_option( 'page_on_front' ) ),
+			);
+		}
 		$result = self::authoritative_source_parent_for_translation( $source, $language, $requested_parent_id, $parent_path );
 		if ( empty( $result['success'] ) ) { return $result; }
 		$parent_id = absint( $result['parent_id'] ?? $requested_parent_id );
@@ -12054,9 +12077,51 @@ final class Devenia_Workflow {
 	/**
 	 * Exact localized path a new page will have under one resolved parent.
 	 */
-	private static function expected_localized_path_for_new_page( int $parent_id, string $slug, string $language ): string {
+	private static function expected_localized_path_for_new_page( int $parent_id, string $slug, string $language, int $source_id = 0 ): string {
+		$prefix = self::language_prefix( $language );
+		if ( self::is_front_page_source_id( $source_id ) && ! $parent_id && $slug === $prefix ) {
+			return self::normalize_stored_localized_route_path( $prefix );
+		}
 		$parent_path = $parent_id ? self::localized_path_for_post( $parent_id, $language ) : self::language_prefix( $language );
 		return self::normalize_stored_localized_route_path( trim( $parent_path . '/' . sanitize_title( $slug ), '/' ) );
+	}
+
+	/** Whether this source owns the configured static front-page role. */
+	private static function is_front_page_source( WP_Post $source ): bool {
+		return self::is_front_page_source_id( (int) $source->ID );
+	}
+
+	/** Whether one source ID owns the configured static front-page role. */
+	private static function is_front_page_source_id( int $source_id ): bool {
+		$front_page_id = absint( get_option( 'page_on_front' ) );
+		return 'page' === (string) get_option( 'show_on_front' )
+			&& $source_id > 0
+			&& $front_page_id > 0
+			&& $source_id === $front_page_id;
+	}
+
+	/** Validate the immutable route identity of the first translated language root. */
+	private static function translation_language_root_route_issue( WP_Post $source, string $language, int $parent_id, string $slug ): ?array {
+		if ( ! self::is_front_page_source( $source ) ) {
+			return null;
+		}
+		$prefix = self::language_prefix( $language );
+		if ( '' === $prefix ) {
+			return array( 'success' => false, 'code' => 'localized_language_root_prefix_missing', 'message' => 'The translated front page requires a configured language prefix.' );
+		}
+		if ( $parent_id ) {
+			return array( 'success' => false, 'code' => 'localized_language_root_parent_invalid', 'message' => 'The translated front page must be a root WordPress page.', 'expected_parent_id' => 0 );
+		}
+		if ( $slug !== $prefix ) {
+			return array(
+				'success' => false,
+				'code' => 'localized_language_root_slug_required',
+				'message' => 'The translated front page slug must equal the configured language prefix.',
+				'expected_slug' => $prefix,
+				'requested_slug' => $slug,
+			);
+		}
+		return null;
 	}
 
 	/**
@@ -17032,12 +17097,15 @@ final class Devenia_Workflow {
 	 * Find the translated homepage/root page for a language.
 	 */
 	private static function language_root_page_id( string $language ): int {
+		if ( 'page' !== (string) get_option( 'show_on_front' ) ) {
+			return 0;
+		}
 		$front_page_id = absint( get_option( 'page_on_front' ) );
 		if ( ! $front_page_id ) {
 			return 0;
 		}
 
-		return self::find_translation_id( $front_page_id, $language );
+		return self::find_translation_id( $front_page_id, $language, array( 'publish' ) );
 	}
 
 	/**
@@ -28031,6 +28099,17 @@ final class Devenia_Workflow {
 	 */
 	private static function apply_translation_lifecycle_meta( int $translation_id, int $source_id, string $language, string $translation_status, WP_Post $source ): array {
 		$localized_path = self::localized_path_for_post( $translation_id, $language );
+		$established_route = get_post_meta( $translation_id, self::META_CANONICAL_ROUTE, true );
+		if (
+			'publish' === (string) get_post_status( $translation_id )
+			&& is_array( $established_route )
+			&& sanitize_key( (string) ( $established_route['language'] ?? '' ) ) === sanitize_key( $language )
+		) {
+			$established_path = self::normalize_stored_localized_route_path( (string) ( $established_route['localized_path'] ?? $established_route['path'] ?? '' ) );
+			if ( '' !== $established_path ) {
+				$localized_path = $established_path;
+			}
+		}
 		$source_hash    = self::source_hash( $source );
 
 		update_post_meta( $translation_id, self::META_SOURCE_ID, $source_id );

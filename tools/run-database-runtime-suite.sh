@@ -46,6 +46,16 @@ if [[ "$page_route_result" != 'New-page localized-path contract passed.' ]]; the
 	exit 1
 fi
 
+language_root_result="$("$wp_cli_bin" eval-file \
+	"$plugin_root/tools/check-language-root-bootstrap-wordpress-runtime.php" \
+	--path="$wp_path" \
+	--skip-themes)"
+printf '%s\n' "$language_root_result"
+if [[ "$language_root_result" != 'PASS: first translated language-root bootstrap contract' ]]; then
+	printf '%s\n' 'First translated language-root bootstrap did not return the exact success proof.' >&2
+	exit 1
+fi
+
 if "$wp_cli_bin" option get devenia_workflow_version --path="$wp_path" --skip-plugins --skip-themes >/dev/null 2>&1; then
 	"$wp_cli_bin" option delete devenia_workflow_version --path="$wp_path" --skip-plugins --skip-themes >/dev/null
 fi
