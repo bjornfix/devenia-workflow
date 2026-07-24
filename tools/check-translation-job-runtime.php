@@ -17,6 +17,7 @@ $new_page_route_translation_id = 0;
 $new_page_apply_source_id = 0;
 $new_page_apply_translation_id = 0;
 $legacy_new_page_apply_translation_id = 0;
+$new_page_apply_root_translation_id = 0;
 $first_publication_source_id = 0;
 $first_publication_translation_id = 0;
 $new_page_apply_parent_ids = array();
@@ -34,10 +35,7 @@ $public_header_manifest_before = get_option( 'devenia_workflow_public_header_man
 $pending_public_header_manifest_before = get_option( 'devenia_workflow_pending_public_header_manifest' );
 $public_header_enrollment_before = get_option( 'devenia_workflow_public_header_enrollment' );
 $public_header_transition_before = get_option( 'devenia_workflow_public_header_transition' );
-$runtime_option_missing = '__devenia_workflow_runtime_option_missing__';
-$show_on_front_before = get_option( 'show_on_front', $runtime_option_missing );
-$page_on_front_before = get_option( 'page_on_front', $runtime_option_missing );
-$page_for_posts_before = get_option( 'page_for_posts', $runtime_option_missing );
+$front_page_option_records_before = array();
 $source_inventory_dirty_before = get_option( 'devenia_workflow_source_inventory_dirty' );
 $source_inventory_active_before = get_option( 'devenia_workflow_source_inventory_active' );
 $source_inventory_rebuild_before = get_option( 'devenia_workflow_source_inventory_rebuild' );
@@ -133,6 +131,41 @@ $raw_option_records = static function ( array $option_names ): array {
 	$placeholders = implode( ', ', array_fill( 0, count( $option_names ), '%s' ) );
 	return (array) $wpdb->get_results( $wpdb->prepare( "SELECT option_id, option_name, option_value, autoload FROM {$wpdb->options} WHERE option_name IN ({$placeholders}) ORDER BY option_name ASC, option_id ASC", $option_names ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Generated placeholders only; immutable runtime oracle bypasses option caches.
 };
+$restore_raw_option_records = static function ( array $option_names, array $expected_records ) use ( $raw_option_records, &$cleanup_errors ): void {
+	global $wpdb;
+	$expected_by_name = array();
+	foreach ( $expected_records as $expected_record ) {
+		$expected_by_name[ (string) ( $expected_record['option_name'] ?? '' ) ] = $expected_record;
+	}
+	foreach ( $option_names as $option_name ) {
+		$option_name = (string) $option_name;
+		if ( isset( $expected_by_name[ $option_name ] ) ) {
+			$expected = $expected_by_name[ $option_name ];
+			$restored = $wpdb->replace(
+				$wpdb->options,
+				array(
+					'option_id' => absint( $expected['option_id'] ?? 0 ),
+					'option_name' => $option_name,
+					'option_value' => (string) ( $expected['option_value'] ?? '' ),
+					'autoload' => (string) ( $expected['autoload'] ?? 'no' ),
+				),
+				array( '%d', '%s', '%s', '%s' )
+			); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact runtime-fixture option-row restoration, including autoload and identity.
+			if ( false === $restored ) {
+				$cleanup_errors[] = 'Fixture cleanup could not restore the exact option row ' . $option_name . '.';
+			}
+		} elseif ( false === $wpdb->delete( $wpdb->options, array( 'option_name' => $option_name ), array( '%s' ) ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact runtime-fixture absence restoration.
+			$cleanup_errors[] = 'Fixture cleanup could not restore the absence of option ' . $option_name . '.';
+		}
+		wp_cache_delete( $option_name, 'options' );
+	}
+	wp_cache_delete( 'alloptions', 'options' );
+	wp_cache_delete( 'notoptions', 'options' );
+	if ( $expected_records !== $raw_option_records( $option_names ) ) {
+		$cleanup_errors[] = 'Fixture cleanup did not restore the exact option-row portfolio: ' . implode( ', ', $option_names ) . '.';
+	}
+};
+$front_page_option_records_before = $raw_option_records( array( 'page_for_posts', 'page_on_front', 'show_on_front' ) );
 $raw_translation_content_surface = static function ( int $post_id ): array {
 	global $wpdb;
 	$post = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->posts} WHERE ID = %d", $post_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Raw publication oracle.
@@ -1172,6 +1205,50 @@ try {
 	// Exercise the owning staged-apply Interface for a genuinely new nested
 	// page. The translator artifact deliberately omits localized_path; staging
 	// must derive it, and apply must persist it before surface verification.
+	$new_page_apply_root_source_id = absint( get_option( 'page_on_front' ) );
+	$new_page_apply_root_source = get_post( $new_page_apply_root_source_id );
+	if (
+		'en' !== (string) $call( 'source_language_code' )
+		|| 'page' !== (string) get_option( 'show_on_front' )
+		|| ! $new_page_apply_root_source instanceof WP_Post
+		|| 'page' !== (string) $new_page_apply_root_source->post_type
+		|| 'publish' !== (string) $new_page_apply_root_source->post_status
+	) {
+		throw new RuntimeException( 'The runtime site must retain one published English static front page as source authority.' );
+	}
+	$language_prefix = (string) $call( 'language_prefix', $language );
+	if ( '' === $language_prefix ) {
+		throw new RuntimeException( 'Could not resolve the isolated target language-root prefix.' );
+	}
+	$new_page_apply_root_translation_insert = wp_insert_post(
+		array(
+			'post_type' => 'page',
+			'post_status' => 'draft',
+			'post_title' => 'Translation Job target route-root fixture',
+			'post_content' => '<!-- wp:paragraph --><p>Midlertidig målgrensrot.</p><!-- /wp:paragraph -->',
+			'post_name' => $language_prefix,
+		),
+		true
+	);
+	if ( is_wp_error( $new_page_apply_root_translation_insert ) || $new_page_apply_root_translation_insert < 1 ) {
+		throw new RuntimeException( 'Could not create the isolated target language-root fixture.' );
+	}
+	$new_page_apply_root_translation_id = (int) $new_page_apply_root_translation_insert;
+	$runtime_pretty_page_link_ids[] = (int) $new_page_apply_root_translation_id;
+	update_post_meta( $new_page_apply_root_translation_id, '_devenia_translation_source_id', $new_page_apply_root_source_id );
+	update_post_meta( $new_page_apply_root_translation_id, '_devenia_translation_language', $language );
+	update_post_meta( $new_page_apply_root_translation_id, '_devenia_translation_status', 'published' );
+	update_post_meta( $new_page_apply_root_translation_id, '_devenia_translation_localized_path', $language_prefix );
+	$published_route_root_translation = $wpdb->update( $wpdb->posts, array( 'post_status' => 'publish' ), array( 'ID' => (int) $new_page_apply_root_translation_id ), array( '%s' ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact dev-only reader-state fixture.
+	clean_post_cache( (int) $new_page_apply_root_translation_id );
+	if (
+		false === $published_route_root_translation
+		|| $language_prefix !== (string) get_post_field( 'post_name', $new_page_apply_root_translation_id )
+		|| ! $call( 'sync_translation_index_row', (int) $new_page_apply_root_translation_id )
+		|| (int) $new_page_apply_root_translation_id !== (int) $call( 'language_root_page_id', $language )
+	) {
+		throw new RuntimeException( 'The isolated target language-root fixture did not establish its exact published relation.' );
+	}
 	$new_page_apply_source_id = wp_insert_post(
 		array(
 			'post_type' => 'page',
@@ -1218,6 +1295,14 @@ try {
 		'submission_generation' => 1,
 	);
 	$new_page_apply_stage = $call( 'translation_job_stage_artifact', $new_page_apply_job, $new_page_apply_artifact );
+	$new_page_apply_staged_route = $new_page_apply_stage['manifest']['route'] ?? null;
+	$new_page_apply_required_route_fields = array( 'translation_id', 'localized_slug', 'localized_path', 'localized_parent_id', 'localized_parent_path' );
+	$new_page_apply_missing_route_fields = is_array( $new_page_apply_staged_route )
+		? array_values( array_diff( $new_page_apply_required_route_fields, array_keys( $new_page_apply_staged_route ) ) )
+		: $new_page_apply_required_route_fields;
+	if ( empty( $new_page_apply_stage['success'] ) || ! is_array( $new_page_apply_staged_route ) || ! empty( $new_page_apply_missing_route_fields ) ) {
+		throw new RuntimeException( 'New-page staged-apply fixture did not produce a complete route manifest: ' . wp_json_encode( array( 'missing_route_fields' => $new_page_apply_missing_route_fields, 'stage' => $new_page_apply_stage ) ) );
+	}
 	$new_page_apply_route = (array) ( $new_page_apply_stage['manifest']['route'] ?? array() );
 	$new_page_apply_resolved_parent_id = absint( $new_page_apply_route['localized_parent_id'] ?? 0 );
 	$new_page_apply_record = array(
@@ -1308,6 +1393,8 @@ try {
 	$new_page_apply_parent_ids = array();
 	$delete_owned_fixture_post( $new_page_apply_source_id );
 	$new_page_apply_source_id = 0;
+	$delete_owned_fixture_post( $new_page_apply_root_translation_id );
+	$new_page_apply_root_translation_id = 0;
 	$route_scope_only = 'new-page-route' === (string) getenv( 'DEVENIA_WORKFLOW_RUNTIME_SCOPE' );
 	if ( $route_scope_only ) {
 		remove_filter( 'page_link', $runtime_pretty_page_link, 999 );
@@ -4520,6 +4607,9 @@ try {
 	if ( $new_page_apply_source_id > 0 ) {
 		$delete_owned_fixture_post( $new_page_apply_source_id );
 	}
+	if ( $new_page_apply_root_translation_id > 0 ) {
+		$delete_owned_fixture_post( $new_page_apply_root_translation_id );
+	}
 	if ( $runtime_batch_http ) {
 		remove_filter( 'devenia_workflow_frontend_cache_batch_adapter_result', $runtime_batch_http, 10 );
 	}
@@ -4534,19 +4624,7 @@ try {
 	update_option( 'devenia_workflow_language_registry', $languages_option_before, false );
 	update_option( 'devenia_workflow_runtime_mutation_provenance', $runtime_provenance_before, false );
 	set_theme_mod( 'nav_menu_locations', is_array( $nav_menu_locations_before ) ? $nav_menu_locations_before : array() );
-	foreach (
-		array(
-			'show_on_front' => $show_on_front_before,
-			'page_on_front' => $page_on_front_before,
-			'page_for_posts' => $page_for_posts_before,
-		) as $runtime_option_key => $runtime_option_before
-	) {
-		if ( $runtime_option_missing === $runtime_option_before ) {
-			delete_option( $runtime_option_key );
-		} else {
-			update_option( $runtime_option_key, $runtime_option_before, false );
-		}
-	}
+	$restore_raw_option_records( array( 'page_for_posts', 'page_on_front', 'show_on_front' ), $front_page_option_records_before );
 	if ( false === $menu_identities_before ) {
 		delete_option( 'devenia_workflow_localized_menu_identities' );
 	} else {
