@@ -731,11 +731,25 @@ trait Devenia_Workflow_Source_Inventory {
 			return array( 'success' => true, 'completed' => false, 'resume_token' => (string) $state['token'], 'progress' => self::inventory_rebuild_progress( $state ) );
 		}
 		$manifest = array( 'generation' => (string) $state['generation'], 'completed_at' => gmdate( 'c' ), 'included_sources' => absint( $state['included'] ), 'included_sources_by_post_type' => array_map( 'absint', (array) $state['included_by_source_type'] ), 'excluded_sources' => absint( $state['excluded'] ), 'excluded_by_reason' => (array) $state['reasons'], 'target_languages' => count( (array) $state['languages'] ), 'target_language_keys' => (array) $state['languages'], 'projected_obligations' => absint( $state['included'] ) * count( (array) $state['languages'] ), 'source_signature' => (string) $state['source_signature'], 'inventory_input_signature' => (string) $state['input_signature'], 'state_counts' => (array) $state['state_counts'], 'obligation_projection_epoch' => absint( $state['projection_epoch'] ), 'source_inventory_epoch' => absint( $state['source_epoch'] ) );
-		$generation_index = self::inventory_store_write_generation( (string) $state['generation'], (array) $state['inventory_rows'], (array) $state['obligation_rows'] );
-		$manifest['inventory_index_digest'] = hash( 'sha256', wp_json_encode( $generation_index ) ?: '' );
 		$activation_lease = self::inventory_store_acquire_projection_lease( 'activate_generation' );
 		if ( empty( $activation_lease['success'] ) ) { return $activation_lease; }
 		try {
+			$current_rebuild = get_option( self::OPTION_SOURCE_INVENTORY_REBUILD, array() );
+			$active = self::active_inventory_manifest();
+			if ( $active && hash_equals( (string) $state['generation'], (string) ( $active['generation'] ?? '' ) ) ) {
+				if ( is_array( $current_rebuild ) && hash_equals( (string) ( $current_rebuild['token'] ?? '' ), (string) $state['token'] ) && hash_equals( (string) ( $current_rebuild['generation'] ?? '' ), (string) $state['generation'] ) ) {
+					self::atomic_delete_option_value( self::OPTION_SOURCE_INVENTORY_REBUILD, $current_rebuild );
+				}
+				return array( 'success' => true, 'completed' => true, 'inventory' => $active );
+			}
+			if ( ! is_array( $current_rebuild ) || ! hash_equals( (string) ( $current_rebuild['token'] ?? '' ), (string) $state['token'] ) ) {
+				return array( 'success' => false, 'retryable' => true, 'code' => 'inventory_rebuild_resume_conflict' );
+			}
+			if ( $current_rebuild !== $before ) {
+				return array( 'success' => false, 'retryable' => true, 'code' => 'inventory_rebuild_resume_conflict' );
+			}
+			$generation_index = self::inventory_store_write_generation( (string) $state['generation'], (array) $state['inventory_rows'], (array) $state['obligation_rows'] );
+			$manifest['inventory_index_digest'] = hash( 'sha256', wp_json_encode( $generation_index ) ?: '' );
 			if ( self::inventory_store_projection_epoch() !== absint( $state['projection_epoch'] ) ) {
 				self::inventory_store_delete_generation( (string) $state['generation'] );
 				return array( 'success' => false, 'retryable' => true, 'code' => 'inventory_changed_during_rebuild', 'message' => 'A Translation Job changed while the Inventory Generation was being built. Retry the rebuild.' );

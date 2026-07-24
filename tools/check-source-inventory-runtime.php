@@ -9,9 +9,14 @@ $invoke = static function ( string $method, array $args = array() ) {
 	$reflection->setAccessible( true );
 	return $reflection->invokeArgs( null, $args );
 };
-$rebuild = static function () use ( $invoke ): array {
+$terminal_rebuild_state = array();
+$rebuild = static function () use ( $invoke, &$terminal_rebuild_state ): array {
 	$result = $invoke( 'rebuild_source_inventory', array( array( 'confirm_rebuild' => true ) ) );
 	for ( $attempt = 0; $attempt < 500 && ! empty( $result['success'] ) && empty( $result['completed'] ); ++$attempt ) {
+		$stored = get_option( Devenia_Workflow::OPTION_SOURCE_INVENTORY_REBUILD, array() );
+		if ( is_array( $stored ) && 'project' === (string) ( $stored['phase'] ?? '' ) && count( (array) ( $stored['source_rows'] ?? array() ) ) - absint( $stored['source_offset'] ?? 0 ) <= 5 ) {
+			$terminal_rebuild_state = $stored;
+		}
 		$result = $invoke( 'rebuild_source_inventory', array( array( 'confirm_rebuild' => true, 'resume_token' => (string) ( $result['resume_token'] ?? '' ) ) ) );
 	}
 	return $result;
@@ -68,6 +73,33 @@ try {
 	if ( 'password_protected' !== $password_reason ) { $failures[] = 'password exclusion reason missing'; }
 	if ( 1 !== absint( $noindex_applicable ) ) { $failures[] = 'public noindex source was incorrectly excluded'; }
 	if ( absint( $manifest['target_languages'] ?? 0 ) !== $old_obligations ) { $failures[] = 'source by target-language projection is incomplete'; }
+
+	$terminal_owner = $invoke( 'inventory_store_acquire_projection_lease', array( 'runtime_terminal_owner' ) );
+	if ( empty( $terminal_owner['success'] ) || ! $terminal_rebuild_state ) {
+		$failures[] = 'terminal rebuild concurrency fixture could not establish its lease and stale in-flight state';
+	} else {
+		$index_name = $invoke( 'inventory_store_index_name', array( $generation ) );
+		$index_before_stale_writer = get_option( $index_name, array() );
+		try {
+			sleep( 1 );
+			$stale_terminal = $invoke( 'inventory_rebuild_continue', array( $terminal_rebuild_state ) );
+		} finally {
+			$invoke( 'inventory_store_release_projection_lease', array( $terminal_owner ) );
+		}
+		$queue_after_stale_writer = $invoke( 'translation_obligation_queue', array( array( 'cursor' => 0, 'limit' => 1 ) ) );
+		if ( 'obligation_projection_lease_conflict' !== (string) ( $stale_terminal['code'] ?? '' ) || empty( $queue_after_stale_writer['success'] ) || $index_before_stale_writer !== get_option( $index_name, array() ) ) {
+			$failures[] = 'a lease-conflicted terminal rebuild rewrote the active Generation before activation ownership';
+		}
+
+		update_option( Devenia_Workflow::OPTION_SOURCE_INVENTORY_REBUILD, $terminal_rebuild_state, false );
+		$index_before_idempotent_resume = get_option( $index_name, array() );
+		$idempotent_terminal = $invoke( 'inventory_rebuild_continue', array( $terminal_rebuild_state ) );
+		$queue_after_idempotent_resume = $invoke( 'translation_obligation_queue', array( array( 'cursor' => 0, 'limit' => 1 ) ) );
+		$remaining_rebuild = get_option( Devenia_Workflow::OPTION_SOURCE_INVENTORY_REBUILD, null );
+		if ( empty( $idempotent_terminal['success'] ) || empty( $idempotent_terminal['completed'] ) || empty( $queue_after_idempotent_resume['success'] ) || $index_before_idempotent_resume !== get_option( $index_name, array() ) || null !== $remaining_rebuild ) {
+			$failures[] = 'an already-active Generation was not resumed idempotently without materialization';
+		}
+	}
 
 	$next_page = $invoke( 'translation_job_next', array( array( 'source_type' => 'page', 'observability_label' => 'runtime-pages-first' ) ) );
 	if ( 'page' !== (string) ( $next_page['obligation']['source_post_type'] ?? '' ) || ! is_array( $next_page['discover'] ?? null ) ) { $failures[] = 'page-scoped next Job did not delegate the selected page to Job discovery'; }
@@ -243,4 +275,4 @@ try {
 }
 
 if ( $failures ) { fwrite( STDERR, wp_json_encode( array( 'success' => false, 'failures' => $failures ), JSON_PRETTY_PRINT ) . PHP_EOL ); exit( 1 ); }
-echo wp_json_encode( array( 'success' => true, 'contracts' => array( '501_newer_translations_do_not_hide_old_source', 'structured_exclusions', 'public_noindex_included', 'complete_projection', 'source_type_scoped_next_job', 'source_type_scoped_queue', 'source_type_scoped_exhaustion', 'deep_lifecycle_owned_exact_row_sync', 'serialized_projection_writers', 'expired_lease_takeover', 'snapshot_rejected_after_epoch_change', 'missing_shard_fail_closed', 'terminal_nonempty_page_completeness', 'translation_save_authority_invalidation', 'taxonomy_authority_invalidation', 'projection_epoch_fail_closed_after_interruption', 'exhaustion_arithmetic', 'fixture_cleanup_and_rebuild' ) ), JSON_PRETTY_PRINT ) . PHP_EOL;
+echo wp_json_encode( array( 'success' => true, 'contracts' => array( '501_newer_translations_do_not_hide_old_source', 'structured_exclusions', 'public_noindex_included', 'complete_projection', 'source_type_scoped_next_job', 'source_type_scoped_queue', 'source_type_scoped_exhaustion', 'deep_lifecycle_owned_exact_row_sync', 'serialized_projection_writers', 'terminal_materialization_owned_by_activation_lease', 'active_generation_resume_is_idempotent', 'expired_lease_takeover', 'snapshot_rejected_after_epoch_change', 'missing_shard_fail_closed', 'terminal_nonempty_page_completeness', 'translation_save_authority_invalidation', 'taxonomy_authority_invalidation', 'projection_epoch_fail_closed_after_interruption', 'exhaustion_arithmetic', 'fixture_cleanup_and_rebuild' ) ), JSON_PRETTY_PRINT ) . PHP_EOL;

@@ -67,6 +67,16 @@ if ( false === strpos( $main, "add_action( 'set_object_terms', array( __CLASS__,
 if ( false !== strpos( $module, "['source_ids']" ) || false !== strpos( $module, "['unresolved_obligation_ids']" ) ) { $failures[] = 'monolithic cursor indexes returned'; }
 if ( false === strpos( $module, "if ( ! empty( \$store['terminal'] ) )" ) || false === strpos( $module, "if ( empty( \$seek['has_more'] ) )" ) ) { $failures[] = 'terminal non-empty pages do not prove store completeness'; }
 if ( false !== strpos( $module, 'refresh_active_obligations' ) ) { $failures[] = 'queue readers still perform whole-generation obligation reprojection'; }
+$continue_start = strpos( $module, 'private static function inventory_rebuild_continue' );
+$continue_end = false === $continue_start ? false : strpos( $module, 'private static function project_translation_obligation', $continue_start );
+$continue_body = false !== $continue_start && false !== $continue_end ? substr( $module, $continue_start, $continue_end - $continue_start ) : '';
+$activation_lease_position = strpos( $continue_body, "inventory_store_acquire_projection_lease( 'activate_generation' )" );
+$generation_write_position = strpos( $continue_body, 'inventory_store_write_generation(' );
+$lease_revalidation_position = strpos( $continue_body, 'OPTION_SOURCE_INVENTORY_REBUILD', false === $activation_lease_position ? 0 : $activation_lease_position );
+$active_generation_position = strpos( $continue_body, 'active_inventory_manifest()', false === $activation_lease_position ? 0 : $activation_lease_position );
+if ( false === $activation_lease_position || false === $generation_write_position || $activation_lease_position > $generation_write_position ) { $failures[] = 'Generation materialization occurs outside the activation lease'; }
+if ( false === $lease_revalidation_position || false === $generation_write_position || $lease_revalidation_position > $generation_write_position ) { $failures[] = 'terminal rebuild ownership is not revalidated under the activation lease'; }
+if ( false === $active_generation_position || false === $generation_write_position || $active_generation_position > $generation_write_position ) { $failures[] = 'an already-active Generation can be rematerialized by a late terminal resume'; }
 if ( substr_count( $jobs, 'self::inventory_store_commit_job_projection(' ) < 2 ) { $failures[] = 'Job creation and transition do not cross the deep projection commit Interface'; }
 if ( false !== strpos( $jobs, 'inventory_store_begin_projection_mutation' ) || false !== strpos( $jobs, 'inventory_store_sync_job_obligation' ) || false !== strpos( $jobs, 'inventory_store_release_projection_lease' ) ) { $failures[] = 'Job caller leaks projection implementation ordering'; }
 if ( false === strpos( $mode, 'self::mark_source_inventory_dirty();' ) ) { $failures[] = 'Workflow mode mutation does not advance Source Inventory authority'; }
@@ -81,4 +91,4 @@ if ( $failures ) {
 	exit( 1 );
 }
 
-echo json_encode( array( 'success' => true, 'contracts' => 49, 'regression_fixture' => 'One deep commit Interface owns Job CAS/create plus exact projection; Generation receipts bind input/projection epochs, source-type shard indexes and digests; pagination binds scope plus one snapshot and incomplete stores fail closed.' ), JSON_PRETTY_PRINT ) . PHP_EOL;
+echo json_encode( array( 'success' => true, 'contracts' => 52, 'regression_fixture' => 'One deep commit Interface owns Job CAS/create plus exact projection; Generation materialization and activation share one lease with terminal ownership revalidation and idempotent active-Generation detection; Generation receipts bind input/projection epochs, source-type shard indexes and digests; pagination binds scope plus one snapshot and incomplete stores fail closed.' ), JSON_PRETTY_PRINT ) . PHP_EOL;
