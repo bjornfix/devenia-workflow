@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.681
+ * Version: 0.1.682
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -79,7 +79,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.681';
+	const VERSION = '0.1.682';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
@@ -110,6 +110,7 @@ final class Devenia_Workflow {
 	const OPTION_PUBLIC_HEADER_MANIFEST = 'devenia_workflow_public_header_manifest';
 	const OPTION_PENDING_PUBLIC_HEADER_MANIFEST = 'devenia_workflow_pending_public_header_manifest';
 	const OPTION_PUBLIC_HEADER_ENROLLMENT = 'devenia_workflow_public_header_enrollment';
+	const OPTION_PUBLIC_HEADER_TRANSITION = 'devenia_workflow_public_header_transition';
 	const TRANSLATION_INDEX_SCHEMA_VERSION = '2';
 	const OPTION_SOURCE_INVENTORY_SCHEMA = 'devenia_workflow_source_inventory_schema';
 	const OPTION_SOURCE_INVENTORY_ACTIVE = 'devenia_workflow_source_inventory_active';
@@ -459,6 +460,7 @@ final class Devenia_Workflow {
 	 */
 	public static function activate(): void {
 		self::ensure_reviewer_capabilities();
+		self::ensure_public_header_transition_option();
 		self::install_translation_index_schema();
 		self::install_source_inventory_schema();
 		self::install_language_rule_events_schema();
@@ -1203,6 +1205,7 @@ final class Devenia_Workflow {
 		if ( ! $context['upgrade_allowed'] ) {
 			return;
 		}
+		self::ensure_public_header_transition_option();
 
 		$stored_version = (string) get_option( self::OPTION_VERSION, '' );
 		$translation_index_schema_current = self::TRANSLATION_INDEX_SCHEMA_VERSION === (string) get_option( self::OPTION_TRANSLATION_INDEX_SCHEMA, '' );
@@ -1239,6 +1242,11 @@ final class Devenia_Workflow {
 
 		self::ensure_reviewer_capabilities();
 		update_option( self::OPTION_VERSION, self::VERSION, false );
+	}
+
+	/** Ensure the Public Header transition lock always owns a real non-autoloaded row. */
+	private static function ensure_public_header_transition_option(): void {
+		add_option( self::OPTION_PUBLIC_HEADER_TRANSITION, array( 'schema_version' => 1, 'phase' => 'idle' ), '', false );
 	}
 
 	/**
@@ -5795,7 +5803,6 @@ final class Devenia_Workflow {
 				array(
 					'translation_id' => $created['translation_id'],
 					'verify_live'    => $verify_live,
-					'sync_menu'      => false,
 					'execution_id' => $execution_id,
 				)
 			);
@@ -9505,14 +9512,28 @@ final class Devenia_Workflow {
 	}
 
 	/**
-	 * Input schema for menu sync.
+	 * Input schema for explicit Public Header activation.
 	 */
-	private static function sync_menu_input_schema(): array {
+	private static function public_header_activation_input_schema(): array {
 		return array(
 			'type'                 => 'object',
 			'required'             => array( 'activation_receipt' ),
 			'properties'           => array(
 				'activation_receipt' => array( 'type' => 'string', 'pattern' => '^phact_[a-f0-9]{48}$', 'description' => 'Opaque activation receipt returned by the exact pending-manifest staging operation.' ),
+				'timeout'            => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	/** Input schema for one bounded Public Header verification/resume step. */
+	private static function public_header_verification_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'required'             => array( 'activation_receipt', 'language' ),
+			'properties'           => array(
+				'activation_receipt' => array( 'type' => 'string', 'pattern' => '^phact_[a-f0-9]{48}$', 'description' => 'The original receipt which authorized the exact Public Header transition.' ),
+				'language'           => array( 'type' => 'string', 'minLength' => 1, 'description' => 'One configured source or target language. The operation verifies its homepage and blog archive across origin and canonical surfaces.' ),
 				'timeout'            => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
 			),
 			'additionalProperties' => false,
@@ -9586,7 +9607,7 @@ final class Devenia_Workflow {
 			'required'             => array( 'source_menu_id' ),
 			'properties'           => array(
 				'source_menu_id' => array( 'type' => 'integer', 'minimum' => 1 ),
-				'activate'       => array( 'type' => 'boolean', 'default' => false ),
+				'stage'          => array( 'type' => 'boolean', 'default' => false ),
 				'timeout'        => array( 'type' => 'integer', 'minimum' => 3, 'maximum' => 30, 'default' => 15 ),
 				'authority_menus' => array(
 					'type'        => 'array',
@@ -9699,7 +9720,6 @@ final class Devenia_Workflow {
 					'default'     => false,
 					'description' => 'Run the full publish gate and return the QA/review/design evidence without changing post status, menus, caches, links, or live content.',
 				),
-				'sync_menu'            => array( 'type' => 'boolean', 'default' => true ),
 				'include_custom_links' => array( 'type' => 'boolean', 'default' => true ),
 				'allow_warnings'       => array( 'type' => 'boolean', 'default' => true ),
 				'verify_live'          => array( 'type' => 'boolean', 'default' => true ),
@@ -12975,7 +12995,6 @@ final class Devenia_Workflow {
 				'publication_experience' => $publication_experience,
 				'final_review_state'     => $final_review_state,
 				'quality_verdict'        => $quality_verdict,
-				'menu'                   => null,
 				'purge_urls'             => array(),
 				'link_repair'            => null,
 				'live_verification'      => null,
@@ -12983,7 +13002,6 @@ final class Devenia_Workflow {
 					'post_status_update',
 					'translation_lifecycle_meta',
 					'internal_link_repair',
-					'language_menu_sync',
 					'cache_purge',
 					'live_verification',
 				),
@@ -12995,7 +13013,6 @@ final class Devenia_Workflow {
 				'translation_id'           => $translation_id,
 				'language'                 => $language,
 				'source_id'                => $source_id,
-				'sync_menu'                => array_key_exists( 'sync_menu', $input ) ? (bool) $input['sync_menu'] : true,
 				'include_custom_links'     => array_key_exists( 'include_custom_links', $input ) ? (bool) $input['include_custom_links'] : true,
 				'verify_live'              => array_key_exists( 'verify_live', $input ) ? (bool) $input['verify_live'] : true,
 				'live_verification_timeout'=> absint( $input['live_verification_timeout'] ?? 15 ),
@@ -13027,7 +13044,6 @@ final class Devenia_Workflow {
 			'publication_experience' => $publication_experience,
 			'final_review_state' => $final_review_state,
 			'quality_verdict'   => $quality_verdict,
-			'menu'              => $publication['menu'] ?? null,
 			'purge_urls'        => $publication['purge_urls'] ?? array(),
 			'cache_invalidation'=> $publication['cache_invalidation'] ?? null,
 			'link_repair'       => $publication['transition']['link_repair'] ?? null,
@@ -17736,7 +17752,7 @@ final class Devenia_Workflow {
 	/**
 	 * Sync language menu from original menu.
 	 */
-	private static function sync_language_menu( array $input ): array {
+	private static function stage_language_menu_projection( array $input ): array {
 		$language = sanitize_key( (string) ( $input['language'] ?? '' ) );
 		$languages = self::languages();
 		if ( '' === $language || ! isset( $languages[ $language ] ) ) {

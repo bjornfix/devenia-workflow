@@ -220,7 +220,7 @@ trait Devenia_Workflow_Ability_Catalogue {
 				),
 				'devenia-workflow/enroll-public-header-from-existing-menus' => array(
 					'label'            => 'Enroll Public Header from Existing Menus',
-					'description'      => 'Builds the first complete schema-2 Public Header Projection from one verified source menu and two agreeing unmanaged retained target menus per configured language, then optionally activates through atomic sync.',
+					'description'      => 'Builds the first complete schema-2 Public Header Projection from one verified source menu and two agreeing unmanaged retained target menus per configured language. It may stage the draft and return a one-time receipt, but activation requires the separate explicit Public Header operation.',
 					'input_schema'     => self::public_header_enrollment_input_schema(),
 					'output_schema'    => self::generic_output_schema(),
 					'execute_callback' => function ( $input ) {
@@ -594,13 +594,23 @@ trait Devenia_Workflow_Ability_Catalogue {
 				},
 				'meta'             => self::ability_meta( true, false, true ),
 			),
-			'devenia-workflow/sync-menu' => array(
+			'devenia-workflow/activate-public-header-projection' => array(
 				'label'            => 'Activate Public Header Projections',
-				'description'      => 'Requires the opaque receipt returned by the exact pending-manifest staging operation, stages and validates that owned manifest for every configured source and target language, atomically activates the complete set, then requires cache invalidation plus origin and canonical verification on every homepage and blog archive.',
-				'input_schema'     => self::sync_menu_input_schema(),
+				'description'      => 'Requires the opaque receipt returned by the exact pending-manifest staging operation, stages and validates that owned manifest for every configured source and target language, and atomically applies the complete set as a verification-pending transition. The root coordinator must then call verify-public-header-projection once per configured language before the prior set is retired.',
+				'input_schema'     => self::public_header_activation_input_schema(),
 				'output_schema'    => self::generic_output_schema(),
 				'execute_callback' => function ( $input ) {
-					return self::run_ability_operation( 'sync_menu', $input );
+					return self::run_ability_operation( 'activate_public_header_projection', $input );
+				},
+				'meta'             => self::ability_meta( false, true, false ),
+			),
+			'devenia-workflow/verify-public-header-projection' => array(
+				'label'            => 'Verify Public Header Projection',
+				'description'      => 'Resumes one receipt-bound Public Header transition and verifies one configured language across its homepage and blog archive. The Module accumulates exact origin and canonical evidence, then finalizes or rolls back the complete set without one all-language self-request.',
+				'input_schema'     => self::public_header_verification_input_schema(),
+				'output_schema'    => self::generic_output_schema(),
+				'execute_callback' => function ( $input ) {
+					return self::run_ability_operation( 'verify_public_header_projection', $input );
 				},
 				'meta'             => self::ability_meta( false, true, false ),
 			),

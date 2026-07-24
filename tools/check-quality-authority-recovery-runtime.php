@@ -238,56 +238,6 @@ try {
 	$assert( ! empty( $call( 'translation_job_restore_surface_snapshot', array( $snapshot, (int) $translation_id ) )['success'] ), 'Could not restore the fixture after the atomic-failure test.' );
 	$progress( 'atomic_failure_fixture_complete' );
 
-	$previous_menu_id = wp_create_nav_menu( 'Recovery Previous ' . wp_generate_password( 6, false, false ) );
-	$assert( ! is_wp_error( $previous_menu_id ), 'Could not create previous-menu fixture.' );
-	$menu_ids[] = (int) $previous_menu_id;
-	add_term_meta( (int) $previous_menu_id, Devenia_Workflow::TERM_META_MENU_MANAGED, '1', true );
-	add_term_meta( (int) $previous_menu_id, Devenia_Workflow::TERM_META_MENU_LANGUAGE, $language, true );
-	wp_update_nav_menu_item( (int) $previous_menu_id, 0, array( 'menu-item-title' => 'Previous', 'menu-item-url' => home_url( '/' ), 'menu-item-status' => 'publish', 'menu-item-type' => 'custom' ) );
-	$target_menu_id = wp_create_nav_menu( 'Recovery Target ' . wp_generate_password( 6, false, false ) );
-	$assert( ! is_wp_error( $target_menu_id ), 'Could not create target-menu fixture.' );
-	$menu_ids[] = (int) $target_menu_id;
-	add_term_meta( (int) $target_menu_id, Devenia_Workflow::TERM_META_MENU_MANAGED, '1', true );
-	add_term_meta( (int) $target_menu_id, Devenia_Workflow::TERM_META_MENU_LANGUAGE, $language, true );
-	wp_update_nav_menu_item( (int) $target_menu_id, 0, array( 'menu-item-title' => 'Target', 'menu-item-url' => home_url( '/' ), 'menu-item-status' => 'publish', 'menu-item-type' => 'custom' ) );
-	$fixture_before_identities = is_array( $original_menu_option ) ? $original_menu_option : array();
-	$fixture_before_identities[ $language ] = array( 'menu_id' => (int) $previous_menu_id, 'configured_name' => 'Recovery Previous' );
-	$fixture_after_identities = $fixture_before_identities;
-	$fixture_after_identities[ $language ] = array( 'menu_id' => (int) $target_menu_id, 'configured_name' => 'Recovery Target', 'previous_menu_id' => (int) $previous_menu_id );
-	update_option( Devenia_Workflow::OPTION_LOCALIZED_MENU_IDENTITIES, $fixture_after_identities, false );
-	$menu_plan = array(
-		'language' => $language,
-		'previous_menu_id' => (int) $previous_menu_id,
-		'target_menu' => array( 'id' => (int) $target_menu_id ),
-		'menu_identity_activation' => array( 'success' => true, 'before_exists' => true, 'before' => $fixture_before_identities, 'after' => $fixture_after_identities ),
-		'menu_surface_revision' => $call( 'localized_menu_projection_revision', array( (int) $target_menu_id ) ),
-		'previous_menu_surface_revision' => $call( 'localized_menu_projection_revision', array( (int) $previous_menu_id ) ),
-	);
-	$assert( '' !== (string) $menu_plan['menu_surface_revision'], 'Could not capture target-menu recovery receipt.' );
-	$assert( ! is_wp_error( $update_internal_post( array( 'ID' => (int) $translation_id, 'post_title' => 'Combined failure mutated' ) ) ), 'Could not mutate the combined-failure fixture.' );
-	update_post_meta( $translation_id, '_recovery_fixture_meta', 'combined-failure' );
-	wp_update_term( $localized_term_id, 'category', array( 'name' => 'Combined Failure Mutated Category' ) );
-	update_term_meta( $localized_term_id, '_recovery_term_meta', 'combined-failure' );
-	$snapshot['mutation_started'] = true;
-	$snapshot['rollback_expected_surface_revision'] = $call( 'translation_job_rollback_cas_revision', array( (int) $translation_id, (array) $snapshot['term_scope'], $identity_scope ) );
-	add_filter( 'add_term_metadata', $fail_term_meta_restore, 10, 3 );
-	$combined_failure = $call( 'translation_job_restore_publication_snapshot', array( $snapshot, (int) $translation_id, $language, $menu_plan ) );
-	remove_filter( 'add_term_metadata', $fail_term_meta_restore, 10 );
-	$assert( empty( $combined_failure['success'] ) && ! empty( $combined_failure['transaction_rolled_back'] ), 'Combined content-menu recovery failure was not rolled back atomically.' );
-	$combined_identities = get_option( Devenia_Workflow::OPTION_LOCALIZED_MENU_IDENTITIES, array() );
-	$assert( 'Combined failure mutated' === (string) get_the_title( $translation_id ) && is_array( $combined_identities ) && (int) $target_menu_id === absint( $combined_identities[ $language ]['menu_id'] ?? 0 ) && wp_get_nav_menu_object( (int) $target_menu_id ), 'Combined recovery partially changed content or menu state after failure.' );
-	$snapshot['rollback_expected_surface_revision'] = $call( 'translation_job_rollback_cas_revision', array( (int) $translation_id, (array) $snapshot['term_scope'], $identity_scope ) );
-	$previous_items = wp_get_nav_menu_items( (int) $previous_menu_id );
-	$assert( ! empty( $previous_items[0]->ID ), 'Previous-menu item fixture is missing.' );
-	wp_update_nav_menu_item( (int) $previous_menu_id, (int) $previous_items[0]->ID, array( 'menu-item-title' => 'Previous externally changed', 'menu-item-url' => home_url( '/' ), 'menu-item-status' => 'publish', 'menu-item-type' => 'custom' ) );
-	$previous_drift = $call( 'translation_job_restore_publication_snapshot', array( $snapshot, (int) $translation_id, $language, $menu_plan ) );
-	$assert( empty( $previous_drift['success'] ) && 'Combined failure mutated' === (string) get_the_title( $translation_id ) && wp_get_nav_menu_object( (int) $target_menu_id ), 'Changed previous-menu receipt was reactivated or caused a partial content rollback.' );
-	$menu_plan['previous_menu_surface_revision'] = $call( 'localized_menu_projection_revision', array( (int) $previous_menu_id ) );
-	$combined_success = $call( 'translation_job_restore_publication_snapshot', array( $snapshot, (int) $translation_id, $language, $menu_plan ) );
-	$assert( ! empty( $combined_success['success'] ) && ! wp_get_nav_menu_object( (int) $target_menu_id ), 'Combined content-menu recovery did not commit atomically.' );
-	$menu_ids = array_values( array_diff( $menu_ids, array( (int) $target_menu_id ) ) );
-	$progress( 'composite_menu_restore_complete' );
-
 	$new_source_term = wp_insert_term( 'Recovery New Source Category', 'category', array( 'slug' => 'recovery-new-source-' . wp_generate_password( 6, false, false ) ) );
 	$assert( ! is_wp_error( $new_source_term ), 'Could not create new-term source fixture.' );
 	$new_source_term_id = absint( $new_source_term['term_id'] ?? 0 );

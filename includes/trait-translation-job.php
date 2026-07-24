@@ -281,7 +281,6 @@ trait Devenia_Workflow_Translation_Job {
 			'properties' => array(
 				'job_id' => array( 'type' => 'string' ),
 				'coordinator_id' => array( 'type' => 'string', 'description' => 'Deprecated compatibility label. It grants no publication authority.' ),
-				'sync_menu' => array( 'type' => 'boolean', 'default' => true ),
 			),
 			'additionalProperties' => false,
 		);
@@ -1187,7 +1186,6 @@ trait Devenia_Workflow_Translation_Job {
 				'source_id'                 => (int) $job['source_id'],
 				'job_id'                    => (string) $job['job_id'],
 				'expected_media'             => (array) ( $artifact_record['surface_manifest']['media']['featured_image'] ?? array() ),
-				'sync_menu'                 => ! array_key_exists( 'sync_menu', $input ) || ! empty( $input['sync_menu'] ),
 				'include_custom_links'      => true,
 				'rollback_term_scope'        => is_array( $surface_snapshot ) ? (array) ( $surface_snapshot['term_scope'] ?? array() ) : array(),
 				'rollback_identity_scope'    => is_array( $surface_snapshot ) ? (array) ( $surface_snapshot['identity_scope'] ?? array() ) : array(),
@@ -1215,7 +1213,6 @@ trait Devenia_Workflow_Translation_Job {
 				)
 			), $surface_snapshot, $translation_id );
 		}
-		$menu = $publication['menu'] ?? null;
 		$needs_verification = ! empty( $publication['needs_live_verification'] );
 		$orphaned_runs_finalized = self::translation_job_finalize_orphaned_runs( $job );
 		$next = self::translation_job_transition( $job, array( 'status' => 'published', 'translation_id' => $translation_id, 'content_revision' => self::translation_job_translation_revision( $translation_id ), 'applied_surface_revision' => self::translation_job_current_surface_revision( $translation_id ), 'published_at' => gmdate( 'c' ), 'live_verification_passed' => null ) );
@@ -1238,7 +1235,6 @@ trait Devenia_Workflow_Translation_Job {
 			'qa' => $qa,
 			'publication_experience' => $publication_experience,
 			'featured_image_sync' => $featured_image_sync,
-			'menu' => $menu,
 			'purge_urls' => $publication['purge_urls'] ?? array(),
 			'cache_invalidation' => $publication['cache_invalidation'] ?? null,
 			'orphaned_runs_finalized' => $orphaned_runs_finalized,

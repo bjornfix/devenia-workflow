@@ -9,7 +9,7 @@ Run controlled AI-assisted content improvement and multilingual publishing workf
 
 **Tested up to:** 7.0
 
-**Stable tag:** 0.1.681
+**Stable tag:** 0.1.682
 
 **License:** GPLv2 or later
 
@@ -144,6 +144,19 @@ The plugin remains active if the Abilities API is unavailable, but workflow abil
 - `devenia-workflow/source-rewrite-verify-live`
 - `devenia-workflow/source-rewrite-status`
 
+### Public Header Interfaces (root coordinator only)
+
+- `devenia-workflow/update-public-header-manifest`
+- `devenia-workflow/enroll-public-header-from-existing-menus`
+- `devenia-workflow/activate-public-header-projection`
+- `devenia-workflow/verify-public-header-projection`
+- `devenia-workflow/migrate-public-header-label-authority`
+
+Manifest updates, enrollment, and migration stage receipt-bound authority but do
+not activate it. The root coordinator must call activation intentionally, then
+call verification once per configured language until the transition is terminal.
+Translation and Source Rewrite publication never call these Interfaces.
+
 Additional abilities cover source inspection, workflow mode, language configuration, QA, localized routes, taxonomy, internal links, review evidence, and frontend verification.
 
 ## Storage and Portability
@@ -157,6 +170,10 @@ Additional abilities cover source inspection, workflow mode, language configurat
 Back up WordPress before uninstalling if workflow history or audit evidence must be retained.
 
 ## Release Notes
+
+### 0.1.682
+
+- Removes caller-controlled and implicit menu synchronization from translation publication; receipt-bound `activate-public-header-projection` and one-language `verify-public-header-projection` remain separate explicit root-coordinator operations.
 
 ### 0.1.681
 

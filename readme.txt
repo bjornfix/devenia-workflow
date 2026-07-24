@@ -4,7 +4,7 @@ Tags: translations, multilingual, ai, workflow, hreflang
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1.681
+Stable tag: 0.1.682
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -24,7 +24,7 @@ It is designed for controlled translation workflows where an AI assistant, autom
 * Track source-to-translation relationships and stale source content.
 * Generate localized URL metadata for supported languages.
 * Output hreflang data for mapped translations.
-* Keep language menus in sync with available translations.
+* Project language menus explicitly when available translations or menu labels require a navigation update.
 * Run QA checks for source-language carryover, terminology, structure, script issues, and link integrity.
 * Require a Quality Decision bound to the exact complete artifact before publishing.
 * Stage complete source-surface changes, including native design-only changes, behind a separate source-writer and independent rendered Quality lifecycle before public mutation.
@@ -95,6 +95,9 @@ No. The core workflow is theme-neutral. Optional theme and builder integrations 
 Uninstall removes plugin-owned options and custom workflow tables. It does not delete translated posts, pages, menus, terms, or regular WordPress content.
 
 == Changelog ==
+
+= 0.1.682 =
+* Remove caller-controlled and implicit menu synchronization from translation publication; keep receipt-bound `activate-public-header-projection` as the separate explicit coordinator operation.
 
 = 0.1.681 =
 * Keep Source Rewrite live verification exact across content-owned templates, semantic title/excerpt hosts, and Cloudflare-protected mailto actions.

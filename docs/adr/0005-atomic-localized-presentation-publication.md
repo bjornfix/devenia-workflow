@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted.
+Superseded in part by [ADR 0010](0010-explicit-public-header-projection.md).
+
+The atomic Public Header Projection, activation, rollback, cache, and evidence
+contracts remain accepted. ADR 0010 removes the former decision that ordinary
+Translation Job publication invokes that separate mutation Interface.
 
 ## Context
 
@@ -20,40 +24,47 @@ then remain public after the plugin hooks were active again.
 
 ## Decision
 
-Localized Presentation Publication is one deep Module inside the Translation
-Module. Its Interface does not succeed until all of these invariants hold:
+Public Header Projection is a deep Module beside Localized Presentation
+Publication. Its explicit activation Interface applies one complete receipt-bound
+set atomically but returns a nonterminal verification-pending outcome. The root
+coordinator must then call the separate `verify-public-header-projection`
+Interface once per configured language. The transition succeeds terminally only
+after all of these header invariants hold:
 
-1. the approved content revision is published;
-2. a manifest update creates a pending revision while the previous active
+1. a manifest update creates a pending revision while the previous active
    manifest and all active projections remain reader-visible;
-3. a complete Public Header Projection is built away from the active menus for
+2. a complete Public Header Projection is built away from the active menus for
    the configured source language and every configured target language; every
    manifest row must resolve, and skipped rows fail the complete set closed;
-4. labels, localized targets, custom links, order, parent relationships, and a
+3. labels, localized targets, custom links, order, parent relationships, and a
    pre-activation recovery receipt are validated for every language before one
    database transaction switches the active manifest and all language-to-term
    identities together;
-5. the prior managed projection set is retired only after activation, cache
-   invalidation, and public verification succeed;
+4. activation records one durable non-autoloaded transition in the same database
+   transaction as the manifest-and-identity switch, while preserving the prior
+   managed set as rollback material;
+5. the prior managed projection set is retired only after cache invalidation and
+   complete public verification succeed;
 6. every canonical menu-dependent public URL is invalidated through the
    Frontend Cache Adapter;
 7. an origin-bypassing response and the canonical cacheable response both show
    the expected language, primary-menu labels, and localized targets on the
    language homepage and blog archive.
 
-The complete keyed origin/canonical matrix is dispatched under one absolute
-same-site concurrency cap. A canonical URL is cacheable evidence, not proof of
-a cache hit: a miss or revalidation can still reach the same WordPress origin.
-The hard wall deadline reserves a viable minimum for every remaining group and
-reclaims time from groups that finish early; configured timeout maxima are not
-debited as if they were elapsed time.
+Each verification call dispatches one language's keyed homepage/blog and
+origin/canonical matrix through WordPress Requests with same-site concurrency
+`1`. A canonical URL is cacheable evidence, not proof of a cache hit: a miss or
+revalidation can still reach the same WordPress origin. Compact receipt-bound
+evidence is accumulated with CAS across calls; overlapping retries are rejected
+by one durable transition lease. No call performs an all-language self-request.
 
-Any failure after activation restores the prior manifest and identity set from
-the pre-activation receipt. Before restoration, every prior menu term is locked
-and must still match that receipt; a changed prior term is never reactivated.
-Rollback is complete only after its own cache purge
-and origin-plus-canonical verification succeed; otherwise the Interface reports
-a structured critical recovery state. A missing or corrupt managed identity
+Any conclusive forward failure after activation restores the prior manifest and
+identity set from the transition-bound pre-activation receipt. Before restoration,
+every prior menu term is locked and must still match that receipt; a changed prior
+term is never reactivated. Rollback remains nonterminal until its own cache purge
+and per-language origin-plus-canonical verification succeed; candidate cleanup
+occurs only after that proof. Inconclusive transport and cache failures are
+retryable through the same verification Interface. A missing or corrupt managed identity
 fails closed at the primary-menu rendering Adapter and never exposes a raw theme
 menu or core page-list fallback. That fail-closed contract begins at the first
 successful complete-set activation; an installation not yet enrolled keeps its
@@ -61,8 +72,9 @@ pre-existing header during the one-time staged rollout.
 Enrollment is stored as a durable transition independent of the active manifest,
 so deleting or corrupting that manifest later cannot recreate pre-enrollment
 fallback behavior. Restaging the active revision atomically cancels any different
-pending revision. Normal Translation Job publication uses this same complete-set
-Interface and cannot call a one-language activation path.
+pending revision. Translation Job publication is content-only and never calls
+this Interface. Only the explicit Public Header activation operation may enter
+the complete-set path; no caller can request a one-language activation.
 
 Public Header Projection expectations come from a complete runtime manifest
 and registered language data. The current raw primary menu and the current
@@ -115,9 +127,9 @@ translation identity. A target relation is valid only when exactly one
 published object of the canonical source type has exactly one source-meta row
 and one requested-language row. Source type/status and absence of translation
 identity are validated even while resolving target-language candidates. Every
-pending projection revision receives a fresh all-language ephemeral Relation
-Authority receipt, including ordinary Translation Job publication and operator
-restaging; a receipt-free active reader manifest is never mutation authority.
+explicitly staged projection revision receives a fresh all-language ephemeral
+Relation Authority receipt; a receipt-free active reader manifest is never
+mutation authority.
 An unresolved target relation rejects the proposed revision before any pending
 option or menu mutation and preserves the exact pre-existing pending authority.
 Missing or malformed receipts also reject before staging, and activation removes
@@ -131,12 +143,10 @@ exact receipt before creating a menu; it cannot restage or select another global
 pending manifest. Missing, stale, concurrently displaced, and normalization-equivalent
 raw replacement receipts therefore
 fail before projection staging while an independent replacement remains exact.
-Ordinary Translation Job publication treats every occupied raw pending option as
-another operation's authority, including malformed values and values that normalize
-to empty. It can issue a receipt only after a missing-to-created atomic claim for
-its own active-manifest refresh, and successful activation removes that claim in
-the same state transaction. It never mints new authority for an existing pending
-value.
+Translation Job publication never reads, claims, normalizes, replaces, or
+activates the pending Public Header option. Explicit staging owns that state;
+successful explicit activation removes its exact receipt-bound claim in the
+same state transaction.
 GitHub Actions is CI and distribution evidence only, never a production runtime
 authority or dependency. Production PHP neither reads CI environment state nor
 invokes or fetches workflow runs; updater and release metadata remain outside the
@@ -206,9 +216,9 @@ Reconciliation is operation-bound: it may accept the exact captured pre-state
 or restore only this operation's exact pending `expected_after` state. Any third
 four-option revision is foreign authority, remains byte-exact untouched, and
 returns a structured critical conflict for both committed and unknown receipts.
-The same proof binding applies after activation failure. The enrollment wrapper
-accepts an already exact pre-state or restores only the exact staging state and
-revision returned by this attempt's successful stage transaction. It never uses
+The same proof binding applies after activation failure. The explicit activation
+Interface accepts an already exact pre-state or restores only the exact
+receipt-bound staging state created by first enrollment. It never uses
 an arbitrary observed state as CAS authority and never bypasses a severe
 activation rollback. Foreign option state remains untouched; receipt-matching
 staged menus are not deleted under that untrusted state. A severe unresolved
@@ -232,8 +242,8 @@ The reference proof, all staged-menu surface locks, a second state and receipt
 revalidation, and every receipt-bound deletion share one owned serializable
 transaction. Any identity or menu revision change rolls the whole cleanup back
 before a staged deletion can become durable.
-The content publication transaction follows the same rule before any header
-refresh or public cache work. After commit and cache eviction, exact pre-state
+The content publication transaction applies the same three-valued receipt rule
+to its own content and cache work. After commit and cache eviction, exact pre-state
 is unapplied only for a false or unknown receipt, and exact replacement is
 applied only for a true or unknown receipt. Every third post/meta/taxonomy
 surface is foreign even when the Adapter reports a successful commit, because
@@ -244,18 +254,17 @@ revision is diagnostic only and is explicitly denied rollback authority. Only
 an exact owned replacement, or the exact owned staged pre-state after a proven
 unapplied second-phase commit, can issue a rollback receipt to the Translation
 Job caller. The caller never infers ownership from `published`, commit outcome,
-or an observed revision. Applied state continues through the all-language header
-refresh and every later failure carries its explicit owned rollback receipt.
+or an observed revision. It never continues into Public Header Projection and
+never carries menu rollback state.
 The Translation Job recovery transaction consumes the same three-valued
 receipt for every restore, including an Adapter response whose `success` is
 true. After cache eviction, an exact captured pre-publication surface is an
 applied restore for a true or unknown receipt; the exact owned mutation surface
 is unapplied only for a false or unknown receipt. Every third surface is foreign
 and remains untouched and critical. A read-only recovery snapshot is valid only
-while its captured revision remains exact after its transaction closes. A
-combined content/menu restore additionally proves the prior menu identity,
-prior menu revision, and absence of the rolled-back staged menu before it can
-report success. Successful restore writes still require frontend invalidation
+while its captured revision remains exact after its transaction closes. Content
+restore is scoped to the captured content surface. Successful restore writes
+still require frontend invalidation
 and origin plus canonical media verification before recovery is complete.
 The outer Translation Job Interface must not expose the inner Module's
 `published` phase flag as its final result after compensation. It preserves

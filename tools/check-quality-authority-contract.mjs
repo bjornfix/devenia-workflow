@@ -55,8 +55,6 @@ const captureSnapshot = functionBody("translation_job_capture_surface_snapshot",
 const restoreSnapshot = functionBody("translation_job_restore_surface_snapshot", "translation_job_publish_failure_with_rollback");
 const restoreSurface = functionBody("translation_job_restore_surface_snapshot", "translation_job_reconcile_restore_commit_outcome");
 const reconcileRestore = functionBody("translation_job_reconcile_restore_commit_outcome", "translation_job_restore_surface_snapshot_uncommitted");
-const restorePublication = functionBody("translation_job_restore_publication_snapshot", "translation_job_reconcile_publication_restore_commit_outcome");
-const reconcilePublicationRestore = functionBody("translation_job_reconcile_publication_restore_commit_outcome", "translation_job_publish_failure_with_rollback");
 const rollbackFailure = functionBody("translation_job_publish_failure_with_rollback", "translation_job_finalize_publication_failure_response");
 const finalizePublicationFailure = functionBody("translation_job_finalize_publication_failure_response", "translation_job_validate_quality_evidence_record");
 const clearRecoveryIsolation = functionBody("translation_job_clear_recovery_next_isolation", "translation_job_recovery_savepoint_name");
@@ -189,7 +187,6 @@ const expectedCommitCallOwners = [
 	"includes/trait-localized-presentation-publication.php:stage_first_public_header_enrollment_transaction",
 	"includes/trait-translation-job-quality-authority.php:translation_job_apply_staged_artifact",
 	"includes/trait-translation-job-quality-authority.php:translation_job_capture_surface_snapshot",
-	"includes/trait-translation-job-quality-authority.php:translation_job_restore_publication_snapshot",
 	"includes/trait-translation-job-quality-authority.php:translation_job_restore_surface_snapshot",
 ].sort();
 if (JSON.stringify(commitCallOwners.sort()) !== JSON.stringify(expectedCommitCallOwners)) {
@@ -218,7 +215,6 @@ const receiptConsumers = [
 	"translation_job_apply_staged_artifact",
 	"translation_job_reconcile_snapshot_commit_outcome",
 	"translation_job_reconcile_restore_commit_outcome",
-	"translation_job_reconcile_publication_restore_commit_outcome",
 ];
 for (const owner of receiptConsumers) {
 	const value = owner.startsWith("translation_job_") ? authoritySource : publicationSource;
@@ -234,7 +230,6 @@ const adapterReceiptConsumers = [
 	"translation_job_apply_staged_artifact",
 	"translation_job_capture_surface_snapshot",
 	"translation_job_restore_surface_snapshot",
-	"translation_job_restore_publication_snapshot",
 ];
 for (const owner of adapterReceiptConsumers) {
 	const value = owner.startsWith("translation_job_") ? authoritySource : publicationSource;
@@ -442,9 +437,6 @@ if (!restoreSurface || !/devenia_workflow_translation_job_restore_commit_adapter
 if (!reconcileRestore || !/translation_job_clean_recovery_caches[\s\S]*observed_revision/.test(reconcileRestore) || !/pre_restore_exact[\s\S]*restored_exact/.test(reconcileRestore) || !/true === \$committed \|\| null === \$committed/.test(reconcileRestore) || !/false === \$committed \|\| null === \$committed/.test(reconcileRestore) || !/state_outcome' => 'foreign'/.test(reconcileRestore)) {
 	failures.push("surface restore reconciliation must classify exact applied, exact unapplied, and foreign state for the three-valued commit receipt");
 }
-if (!restorePublication || !/devenia_workflow_translation_job_publication_restore_commit_adapter_result/.test(restorePublication) || !/translation_job_reconcile_publication_restore_commit_outcome/.test(restorePublication) || /if \( empty\( \$commit\['success'\] \) \)/.test(restorePublication) || !reconcilePublicationRestore || !/menu_pre_restore_exact[\s\S]*menu_restored_exact[\s\S]*state_outcome' => 'foreign'/.test(reconcilePublicationRestore)) {
-	failures.push("combined content and menu restore must reconcile every receipt against exact content plus menu state");
-}
 if (!/restore_commit_applied_true_and_unknown_public_publish/.test(runtimeSource) || !/restore_commit_foreign_true_and_unknown_public_publish/.test(runtimeSource)) {
 	failures.push("public Translation Job runtime must cover applied and foreign restore commits for true and unknown receipts");
 }
@@ -471,10 +463,10 @@ if (commitMatrixOccurrences.length !== 2 || commitMatrixOccurrences[0] < 0 || co
 if (!/\$build_runtime_correction_artifact\s*=\s*static function[\s\S]*\$packet\['fragments'\][\s\S]*\$packet\['links'\][\s\S]*\$link\['target_url'\][\s\S]*translation_job_anchor_hrefs[\s\S]*expected_target_urls[\s\S]*consumed_target_urls/.test(runtimeSource) || !/\$build_runtime_correction_artifact\( \$post_publish_packet, 'Runtime translated title corrected after browser QA' \)/.test(runtimeSource) || !/\$build_runtime_correction_artifact\( \$post_publish_final_packet, 'Runtime translated title approved after browser QA' \)/.test(runtimeSource) || !/\$post_publish_artifact_build\['expected_target_urls'\][\s\S]*\$post_publish_artifact_build\['consumed_target_urls'\]/.test(runtimeSource) || !/\$post_publish_final_artifact_build\['expected_target_urls'\][\s\S]*\$post_publish_final_artifact_build\['consumed_target_urls'\]/.test(runtimeSource) || /\$post_publish_artifact\s*=\s*\$artifact|\$post_publish_final_artifact\s*=\s*\$post_publish_artifact/.test(runtimeSource)) {
 	failures.push("each published-correction Artifact must materialize every authoritative target from its own fresh bounded packet instead of copying stale Artifact links");
 }
-if (!/\$runtime_header_activation\s*=\s*\$call\([\s\S]*?'sync_public_header_projection'[\s\S]*?'activation_receipt'\s*=>\s*\(string\) \$runtime_manifest\['activation_receipt'\]/.test(runtimeSource) || !/runtime_header_activation\['verification'\]\['passed'\]/.test(runtimeSource) || !/public_header_enrollment_before/.test(runtimeSource) || !/thumbnail_srcset/.test(runtimeSource)) {
-	failures.push("Translation Job runtime must establish and restore a complete managed Public Header projection and render exact hero, Open Graph, and srcset media before publication matrices");
+if (!/\$runtime_enrollment\s*=\s*\$call\([\s\S]*?'enroll_public_header_from_existing_menus'[\s\S]*?\$runtime_header_activation\s*=\s*\$call\([\s\S]*?'activate_public_header_projection'[\s\S]*?'activation_receipt'\s*=>\s*\$runtime_activation_receipt[\s\S]*?foreach \( array_keys\( \$runtime_languages \) as \$runtime_header_verification_language \)[\s\S]*?'verify_public_header_projection'[\s\S]*?'forward_verified'/.test(runtimeSource) || !/public_header_transition_before/.test(runtimeSource) || !/thumbnail_srcset/.test(runtimeSource)) {
+	failures.push("Translation Job runtime must explicitly activate, verify, and restore a complete managed Public Header projection and render exact hero, Open Graph, and srcset media before publication matrices");
 }
-if (!/\$runtime_header_activation\s*=\s*\$call\([\s\S]*?\$runtime_header_identities\s*=\s*get_option\([\s\S]*?foreach \( \(array\) \( \$runtime_header_activation\['projections'\][\s\S]*?foreach \( \(array\) \$runtime_header_identities[\s\S]*?throw new RuntimeException\( 'Could not activate the complete runtime Public Header Projection/.test(runtimeSource)) {
+if (!/\$runtime_header_activation\s*=\s*\$call\([\s\S]*?foreach \( \(array\) \( \$runtime_header_activation\['projections'\][\s\S]*?\$runtime_header_verification_terminal[\s\S]*?\$runtime_header_identities\s*=\s*get_option\([\s\S]*?foreach \( \(array\) \$runtime_header_identities[\s\S]*?throw new RuntimeException\( 'Could not explicitly activate and verify the complete runtime Public Header Projection/.test(runtimeSource)) {
 	failures.push("Translation Job runtime must record every generated complete-set menu before any activation RED can reach finally cleanup");
 }
 if (!/\$runtime_languages\s*=\s*Devenia_Workflow::languages\( true \)/.test(runtimeSource) || !/\$runtime_header_source_insert\s*=\s*wp_insert_post/.test(runtimeSource) || !/foreach \( array_keys\( \$call\( 'target_languages' \) \) as \$runtime_header_language \)/.test(runtimeSource) || !/_devenia_translation_source_id', \$runtime_header_source_id/.test(runtimeSource) || !/sync_translation_index_row', \$runtime_header_translation_id/.test(runtimeSource) || !/foreach \( array_keys\( \$runtime_languages \) as \$runtime_header_language \)/.test(runtimeSource) || !/array_unique\( array_values\( \$runtime_header_translation_ids_by_language \) \)/.test(runtimeSource) || !/\$delete_owned_fixture_post\( \$runtime_header_source_id \)/.test(runtimeSource) || /\$runtime_languages\s*=\s*array\(\s*\$runtime_source_language_code/.test(runtimeSource)) {
@@ -524,8 +516,8 @@ if (!/hash\( 'sha256', \$source_id \. '\|' \. \$language \)/.test(source) || !/t
 if (!/atomic_replace_option_value/.test(atomicOptionSource) || !/atomic_delete_option_value/.test(atomicOptionSource) || !/atomic_delete_option_value\( \$key, \$owned \)/.test(source)) {
 	failures.push("lease takeover, renewal, and release must use compare-and-swap storage operations");
 }
-if (!/refresh_public_header_projection_for_publication/.test(publicationSource) || !/public_header_failure_after_activation/.test(publicationSource) || !/public_header_rollback_projection_receipts/.test(publicationSource)) {
-	failures.push("localized publication must use the complete Public Header Projection Interface with receipt-bound rollback");
+if (/refresh_public_header_projection_for_publication|stage_public_header_manifest_for_publication|public_header_failure_after_activation|public_header_rollback_projection_receipts/.test(publicationSource) || !/build_public_header_transition[\s\S]*rollback_target_state[\s\S]*expected_navigation/.test(publicationSource) || !/start_public_header_transition_rollback[\s\S]*rollback_invalidation_pending/.test(publicationSource)) {
+	failures.push("content publication must not enter Public Header Projection; explicit activation must retain one durable receipt-bound rollback transition");
 }
 if (!/localized_presentation_rollback/.test(rollbackFailure) || !/rollback_cache_invalidation_failed/.test(rollbackFailure)) {
 	failures.push("successful database rollback must purge the restored frontend surface and fail closed when that purge is unavailable");
@@ -559,23 +551,11 @@ if (!/number'\s*=>\s*2/.test(taxonomySource) || !/duplicate_localized_taxonomy_t
 if (!/ensure_parent_path[\s\S]*localized_parent_path_missing/.test(mainSource) || /private static function ensure_parent_path[\s\S]{0,1800}wp_insert_post/.test(mainSource)) {
 	failures.push("shared localized-parent staging must resolve existing hierarchy without creating placeholder posts");
 }
-if (!/menu_identity_activation/.test(publicationSource) || !/atomic_replace_option_value/.test(publicationSource) || !/rollback_localized_menu_projection_uncommitted/.test(publicationSource)) {
-	failures.push("menu recovery must restore the exact prior identity through CAS inside an atomic deletion transaction");
-}
-if (!/localized_menu_projection_revision/.test(publicationSource) || !/target_menu_changed_after_projection/.test(publicationSource)) {
-	failures.push("menu rollback must bind target deletion to an exact after-receipt for term, items, metadata, and relationships");
-}
-if (!/term_group/.test(source) || !/post_content_filtered/.test(publicationSource) || !/'taxonomies'\s*=>\s*\$taxonomy_assignments/.test(publicationSource)) {
-	failures.push("menu deletion receipt must cover complete mutable term, item-post, metadata, and taxonomy-relationship state");
-}
-if (/private static function (?:activate_localized_menu_id|retire_managed_localized_menu)\s*\(/.test(publicationSource) || /retire_previous|menu_identity_activation/.test(mainSource.slice(mainSource.indexOf("private static function sync_language_menu"), mainSource.indexOf("private static function existing_menu_label_map")))) {
+if (/private static function (?:activate_localized_menu_id|retire_managed_localized_menu)\s*\(/.test(publicationSource) || /retire_previous|menu_identity_activation/.test(mainSource.slice(mainSource.indexOf("private static function stage_language_menu_projection"), mainSource.indexOf("private static function existing_menu_label_map")))) {
 	failures.push("single-language projection must not bypass the atomic complete-set activation and logical retirement Interface");
 }
 if (!/previous_menu_surface_revision/.test(mainSource) || !/lock_localized_menu_projection_surface\( (?:\(int\) )?(?:\$menu_id|\(int\) \$row\['menu_id'\]) \)/.test(`${publicationSource}\n${relationAuthoritySource}`)) {
 	failures.push("previous-menu retirement must lock every item row/meta/relationship and match the exact captured previous-menu receipt");
-}
-if (!/expected_previous_revision[\s\S]*current_previous_revision[\s\S]*hash_equals/.test(publicationSource)) {
-	failures.push("combined menu rollback preflight must compare the exact previous-menu receipt before reactivation");
 }
 if (!/translation_job_find_scoped_term_id_for_update/.test(source) || !/TERM_META_SOURCE_ID[\s\S]*FOR UPDATE/.test(source)) {
 	failures.push("recovery must use an uncached locking read and identity-meta range locks for initially absent translated terms");
@@ -589,11 +569,8 @@ if (!/META_SOURCE_ID/.test(resolvePublicationTranslation) || !/META_LANGUAGE/.te
 if (!/is_array\( \$surface_snapshot \)[\s\S]{0,180}publication_expected_surface_revision/.test(jobSource) || !/\$surface_snapshot\['publication_expected_surface_revision'\]\s*=\s*\(string\) \( \$staged_apply\['mutation_cas_revision'\]/.test(jobSource) || /\$prepublication_cas_revision\s*=\s*self::translation_job_rollback_cas_revision/.test(jobSource)) {
 	failures.push("phase-two publication must use the exact staged mutation receipt without rebasing after QA");
 }
-if (!/translation_job_restore_publication_snapshot[\s\S]*translation_job_lock_recovery_surface[\s\S]*lock_localized_menu_projection_surface[\s\S]*localized_menu_projection_rollback_preflight[\s\S]*translation_job_restore_surface_snapshot_uncommitted[\s\S]*rollback_localized_menu_projection_uncommitted[\s\S]*translation_job_commit_recovery_transaction/.test(source)) {
-	failures.push("content, terms, active menu identity, and target menu deletion must recover in one shared transaction after both preflights pass");
-}
-if (!/publication_failure_with_public_header_rollback/.test(publicationSource) || /menu_recovery_plan/.test(publicationSource)) {
-	failures.push("publication follow-up failure must use verified all-language Public Header Projection rollback rather than the retired one-language recovery plan");
+if (/publication_failure_with_public_header_rollback|menu_recovery_plan/.test(publicationSource)) {
+	failures.push("content publication failure must not carry Public Header rollback or a one-language menu recovery plan");
 }
 
 if (failures.length > 0) {

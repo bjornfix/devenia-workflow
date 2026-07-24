@@ -31,8 +31,36 @@ const now = "2026-07-10T12:00:00.000Z";
 const writerBudget = createTokenBudget("translator");
 const qualityBudget = createTokenBudget("quality");
 const runtimeSource = readFileSync(new URL("../includes/trait-translation-job.php", import.meta.url), "utf8");
+const localizedPublicationSource = readFileSync(new URL("../includes/trait-localized-presentation-publication.php", import.meta.url), "utf8");
 const qualityAuthoritySource = readFileSync(new URL("../includes/trait-translation-job-quality-authority.php", import.meta.url), "utf8");
 const pluginSource = readFileSync(new URL("../devenia-workflow.php", import.meta.url), "utf8");
+
+pass(() => {
+	const jobPublishSchema = runtimeSource.match(/private static function translation_job_publish_schema[\s\S]*?\n\t}/)?.[0] || "";
+	const legacyPublishSchema = pluginSource.match(/private static function publish_input_schema[\s\S]*?\n\t}/)?.[0] || "";
+	const jobPublish = runtimeSource.match(/private static function translation_job_publish\([\s\S]*?\n\t}/)?.[0] || "";
+	const legacyPublish = pluginSource.match(/private static function publish_translation\([\s\S]*?\n\t}/)?.[0] || "";
+	const localizedPublishStart = localizedPublicationSource.indexOf("private static function publish_localized_presentation");
+	const localizedPublishEnd = localizedPublicationSource.indexOf("\n\tprivate static function ", localizedPublishStart + 1);
+	const localizedPublish = localizedPublicationSource.slice(localizedPublishStart, localizedPublishEnd);
+	assert.doesNotMatch(jobPublishSchema, /sync_menu/, "Translation Job publication must not expose a caller-owned menu switch");
+	assert.doesNotMatch(legacyPublishSchema, /sync_menu/, "legacy publication must not expose a caller-owned menu switch");
+	assert.doesNotMatch(jobPublish, /'sync_menu'/, "Translation Job publication must not pass a menu switch into Localized Presentation Publication");
+	assert.doesNotMatch(legacyPublish, /'sync_menu'/, "legacy publication must not pass a menu switch into Localized Presentation Publication");
+	assert.doesNotMatch(localizedPublicationSource, /\$input\['sync_menu'\]/, "Localized Presentation Publication must not accept a menu switch");
+	assert.doesNotMatch(localizedPublicationSource, /stage_public_header_manifest_for_publication|refresh_public_header_projection_for_publication/, "publication-only menu helpers must not survive outside the explicit Public Header Interface");
+	assert.doesNotMatch(localizedPublicationSource, /publication_failure_with_public_header_rollback/, "content publication failures must not carry Public Header rollback coupling");
+	assert.doesNotMatch(localizedPublish, /['\"]menu['\"]\s*=>|\$menu/, "content publication responses must not expose a menu result");
+	const enrollmentSchema = pluginSource.match(/private static function public_header_enrollment_input_schema[\s\S]*?\n\t}/)?.[0] || "";
+	const enrollment = localizedPublicationSource.match(/private static function enroll_public_header_from_existing_menus[\s\S]*?\n\t}/)?.[0] || "";
+	assert.doesNotMatch(enrollmentSchema, /['\"]activate['\"]/, "enrollment must not expose an implicit activation switch");
+	assert.doesNotMatch(enrollment, /activate_public_header_projection/, "enrollment must stage only; the explicit Public Header activation operation must be the sole activation Interface");
+	assert.doesNotMatch(
+		localizedPublish,
+		/refresh_public_header_projection_for_publication/,
+		"content publication must never sync menus implicitly; only the explicit menu Interface may project the Public Header",
+	);
+});
 
 pass(() => assert.match(
 	runtimeSource,

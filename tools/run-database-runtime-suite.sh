@@ -90,6 +90,18 @@ if [[ "$recovery_result" != '{"success":true,"scenarios":22}' ]]; then
 	exit 1
 fi
 
+focused_header_result="$(WP_CLI_BIN="$wp_cli_bin" \
+	"$plugin_root/tools/run-public-header-first-enrollment-cleanup-runtime.sh" "$wp_path")"
+printf '%s\n' "$focused_header_result"
+RESULT="$focused_header_result" "$php_bin" -r '
+	$result = json_decode((string) getenv("RESULT"), true);
+	$interfaces = is_array($result["public_interfaces"] ?? null) ? $result["public_interfaces"] : [];
+	if (!is_array($result) || true !== ($result["success"] ?? null) || !in_array("devenia-workflow/activate-public-header-projection", $interfaces, true) || !in_array("devenia-workflow/verify-public-header-projection", $interfaces, true) || true !== ($result["schema_enforced"] ?? null) || true !== ($result["permission_enforced"] ?? null) || true !== ($result["existing_identities_pre_state_restored"] ?? null) || true !== ($result["rollback_cache_retryable"] ?? null) || true !== ($result["owned_staging_cleaned"] ?? null) || 1 > (int) ($result["projection_count"] ?? 0) || 1 > (int) ($result["batch_calls"] ?? 0)) {
+		fwrite(STDERR, "Focused Public Header first-enrollment cleanup proof failed.\n");
+		exit(1);
+	}
+'
+
 header_result="$("$wp_cli_bin" eval-file \
 	"$plugin_root/tools/check-public-header-projection-wordpress-runtime.php" \
 	--path="$wp_path" \
@@ -107,9 +119,9 @@ RESULT="$header_result" "$php_bin" -r '
 		"raw_key_reorder_pending_rejected_before_staging",
 		"raw_key_reorder_pending_rejected_at_locked_boundary",
 		"exact_activation_receipt_activated",
-		"ordinary_publication_rejected_raw_pending_owners",
-		"ordinary_publication_rejected_independent_pending_without_mutation",
-		"ordinary_publication_self_staged_exact_activation",
+		"content_publication_preserved_header_authority",
+		"first_enrollment_staged_before_explicit_activation",
+		"explicit_activation_is_the_only_header_mutation_path",
 		"missing_target_translation_rejected_before_pending_mutation",
 		"missing_relation_receipts_failed_without_raw_state_mutation",
 		"internal_custom_route_drift_rolled_back_exactly",
@@ -132,8 +144,8 @@ job_result="$("$wp_cli_bin" eval-file \
 printf '%s\n' "$job_result"
 RESULT="$job_result" "$php_bin" -r '
 	$result = json_decode((string) getenv("RESULT"), true);
-	if (!is_array($result) || true !== ($result["success"] ?? null) || true !== ($result["ordinary_translation_job_wrong_index_preserved_raw_authority"] ?? null) || true !== ($result["new_page_localized_path_established_before_surface_verification"] ?? null) || true !== ($result["legacy_new_page_localized_path_derived_from_signed_route_inputs"] ?? null)) {
-		fwrite(STDERR, "Translation Job runtime did not prove wrong-index and new-page route authority.\n");
+	if (!is_array($result) || true !== ($result["success"] ?? null) || true !== ($result["translation_job_publication_is_content_only"] ?? null) || true !== ($result["new_page_localized_path_established_before_surface_verification"] ?? null) || true !== ($result["legacy_new_page_localized_path_derived_from_signed_route_inputs"] ?? null)) {
+		fwrite(STDERR, "Translation Job runtime did not prove content-only publication and new-page route authority.\n");
 		exit(1);
 	}
 '

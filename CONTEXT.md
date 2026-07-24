@@ -111,10 +111,11 @@ filter or external Adapter can expand the transaction authority surface.
 ## Localized Presentation Publication
 
 The deep Module that turns one approved Translation Job into a stable public
-reader surface. Its Interface owns the content publish transition, Public
-Header Projection, canonical frontend-cache invalidation, and origin plus
-canonical-cache verification as one outcome. A stored post status alone is not
-successful Localized Presentation Publication. This Module alone issues
+content surface. Its Interface owns the content publish transition, canonical
+frontend-cache invalidation, and origin plus canonical-cache verification as
+one outcome. It neither accepts a menu-sync switch nor invokes Public Header
+Projection. A stored post status alone is not successful Localized Presentation
+Publication. This Module alone issues
 rollback authority for its mutation: an observed foreign surface revision is
 diagnostic evidence and can never be promoted to rollback authority by a
 Translation Job caller.
@@ -149,27 +150,33 @@ references, and binds all direct self/static calls to audited owners.
 The complete ordered primary-navigation projection for one configured source
 or target language. Its authoritative Interface is a separate runtime manifest
 plus registered language data, never the currently rendered WordPress primary
-menu. Manifest updates create a pending revision. That revision becomes active
-only after every configured source and target projection has staged, validated,
-and produced a recovery receipt, followed by one atomic manifest-and-identity
-activation. The prior complete set remains active until that boundary passes.
+menu. Staging and first enrollment never activate it. Only the root coordinator
+may invoke `activate-public-header-projection` with the exact pending receipt;
+Writer, Translator, and Quality Runs never receive that authority, and content
+publication never invokes it implicitly. Manifest updates create a pending revision.
+That revision may enter reader authority only after every configured source and
+target projection has staged, validated, and produced a recovery receipt. One
+atomic transaction then switches the manifest and language identities together
+with a durable receipt-bound transition. Activation is applied but incomplete at
+that point: the prior complete set remains intact as rollback material and is not
+retired until the transition reaches terminal forward verification.
 Frontend verification observes only anchors inside the owned primary menu list.
 Theme branding, search controls, secondary menus, and the presentation-injected
 language selector are separate reader surfaces and cannot enter the Public Header
 comparison oracle, including when tolerant HTML parsing reparents injected links.
-Complete all-language origin/canonical evidence is fetched through one bounded
-WordPress Requests plan. Every same-site request shares one absolute concurrency
-limit because a canonical cacheable request can miss or revalidate and reach the
-same WordPress origin as a cache-bypass request. The original keyed order is
-chunked without changing cache-surface identity. One hard wall deadline reserves
-a viable minimum for every remaining group while allowing fast groups to return
-their unused time to later groups. Dispatching changes latency only: every
-response keeps the same cache-surface identity and fail-closed parser contract,
-and no external service becomes runtime authority.
+The root coordinator resumes the exact transition through
+`verify-public-header-projection`, one configured language per call. Each call
+fetches that language's homepage and blog archive across origin and canonical
+surfaces with WordPress Requests concurrency `1`, then CAS-accumulates compact
+evidence. The transition finalizes only after the complete configured-language
+matrix passes. A conclusive mismatch atomically restores the exact receipt-bound
+prior reader state and enters the same bounded per-language verification path for
+rollback; inconclusive transport and cache invalidation remain retryable. No
+external service becomes runtime authority.
 Every manifest row must resolve in every configured language; a skipped row is
-an incomplete projection, not a successful partial menu. Normal Translation Job
-publication enters this same pending-manifest Interface and cannot activate one
-language independently. Enrollment is durable, so loss of the active manifest
+an incomplete projection, not a successful partial menu. An explicit root-coordinator
+call enters this pending-manifest Interface and cannot activate one language
+independently. Enrollment is durable, so loss of the active manifest
 or an identity after enrollment fails closed instead of reopening a raw menu.
 Every ordinary Public Header identity reader, projection planner, menu selector,
 and verifier is side-effect free: it accepts only the persisted identity whose
@@ -224,8 +231,8 @@ have no source/language translation identity. A target relation requires exactly
 one published object of the same canonical type with exactly one matching source
 row and one matching language row; the source type, status, and absence of
 translation identity are re-read for source and target projections alike. Every
-pending projection, including ordinary Translation Job publication and operator
-restaging of an active manifest, carries a new complete all-language ephemeral
+explicitly staged Public Header projection, including operator restaging of an
+active manifest, carries a new complete all-language ephemeral
 relation receipt. A missing target relation rejects the new revision before the
 pending option or any menu changes, preserving the exact active and pre-existing
 pending authority. Missing or malformed receipts likewise stop before staging,
@@ -241,12 +248,11 @@ before creating any menu; it never restages or activates an unrelated global
 pending value. Even a raw replacement that normalizes to the same domain manifest
 invalidates the prior receipt before staging and again under the locked pending-row
 transition. A missing, stale, or concurrently displaced receipt is mutation-free
-apart from preserving the independent writer's exact replacement. Ordinary
-Translation Job publication never adopts, normalizes, or replaces an occupied raw
-pending slot, even when that value is malformed or normalizes to empty. It issues
-an Activation Receipt only after atomically creating its own active-manifest
-refresh in a missing slot; successful activation atomically removes that pending
-value. GitHub Actions supplies CI and distribution evidence only. Production PHP
+apart from preserving the independent writer's exact replacement. Translation
+Job publication never reads, adopts, normalizes, replaces, or activates the raw
+pending Public Header slot. Only an explicit Public Header staging operation
+issues an Activation Receipt; successful explicit activation atomically removes
+that exact pending value. GitHub Actions supplies CI and distribution evidence only. Production PHP
 does not read CI state, invoke workflows, or treat a GitHub run or artifact as
 runtime publication authority; release and updater metadata remain distribution
 mechanisms, not runtime dependencies. Production Workflow never shells out or
@@ -275,9 +281,10 @@ exact compare-and-delete restoration for both the canonical source-ID and
 language keys; it never substitutes an update of an existing metadata row.
 Every surface restores byte-exact state twice afterward to prove cleanup is
 idempotent. Request-local flags are never accepted as lock evidence.
-Activation enters the ordinary atomic all-language Interface, and any failed
-attempt restores the exact four-option pre-intake state so enrollment is safely
-retryable.
+Activation enters the atomic complete-set Interface and returns an explicit
+verification-pending result. First enrollment uses the same durable transition;
+a conclusive forward failure restores its exact four-option pre-intake state and
+does not remove receipt-owned candidate menus until rollback verification passes.
 Rollback locks and revalidates every prior term against its pre-activation
 recovery receipt before restoring identities. Verification compares the exact
 projected navigation anchors rather than accepting a matching subsequence.

@@ -31,6 +31,7 @@ function devenia_workflow_uninstall_site(): void {
 		'devenia_workflow_public_header_manifest',
 		'devenia_workflow_pending_public_header_manifest',
 		'devenia_workflow_public_header_enrollment',
+		'devenia_workflow_public_header_transition',
 		'devenia_workflow_source_inventory_schema',
 		'devenia_workflow_source_inventory_active',
 		'devenia_workflow_source_inventory_dirty',

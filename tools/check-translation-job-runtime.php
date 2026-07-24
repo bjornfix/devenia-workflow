@@ -33,6 +33,7 @@ $menu_identities_before = get_option( 'devenia_workflow_localized_menu_identitie
 $public_header_manifest_before = get_option( 'devenia_workflow_public_header_manifest' );
 $pending_public_header_manifest_before = get_option( 'devenia_workflow_pending_public_header_manifest' );
 $public_header_enrollment_before = get_option( 'devenia_workflow_public_header_enrollment' );
+$public_header_transition_before = get_option( 'devenia_workflow_public_header_transition' );
 $runtime_option_missing = '__devenia_workflow_runtime_option_missing__';
 $show_on_front_before = get_option( 'show_on_front', $runtime_option_missing );
 $page_on_front_before = get_option( 'page_on_front', $runtime_option_missing );
@@ -43,6 +44,7 @@ $source_inventory_rebuild_before = get_option( 'devenia_workflow_source_inventor
 $source_inventory_epoch_before = get_option( 'devenia_workflow_source_inventory_epoch' );
 $nav_menu_locations_before = get_theme_mod( 'nav_menu_locations', array() );
 $runtime_menu_ids = array();
+$runtime_authority_menu_ids = array();
 $runtime_source_menu_id = 0;
 $runtime_translation_ids_by_language = array();
 $runtime_header_source_id = 0;
@@ -1698,20 +1700,24 @@ try {
 	foreach ( array_keys( Devenia_Workflow::languages() ) as $runtime_header_language ) {
 		$runtime_source_labels[ $runtime_header_language ] = $source_language_code === $runtime_header_language ? 'Runtime source' : 'Runtime source ' . $runtime_header_language;
 	}
-	$runtime_manifest = $call(
-		'update_public_header_manifest',
-		array(
-			'items' => array(
-				array( 'source_item_id' => (int) $runtime_source_menu_item_id, 'type' => 'page', 'title' => 'Runtime source', 'labels' => $runtime_source_labels, 'object_id' => $runtime_header_source_id, 'parent_source_item_id' => 0, 'position' => 1 ),
-			),
-		)
-	);
-	if ( empty( $runtime_manifest['success'] ) || empty( $runtime_manifest['activation_receipt'] ) ) {
-		throw new RuntimeException( 'Could not register the runtime Public Header Projection manifest: ' . wp_json_encode( $runtime_manifest ) );
+	$runtime_authority_menus = array();
+	foreach ( array_keys( $call( 'target_languages' ) ) as $runtime_header_language ) {
+		foreach ( array( 'a', 'b' ) as $runtime_authority_copy ) {
+			$runtime_authority_menu_id = wp_create_nav_menu( 'Workflow runtime authority ' . $runtime_header_language . ' ' . $runtime_authority_copy . ' ' . wp_generate_password( 8, false, false ) );
+			if ( is_wp_error( $runtime_authority_menu_id ) ) { throw new RuntimeException( 'Could not create the runtime Public Header authority menu.' ); }
+			$runtime_authority_menu_id = (int) $runtime_authority_menu_id;
+			$runtime_menu_ids[] = $runtime_authority_menu_id;
+			$runtime_authority_menu_ids[] = $runtime_authority_menu_id;
+			$runtime_authority_parent_id = wp_update_nav_menu_item( $runtime_authority_menu_id, 0, array( 'menu-item-title' => 'Runtime group ' . $runtime_header_language, 'menu-item-url' => $call( 'localized_home_url_for_language', $runtime_header_language ), 'menu-item-type' => 'custom', 'menu-item-status' => 'publish' ) );
+			$runtime_authority_item_id = wp_update_nav_menu_item( $runtime_authority_menu_id, 0, array( 'menu-item-title' => (string) $runtime_source_labels[ $runtime_header_language ], 'menu-item-object' => 'page', 'menu-item-object-id' => (int) $runtime_header_translation_ids_by_language[ $runtime_header_language ], 'menu-item-type' => 'post_type', 'menu-item-status' => 'publish', 'menu-item-parent-id' => is_wp_error( $runtime_authority_parent_id ) ? 0 : (int) $runtime_authority_parent_id ) );
+			if ( is_wp_error( $runtime_authority_parent_id ) || is_wp_error( $runtime_authority_item_id ) ) { throw new RuntimeException( 'Could not populate the runtime Public Header authority menu.' ); }
+			update_post_meta( (int) $runtime_authority_parent_id, '_devenia_translation_source_menu_item_id', (int) $runtime_source_menu_parent_id );
+			update_post_meta( (int) $runtime_authority_item_id, '_devenia_translation_source_menu_item_id', (int) $runtime_source_menu_item_id );
+			$runtime_authority_menus[] = array( 'language' => $runtime_header_language, 'menu_id' => $runtime_authority_menu_id );
+		}
 	}
-	$runtime_pending_manifest = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
-	update_option( 'devenia_workflow_public_header_manifest', $runtime_pending_manifest, false );
-
+	$runtime_activation_receipt = '';
+	$runtime_manifest = array();
 	$html_lang_method = new ReflectionMethod( Devenia_Workflow::class, 'html_lang_for_language' );
 	$html_lang_method->setAccessible( true );
 	$runtime_html_lang = (string) $html_lang_method->invoke( null, $language );
@@ -1751,7 +1757,7 @@ try {
 	}
 	$first_publication_source_id = 0;
 	$first_publication_translation_id = 0;
-	$runtime_http_surface = static function ( $preempt, array $args, string $url ) use ( &$translation_id, &$first_publication_source_id, &$first_publication_translation_id, $source_id, $language, $source_language_code, $runtime_source_url, &$runtime_translation_url, $runtime_html_lang, $runtime_header_surfaces, $runtime_header_surface_profiles ) {
+	$runtime_http_surface = static function ( $preempt, array $args, string $url ) use ( &$translation_id, &$first_publication_source_id, &$first_publication_translation_id, $source_id, $language, $source_language_code, $runtime_source_url, &$runtime_translation_url, $runtime_html_lang, $runtime_header_surfaces, $runtime_header_surface_profiles, $runtime_source_menu_id ) {
 		$request_url = untrailingslashit( strtok( $url, '?' ) ?: '' );
 		if ( $translation_id > 0 ) { $runtime_translation_url = (string) get_permalink( $translation_id ); }
 		$is_translation = $translation_id > 0 && $request_url === untrailingslashit( $runtime_translation_url );
@@ -1779,6 +1785,7 @@ try {
 		$surface_id = absint( $surface['surface_id'] ?? 0 );
 		$identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
 		$menu_id = absint( $identities[ $surface_language_code ]['menu_id'] ?? 0 );
+		if ( $menu_id < 1 ) { $menu_id = (int) $runtime_source_menu_id; }
 		$navigation = (string) wp_nav_menu( array( 'menu' => $menu_id, 'container' => false, 'echo' => false, 'fallback_cb' => false, 'items_wrap' => '%3$s' ) );
 		$thumbnail_id = absint( get_post_thumbnail_id( $surface_id ) );
 		$thumbnail_url = (string) wp_get_attachment_image_url( $thumbnail_id, 'full' );
@@ -1806,32 +1813,60 @@ try {
 	add_filter( 'devenia_workflow_frontend_cache_batch_adapter_result', $runtime_batch_http, 10, 3 );
 
 	// Establish the same complete managed reader surface production requires.
-	// One-language menu staging is not activation authority.
-	$runtime_header_activation = $call(
-		'sync_public_header_projection',
+	// First enrollment, activation, and verification are three separate root
+	// coordinator operations. Translation publication never calls any of them.
+	$runtime_enrollment = $call(
+		'enroll_public_header_from_existing_menus',
 		array(
-			'timeout'            => 3,
-			'activation_receipt' => (string) $runtime_manifest['activation_receipt'],
+			'source_menu_id'  => (int) $runtime_source_menu_id,
+			'authority_menus' => $runtime_authority_menus,
+			'stage'           => true,
+			'timeout'         => 3,
 		)
 	);
-	$runtime_header_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
-	// Record every fixture-owned projection before interpreting the result. A
-	// real activation followed by a verification RED must still leave finally
-	// with complete deletion authority for every generated managed menu.
+	$runtime_activation_receipt = (string) ( $runtime_enrollment['activation_receipt'] ?? '' );
+	$runtime_manifest = get_option( 'devenia_workflow_pending_public_header_manifest', array() );
+	$runtime_pending_manifest = $runtime_manifest;
+	if ( empty( $runtime_enrollment['success'] ) || '' === $runtime_activation_receipt || empty( $runtime_manifest['revision'] ) ) {
+		throw new RuntimeException( 'Could not stage the runtime Public Header Projection through explicit first enrollment: ' . wp_json_encode( $runtime_enrollment ) );
+	}
+	$runtime_header_activation = $call(
+		'activate_public_header_projection',
+		array(
+			'timeout'            => 3,
+			'activation_receipt' => $runtime_activation_receipt,
+		)
+	);
+	// Capture activation-owned menus before any verification call can throw.
 	foreach ( (array) ( $runtime_header_activation['projections'] ?? array() ) as $runtime_header_projection ) {
 		$runtime_menu_ids[] = absint( $runtime_header_projection['target_menu']['id'] ?? 0 );
 	}
+	$runtime_header_verification_terminal = array();
+	foreach ( array_keys( $runtime_languages ) as $runtime_header_verification_language ) {
+		$runtime_header_verification_terminal = $call(
+			'verify_public_header_projection',
+			array(
+				'timeout'            => 3,
+				'activation_receipt' => $runtime_activation_receipt,
+				'language'           => (string) $runtime_header_verification_language,
+			)
+		);
+	}
+	$runtime_header_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
+	// Record the active identities as a second exact cleanup oracle.
 	foreach ( (array) $runtime_header_identities as $runtime_header_identity ) {
 		$runtime_menu_ids[] = absint( $runtime_header_identity['menu_id'] ?? 0 );
 	}
 	$runtime_seed_menu_id = absint( $runtime_header_identities[ $language ]['menu_id'] ?? 0 );
 	if (
 		empty( $runtime_header_activation['success'] )
+		|| empty( $runtime_header_activation['verification_pending'] )
 		|| $runtime_seed_menu_id < 1
 		|| count( (array) $runtime_header_identities ) !== count( (array) $runtime_languages )
-		|| empty( $runtime_header_activation['verification']['passed'] )
+		|| 'forward_verified' !== (string) ( $runtime_header_verification_terminal['phase'] ?? '' )
+		|| empty( $runtime_header_verification_terminal['finalized'] )
 	) {
-		throw new RuntimeException( 'Could not activate the complete runtime Public Header Projection: ' . wp_json_encode( $runtime_header_activation ) );
+		throw new RuntimeException( 'Could not explicitly activate and verify the complete runtime Public Header Projection: ' . wp_json_encode( array( 'activation' => $runtime_header_activation, 'verification' => $runtime_header_verification_terminal ) ) );
 	}
 	// A failure after the owner has backfilled the route must restore the exact
 	// legacy state, including absence of the route meta. This proves the
@@ -2165,127 +2200,6 @@ try {
 		throw new RuntimeException( 'Final Quality Decision failed: ' . wp_json_encode( $third_quality ) );
 	}
 
-	// Ordinary Translation Job publication must mint fresh all-language relation
-	// receipts before it writes pending header state. Let pre-publication reader
-	// verification observe the intact active relation, then remove one exact
-	// read-model row only after the real content COMMIT and before manifest
-	// staging. This models concurrent Index loss without making the stronger
-	// frontend-integrity gate pre-empt the publication-boundary oracle.
-	$wrong_index_job_key = 'devenia_workflow_translation_job_' . $job_id;
-	$wrong_index_artifact_key = 'devenia_workflow_translation_artifact_' . (string) $third_artifact['artifact_revision'];
-	$wrong_index_quality_revision = (string) ( $third_quality['quality_decision']['quality_revision'] ?? '' );
-	$wrong_index_quality_key = 'devenia_workflow_translation_quality_' . $wrong_index_quality_revision;
-	$wrong_index_quality_record = get_option( $wrong_index_quality_key, array() );
-	$wrong_index_evidence_key = 'devenia_tj_quality_evidence_' . (string) ( $wrong_index_quality_record['evidence_revision'] ?? '' );
-	$wrong_index_header_options = array( 'devenia_workflow_public_header_manifest', 'devenia_workflow_pending_public_header_manifest', 'devenia_workflow_localized_menu_identities', 'devenia_workflow_public_header_enrollment' );
-	$wrong_index_inventory_options = array( 'devenia_workflow_source_inventory_schema', 'devenia_workflow_source_inventory_active', 'devenia_workflow_source_inventory_dirty' );
-	$wrong_index_menu_ids = array( $runtime_source_menu_id );
-	foreach ( (array) get_option( 'devenia_workflow_localized_menu_identities', array() ) as $wrong_index_identity ) { $wrong_index_menu_ids[] = absint( is_array( $wrong_index_identity ) ? ( $wrong_index_identity['menu_id'] ?? 0 ) : 0 ); }
-	$wrong_index_authority_options = $raw_option_records( array( $wrong_index_job_key, $wrong_index_artifact_key, $wrong_index_quality_key, $wrong_index_evidence_key ) );
-	$wrong_index_content_before = $raw_translation_content_surface( $translation_id );
-	$wrong_index_header_before = $raw_option_records( $wrong_index_header_options );
-	$wrong_index_menu_before = $raw_nav_menu_surface( $wrong_index_menu_ids );
-	$wrong_index_menu_inventory_before = $raw_nav_menu_inventory();
-	$wrong_index_inventory_before = $raw_option_records( $wrong_index_inventory_options );
-	$wrong_index_target_language = (string) array_key_first( $call( 'target_languages' ) );
-	$wrong_index_target_id = absint( $runtime_header_translation_ids_by_language[ $wrong_index_target_language ] ?? 0 );
-	$wrong_index_target_post = get_post( $wrong_index_target_id );
-	$wrong_index_table = (string) $call( 'translation_index_table' );
-	global $wpdb;
-	$wrong_index_rows_before = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d ORDER BY source_post_id ASC, language ASC, translation_post_id ASC', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact fixture row is restored byte-for-byte below.
-	if ( ! $wrong_index_target_post instanceof WP_Post || '' === $wrong_index_target_language || 1 !== count( (array) $wrong_index_rows_before ) ) { throw new RuntimeException( 'Could not establish the exact ordinary-publication wrong-index fixture.' ); }
-	$wrong_index_publish = array(); $wrong_index_restore_success = true; $wrong_index_injected = false; $wrong_index_commit_calls = 0; $wrong_index_commit_receipt = array(); $wrong_index_rows_missing = array();
-	$wrong_index_commit_adapter = static function ( $default, int $committed_translation_id, string $before_revision, string $replacement_revision ) use ( $call, $translation_id, $wrong_index_target_id, $wrong_index_target_post, $wrong_index_table, $wpdb, &$wrong_index_injected, &$wrong_index_commit_calls, &$wrong_index_commit_receipt, &$wrong_index_rows_missing ) {
-		unset( $default );
-		++$wrong_index_commit_calls;
-		if ( 1 !== $wrong_index_commit_calls ) { throw new RuntimeException( 'Wrong-index COMMIT Adapter was invoked more than once.' ); }
-		if ( $translation_id !== $committed_translation_id || '' === $before_revision || '' === $replacement_revision || hash_equals( $before_revision, $replacement_revision ) ) { throw new RuntimeException( 'Wrong-index COMMIT Adapter received an invalid publication ownership receipt.' ); }
-		$actual = $call( 'translation_job_commit_recovery_transaction' );
-		if ( empty( $actual['success'] ) || ! array_key_exists( 'committed', $actual ) || true !== $actual['committed'] ) { throw new RuntimeException( 'Wrong-index fixture could not establish the real content COMMIT.' ); }
-		$call( 'delete_translation_index_for_post', $wrong_index_target_id, $wrong_index_target_post );
-		$wrong_index_rows_missing = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact post-COMMIT proof before ordinary publication stages fresh relation receipts.
-		if ( ! empty( $wrong_index_rows_missing ) ) { throw new RuntimeException( 'Could not remove the exact post-COMMIT Translation Index row.' ); }
-		$wrong_index_commit_receipt = $actual;
-		$wrong_index_injected = true;
-		return $actual;
-	};
-	add_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $wrong_index_commit_adapter, 10, 4 );
-	try {
-		$wrong_index_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
-	} finally {
-		remove_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $wrong_index_commit_adapter, 10 );
-		$wpdb->delete( $wrong_index_table, array( 'translation_post_id' => $wrong_index_target_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Deterministic fixture cleanup before exact row restoration.
-		foreach ( (array) $wrong_index_rows_before as $wrong_index_row ) {
-			if ( false === $wpdb->insert( $wrong_index_table, $wrong_index_row ) ) { $wrong_index_restore_success = false; } // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Restore every original persisted column exactly, including original timestamps.
-		}
-	}
-	$wrong_index_rows_after = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE translation_post_id = %d ORDER BY source_post_id ASC, language ASC, translation_post_id ASC', $wrong_index_table, $wrong_index_target_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Exact cleanup oracle.
-	$wrong_index_content_after = $raw_translation_content_surface( $translation_id );
-	$wrong_index_meta_without_ids = static function ( array $rows ): array {
-		$normalized = array();
-		foreach ( $rows as $row ) { unset( $row['meta_id'] ); $normalized[] = $row; }
-		usort( $normalized, static function ( array $left, array $right ): int { return strcmp( maybe_serialize( $left ), maybe_serialize( $right ) ); } );
-		return $normalized;
-	};
-	$wrong_index_content_authority_exact = (array) ( $wrong_index_content_before['post'] ?? array() ) === (array) ( $wrong_index_content_after['post'] ?? array() )
-		&& $wrong_index_meta_without_ids( (array) ( $wrong_index_content_before['postmeta'] ?? array() ) ) === $wrong_index_meta_without_ids( (array) ( $wrong_index_content_after['postmeta'] ?? array() ) )
-		&& (array) ( $wrong_index_content_before['terms'] ?? array() ) === (array) ( $wrong_index_content_after['terms'] ?? array() );
-	$wrong_index_nested_failure = (array) ( $wrong_index_publish['menu'] ?? array() );
-	if (
-		! $wrong_index_injected
-		|| 1 !== $wrong_index_commit_calls
-		|| empty( $wrong_index_commit_receipt['success'] )
-		|| true !== ( $wrong_index_commit_receipt['committed'] ?? null )
-		|| ! empty( $wrong_index_rows_missing )
-		|| ! empty( $wrong_index_publish['success'] )
-		|| 'public_header_projection_publication_failed' !== (string) ( $wrong_index_publish['code'] ?? '' )
-		|| true !== ( $wrong_index_publish['forward_publication_applied'] ?? null )
-		|| false !== ( $wrong_index_publish['published'] ?? null )
-		|| empty( $wrong_index_publish['rollback']['success'] )
-		|| empty( $wrong_index_publish['rollback']['commit_reconciliation']['restored_exact'] )
-		|| 'restored_verified' !== (string) ( $wrong_index_publish['final_reader_state']['state'] ?? '' )
-		|| 'public_header_relation_receipt_build_failed' !== (string) ( $wrong_index_nested_failure['code'] ?? '' )
-		|| false === strpos( wp_json_encode( $wrong_index_nested_failure ), 'public_header_page_relation_index_mismatch' )
-		|| ! $wrong_index_restore_success
-		|| $wrong_index_rows_before !== $wrong_index_rows_after
-		|| $wrong_index_authority_options !== $raw_option_records( array( $wrong_index_job_key, $wrong_index_artifact_key, $wrong_index_quality_key, $wrong_index_evidence_key ) )
-		|| ! $wrong_index_content_authority_exact
-		|| $wrong_index_header_before !== $raw_option_records( $wrong_index_header_options )
-		|| $wrong_index_menu_before !== $raw_nav_menu_surface( $wrong_index_menu_ids )
-		|| $wrong_index_menu_inventory_before !== $raw_nav_menu_inventory()
-		|| $wrong_index_inventory_before !== $raw_option_records( $wrong_index_inventory_options )
-	) {
-		$wrong_index_post_changed_fields = array();
-		foreach ( array_unique( array_merge( array_keys( (array) ( $wrong_index_content_before['post'] ?? array() ) ), array_keys( (array) ( $wrong_index_content_after['post'] ?? array() ) ) ) ) as $wrong_index_post_field ) {
-			if ( ( $wrong_index_content_before['post'][ $wrong_index_post_field ] ?? null ) !== ( $wrong_index_content_after['post'][ $wrong_index_post_field ] ?? null ) ) { $wrong_index_post_changed_fields[] = $wrong_index_post_field; }
-		}
-		$wrong_index_evidence = array(
-			'injected'                 => $wrong_index_injected,
-			'commit_calls_exact'        => 1 === $wrong_index_commit_calls,
-			'commit_receipt_valid'      => ! empty( $wrong_index_commit_receipt['success'] ) && true === ( $wrong_index_commit_receipt['committed'] ?? null ),
-			'row_absent_after_commit'   => empty( $wrong_index_rows_missing ),
-			'publish_code_exact'        => 'public_header_projection_publication_failed' === (string) ( $wrong_index_publish['code'] ?? '' ),
-			'nested_code_exact'         => 'public_header_relation_receipt_build_failed' === (string) ( $wrong_index_nested_failure['code'] ?? '' ),
-			'index_mismatch_present'    => false !== strpos( wp_json_encode( $wrong_index_nested_failure ), 'public_header_page_relation_index_mismatch' ),
-			'row_restore_success'       => $wrong_index_restore_success,
-			'rows_restored_exact'       => $wrong_index_rows_before === $wrong_index_rows_after,
-			'authority_options_exact'   => $wrong_index_authority_options === $raw_option_records( array( $wrong_index_job_key, $wrong_index_artifact_key, $wrong_index_quality_key, $wrong_index_evidence_key ) ),
-			'content_authority_exact'   => $wrong_index_content_authority_exact,
-			'content_post_drift_fields' => $wrong_index_post_changed_fields,
-			'content_meta_exact'        => (array) ( $wrong_index_content_before['postmeta'] ?? array() ) === (array) ( $wrong_index_content_after['postmeta'] ?? array() ),
-			'content_meta_values_exact' => $wrong_index_meta_without_ids( (array) ( $wrong_index_content_before['postmeta'] ?? array() ) ) === $wrong_index_meta_without_ids( (array) ( $wrong_index_content_after['postmeta'] ?? array() ) ),
-			'content_terms_exact'       => (array) ( $wrong_index_content_before['terms'] ?? array() ) === (array) ( $wrong_index_content_after['terms'] ?? array() ),
-			'forward_applied_exact'     => true === ( $wrong_index_publish['forward_publication_applied'] ?? null ),
-			'published_false_exact'     => false === ( $wrong_index_publish['published'] ?? null ),
-			'rollback_restored_exact'   => ! empty( $wrong_index_publish['rollback']['success'] ) && ! empty( $wrong_index_publish['rollback']['commit_reconciliation']['restored_exact'] ),
-			'final_reader_restored'     => 'restored_verified' === (string) ( $wrong_index_publish['final_reader_state']['state'] ?? '' ),
-			'header_options_exact'      => $wrong_index_header_before === $raw_option_records( $wrong_index_header_options ),
-			'menu_surface_exact'        => $wrong_index_menu_before === $raw_nav_menu_surface( $wrong_index_menu_ids ),
-			'menu_inventory_exact'      => $wrong_index_menu_inventory_before === $raw_nav_menu_inventory(),
-			'source_inventory_exact'    => $wrong_index_inventory_before === $raw_option_records( $wrong_index_inventory_options ),
-		);
-		throw new RuntimeException( 'Ordinary translation_job_publish did not fail closed on a post-COMMIT wrong Translation Index row with exact reader and authority restoration: ' . wp_json_encode( array( 'evidence' => $wrong_index_evidence, 'result' => $wrong_index_publish ) ) );
-	}
 	$attempt_limit_job_key = 'devenia_workflow_translation_job_' . $job_id;
 	$attempt_limit_job = get_option( $attempt_limit_job_key );
 	$attempt_limit_max = absint( $workflow_reflection->getConstant( 'TRANSLATION_JOB_MAX_RUNS_PER_ROLE' ) );
@@ -2451,7 +2365,7 @@ try {
 	try {
 		$surface_refresh_publish = $call(
 			'translation_job_publish',
-			array( 'job_id' => $job_id, 'sync_menu' => true, 'verify_live' => true )
+			array( 'job_id' => $job_id, 'verify_live' => true )
 		);
 	} finally {
 		remove_filter( 'query', $surface_race_filter, PHP_INT_MAX );
@@ -2797,7 +2711,7 @@ try {
 		add_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_active_commit_adapter, 10, 4 );
 		add_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $staged_active_content_adapter, 10, 4 );
 		try {
-			$staged_active_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
+			$staged_active_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'verify_live' => true ) );
 		} finally {
 			remove_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_active_commit_adapter, 10 );
 			remove_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $staged_active_content_adapter, 10 );
@@ -2878,7 +2792,7 @@ try {
 	add_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $invalid_staged_commit_adapter, 10, 4 );
 	add_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $invalid_staged_content_adapter, 10, 4 );
 	try {
-		$invalid_staged_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
+		$invalid_staged_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'verify_live' => true ) );
 	} finally {
 		remove_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $invalid_staged_commit_adapter, 10 );
 		remove_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $invalid_staged_content_adapter, 10 );
@@ -2954,7 +2868,7 @@ try {
 		add_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_applied_commit_adapter, 10, 4 );
 		add_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $staged_applied_content_adapter, 10, 4 );
 		try {
-			$staged_applied_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
+			$staged_applied_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'verify_live' => true ) );
 		} finally {
 			remove_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_applied_commit_adapter, 10 );
 			remove_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $staged_applied_content_adapter, 10 );
@@ -2987,7 +2901,7 @@ try {
 		};
 		add_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_foreign_commit_adapter, 10, 4 );
 		try {
-			$staged_foreign_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
+			$staged_foreign_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'verify_live' => true ) );
 		} finally {
 			remove_filter( 'devenia_workflow_staged_artifact_commit_adapter_result', $staged_foreign_commit_adapter, 10 );
 		}
@@ -3037,7 +2951,7 @@ try {
 		};
 		add_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $foreign_commit_adapter, 10, 4 );
 		try {
-			$foreign_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => true, 'verify_live' => true ) );
+			$foreign_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'verify_live' => true ) );
 		} finally {
 			remove_filter( 'devenia_workflow_localized_presentation_commit_adapter_result', $foreign_commit_adapter, 10 );
 		}
@@ -3110,7 +3024,7 @@ try {
 		add_filter( 'devenia_workflow_translation_job_restore_commit_adapter_result', $restore_commit_adapter, 10, 4 );
 		add_filter( 'devenia_workflow_frontend_cache_invalidation_result', $force_publication_failure, 20, 3 );
 		try {
-			$restore_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => true ) );
+			$restore_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'verify_live' => true ) );
 		} finally {
 			remove_filter( 'devenia_workflow_translation_job_restore_commit_adapter_result', $restore_commit_adapter, 10 );
 			remove_filter( 'devenia_workflow_frontend_cache_invalidation_result', $force_publication_failure, 20 );
@@ -3309,7 +3223,7 @@ try {
 	add_filter( 'devenia_workflow_translation_job_restore_commit_adapter_result', $invalid_restore_commit_adapter, 10, 4 );
 	add_filter( 'devenia_workflow_frontend_cache_invalidation_result', $invalid_restore_force_publication_failure, 20, 3 );
 	try {
-		$invalid_restore_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => true ) );
+		$invalid_restore_publish = $call( 'translation_job_publish', array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'verify_live' => true ) );
 	} finally {
 		remove_filter( 'devenia_workflow_translation_job_restore_commit_adapter_result', $invalid_restore_commit_adapter, 10 );
 		remove_filter( 'devenia_workflow_frontend_cache_invalidation_result', $invalid_restore_force_publication_failure, 20 );
@@ -3375,7 +3289,7 @@ try {
 		'translation_job_publish',
 		// Public Header Projection has its own all-language WordPress fixture.
 		// This lifecycle fixture keeps that independently proven Interface stable.
-		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => true )
+		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'verify_live' => true )
 	);
 	$publish_claim_probe_enabled = false;
 	$runtime_identities = get_option( 'devenia_workflow_localized_menu_identities', array() );
@@ -3970,7 +3884,7 @@ try {
 		return new WP_Error( 'runtime_projection_failure', 'Runtime projection failure fixture.' );
 	};
 	add_filter( 'devenia_workflow_localized_menu_projection_write_result', $fail_projection_write, 10, 5 );
-	$failed_projection = $call( 'sync_language_menu', array( 'language' => $language, 'include_untranslated' => false, 'include_custom_links' => true, 'manifest' => $runtime_pending_manifest ) );
+	$failed_projection = $call( 'stage_language_menu_projection', array( 'language' => $language, 'include_untranslated' => false, 'include_custom_links' => true, 'manifest' => $runtime_pending_manifest ) );
 	remove_filter( 'devenia_workflow_localized_menu_projection_write_result', $fail_projection_write, 10 );
 	$identity_after_failure = get_option( 'devenia_workflow_localized_menu_identities', array() );
 	if ( ! empty( $failed_projection['success'] ) || 'menu_projection_write_failed' !== (string) ( $failed_projection['code'] ?? '' ) || $runtime_active_menu_id !== absint( $identity_after_failure[ $language ]['menu_id'] ?? 0 ) ) {
@@ -3989,7 +3903,7 @@ try {
 	add_post_meta( $translation_id, '_thumbnail_id', $source_thumbnail_id );
 	$republished = $call(
 		'translation_job_publish',
-		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'sync_menu' => false, 'verify_live' => true )
+		array( 'job_id' => $job_id, 'coordinator_id' => 'runtime-coordinator', 'verify_live' => true )
 	);
 	$published_job_after_media_drift = get_option( 'devenia_workflow_translation_job_' . $job_id );
 	if (
@@ -4467,7 +4381,7 @@ try {
 	};
 	add_filter( 'page_link', $first_page_link, 20, 2 );
 	try {
-		$first_publish = $call( 'translation_job_publish', array( 'job_id' => $first_job_id, 'coordinator_id' => 'runtime-first-publication', 'sync_menu' => false ) );
+		$first_publish = $call( 'translation_job_publish', array( 'job_id' => $first_job_id, 'coordinator_id' => 'runtime-first-publication' ) );
 		$first_publication_translation_id = absint( $first_publish['translation']['id'] ?? $first_publish['job']['translation_id'] ?? 0 );
 		$first_verify = ! empty( $first_publish['success'] ) ? $call( 'translation_job_verify_live', array( 'job_id' => $first_job_id, 'timeout' => 3 ) ) : array();
 		$first_published_job = get_option( 'devenia_workflow_translation_job_' . $first_job_id );
@@ -4547,7 +4461,7 @@ try {
 			'translation_publish_preserved_seeded_menu_identity' => true,
 			'atomic_menu_failure_preserved_active_identity' => true,
 			'ordinary_identity_reader_failed_closed_without_migration' => true,
-			'ordinary_translation_job_wrong_index_preserved_raw_authority' => true,
+			'translation_job_publication_is_content_only' => true,
 			'frontend_cache_invalidation_adapter_consumed' => true,
 			'canonical_english_menu_cache_rejected' => true,
 			'publish_surface_drift_reopened_after_zero_mutation_and_rollback' => true,
@@ -4653,11 +4567,19 @@ try {
 	} else {
 		update_option( 'devenia_workflow_public_header_enrollment', $public_header_enrollment_before, false );
 	}
+	if ( false === $public_header_transition_before ) {
+		delete_option( 'devenia_workflow_public_header_transition' );
+	} else {
+		update_option( 'devenia_workflow_public_header_transition', $public_header_transition_before, false );
+	}
 	Devenia_Workflow::languages( true );
 	foreach ( array_unique( $runtime_menu_ids ) as $runtime_menu_id ) {
 		if ( $runtime_menu_id > 0 && '1' === (string) get_term_meta( $runtime_menu_id, '_devenia_workflow_localized_menu_managed', true ) ) {
 			wp_delete_nav_menu( $runtime_menu_id );
 		}
+	}
+	foreach ( array_unique( $runtime_authority_menu_ids ) as $runtime_authority_menu_id ) {
+		if ( $runtime_authority_menu_id > 0 ) { wp_delete_nav_menu( $runtime_authority_menu_id ); }
 	}
 	if ( $runtime_source_menu_id > 0 ) {
 		wp_delete_nav_menu( $runtime_source_menu_id );
