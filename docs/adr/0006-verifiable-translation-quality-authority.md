@@ -84,6 +84,27 @@ rejected unless it creates a fresh `run_id` and a Quality principal different
 from the writer principal. This proves execution separation without asserting
 that different human accounts, personas, or organizations are involved.
 
+### Quality Single-Flight Gate
+
+Source Rewrite and Translation share one installation-wide Quality lease. A
+Quality claim atomically acquires that lease only for its exact Job, Run,
+Artifact Revision, submission generation, claim secret hash, and expiry. While
+the lease is active, every other Quality claim fails with
+`quality_run_active`, including claims from another workflow or language.
+
+The exact terminal owner releases the global lease before deleting its local
+claim after `pass`, `revise`, `reject`, or abandon. This ordering keeps a
+failed global compare-and-delete retryable while global validation prevents a
+released owner from retaining useful Quality authority. Expired leases are
+replaced only through compare-and-delete plus create-only storage, so a
+predecessor cannot delete its successor. Ability
+discovery is presentation rather than authority: a known claim ability remains
+safe when called directly because the execution seam enforces the lease.
+
+The Gate proves single-flight execution, not fresh Codex topology. The
+orchestrator must still terminate one Quality subagent after its single outcome
+and spawn a fresh one for the next artifact.
+
 ### Server-Owned Quality Evidence
 
 Caller booleans and narrative evidence may supply Reviewer Attestations from a
@@ -161,6 +182,8 @@ prove all of the following:
   without the mandatory server-owned receipt set and principal-bound Reviewer
   Attestations;
 - a Quality Run cannot claim or pass with the writer Run principal;
+- Source Rewrite and Translation cannot hold Quality claims concurrently, and
+  a terminal exact owner releases the shared slot without deleting a successor;
 - both bounded packets carry the explicit distinct translator-subagent and
   Quality-subagent coordinator contract;
 - every Browser Render Receipt is bound to artifact, complete surface revision,
@@ -182,6 +205,8 @@ prove all of the following:
   revision binding, and fail-closed publication stay behind one Interface.
 - Locality improves: artifact drift and fake-evidence defects are fixed at the
   Quality Authority Seam rather than across coordinator prompts.
+- Quality concurrency has one owner: the shared Single-Flight Gate rather than
+  separate per-Job or per-workflow coordinator conventions.
 - Fresh subagents remain the normal translator and Quality execution model.
 - Browser and model-provider integrations are real seams only when their
   production and test Adapters both satisfy the same receipt Interface.

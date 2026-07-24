@@ -37,7 +37,7 @@ trait Devenia_Workflow_Translation_Job {
 	private static function translation_job_ability_catalogue(): array {
 		$definitions = array(
 			'translation-job-discover' => array( 'Discover Translation Job', 'Creates or returns the current finite Translation Job for one source revision and target language.', 'translation_job_discover_schema', 'translation_job_discover', true, true ),
-			'translation-job-claim' => array( 'Claim Translation Job', 'Atomically claims one Translation Job for a bounded translator or Quality Run. The coordinator contract requires distinct spawned subagents for the two roles.', 'translation_job_claim_schema', 'translation_job_claim', false, false ),
+			'translation-job-claim' => array( 'Claim Translation Job', 'Atomically claims one Translation Job for a bounded translator or the installation-wide single active Quality Run. The coordinator contract requires distinct spawned subagents for the two roles.', 'translation_job_claim_schema', 'translation_job_claim', false, false ),
 			'translation-job-abandon' => array( 'Abandon Translation Job Run', 'Releases the caller-owned bounded claim without submitting a fabricated artifact or Quality Decision.', 'translation_job_abandon_schema', 'translation_job_abandon', false, false ),
 			'translation-job-fetch-packet' => array( 'Fetch Translation Job Packet', 'Returns the bounded source or quality packet for the current Run.', 'translation_job_claim_access_schema', 'translation_job_fetch_packet', true, true ),
 			'translation-job-submit-artifact' => array( 'Submit Translation Artifact', 'Validates and atomically stores one complete localized artifact within the translator Token Budget.', 'translation_job_artifact_schema', 'translation_job_submit_artifact', false, false ),
@@ -580,6 +580,7 @@ trait Devenia_Workflow_Translation_Job {
 			'run_id' => $run_id,
 			'coordinator_id' => $coordinator_id,
 			'role' => $role,
+			'artifact_revision' => 'quality' === $role ? (string) ( $job['artifact_revision'] ?? '' ) : '',
 			'previous_status' => (string) $job['status'],
 			'submission_generation' => $submission_generation,
 			'publication_surface_contract_revision' => (string) $job['publication_surface_contract_revision'],
@@ -610,6 +611,13 @@ trait Devenia_Workflow_Translation_Job {
 		}
 		if ( ! self::atomic_create_option( $lock_key, $lock ) ) {
 			return array( 'success' => false, 'code' => 'job_claim_race_lost', 'message' => 'Another Run claimed the Translation Job.' );
+		}
+		if ( 'quality' === $role ) {
+			$single_flight = self::quality_single_flight_acquire( 'translation', $job, $lock );
+			if ( empty( $single_flight['success'] ) ) {
+				self::atomic_delete_option_value( $lock_key, $lock );
+				return $single_flight;
+			}
 		}
 		$budget = self::translation_job_budget( $role );
 		$run = array(
@@ -2021,6 +2029,12 @@ trait Devenia_Workflow_Translation_Job {
 		) {
 			return array( 'success' => false, 'code' => 'job_claim_contract_revision_mismatch', 'message' => 'The claim belongs to another or legacy publication surface contract.' );
 		}
+		if ( 'quality' === (string) ( $run['role'] ?? '' ) ) {
+			$single_flight = self::quality_single_flight_validate( 'translation', $job, $lock );
+			if ( empty( $single_flight['success'] ) ) {
+				return $single_flight;
+			}
+		}
 		$configured_budget = self::translation_job_budget( (string) ( $run['role'] ?? '' ) );
 		$stored_budget = isset( $run['budget'] ) && is_array( $run['budget'] ) ? $run['budget'] : array();
 		if ( 'running' === $run_status && (int) ( $stored_budget['input_token_limit'] ?? 0 ) < (int) $configured_budget['input_token_limit'] ) {
@@ -2802,6 +2816,12 @@ trait Devenia_Workflow_Translation_Job {
 		$token_hash = (string) ( $claim['token_hash'] ?? '' );
 		if ( '' === $job_id || '' === $run_id || '' === $token_hash ) {
 			return false;
+		}
+		if ( 'quality' === sanitize_key( (string) ( $claim['role'] ?? '' ) ) ) {
+			$released = self::quality_single_flight_release( 'translation', $claim );
+			if ( empty( $released['success'] ) && 'quality_lease_owner_mismatch' !== (string) ( $released['code'] ?? '' ) ) {
+				return false;
+			}
 		}
 		return self::atomic_delete_option_value( self::translation_job_claim_key( $job_id ), $claim );
 	}

@@ -187,12 +187,14 @@ function wp_update_post( array $data, bool $wp_error = false ) {
 require_once dirname( __DIR__ ) . '/includes/trait-copy-quality-priming.php';
 require_once dirname( __DIR__ ) . '/includes/trait-reader-surface-equivalence.php';
 require_once dirname( __DIR__ ) . '/includes/trait-staged-preview-capability.php';
+require_once dirname( __DIR__ ) . '/includes/trait-quality-single-flight.php';
 require_once dirname( __DIR__ ) . '/includes/trait-source-rewrite-quality-authority.php';
 
 final class Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test {
 	use Devenia_Workflow_Copy_Quality_Priming;
 	use Devenia_Workflow_Reader_Surface_Equivalence;
 	use Devenia_Workflow_Staged_Preview_Capability;
+	use Devenia_Workflow_Quality_Single_Flight;
 	use Devenia_Workflow_Source_Rewrite_Quality_Authority;
 	public const META_SOURCE_CONTENT_INTEGRITY_REVIEW_HASH = '_devenia_translation_source_content_integrity_review_hash';
 	public const META_SOURCE_CONTENT_INTEGRITY_REVIEWED_AT = '_devenia_translation_source_content_integrity_reviewed_at';
@@ -678,6 +680,16 @@ $quality = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::claim
 if ( empty( $quality['success'] ) || empty( $quality['claim_token'] ) ) {
 	throw new RuntimeException( 'The independent Quality Run could not claim the staged artifact.' );
 }
+$single_flight = get_option( 'devenia_workflow_quality_single_flight' );
+if (
+	! is_array( $single_flight )
+	|| 'source_rewrite' !== (string) ( $single_flight['workflow'] ?? '' )
+	|| $job_id !== (string) ( $single_flight['job_id'] ?? '' )
+	|| 'sr_quality_1' !== (string) ( $single_flight['run_id'] ?? '' )
+	|| $slop_revision !== (string) ( $single_flight['artifact_revision'] ?? '' )
+) {
+	throw new RuntimeException( 'The Source Rewrite Quality claim did not own the shared exact-artifact single-flight lease.' );
+}
 $source->post_status = 'draft';
 $quality_packet = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::fetch(
 	array( 'job_id' => $job_id, 'run_id' => 'sr_quality_1', 'claim_token' => $quality['claim_token'] )
@@ -795,6 +807,9 @@ $revised = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::decid
 );
 if ( empty( $revised['success'] ) || 'changes_requested' !== (string) ( $revised['job']['status'] ?? '' ) ) {
 	throw new RuntimeException( 'Quality could not reject equal-length slop and return the Job to the writer.' );
+}
+if ( false !== get_option( 'devenia_workflow_quality_single_flight' ) ) {
+	throw new RuntimeException( 'The terminal Source Rewrite Quality decision did not release the shared single-flight lease.' );
 }
 
 $writer2 = Devenia_Workflow_Source_Rewrite_Quality_Authority_Runtime_Test::claim(

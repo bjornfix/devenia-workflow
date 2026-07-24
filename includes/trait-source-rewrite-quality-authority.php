@@ -20,7 +20,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 	private static function source_rewrite_ability_catalogue(): array {
 		$definitions = array(
 			'source-rewrite-discover' => array( 'Discover Source Rewrite Job', 'Creates or returns the exact current Source Rewrite Job for one canonical page or post.', 'source_rewrite_discover_schema', 'source_rewrite_discover', true, true ),
-			'source-rewrite-claim' => array( 'Claim Source Rewrite Job', 'Claims one bounded source-writer or independent Quality Run.', 'source_rewrite_claim_schema', 'source_rewrite_claim', false, false ),
+			'source-rewrite-claim' => array( 'Claim Source Rewrite Job', 'Claims one bounded source-writer Run or the installation-wide single active Quality Run.', 'source_rewrite_claim_schema', 'source_rewrite_claim', false, false ),
 			'source-rewrite-abandon' => array( 'Abandon Source Rewrite Run', 'Releases the caller-owned Run without fabricating an artifact or Quality Decision.', 'source_rewrite_abandon_schema', 'source_rewrite_abandon', false, false ),
 			'source-rewrite-fetch-packet' => array( 'Fetch Source Rewrite Packet', 'Returns the complete source/artifact plus role-specific Ogilvy and literary-craft priming for the active Run.', 'source_rewrite_claim_access_schema', 'source_rewrite_fetch_packet', true, true ),
 			'source-rewrite-submit-artifact' => array( 'Submit Source Rewrite Artifact', 'Stores one complete immutable source rewrite and its whole-page preservation brief.', 'source_rewrite_artifact_schema', 'source_rewrite_submit_artifact', false, false ),
@@ -297,6 +297,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'run_id'                => $run_id,
 			'coordinator_id'        => $coordinator_id,
 			'role'                  => $role,
+			'artifact_revision'     => 'quality' === $role ? (string) ( $job['artifact_revision'] ?? '' ) : '',
 			'previous_status'       => (string) $job['status'],
 			'submission_generation' => (int) $job['submission_generation'],
 			'token_hash'            => hash( 'sha256', $token ),
@@ -318,6 +319,13 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		if ( ! self::atomic_create_option( $claim_key, $claim ) ) {
 			return self::source_rewrite_error( 'job_claim_race_lost', 'Another Run claimed the Source Rewrite Job.' );
 		}
+		if ( 'quality' === $role ) {
+			$single_flight = self::quality_single_flight_acquire( 'source_rewrite', $job, $claim );
+			if ( empty( $single_flight['success'] ) ) {
+				self::atomic_delete_option_value( $claim_key, $claim );
+				return $single_flight;
+			}
+		}
 		$run = array(
 			'run_id'                => $run_id,
 			'job_id'                => $job_id,
@@ -329,7 +337,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			'started_at'             => gmdate( 'c', $now ),
 		);
 		if ( ! self::atomic_create_option( self::source_rewrite_run_key( $run_id ), $run ) ) {
-			self::atomic_delete_option_value( $claim_key, $claim );
+			self::source_rewrite_release_claim( $claim );
 			return self::source_rewrite_error( 'run_create_failed', 'The bounded Source Rewrite Run could not be created.' );
 		}
 
@@ -340,7 +348,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		$next['updated_at'] = gmdate( 'c' );
 		if ( ! self::atomic_replace_option_value( $key, $job, $next ) ) {
 			self::atomic_delete_option_value( self::source_rewrite_run_key( $run_id ), $run );
-			self::atomic_delete_option_value( $claim_key, $claim );
+			self::source_rewrite_release_claim( $claim );
 			return self::source_rewrite_error( 'job_claim_transition_conflict', 'The Source Rewrite Job changed before claim activation.' );
 		}
 
@@ -377,7 +385,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		if ( ! self::atomic_replace_option_value( self::source_rewrite_job_key( (string) $job['job_id'] ), $job, $next ) ) {
 			return self::source_rewrite_error( 'job_abandon_transition_conflict', 'The Run is terminal, but the Job changed before abandonment could release it.', array( 'retryable' => true ) );
 		}
-		if ( ! self::atomic_delete_option_value( self::source_rewrite_claim_key( (string) $job['job_id'] ), $claim ) ) {
+		if ( ! self::source_rewrite_release_claim( $claim ) ) {
 			return self::source_rewrite_error( 'claim_abandon_release_conflict', 'The abandoned claim could not be released exactly.', array( 'retryable' => true ) );
 		}
 		return array( 'success' => true, 'message' => 'Source Rewrite Run abandoned and claim released.', 'run' => $completed, 'job' => self::source_rewrite_public_job( $next ) );
@@ -1167,6 +1175,12 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 		if ( '' !== $required_role && $required_role !== (string) ( $run['role'] ?? '' ) ) {
 			return self::source_rewrite_error( 'claim_role_mismatch', 'The active Source Rewrite Run has the wrong role for this operation.' );
 		}
+		if ( 'quality' === (string) ( $run['role'] ?? '' ) ) {
+			$single_flight = self::quality_single_flight_validate( 'source_rewrite', $job, $claim );
+			if ( empty( $single_flight['success'] ) ) {
+				return $single_flight;
+			}
+		}
 
 		return array( 'success' => true, 'job' => $job, 'claim' => $claim, 'run' => $run );
 	}
@@ -1196,7 +1210,7 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 				return self::source_rewrite_error( 'expired_job_recovery_conflict', 'The Job changed while its expired claim was being recovered.', array( 'retryable' => true ) );
 			}
 		}
-		if ( ! self::atomic_delete_option_value( $claim_key, $claim ) ) {
+		if ( ! self::source_rewrite_release_claim( $claim ) ) {
 			$current_claim = get_option( $claim_key );
 			if ( false !== $current_claim ) {
 				return self::source_rewrite_error( 'expired_claim_release_conflict', 'The expired claim could not be released exactly.', array( 'retryable' => true ) );
@@ -1217,13 +1231,25 @@ trait Devenia_Workflow_Source_Rewrite_Quality_Authority {
 			$completed = $current_run;
 		}
 		$claim_key = self::source_rewrite_claim_key( (string) $claim['job_id'] );
-		if ( ! self::atomic_delete_option_value( $claim_key, $claim ) ) {
+		if ( ! self::source_rewrite_release_claim( $claim ) ) {
 			$current_claim = get_option( $claim_key );
 			if ( false !== $current_claim ) {
 				return self::source_rewrite_error( 'claim_release_conflict', 'The terminal Run could not release its exact claim.', array( 'severity' => 'critical', 'retryable' => true ) );
 			}
 		}
 		return array( 'success' => true, 'run' => $completed );
+	}
+
+	/** Release one exact Source Rewrite claim and its Quality single-flight lease. */
+	private static function source_rewrite_release_claim( array $claim ): bool {
+		$claim_key = self::source_rewrite_claim_key( (string) ( $claim['job_id'] ?? '' ) );
+		if ( 'quality' === sanitize_key( (string) ( $claim['role'] ?? '' ) ) ) {
+			$released = self::quality_single_flight_release( 'source_rewrite', $claim );
+			if ( empty( $released['success'] ) && 'quality_lease_owner_mismatch' !== (string) ( $released['code'] ?? '' ) ) {
+				return false;
+			}
+		}
+		return self::atomic_delete_option_value( $claim_key, $claim );
 	}
 
 	/** @return array<string,mixed> */

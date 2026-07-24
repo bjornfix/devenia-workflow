@@ -387,6 +387,23 @@ Artifact Surface Revision, and makes publication fail closed. Its Interface
 accepts receipt identities and principal-bound Reviewer Attestations, not
 caller-selected authority or booleans as sufficient proof.
 
+## Quality Single-Flight Gate
+
+The installation-wide exclusion Module shared by Source Rewrite and Translation
+Quality. Its Interface atomically binds one live Quality claim to one exact Job,
+Run, Artifact Revision, submission generation, and claim lifetime. While that
+lease exists, every other Quality claim fails with `quality_run_active`; a
+terminal decision, exact abandon, or fail-closed expiry recovery releases the
+slot. Terminal cleanup releases the global lease before deleting the local
+claim, so a failed global compare-and-delete remains retryable and a released
+local claim cannot retain useful Quality authority. Discovery may describe the
+active lease, but hiding an ability name is never authority because a known
+ability can still be invoked directly.
+
+The Gate proves at most one useful Quality Run is active on the WordPress
+installation. It does not claim that WordPress can authenticate Codex subagent
+topology; fresh execution remains an orchestrator fact.
+
 ## Quality Evidence Receipt
 
 An immutable server-owned record that one deterministic Workflow check or

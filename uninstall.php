@@ -39,6 +39,7 @@ function devenia_workflow_uninstall_site(): void {
 		'devenia_workflow_source_inventory_rebuild',
 		'devenia_workflow_obligation_projection_epoch',
 		'devenia_workflow_obligation_projection_lease',
+		'devenia_workflow_quality_single_flight',
 	);
 
 	foreach ( $options as $option ) {

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Devenia Workflow
  * Description: AI-assisted WordPress content quality and multilingual workflow with native content, review learning, SEO-aware publishing, and QA guardrails.
- * Version: 0.1.684
+ * Version: 0.1.685
  * Author: basicus
  * Author URI: https://profiles.wordpress.org/basicus/
  * License: GPL-2.0-or-later
@@ -24,6 +24,7 @@ require_once __DIR__ . '/includes/trait-ability-platform.php';
 require_once __DIR__ . '/includes/trait-ability-catalogue.php';
 require_once __DIR__ . '/includes/trait-wordpress-storage-adapter.php';
 require_once __DIR__ . '/includes/trait-atomic-option-store.php';
+require_once __DIR__ . '/includes/trait-quality-single-flight.php';
 require_once __DIR__ . '/includes/trait-execution-identity.php';
 require_once __DIR__ . '/includes/trait-quality-engine.php';
 require_once __DIR__ . '/includes/trait-reader-surface-equivalence.php';
@@ -59,6 +60,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Ability_Catalogue;
 	use Devenia_Workflow_WordPress_Storage_Adapter;
 	use Devenia_Workflow_Atomic_Option_Store;
+	use Devenia_Workflow_Quality_Single_Flight;
 	use Devenia_Workflow_Execution_Identity;
 	use Devenia_Workflow_Translation_Provenance;
 	use Devenia_Workflow_Quality_Engine;
@@ -79,7 +81,7 @@ final class Devenia_Workflow {
 	use Devenia_Workflow_Translation_Job;
 	use Devenia_Workflow_Source_Inventory;
 
-	const VERSION = '0.1.684';
+	const VERSION = '0.1.685';
 
 	/** Maximum simultaneous same-site Public Header requests allowed per dispatch. */
 	private const PUBLIC_HEADER_REQUEST_CONCURRENCY_LIMIT = 8;
